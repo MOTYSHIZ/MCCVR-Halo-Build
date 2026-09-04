@@ -1,5 +1,24 @@
 # Current state
 
+> **H3 / ODST / REACH HELD-WEAPON PUBLICATION FIX READY FOR HEADSET
+> TEST (2026-09-04).** Behavior commit
+> `f1dc2bee254572299e789f5c1fdbb536d99f6cbb`. The `64b9545` Steam / Quest 3
+> headset result confirms effective hand collision and visible correction in
+> Reach, Halo 3, and ODST, but exposes a final-palette ordering fault in held
+> weapon publication. Halo 3 and later Reach alternate every catalog-matched
+> weapon publication with a hand-only body publication; ODST's body callback
+> always consumes the publication context before its weapon callback, leaving
+> zero authored bounds. Each title now observes every submitted render-model
+> tag and may reuse only a catalog-verified held-weapon identity from the same
+> title generation for at most 150 ms. The cached tag and checksum are
+> revalidated before use; unknown or changed models expire to hand-only. Halo
+> 2, Halo 4, physical-melee input (including the pending WMR velocity fallback),
+> camera, rendering, and HUD behavior are unchanged. Release build, core tests,
+> and the Reach consistency gate pass; headset acceptance is pending and the
+> accepted pointer does not move. Supplied log SHA-256:
+> `F8D236E4FB0150020FC280E93C08AB2B07644C36D7ECE9F2FAF846DA3AD00227`.
+> See `docs/ALL-TITLE-WORLD-COLLISION-EVIDENCE.md`.
+
 > **WMR / VIVE-STYLE PHYSICAL-MELEE VELOCITY FALLBACK READY FOR
 > HEADSET TEST (2026-09-04).** Behavior commit
 > `dc35b6658b3ca738da9ac997a618fc59914906e0`. A Samsung Odyssey run on

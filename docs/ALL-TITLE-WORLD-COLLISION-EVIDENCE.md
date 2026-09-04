@@ -97,6 +97,44 @@ at its outer-frame prepared-target boundary before the stereo pair begins.
 Contact haptics use the accepted gentle 0.18 amplitude. No file I/O, logging,
 allocation, lock, or signature scan occurs in palette or collision hot hooks.
 
+### Held-model callback ordering (`64b9545` headset result)
+
+The 2026-09-04 Steam / SteamVR 2.17.8 / Quest 3 run confirms that the refined
+native contact schedulers and visible hand corrections work in Reach, Halo 3,
+and ODST. It also isolates the remaining weapon failure to publication order,
+not missing collision callbacks or insufficient correction strength:
+
+- Halo 3 reports, for example, `355 published / 355 hand-only fallback` with
+  five weapon contacts, then `363 / 363` with eighteen weapon contacts. A
+  recognized held model and the combined body model alternate through the
+  visible-palette callback, continuously changing the published sample count.
+- A later Reach load similarly reports `119 / 119`, `117 / 117`, and
+  `122 / 122`; hand contacts and visible corrections work, but the paired
+  hand-only publication replaces every weapon-bearing packet before it can be
+  consumed reliably.
+- ODST records hundreds of native queries and working hand correction but zero
+  authored-bound publications against 534 or more hand-only fallbacks. Its
+  combined body callback consistently consumes the context before the later
+  held-weapon callback.
+
+Offline inspection of the pinned retail visible-palette functions independently
+confirms that the low word of every callback's first argument is the submitted
+render-model tag index. The existing loaded-tag resolver therefore can identify
+the held model on the later callback even when that callback is not the one
+which owns the combined publication.
+
+Behavior commit `f1dc2bee254572299e789f5c1fdbb536d99f6cbb` makes each title
+remember every exact catalog-recognized submitted weapon tag. The next combined
+publication may use that identity only when it belongs to the same nonzero title
+generation and was observed no more than 150 ms earlier. Before use, the loaded
+tag's immutable checksum is read again and must still equal the remembered
+checksum and an exact title catalog entry. A weapon change or unknown model
+therefore expires safely to hand-only rather than borrowing stale geometry.
+The hot path remains lock-free, allocation-free, and log-free.
+
+Supplied runtime log SHA-256:
+`F8D236E4FB0150020FC280E93C08AB2B07644C36D7ECE9F2FAF846DA3AD00227`.
+
 ## Physical melee and isolation
 
 The shared VR input path maps Quest lower-right-grip to
@@ -133,13 +171,17 @@ before generic title hooks are removed.
 - Prior headset result (`f5b3081`): physical melee accepted across supported
   titles; H2 weapons, H3/ODST world collision, and Reach visible correction
   rejected as described above.
+- `64b9545` headset result: hand collision and visible correction confirmed in
+  Reach, Halo 3, and ODST; held-weapon publication ordering fault isolated as
+  described above.
+- Release build and core tests: pass for held-model behavior commit `f1dc2be`.
 - Release build and core tests: pass for behavior commit `4e92be7`.
 - H3/ODST central scheduler identity: exactly one match in each pinned retail
   image and at the mapped RVA.
 - Reach consistency gate: required before packaging.
 - Halo 2 byte-relative authored weapon bounds: pending headset test in both
   renderers.
-- Halo 3, ODST, Reach refined world collision: pending headset tests.
+- Halo 3, ODST, Reach stable held-weapon collision: pending headset tests.
 - Samsung Odyssey pose-delta velocity fallback: pending headset test; the log
   must report fallback activation plus a nonzero peak and swing crossing.
 - Halo 4 accepted world collision/physical melee: required regression test.
