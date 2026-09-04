@@ -13647,6 +13647,30 @@ int main()
     Check(std::fabs(meleeSpeed - 1.2f) < 1.0e-6f &&
           Halo4PhysicalMeleeContactQualifies(42, 7, meleeSpeed, 1.2f),
         "Halo 4 physical melee converts raw authored sample travel to metres per second");
+    const float velocityPrevious[3]{0.0f,0.0f,0.0f};
+    const float velocityCurrent[3]{0.02f,-0.01f,0.0f};
+    float poseVelocity[3]{};
+    Check(Halo4DeriveControllerPoseVelocity(
+              velocityPrevious,velocityCurrent,10000000ll,poseVelocity) &&
+          std::fabs(poseVelocity[0]-2.0f)<1.0e-6f &&
+          std::fabs(poseVelocity[1]+1.0f)<1.0e-6f &&
+          !Halo4DeriveControllerPoseVelocity(
+              velocityPrevious,velocityCurrent,0,poseVelocity),
+        "physical melee derives bounded controller velocity from predicted-time pose deltas");
+    const float advertisedZeroVelocity[3]{};
+    const float nativeVelocity[3]{1.5f,0.0f,0.0f};
+    float selectedVelocity[3]{};
+    bool usedPoseVelocity=false;
+    Check(Halo4SelectControllerLinearVelocity(
+              true,advertisedZeroVelocity,true,poseVelocity,
+              selectedVelocity,usedPoseVelocity) && usedPoseVelocity &&
+          std::fabs(selectedVelocity[0]-2.0f)<1.0e-6f,
+        "pose-delta velocity replaces WMR runtime advertised-zero velocity");
+    Check(Halo4SelectControllerLinearVelocity(
+              true,nativeVelocity,true,poseVelocity,
+              selectedVelocity,usedPoseVelocity) && !usedPoseVelocity &&
+          std::fabs(selectedVelocity[0]-1.5f)<1.0e-6f,
+        "meaningful native OpenXR velocity remains preferred for accepted controller paths");
     Check(!Halo4PhysicalMeleeContactQualifies(-1, 7, meleeSpeed, 1.2f) &&
           !Halo4PhysicalMeleeContactQualifies(7, 7, meleeSpeed, 1.2f) &&
           !Halo4PhysicalMeleeContactQualifies(42, 7, meleeSpeed, 1.21f),

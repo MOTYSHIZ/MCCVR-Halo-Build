@@ -298,6 +298,76 @@ inline float Halo4PhysicalMeleeVelocityMagnitude(
     return std::isfinite(speed) ? speed : -1.0f;
 }
 
+// Some SteamVR WMR drivers advertise XR_SPACE_VELOCITY_LINEAR_VALID_BIT but
+// return a permanent zero vector while the tracked pose is visibly moving.
+// Derive a bounded fallback from two predicted-display-time pose samples. The
+// caller still prefers a meaningful native velocity, preserving runtimes whose
+// OpenXR velocity path is correct.
+inline bool Halo4DeriveControllerPoseVelocity(
+    const float previousPosition[3], const float currentPosition[3],
+    int64_t elapsedNanoseconds, float outputMetresPerSecond[3],
+    float maximumMetresPerSecond = 20.0f) noexcept
+{
+    if (!previousPosition || !currentPosition || !outputMetresPerSecond ||
+        !Halo4WorldCollisionFiniteVector(previousPosition) ||
+        !Halo4WorldCollisionFiniteVector(currentPosition) ||
+        elapsedNanoseconds < 1000000ll || elapsedNanoseconds > 100000000ll ||
+        !std::isfinite(maximumMetresPerSecond) ||
+        maximumMetresPerSecond <= 0.0f)
+        return false;
+    const float inverseSeconds =
+        1000000000.0f / static_cast<float>(elapsedNanoseconds);
+    float squared = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        outputMetresPerSecond[axis] =
+            (currentPosition[axis] - previousPosition[axis]) *
+            inverseSeconds;
+        squared += outputMetresPerSecond[axis] *
+            outputMetresPerSecond[axis];
+    }
+    return std::isfinite(squared) &&
+        squared <= maximumMetresPerSecond * maximumMetresPerSecond &&
+        Halo4WorldCollisionFiniteVector(outputMetresPerSecond);
+}
+
+inline bool Halo4SelectControllerLinearVelocity(
+    bool nativeValid, const float nativeVelocity[3],
+    bool poseDerivedValid, const float poseDerivedVelocity[3],
+    float outputMetresPerSecond[3], bool& usedPoseDerived,
+    float nativeMotionFloorMetresPerSecond = 0.01f) noexcept
+{
+    usedPoseDerived = false;
+    if (!outputMetresPerSecond ||
+        !std::isfinite(nativeMotionFloorMetresPerSecond) ||
+        nativeMotionFloorMetresPerSecond < 0.0f)
+        return false;
+    const float nativeSpeed = nativeValid && nativeVelocity
+        ? Halo4PhysicalMeleeVelocityMagnitude(nativeVelocity) : -1.0f;
+    const float derivedSpeed = poseDerivedValid && poseDerivedVelocity
+        ? Halo4PhysicalMeleeVelocityMagnitude(poseDerivedVelocity) : -1.0f;
+    if (nativeSpeed >= nativeMotionFloorMetresPerSecond)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+            outputMetresPerSecond[axis] = nativeVelocity[axis];
+        return true;
+    }
+    if (derivedSpeed >= 0.0f)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+            outputMetresPerSecond[axis] = poseDerivedVelocity[axis];
+        usedPoseDerived = true;
+        return true;
+    }
+    if (nativeSpeed >= 0.0f)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+            outputMetresPerSecond[axis] = nativeVelocity[axis];
+        return true;
+    }
+    return false;
+}
+
 struct Halo4PhysicalMeleeVelocityDecision
 {
     bool trigger = false;

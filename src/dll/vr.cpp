@@ -58,6 +58,7 @@
 #include "../common/frame_pacing_logic.h"
 #include "../common/halo4_render_logic.h"
 #include "../common/halo4_cui_reticle_logic.h"
+#include "../common/halo4_world_collision_logic.h"
 #include "../common/input_logic.h"
 #include "../common/reach_vehicle_logic.h"
 #include "../common/scope_logic.h"
@@ -654,6 +655,13 @@ namespace
     XrVector3f g_leftAimLinearVelocity{};
     bool g_leftAimLinearVelocityValid = false;
     uint64_t g_leftAimLinearVelocityAtMs = 0;
+    struct ControllerPoseVelocityHistory
+    {
+        bool valid = false;
+        XrTime sampleTime = 0;
+        XrVector3f position{};
+    };
+    ControllerPoseVelocityHistory g_controllerPoseVelocityHistory[2]{};
     // Render-thread-only filtered copy for the compositor crosshair. Keeping it
     // separate is intentional: weapon steering and bullets stay on raw aim.
     XrPosef g_reticleAimPose{{0, 0, 0, 1}, {0, 0, 0}};
@@ -7536,32 +7544,96 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
         }
 
+        auto selectVelocity = [&](int hand, bool poseValid,
+                                  const XrPosef& pose,
+                                  const XrSpaceVelocity& native,
+                                  XrVector3f& selected,
+                                  bool& selectedValid,
+                                  bool& usedPoseDerived)
+        {
+            ControllerPoseVelocityHistory& history =
+                g_controllerPoseVelocityHistory[hand];
+            float derived[3]{};
+            const float current[3]{pose.position.x, pose.position.y,
+                                   pose.position.z};
+            const float previous[3]{history.position.x, history.position.y,
+                                    history.position.z};
+            const bool derivedValid = poseValid && history.valid &&
+                time > history.sampleTime &&
+                Halo4DeriveControllerPoseVelocity(
+                    previous,current,time-history.sampleTime,derived);
+            if(poseValid)
+            {
+                history.valid=true;
+                history.sampleTime=time;
+                history.position=pose.position;
+            }
+            else
+            {
+                history={};
+            }
+            const bool nativeValid = poseValid &&
+                (native.velocityFlags &
+                    XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0 &&
+                std::isfinite(native.linearVelocity.x) &&
+                std::isfinite(native.linearVelocity.y) &&
+                std::isfinite(native.linearVelocity.z);
+            const float nativeValue[3]{native.linearVelocity.x,
+                                       native.linearVelocity.y,
+                                       native.linearVelocity.z};
+            float chosen[3]{};
+            selectedValid=Halo4SelectControllerLinearVelocity(
+                nativeValid,nativeValue,derivedValid,derived,chosen,
+                usedPoseDerived);
+            if(selectedValid)
+                selected={chosen[0],chosen[1],chosen[2]};
+        };
+        XrVector3f selectedRightVelocity{},selectedLeftVelocity{};
+        bool selectedRightVelocityValid=false;
+        bool selectedLeftVelocityValid=false;
+        bool rightUsedPoseDerived=false,leftUsedPoseDerived=false;
+        selectVelocity(1,valid,location.pose,velocity,
+            selectedRightVelocity,selectedRightVelocityValid,
+            rightUsedPoseDerived);
+        selectVelocity(0,leftValid,leftLocation.pose,leftVelocity,
+            selectedLeftVelocity,selectedLeftVelocityValid,
+            leftUsedPoseDerived);
+
         EnterCriticalSection(&g_headCs);
         g_rightAimPoseValid = valid;
         if (valid)
             g_rightAimPose = location.pose;
-        g_rightAimLinearVelocityValid = valid &&
-            (velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0 &&
-            std::isfinite(velocity.linearVelocity.x) &&
-            std::isfinite(velocity.linearVelocity.y) &&
-            std::isfinite(velocity.linearVelocity.z);
+        g_rightAimLinearVelocityValid = selectedRightVelocityValid;
         if (g_rightAimLinearVelocityValid)
-            g_rightAimLinearVelocity = velocity.linearVelocity;
+            g_rightAimLinearVelocity = selectedRightVelocity;
         g_rightAimLinearVelocityAtMs = g_rightAimLinearVelocityValid
             ? GetTickCount64() : 0;
         g_leftAimPoseValid = leftValid;
         if (leftValid)
             g_leftAimPose = leftLocation.pose;
-        g_leftAimLinearVelocityValid = leftValid &&
-            (leftVelocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT) != 0 &&
-            std::isfinite(leftVelocity.linearVelocity.x) &&
-            std::isfinite(leftVelocity.linearVelocity.y) &&
-            std::isfinite(leftVelocity.linearVelocity.z);
+        g_leftAimLinearVelocityValid = selectedLeftVelocityValid;
         if (g_leftAimLinearVelocityValid)
-            g_leftAimLinearVelocity = leftVelocity.linearVelocity;
+            g_leftAimLinearVelocity = selectedLeftVelocity;
         g_leftAimLinearVelocityAtMs = g_leftAimLinearVelocityValid
             ? GetTickCount64() : 0;
         LeaveCriticalSection(&g_headCs);
+        static bool loggedPoseVelocityFallback=false;
+        if((rightUsedPoseDerived || leftUsedPoseDerived) &&
+            !loggedPoseVelocityFallback)
+        {
+            const XrVector3f& selected=rightUsedPoseDerived
+                ? selectedRightVelocity:selectedLeftVelocity;
+            const float selectedSpeed=std::sqrt(
+                selected.x*selected.x+selected.y*selected.y+
+                selected.z*selected.z);
+            if(std::isfinite(selectedSpeed) && selectedSpeed>=0.10f)
+            {
+                LOG("OpenXR controller velocity: pose-delta fallback active "
+                    "because the runtime advertised a zero/missing linear "
+                    "velocity; meaningful native velocity remains preferred");
+                loggedPoseVelocityFallback=true;
+            }
+        }
         static bool logged = false;
         if (valid && !logged)
         {
