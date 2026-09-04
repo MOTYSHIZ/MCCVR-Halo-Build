@@ -13606,6 +13606,13 @@ int main()
           !LegacyFindWeaponCollisionBounds(
               kReachWeaponCollisionBounds, 0xFFFFFFFFu),
         "H3/ODST/Reach weapon bounds select exact editing-kit checksums and fail open when unknown");
+    Check(LegacyWeaponCollisionCacheCanSupply(1000, 900, 7, 7) &&
+          LegacyWeaponCollisionCacheCanSupply(1000, 850, 7, 7) &&
+          !LegacyWeaponCollisionCacheCanSupply(1000, 849, 7, 7) &&
+          !LegacyWeaponCollisionCacheCanSupply(1000, 1001, 7, 7) &&
+          !LegacyWeaponCollisionCacheCanSupply(1000, 900, 7, 8) &&
+          !LegacyWeaponCollisionCacheCanSupply(1000, 900, 0, 0),
+        "legacy weapon identity cache is generation exact, bounded, and expires to hand-only");
     if (assaultRifleBounds)
     {
         const float identityBasis[9]{

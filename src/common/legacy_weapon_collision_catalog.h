@@ -92,3 +92,17 @@ inline const LegacyWeaponCollisionBounds* LegacyFindWeaponCollisionBounds(
             return &bounds;
     return nullptr;
 }
+
+// A final-palette callback may present the combined first-person body before
+// it presents the held render model.  Retain only a very recent, generation-
+// exact authored weapon identity so the next combined publication can use the
+// model that the renderer actually submitted.  An unknown/new model naturally
+// expires to hand-only collision instead of inheriting stale dimensions.
+inline bool LegacyWeaponCollisionCacheCanSupply(
+    uint64_t nowMs, uint64_t observedAtMs, uint32_t generation,
+    uint32_t observedGeneration, uint64_t maximumAgeMs = 150) noexcept
+{
+    return generation != 0 && generation == observedGeneration &&
+        observedAtMs != 0 && observedAtMs <= nowMs &&
+        nowMs - observedAtMs <= maximumAgeMs;
+}

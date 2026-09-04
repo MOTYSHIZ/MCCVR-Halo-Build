@@ -1205,6 +1205,15 @@ namespace
         std::atomic<uint64_t> weaponContacts{0};
         std::atomic<uint64_t> boundsPublished{0};
         std::atomic<uint64_t> boundsFallbacks{0};
+        // The final palette mapper is invoked once per submitted render model.
+        // H3 happened to expose a weapon-tagged call often enough for the
+        // first pass to work intermittently; ODST consistently submitted its
+        // combined body first.  Cache only an exact catalog-recognized weapon
+        // tag observed by that same title-native mapper.
+        std::atomic<uint32_t> observedWeaponTag{0xFFFFu};
+        std::atomic<uint32_t> observedWeaponChecksum{0};
+        std::atomic<uint32_t> observedWeaponGeneration{0};
+        std::atomic<uint64_t> observedWeaponAtMs{0};
         std::atomic<uint64_t> applied[2]{};
         std::atomic<uint64_t> failures{0};
     };
@@ -1229,6 +1238,8 @@ namespace
         GameTitle title, uint16_t renderModelTag, const BoneMatrix& modelRoot,
         const float collisionRoot[3], const float wrist[3],
         float output[][3]);
+    bool LegacyObserveWeaponRenderModel(
+        GameTitle title, uint16_t renderModelTag, uint32_t generation);
     int32_t LegacyCollisionIgnoredObject(GameTitle title);
     bool InstallLegacyWorldCollision(
         LegacyWorldCollisionFeature& feature, GameTitle title,
@@ -5829,6 +5840,10 @@ namespace
                                          BoneMatrix* destination, uintptr_t unused,
                                          const BoneMatrix* source, const int32_t* boneMap)
     {
+        const uint32_t collisionGeneration=
+            g_halo3RuntimeGeneration.load(std::memory_order_acquire);
+        (void)LegacyObserveWeaponRenderModel(
+            GameTitle::Halo3,tag,collisionGeneration);
         // Match this palette submission to its slot's interpolation context by
         // the source pointer (each slot interpolates into its own bank), then
         // consume that context so a stale frame can never be re-applied.
@@ -5855,7 +5870,7 @@ namespace
             LegacyPublishWorldCollisionVolumes(
                 GameTitle::Halo3,tag,context,*root,selectedSource,
                 LegacyCollisionIgnoredObject(GameTitle::Halo3),
-                g_halo3RuntimeGeneration.load(std::memory_order_acquire));
+                collisionGeneration);
 
         // FLOATING HANDS (optional, OFF by default): a pure presentation filter
         // over the already-solved palette. The VRIK solve above still tracks the
@@ -12659,6 +12674,10 @@ namespace
         uintptr_t unused, const BoneMatrix* source, const int32_t* boneMap)
     {
         g_odstCamera.activeCallbacks.fetch_add(1, std::memory_order_acq_rel);
+        const uint32_t collisionGeneration=
+            g_odstRuntimeGeneration.load(std::memory_order_acquire);
+        (void)LegacyObserveWeaponRenderModel(
+            GameTitle::Halo3ODST,tag,collisionGeneration);
         FpInterpolationContext context{};
         for (FpInterpolationContext& candidate : g_fpInterpolationContexts)
             if (candidate.valid && source && candidate.source == source)
@@ -12684,7 +12703,7 @@ namespace
             LegacyPublishWorldCollisionVolumes(
                 GameTitle::Halo3ODST,tag,context,*root,selectedSource,
                 LegacyCollisionIgnoredObject(GameTitle::Halo3ODST),
-                g_odstRuntimeGeneration.load(std::memory_order_acquire));
+                collisionGeneration);
         if (g_config.floating_hands && reconstructed && context.valid &&
             selectedSource == g_fpPaletteScratch &&
             context.count > 0 && context.count <= 64)
@@ -22266,39 +22285,118 @@ namespace
         return object;
     }
 
+    const LegacyWeaponCollisionBounds* LegacyWeaponBoundsForTitle(
+        GameTitle title, uint32_t checksum)
+    {
+        if(title==GameTitle::HaloReach)
+            return LegacyFindWeaponCollisionBounds(
+                kReachWeaponCollisionBounds,checksum);
+        if(title==GameTitle::Halo3 || title==GameTitle::Halo3ODST)
+            return LegacyFindWeaponCollisionBounds(
+                kH3OdstWeaponCollisionBounds,checksum);
+        return nullptr;
+    }
+
+    bool LegacyReadWeaponRenderModelChecksum(
+        GameTitle title, uint16_t renderModelTag, uint32_t& checksum)
+    {
+        checksum=0;
+        if(renderModelTag==0xFFFFu) return false;
+        if(title==GameTitle::HaloReach)
+        {
+            int nodeCount=0;
+            return ReachReadRenderModelIdentity(
+                renderModelTag,checksum,nodeCount);
+        }
+        const uint8_t* definition=title==GameTitle::Halo3
+            ? Halo3LoadedTagDefinition(renderModelTag)
+            : title==GameTitle::Halo3ODST
+                ? OdstLoadedTagDefinition(renderModelTag):nullptr;
+        return definition && SafeReadBytes(
+            definition+0x08,&checksum,sizeof(checksum));
+    }
+
+    bool LegacyObserveWeaponRenderModel(
+        GameTitle title, uint16_t renderModelTag, uint32_t generation)
+    {
+        LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
+        if(!feature || !generation || feature->generation!=generation)
+            return false;
+        uint32_t checksum=0;
+        if(!LegacyReadWeaponRenderModelChecksum(
+                title,renderModelTag,checksum) ||
+            !LegacyWeaponBoundsForTitle(title,checksum))
+            return false;
+        feature->observedWeaponTag.store(
+            renderModelTag,std::memory_order_relaxed);
+        feature->observedWeaponChecksum.store(
+            checksum,std::memory_order_relaxed);
+        feature->observedWeaponGeneration.store(
+            generation,std::memory_order_relaxed);
+        feature->observedWeaponAtMs.store(
+            GetTickCount64(),std::memory_order_release);
+        return true;
+    }
+
+    bool LegacySelectWeaponRenderModel(
+        GameTitle title, uint16_t candidateTag, uint32_t generation,
+        uint16_t& selectedTag, uint32_t& checksum)
+    {
+        selectedTag=0xFFFFu;
+        checksum=0;
+        if(LegacyObserveWeaponRenderModel(title,candidateTag,generation) &&
+            LegacyReadWeaponRenderModelChecksum(title,candidateTag,checksum) &&
+            LegacyWeaponBoundsForTitle(title,checksum))
+        {
+            selectedTag=candidateTag;
+            return true;
+        }
+
+        LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
+        if(!feature) return false;
+        const uint64_t now=GetTickCount64();
+        const uint64_t observedAt=feature->observedWeaponAtMs.load(
+            std::memory_order_acquire);
+        const uint32_t observedGeneration=
+            feature->observedWeaponGeneration.load(
+                std::memory_order_relaxed);
+        if(!LegacyWeaponCollisionCacheCanSupply(
+                now,observedAt,generation,observedGeneration))
+            return false;
+        const uint32_t rawTag=feature->observedWeaponTag.load(
+            std::memory_order_relaxed);
+        const uint32_t observedChecksum=
+            feature->observedWeaponChecksum.load(
+                std::memory_order_relaxed);
+        if(rawTag>0xFFFEu || !observedChecksum)
+            return false;
+        const uint16_t cachedTag=static_cast<uint16_t>(rawTag);
+        uint32_t currentChecksum=0;
+        if(!LegacyReadWeaponRenderModelChecksum(
+                title,cachedTag,currentChecksum) ||
+            currentChecksum!=observedChecksum ||
+            !LegacyWeaponBoundsForTitle(title,currentChecksum))
+            return false;
+        selectedTag=cachedTag;
+        checksum=currentChecksum;
+        return true;
+    }
+
     bool LegacyBuildAuthoredWeaponBounds(
         GameTitle title, uint16_t renderModelTag, const BoneMatrix& modelRoot,
         const float collisionRoot[3], const float wrist[3],
         float output[][3])
     {
-        const uint8_t* definition=nullptr;
+        LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
+        if(!feature) return false;
+        uint16_t selectedTag=0xFFFFu;
         uint32_t checksum=0;
-        if(title==GameTitle::Halo3)
-        {
-            definition=Halo3LoadedTagDefinition(renderModelTag);
-        }
-        else if(title==GameTitle::Halo3ODST)
-        {
-            definition=OdstLoadedTagDefinition(renderModelTag);
-        }
-        else if(title==GameTitle::HaloReach)
-        {
-            int nodeCount=0;
-            if(!ReachReadRenderModelIdentity(
-                    renderModelTag,checksum,nodeCount))
-                return false;
-        }
-        if(title!=GameTitle::HaloReach)
-        {
-            if(!definition || !SafeReadBytes(
-                    definition+0x08,&checksum,sizeof(checksum))) return false;
-        }
+        if(!LegacySelectWeaponRenderModel(
+                title,renderModelTag,feature->generation,
+                selectedTag,checksum)) return false;
+        (void)selectedTag;
         const LegacyWeaponCollisionBounds* authored=
-            title==GameTitle::HaloReach
-                ? LegacyFindWeaponCollisionBounds(
-                    kReachWeaponCollisionBounds,checksum)
-                : LegacyFindWeaponCollisionBounds(
-                    kH3OdstWeaponCollisionBounds,checksum);
+            LegacyWeaponBoundsForTitle(title,checksum);
         if(!authored) return false;
         float basis[9]{};
         if(!NormalizedBasis(modelRoot,basis)) return false;
@@ -22345,6 +22443,10 @@ namespace
         feature.weaponContacts.store(0,std::memory_order_release);
         feature.boundsPublished.store(0,std::memory_order_release);
         feature.boundsFallbacks.store(0,std::memory_order_release);
+        feature.observedWeaponTag.store(0xFFFFu,std::memory_order_release);
+        feature.observedWeaponChecksum.store(0,std::memory_order_release);
+        feature.observedWeaponGeneration.store(0,std::memory_order_release);
+        feature.observedWeaponAtMs.store(0,std::memory_order_release);
         feature.applied[0].store(0,std::memory_order_release);
         feature.applied[1].store(0,std::memory_order_release);
         feature.failures.store(0,std::memory_order_release);
@@ -23073,6 +23175,9 @@ namespace
         uintptr_t unused, const BoneMatrix* source, const int32_t* boneMap)
     {
         ReachFpPaletteFn original=g_reachOrigFpPalette;
+        (void)LegacyObserveWeaponRenderModel(
+            GameTitle::HaloReach,tag,
+            g_reachCamera.generation.load(std::memory_order_acquire));
         // R-V27: one relaxed increment when a seat is occupied. Reach builds
         // the occupant's first-person arms and weapon through this exact
         // transaction, so a non-zero count while seated means the engine did
