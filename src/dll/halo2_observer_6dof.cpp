@@ -1289,6 +1289,10 @@ namespace
         uint32_t renderModelTag, const float* gunMatrices,
         const float correction[3], float output[][3]) noexcept
     {
+        // ff6d1fd still produced zero authored bounds. Preserve the rejected
+        // cache-block experiment dormant while retaining accepted hand samples.
+        constexpr bool kEnableUnverifiedCompressionBlock = false;
+        if (!kEnableUnverifiedCompressionBlock) return false;
         if (renderModelTag == UINT32_MAX || !gunMatrices || !correction ||
             !output)
             return false;

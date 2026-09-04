@@ -1,5 +1,18 @@
 # Current state
 
+> **ff6d1fd PARTIAL HEADSET RESULT / WEAPON EXPERIMENT DISABLED
+> (2026-09-04).** The user confirms hand collision in the supported titles
+> except ODST in the tested level, and confirms Halo 4 remains the desired
+> working hand/weapon reference. Steam, SteamVR/OpenXR 2.17.8, Oculus-family
+> headset, 120 Hz (the log does not identify the precise headset model).
+> ODST publishes authored bounds but records no contacts or corrections and
+> very few queries. Halo 2 still publishes zero authored bounds. H3/Reach
+> record some weapon contacts, but visible gun behavior is not accepted.
+> The failed combined-body weapon-root and H2 cache-block behaviors are
+> disabled separately before refinement; their code is retained. Hand
+> collision and Halo 4 remain live. This does not advance cumulative acceptance.
+> The user requests a default physical-melee threshold of 5.00 m/s.
+
 > **H3 / ODST / REACH HELD-WEAPON PUBLICATION FIX READY FOR HEADSET
 > TEST (2026-09-04).** Behavior commit
 > `f1dc2bee254572299e789f5c1fdbb536d99f6cbb`. The `64b9545` Steam / Quest 3

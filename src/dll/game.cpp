@@ -22387,6 +22387,11 @@ namespace
         const float collisionRoot[3], const float wrist[3],
         float output[][3])
     {
+        // ff6d1fd: catalog identity was found, but the combined body's node 0
+        // is not proof of the submitted weapon's visible root. Keep this
+        // rejected publication dormant until a mapped weapon root is supplied.
+        constexpr bool kEnableCombinedBodyWeaponBounds = false;
+        if (!kEnableCombinedBodyWeaponBounds) return false;
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature) return false;
         uint16_t selectedTag=0xFFFFu;
