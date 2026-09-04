@@ -463,7 +463,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'h2-h3-odst-reach-world-collision-refinement-test',
+        'collision-refinement-and-wmr-melee-velocity-test',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -672,7 +672,8 @@ try {
                     default_threshold_metres_per_second = 1.2
                     rejected_stage7_contact_identity_trigger_enabled = $false
                     rejected_stage8_b_crouch_route_enabled = $false
-                    trigger = 'either-controller-openxr-tracking-space-linear-velocity-threshold-crossing'
+                    trigger = 'either-controller-native-openxr-velocity-or-bounded-pose-delta-fallback-threshold-crossing'
+                    velocity_policy = 'meaningful-native-preferred-pose-delta-only-for-missing-or-advertised-zero-runtime-velocity'
                     proximity_and_target = 'native-halo4-melee-action'
                     locomotion_false_trigger_policy = 'runtime-tracking-space-velocity-excludes-game-world-motion'
                     hysteresis_release_ratio = 0.55
@@ -716,6 +717,7 @@ try {
                     default_enabled = $false
                     threshold_range_metres_per_second = '0.30-5.00'
                     action = 'short-native-right-shoulder-pulse-matching-quest-right-grip-route'
+                    velocity_policy = 'meaningful-native-openxr-preferred-bounded-pose-delta-fallback'
                 }
                 failure_policy = 'stock-halo2-collision-camera-stereo-packets-aim-hud-and-openxr-remain-armed'
                 evidence = 'docs/HALO2-WORLD-COLLISION-EVIDENCE.md'
@@ -979,6 +981,7 @@ try {
             reach_abi = 'four-argument-retail-specialization-ignore-b-none'
             reach_correction_consumer = 'outer-frame-explicit-prepared-wrist-targets'
             action = 'short-native-right-shoulder-pulse-matching-quest-right-grip-route'
+            velocity_policy = 'meaningful-native-openxr-preferred-bounded-pose-delta-fallback-for-wmr-vive-style-runtimes'
             haptic_amplitude = 0.18
             failure_policy = 'feature-local-stock-fallback-camera-render-input-and-openxr-remain-armed'
             evidence = 'docs/ALL-TITLE-WORLD-COLLISION-EVIDENCE.md'
@@ -1060,7 +1063,7 @@ try {
                 sha256 = $configHash
             }
         }
-        note = 'UNTESTED cumulative all-title world-contact candidate: Halo 2 Classic/Anniversary retain accepted hand collision and physical melee while replacing the weak weapon-node proxy with loaded H2EK render-model compression bounds. Halo 3, ODST, and Reach add independently editing-kit-mapped native collision wrappers, final-visible hand plus authored weapon-bound volumes, gentle haptics, and the verified Quest lower-right-grip/right-shoulder physical-melee route with threshold 0.30-5.00 m/s. Reach uses its retail-specific four-argument wrapper. Halo 4 Stage 6/9 remains unchanged. CE remains excluded. Every new feature fails open independently. Package-only; no MCC installation was performed.'
+        note = 'UNTESTED cumulative refinement: Halo 2 corrects byte-relative authored weapon bounds; Halo 3 and ODST schedule world collision from their active central native routines; Reach consumes correction in its explicit wrist-target path; Samsung Odyssey/WMR advertised-zero controller velocity receives a bounded pose-delta fallback while meaningful native velocity and the accepted Quest path remain unchanged. Physical melee continues to emit the verified virtual right-shoulder action, independent of its physical WMR/Vive control location. Halo 4 collision/render behavior is unchanged. CE remains excluded. Every optional feature fails open independently. Package-only; no MCC installation was performed.'
     }
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'

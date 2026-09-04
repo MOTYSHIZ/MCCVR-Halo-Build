@@ -692,3 +692,23 @@ Stage 9 motion/action route, latch, and cooldown do not change. Configuration
 loading and runtime qualification apply the same ceiling, and the F1 slider
 exposes the complete range. A focused unit test admits exactly 5.00 m/s and
 rejects an out-of-range threshold above it.
+
+## WMR advertised-zero velocity fallback
+
+A supplied Steam log from a Samsung Odyssey identifies SteamVR/OpenXR 2.16.7,
+the `holographic` headset family, and the Microsoft motion-controller
+interaction profile on both hands. Across all 122 enabled Stage 9 telemetry
+windows, the mod received thousands of samples per window but reported a
+maximum peak of exactly `0.00 m/s`, zero crossings, and zero pulses. This is
+decisive evidence that the failure precedes melee-button routing: the runtime
+advertises linear velocity as valid but supplies a permanent zero vector.
+Log SHA-256:
+`6C29E716C3B2157A9EBAB493930EDD07D37F4AF20A0CDC2A66F80A4D1F6BFBCC`.
+
+Behavior commit `dc35b6658b3ca738da9ac997a618fc59914906e0` retains any
+meaningful native OpenXR velocity and adds a bounded fallback derived from two
+successive controller positions and their predicted-display timestamps. It
+rejects non-finite values, intervals outside 1-100 ms, and results above
+20 m/s. The fallback is selected only when native speed is absent or below
+0.01 m/s. It does not change the accepted Quest right-shoulder action, pulse,
+threshold, latch, cooldown, collision, camera, rendering, or HUD behavior.

@@ -1,5 +1,22 @@
 # Current state
 
+> **WMR / VIVE-STYLE PHYSICAL-MELEE VELOCITY FALLBACK READY FOR
+> HEADSET TEST (2026-09-04).** Behavior commit
+> `dc35b6658b3ca738da9ac997a618fc59914906e0`. A Samsung Odyssey run on
+> SteamVR/OpenXR 2.16.7 correctly selected the Microsoft motion-controller
+> interaction profile, but all 122 enabled Halo 4 telemetry windows reported
+> a `0.00 m/s` peak despite thousands of OpenXR samples per window. Therefore
+> no swing crossed the threshold and no input route was reached. The shared
+> controller capture now derives a bounded velocity from successive
+> predicted-display-time poses only when native velocity is missing or below
+> 0.01 m/s. Any meaningful native OpenXR velocity remains authoritative, so
+> the accepted Quest path is unchanged. The motion-triggered action remains
+> the same virtual right-shoulder command; the physical location of that
+> command on WMR/Vive bindings does not require a speculative face-button
+> remap. Release build and focused tests pass. Headset acceptance is pending.
+> Supplied log SHA-256:
+> `6C29E716C3B2157A9EBAB493930EDD07D37F4AF20A0CDC2A66F80A4D1F6BFBCC`.
+
 > **H2 / H3 / ODST / REACH WORLD-COLLISION REFINEMENT READY FOR
 > HEADSET TEST (2026-09-04).** Behavior commit
 > `4e92be717c6a58416505db30748e4a0fb7f9d967`. The prior `f5b3081`

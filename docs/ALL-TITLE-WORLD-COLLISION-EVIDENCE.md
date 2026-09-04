@@ -104,6 +104,23 @@ The shared VR input path maps Quest lower-right-grip to
 either tracked controller emits a short pulse on that same verified route;
 the configurable range is 0.30-5.00 m/s and the default remains 1.20 m/s.
 
+The supplied Samsung Odyssey log identifies SteamVR/OpenXR 2.16.7 and
+`/interaction_profiles/microsoft/motion_controller`, then records 122 enabled
+physical-melee telemetry windows with thousands of velocity samples but a
+maximum reported peak of exactly `0.00 m/s`. This proves the failure occurred
+before threshold qualification or XInput emission; changing the melee button
+would not fix it. Some WMR paths advertise the OpenXR linear-velocity-valid
+bit while returning a permanent zero vector.
+
+The shared capture therefore computes a second velocity from consecutive
+tracked positions and their OpenXR predicted-display timestamps. It admits
+only finite 1-100 ms samples at or below 20 m/s. A meaningful native velocity
+of at least 0.01 m/s always wins; the derived value is used only when native
+velocity is absent or effectively zero. This keeps the accepted Quest motion
+path unchanged while giving WMR/Vive-style SteamVR bindings a deterministic
+fallback. The emitted melee action remains virtual right shoulder, independent
+of where a runtime maps that action on its physical controller.
+
 Each title owns an independent optional feature state and exact hook. A failed
 signature stays stock. A guarded runtime fault disables only that title's
 collision/melee feature. It never tears down the camera, ends OpenXR, or blocks
@@ -120,8 +137,10 @@ before generic title hooks are removed.
 - H3/ODST central scheduler identity: exactly one match in each pinned retail
   image and at the mapped RVA.
 - Reach consistency gate: required before packaging.
-- Halo 2 checksum-selected weapon bounds: pending headset test in both
+- Halo 2 byte-relative authored weapon bounds: pending headset test in both
   renderers.
 - Halo 3, ODST, Reach refined world collision: pending headset tests.
+- Samsung Odyssey pose-delta velocity fallback: pending headset test; the log
+  must report fallback activation plus a nonzero peak and swing crossing.
 - Halo 4 accepted world collision/physical melee: required regression test.
 - Accepted-build pointer: unchanged until explicit headset acceptance.
