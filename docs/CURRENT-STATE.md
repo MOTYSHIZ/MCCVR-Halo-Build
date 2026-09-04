@@ -1,5 +1,39 @@
 # Current state
 
+> **H2 / H3 / ODST / REACH WORLD-COLLISION REFINEMENT READY FOR
+> HEADSET TEST (2026-09-04).** Behavior commit
+> `4e92be717c6a58416505db30748e4a0fb7f9d967`. The prior `f5b3081`
+> headset result proved three independent faults: Halo 2 never resolved an
+> authored weapon volume; Halo 3 and ODST hooked valid but inactive wrapper
+> entries and therefore scheduled zero probes; and Reach detected native
+> contacts but never consumed their correction in its explicit wrist-target
+> path. This candidate resolves H2's authored compression block using its
+> engine-proven byte-relative cache addressing, selects exact
+> H3EK/H3ODSTEK/HREK-exported weapon bounds by runtime import checksum,
+> schedules H3/ODST work from their active
+> native central collision routine, and applies Reach correction at its
+> outer-frame explicit target boundary. Unknown models remain hand-only and
+> every optional failure remains title-local and fail-open. Halo 4 code and
+> behavior are unchanged. Release build, core tests, unique pinned-image
+> scheduler checks, and the Reach consistency gate are required before
+> handoff; headset acceptance remains pending and the accepted pointer does
+> not move. See `docs/ALL-TITLE-WORLD-COLLISION-EVIDENCE.md` and
+> `docs/HALO2-WORLD-COLLISION-EVIDENCE.md`.
+
+> **ALL-TITLE WORLD-COLLISION FIRST PASS PARTIALLY ACCEPTED / REFINEMENT
+> REQUIRED (user headset, 2026-09-04).** Exact source `f5b308185e3a605abec396b4066a77e7d6d12b2f`,
+> Steam edition, SteamVR/OpenXR 2.17.8, Quest 3 through the Oculus runtime,
+> 120 Hz. Physical melee works in every supported title. Halo 2 hand collision
+> remains effective in Classic and Anniversary, but both weapon models pass
+> through the world; telemetry reports `0 / 3813` authored-bound
+> publications/fallbacks. Reach produces native contacts yet records zero
+> applied visible corrections and zero authored bounds. Halo 3 and ODST each
+> publish visible hand volumes but record zero collision callbacks and native
+> queries, matching the user's report of no world collision. These failures
+> are isolated to world collision; Halo 4 remains the accepted reference.
+> Log SHA-256:
+> `A2DE6A8D8B2848620F0AAD66F31DE26BB2AFB4BD47B01403A353C5619E4F1702`.
+
 > **ALL SUPPORTED TITLES WORLD CONTACT + PHYSICAL MELEE READY FOR
 > HEADSET TEST (2026-09-04).** Behavior commit
 > `7178081b0ea745ccbf4b826022c18aa7afc1a408`. Halo 2 Classic/Anniversary

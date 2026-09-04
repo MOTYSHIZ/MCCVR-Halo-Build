@@ -62,15 +62,21 @@ engine has composed the actual visible matrices, the collision publisher uses:
 - the loaded weapon render model's one official compression record: eight
   oriented corners and six face centres, transformed by the visible gun root.
 
-H2EK proves the render-model compression block at definition `+0x10/+0x14`;
-its first record begins with the X/Y/Z real bounds. The retail path resolves
-the active definition through the already signature-proven generic tag getter
-and its decoded tag-data base. It requires exactly one sane finite record and
-otherwise falls back to the accepted seven hand samples. It never copies a
-Halo 4 model catalog or invents a weapon length. A lock-free publication crosses
-to the native collision callback. Results older than 150 ms, non-finite values,
-generation mismatches, teleports, and excessive corrections are rejected. A
-valid correction is applied only to the relevant controller carrier on a later
+The `f5b3081` headset result proved the first retail address calculation was
+invalid: both renderers logged zero authored-bound publications and 3,813
+fallbacks. The H2EK render-model compression block is still at definition
+`+0x10/+0x14`, but the candidate had treated its address as a word index and
+multiplied it by four. The already verified generic loaded-tag resolver at
+retail `+0x79EEA0` provides the decisive cache rule: it sign-extends the
+stored address and adds it directly to the tag-data base, so the address is a
+byte offset. The replacement uses that exact engine-proven calculation and
+requires one sane authored record. Eight corners and six face centres are
+transformed by the final visible gun root. A missing or invalid record falls
+back to the accepted seven hand samples; it never copies a later-engine model
+or invents a weapon length. A lock-free publication crosses to the native
+collision callback. Results older than 150 ms, non-finite values, generation
+mismatches, teleports, and excessive corrections are rejected. A valid
+correction is applied only to the relevant controller carrier on a later
 packet; stock packet production never waits.
 
 ## Dynamic objects
@@ -108,9 +114,13 @@ ownership, or suppresses stock collision.
 
 ## Verification status
 
-- Release build: passed.
-- Core tests: passed, including fraction/skin, finite-value, and visible-extrema
-  behavior.
+- Prior `f5b3081` headset test: hand collision and physical melee remain
+  effective, but authored weapon bounds were rejected (`0 / 3813`
+  publications/fallbacks).
+- Release build: passed for behavior commit `4e92be7`.
+- Core tests: passed, including fraction/skin, finite-value, and visible
+  extrema behavior. Runtime still gates the authored compression record for
+  count, address, finite bounds, ordering, and maximum extent.
 - Signature gates: required at runtime and at packaging.
 - Headset acceptance: hands, haptics, and physical melee accepted; authored
   weapon bounds pending for both Halo 2 Classic and Anniversary.

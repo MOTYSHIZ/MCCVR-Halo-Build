@@ -57,20 +57,43 @@ Reach therefore uses a dedicated four-argument detour. Copying Halo 3's ABI
 would corrupt its call frame; this title-specific distinction is intentional.
 Zero, multiple, or moved signature matches leave only world collision stock.
 
+The `f5b3081` headset run proved that the valid H3/ODST wrapper entries above
+are not active schedulers in retail gameplay: both titles published hundreds
+of visible volumes per window while recording zero callbacks and zero native
+queries. Following the official H3EK wrapper's call graph identifies its
+eight-argument central vector test at `halo3_tag_test.exe+0x652A10`. The
+verified retail homologues are `halo3.dll+0x1FE5D4` and
+`halo3odst.dll+0x230770`; their complete 80-byte entry identity is byte-exact
+and unique in each pinned retail image. The candidate hooks those active
+central routines only to schedule the bounded work, while calling the
+unhooked title wrapper above to preserve its accepted-position and skin
+semantics. A thread-local owned-query guard prevents the wrapper's nested
+central call from scheduling recursively.
+
 ## Visible volume and scheduling
 
 Each title publishes from its already-proven final visible first-person palette:
-seven fixed-semantic hand samples plus fourteen held-weapon samples. Official
-Gen3 `render_model_definition` places global render geometry at `+0x48`, whose
-single compression block is `+0x54/+0x58`; the record begins with three real
-bounds. Eight oriented corners and six face centres are transformed by the
-visible model root. Missing, non-finite, inverted, oversized, or unresolved
-bounds fall back to hand-only collision for that frame.
+seven fixed-semantic hand samples plus fourteen held-weapon samples. The
+`f5b3081` headset log proved the first implementation's `+0x54/+0x58` reads
+were wrong: those are editing-format tag-block fields, not retail cache
+offsets, and all H3/ODST/Reach frames fell back to hand-only collision.
+
+The replacement exports the official weapon `render_model` tags with each
+title's own editing kit and records the exact compression-position bounds:
+32 distinct H3/ODST checksum records and 29 Reach records. Retail's immutable
+runtime-import checksum at loaded `render_model+0x08` selects the exact record.
+Eight oriented corners and six face centres are transformed by the visible
+model root. An unknown checksum fails open to hand-only collision; dimensions
+are never inferred from another title.
 
 Publications are lock-free. Native collision work runs only from a witnessed
-engine collision-wrapper callback, no faster than every 33 ms. The local player
-unit is ignored. Results are generation-scoped, finite, no older than 150 ms,
+engine collision callback, no faster than every 33 ms. The local player unit
+is ignored. Results are generation-scoped, finite, no older than 150 ms,
 bounded for teleport/drift/correction, and applied on a later visible solve.
+Reach is deliberately different: its explicit prepared wrist targets bypass
+the H3/ODST `DesiredWristWorld` consumer, which explains `f5b3081` recording
+contacts but zero visible corrections. Reach now consumes the prior correction
+at its outer-frame prepared-target boundary before the stereo pair begins.
 Contact haptics use the accepted gentle 0.18 amplitude. No file I/O, logging,
 allocation, lock, or signature scan occurs in palette or collision hot hooks.
 
@@ -90,9 +113,15 @@ before generic title hooks are removed.
 
 ## Verification status
 
-- Release build and core tests: required before packaging.
+- Prior headset result (`f5b3081`): physical melee accepted across supported
+  titles; H2 weapons, H3/ODST world collision, and Reach visible correction
+  rejected as described above.
+- Release build and core tests: pass for behavior commit `4e92be7`.
+- H3/ODST central scheduler identity: exactly one match in each pinned retail
+  image and at the mapped RVA.
 - Reach consistency gate: required before packaging.
-- Halo 2 authored weapon bounds: pending headset test in both renderers.
-- Halo 3, ODST, Reach world collision/physical melee: pending headset tests.
+- Halo 2 checksum-selected weapon bounds: pending headset test in both
+  renderers.
+- Halo 3, ODST, Reach refined world collision: pending headset tests.
 - Halo 4 accepted world collision/physical melee: required regression test.
 - Accepted-build pointer: unchanged until explicit headset acceptance.
