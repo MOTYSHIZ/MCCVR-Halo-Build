@@ -463,7 +463,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'all-title-world-contact-and-physical-melee-test',
+        'h2-h3-odst-reach-world-collision-refinement-test',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -693,7 +693,7 @@ try {
                 'base-rigid-or-state-parent-invalid-input-leaves-that-palette-stock-while-optional-marker-parity-invalid-input-keeps-the-valid-c38-free-reroot-and-continues-right-hand-held-model-and-camera-core'
         }
         halo2_candidate = [ordered]@{
-            id = 'H2-WC-1'
+            id = 'H2-WC-2'
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             module = 'halo2.dll'
             scope = 'campaign-both-renderers-groundhog-excluded'
@@ -708,7 +708,7 @@ try {
                 collision_flags = '0x2480000F'
                 query_interval_ms = 33
                 publication_max_age_ms = 150
-                shape = 'fixed-seven-hand-samples-plus-loaded-h2ek-render-model-bounds-eight-corners-six-face-centres'
+                shape = 'fixed-seven-hand-samples-plus-byte-relative-loaded-h2ek-render-model-compression-bounds-eight-corners-six-face-centres'
                 object_local_velocity_rva = '0x0090A000'
                 haptic_amplitude = 0.18
                 physical_melee = [ordered]@{
@@ -959,21 +959,25 @@ try {
             evidence = 'docs/HALO2-SIGNATURE-EVIDENCE.md'
         }
         gen3_world_contact_candidate = [ordered]@{
-            id = 'GEN3-WC-1'
+            id = 'GEN3-WC-2'
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             titles = @('Halo 3', 'Halo 3: ODST', 'Halo: Reach')
             default_enabled = $false
             config_key = 'world_collision'
             physical_melee_config_key = 'physical_melee'
             threshold_range_metres_per_second = '0.30-5.00'
-            collision_shape = 'fixed-seven-visible-hand-samples-plus-loaded-render-model-compression-bounds-eight-corners-six-face-centres'
+            collision_shape = 'fixed-seven-visible-hand-samples-plus-checksum-selected-editing-kit-render-model-bounds-eight-corners-six-face-centres'
             query_interval_ms = 33
             publication_max_age_ms = 150
             halo3_wrapper_rva = '0x001FFD18'
             odst_wrapper_rva = '0x00231EC4'
             reach_wrapper_rva = '0x0012C5D4'
+            halo3_active_scheduler_rva = '0x001FE5D4'
+            odst_active_scheduler_rva = '0x00230770'
             halo3_odst_abi = 'five-argument-start-desired-accepted-ignore-a-ignore-b'
+            halo3_odst_scheduler_abi = 'eight-argument-central-vector-test'
             reach_abi = 'four-argument-retail-specialization-ignore-b-none'
+            reach_correction_consumer = 'outer-frame-explicit-prepared-wrist-targets'
             action = 'short-native-right-shoulder-pulse-matching-quest-right-grip-route'
             haptic_amplitude = 0.18
             failure_policy = 'feature-local-stock-fallback-camera-render-input-and-openxr-remain-armed'
