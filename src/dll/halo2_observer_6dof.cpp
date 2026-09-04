@@ -1310,18 +1310,21 @@ namespace
             unsigned char* const tagBase = *tagBaseSlot;
             if (!definition || !tagBase)
                 return false;
-            // Official H2EK render_model layout: name/flags occupy +0..+7,
-            // import-info is the first tag block at +8, and compression-info
-            // is the second at +0x10. Its element begins with the exact six
-            // position-bound floats (min/max X, Y, Z).
+            // H2 retains its compression-info tag block at +0x10. The
+            // generic loaded-tag resolver used above proves that H2 cache
+            // block addresses are signed BYTE offsets from tagBase; the
+            // rejected first pass incorrectly multiplied this value by four.
+            // Resolve the one authored record exactly as the engine resolves
+            // a definition, rather than copying a later-engine checksum
+            // layout into H2.
             const int32_t count = *reinterpret_cast<const int32_t*>(
                 definition + 0x10);
-            const uint32_t wordAddress = *reinterpret_cast<const uint32_t*>(
+            const int32_t byteOffset = *reinterpret_cast<const int32_t*>(
                 definition + 0x14);
-            if (count != 1 || !wordAddress)
+            if (count != 1 || !byteOffset)
                 return false;
             const float* bounds = reinterpret_cast<const float*>(
-                tagBase + static_cast<size_t>(wordAddress) * 4u);
+                tagBase + static_cast<ptrdiff_t>(byteOffset));
             float minimum[3]{bounds[0], bounds[2], bounds[4]};
             float maximum[3]{bounds[1], bounds[3], bounds[5]};
             for (int axis = 0; axis < 3; ++axis)

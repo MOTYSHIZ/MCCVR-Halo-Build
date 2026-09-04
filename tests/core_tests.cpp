@@ -22,6 +22,7 @@
 #include "hud_layout_logic.h"
 #include "input_logic.h"
 #include "level_load_gate_logic.h"
+#include "legacy_weapon_collision_catalog.h"
 #include "odst_bringup_logic.h"
 #include "sigscan.h"
 #include "odst_vehicle_logic.h"
@@ -13582,6 +13583,29 @@ int main()
           std::fabs(assaultRifleBounds->maximum[0] - 0.23352f) < 1.0e-6f &&
           !Halo4FindWeaponCollisionBounds(0xFFFFFFFFu),
         "Halo 4 weapon bounds resolve the exact H4EK model checksum and fail open when unknown");
+    const LegacyWeaponCollisionBounds* halo3AssaultRifleBounds =
+        LegacyFindWeaponCollisionBounds(
+            kH3OdstWeaponCollisionBounds, 0x1C080C11u);
+    const LegacyWeaponCollisionBounds* odstAssaultRifleBounds =
+        LegacyFindWeaponCollisionBounds(
+            kH3OdstWeaponCollisionBounds, 0x1B010D0Cu);
+    const LegacyWeaponCollisionBounds* reachDmrBounds =
+        LegacyFindWeaponCollisionBounds(
+            kReachWeaponCollisionBounds, 0x110D171Eu);
+    Check(std::size(kH3OdstWeaponCollisionBounds) == 32 &&
+          std::size(kReachWeaponCollisionBounds) == 29 &&
+          halo3AssaultRifleBounds &&
+          odstAssaultRifleBounds && reachDmrBounds &&
+          std::fabs(halo3AssaultRifleBounds->minimum[2] + 0.0924675f) <
+              1.0e-6f &&
+          std::fabs(odstAssaultRifleBounds->maximum[0] - 0.474487f) <
+              1.0e-6f &&
+          std::fabs(reachDmrBounds->maximum[0] - 0.373775f) < 1.0e-6f &&
+          !LegacyFindWeaponCollisionBounds(
+              kH3OdstWeaponCollisionBounds, 0xFFFFFFFFu) &&
+          !LegacyFindWeaponCollisionBounds(
+              kReachWeaponCollisionBounds, 0xFFFFFFFFu),
+        "H3/ODST/Reach weapon bounds select exact editing-kit checksums and fail open when unknown");
     if (assaultRifleBounds)
     {
         const float identityBasis[9]{

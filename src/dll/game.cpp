@@ -41,6 +41,7 @@
 #include "../common/halo4_restoration_logic.h"
 #include "../common/halo4_parity_trace_logic.h"
 #include "../common/halo4_world_collision_logic.h"
+#include "../common/legacy_weapon_collision_catalog.h"
 #include "../common/level_load_gate_logic.h"
 #include "halo2_adapter.h"
 #include "halo2_cold_observation.h"
@@ -1146,6 +1147,15 @@ namespace
     using ReachCollisionResolveFn = uint8_t(__fastcall*)(
         const float* start, const float* desired, float* accepted,
         int32_t ignoredObject);
+    using LegacyCollisionTestVectorFn = uint8_t(__fastcall*)(
+        uint64_t flags, int32_t mode, const float* start,
+        const float* desired, int32_t ignoredObjectA,
+        int32_t ignoredObjectB, int32_t ignoredObjectC, void* result);
+    inline constexpr char kLegacyCollisionSchedulerSignature[]=
+        "48 83 EC 58 F3 41 0F 10 01 F3 41 0F 5C 00 F3 41 0F 10 49 04 "
+        "48 8B 84 24 98 00 00 00 F3 41 0F 5C 48 04 48 89 44 24 38 8B "
+        "84 24 90 00 00 00 89 44 24 30 8B 84 24 88 00 00 00 F3 0F 11 "
+        "44 24 40 F3 41 0F 10 41 08 4C 8D 4C 24 40 F3 41 0F 5C 40 08";
     inline constexpr int kLegacyCollisionHandSamples = 7;
     inline constexpr int kLegacyCollisionWeaponSamples = 14;
     inline constexpr int kLegacyCollisionMaxSamples = 21;
@@ -1181,6 +1191,7 @@ namespace
         GameTitle title = GameTitle::None;
         void* target = nullptr;
         void* original = nullptr;
+        void* resolver = nullptr;
         bool fourArgumentResolver = false;
         uint32_t generation = 0;
         std::atomic<bool> installed{false};
@@ -1200,6 +1211,11 @@ namespace
     LegacyWorldCollisionFeature g_halo3WorldCollision;
     LegacyWorldCollisionFeature g_odstWorldCollision;
     LegacyWorldCollisionFeature g_reachWorldCollision;
+    // Our bounded sweeps call the title's unhooked resolver wrapper. H3/ODST's
+    // wrapper re-enters the central scheduler hook, while Reach re-enters its
+    // resolver hook directly. Suppress only that owned nested callback so a
+    // native game query remains the sole scheduling point.
+    thread_local bool g_legacyCollisionOwnedQuery = false;
 
     LegacyWorldCollisionFeature* LegacyCollisionForTitle(GameTitle title);
     bool LegacyApplyWorldCollision(
@@ -1218,7 +1234,8 @@ namespace
         LegacyWorldCollisionFeature& feature, GameTitle title,
         uintptr_t base, size_t size, uint32_t generation,
         void* detour, uint32_t expectedRva,
-        const char* signature = nullptr, bool fourArgumentResolver = false);
+        const char* signature = nullptr, bool fourArgumentResolver = false,
+        uint32_t schedulerRva = 0, const char* schedulerSignature = nullptr);
     // The render-thread IK path publishes only pointer-sized diagnostics.
     // Present consumes them and owns all logging, keeping file I/O and log
     // locks out of the palette hot path.
@@ -1679,6 +1696,7 @@ namespace
         g_fpInterpolatorHooked = false;
         g_halo3WorldCollision.target = nullptr;
         g_halo3WorldCollision.original = nullptr;
+        g_halo3WorldCollision.resolver = nullptr;
     }
     void __fastcall FpDriverHook(void* view, unsigned char flag)
     {
@@ -4625,7 +4643,7 @@ namespace
     void LegacyWorldCollisionTick(LegacyWorldCollisionFeature& feature)
     {
         if(!feature.installed.load(std::memory_order_acquire) ||
-            !feature.original || !g_config.world_collision ||
+            !feature.resolver || !g_config.world_collision ||
             TitleAdapter_GetActiveTitle()!=feature.title ||
             !g_enabled.load(std::memory_order_acquire) ||
             !VR_IsStereoEnabled())
@@ -4683,23 +4701,26 @@ namespace
                 float accepted[3]{desired[sample][0],desired[sample][1],
                                   desired[sample][2]};
                 bool resolved=false;
+                g_legacyCollisionOwnedQuery=true;
                 __try
                 {
                     if(feature.fourArgumentResolver)
                         resolved=reinterpret_cast<ReachCollisionResolveFn>(
-                            feature.original)(worker.accepted[sample],
+                            feature.resolver)(worker.accepted[sample],
                                 desired[sample],accepted,ignoredObject)!=0;
                     else
                         resolved=reinterpret_cast<LegacyCollisionResolveFn>(
-                            feature.original)(worker.accepted[sample],
+                            feature.resolver)(worker.accepted[sample],
                                 desired[sample],accepted,ignoredObject,-1);
                 }
                 __except(EXCEPTION_EXECUTE_HANDLER)
                 {
+                    g_legacyCollisionOwnedQuery=false;
                     feature.failures.fetch_add(1,std::memory_order_relaxed);
                     feature.installed.store(false,std::memory_order_release);
                     return;
                 }
+                g_legacyCollisionOwnedQuery=false;
                 feature.queries.fetch_add(1,std::memory_order_relaxed);
                 if(!Halo4WorldCollisionFiniteVector(accepted))
                 {
@@ -4744,50 +4765,52 @@ namespace
         }
     }
 
-    bool LegacyCollisionDetourBody(
-        LegacyWorldCollisionFeature& feature, const float* start,
-        const float* desired, float* accepted, int32_t ignoredObjectA,
-        int32_t ignoredObjectB)
+    uint8_t LegacyCollisionSchedulerDetourBody(
+        LegacyWorldCollisionFeature& feature, uint64_t flags, int32_t mode,
+        const float* start, const float* desired, int32_t ignoredObjectA,
+        int32_t ignoredObjectB, int32_t ignoredObjectC, void* result)
     {
-        LegacyCollisionResolveFn original=
-            reinterpret_cast<LegacyCollisionResolveFn>(feature.original);
-        if(!original) return false;
-        const bool result=original(
-            start,desired,accepted,ignoredObjectA,ignoredObjectB);
-        LegacyWorldCollisionTick(feature);
-        return result;
+        LegacyCollisionTestVectorFn original=
+            reinterpret_cast<LegacyCollisionTestVectorFn>(feature.original);
+        if(!original) return 0;
+        const uint8_t nativeResult=original(
+            flags,mode,start,desired,ignoredObjectA,ignoredObjectB,
+            ignoredObjectC,result);
+        if(!g_legacyCollisionOwnedQuery)
+            LegacyWorldCollisionTick(feature);
+        return nativeResult;
     }
 
-    __declspec(noinline) bool __fastcall Halo3CollisionResolveDetour(
-        const float* start,const float* desired,float* accepted,
-        int32_t ignoredObjectA,int32_t ignoredObjectB)
+    __declspec(noinline) uint8_t __fastcall Halo3CollisionResolveDetour(
+        uint64_t flags,int32_t mode,const float* start,const float* desired,
+        int32_t ignoredObjectA,int32_t ignoredObjectB,
+        int32_t ignoredObjectC,void* result)
     {
         g_halo3WorldCollision.callbacks.fetch_add(
             1,std::memory_order_acq_rel);
-        bool result=false;
-        __try { result=LegacyCollisionDetourBody(
-            g_halo3WorldCollision,start,desired,accepted,
-            ignoredObjectA,ignoredObjectB); }
+        uint8_t nativeResult=0;
+        __try { nativeResult=LegacyCollisionSchedulerDetourBody(
+            g_halo3WorldCollision,flags,mode,start,desired,ignoredObjectA,
+            ignoredObjectB,ignoredObjectC,result); }
         __except(EXCEPTION_EXECUTE_HANDLER) {}
         g_halo3WorldCollision.callbacks.fetch_sub(
             1,std::memory_order_acq_rel);
-        return result;
+        return nativeResult;
     }
 
-    __declspec(noinline) bool __fastcall OdstCollisionResolveDetour(
-        const float* start,const float* desired,float* accepted,
-        int32_t ignoredObjectA,int32_t ignoredObjectB)
+    __declspec(noinline) uint8_t __fastcall OdstCollisionResolveDetour(
+        uint64_t flags,int32_t mode,const float* start,const float* desired,
+        int32_t ignoredObjectA,int32_t ignoredObjectB,
+        int32_t ignoredObjectC,void* result)
     {
-        g_odstWorldCollision.callbacks.fetch_add(
-            1,std::memory_order_acq_rel);
-        bool result=false;
-        __try { result=LegacyCollisionDetourBody(
-            g_odstWorldCollision,start,desired,accepted,
-            ignoredObjectA,ignoredObjectB); }
+        g_odstWorldCollision.callbacks.fetch_add(1,std::memory_order_acq_rel);
+        uint8_t nativeResult=0;
+        __try { nativeResult=LegacyCollisionSchedulerDetourBody(
+            g_odstWorldCollision,flags,mode,start,desired,ignoredObjectA,
+            ignoredObjectB,ignoredObjectC,result); }
         __except(EXCEPTION_EXECUTE_HANDLER) {}
-        g_odstWorldCollision.callbacks.fetch_sub(
-            1,std::memory_order_acq_rel);
-        return result;
+        g_odstWorldCollision.callbacks.fetch_sub(1,std::memory_order_acq_rel);
+        return nativeResult;
     }
 
     __declspec(noinline) uint8_t __fastcall ReachCollisionResolveDetour(
@@ -4805,7 +4828,8 @@ namespace
             if(original)
             {
                 result=original(start,desired,accepted,ignoredObject);
-                LegacyWorldCollisionTick(g_reachWorldCollision);
+                if(!g_legacyCollisionOwnedQuery)
+                    LegacyWorldCollisionTick(g_reachWorldCollision);
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -14760,7 +14784,8 @@ namespace
                 g_halo3WorldCollision, GameTitle::Halo3, base, size,
                 runtimeGeneration,
                 reinterpret_cast<void*>(&Halo3CollisionResolveDetour),
-                0x001FFD18))
+                0x001FFD18,nullptr,false,0x001FE5D4,
+                kLegacyCollisionSchedulerSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
@@ -15350,6 +15375,7 @@ namespace
             false, std::memory_order_release);
         g_odstWorldCollision.target = nullptr;
         g_odstWorldCollision.original = nullptr;
+        g_odstWorldCollision.resolver = nullptr;
         g_odstCamera.installedAtMs.store(0, std::memory_order_release);
         g_odstCamera.cameraArrayReady.store(
             false, std::memory_order_release);
@@ -16831,7 +16857,8 @@ namespace
                 g_odstWorldCollision, GameTitle::Halo3ODST, base, size,
                 runtimeGeneration,
                 reinterpret_cast<void*>(&OdstCollisionResolveDetour),
-                0x00231EC4))
+                0x00231EC4,nullptr,false,0x00230770,
+                kLegacyCollisionSchedulerSignature))
         {
             const size_t slot = g_odstCamera.hookTargetCount++;
             g_odstCamera.hookTargets[slot] = g_odstWorldCollision.target;
@@ -22239,87 +22266,46 @@ namespace
         return object;
     }
 
-    bool LegacyReadCompressionBounds(
-        const uint8_t* definition, const uint8_t* tagBase,
-        float minimum[3], float maximum[3])
-    {
-        if(!definition || !tagBase) return false;
-        __try
-        {
-            // Official H3EK/H3ODSTEK/HREK render_model_definition embeds
-            // global_render_geometry at +0x48. Its compression-info tag block
-            // is at geometry +0x0C: count +0x54, word-address +0x58. The
-            // compression element begins with three real_bounds.
-            const int32_t count=*reinterpret_cast<const int32_t*>(
-                definition+0x54);
-            const uint32_t wordAddress=*reinterpret_cast<const uint32_t*>(
-                definition+0x58);
-            if(count!=1 || !wordAddress) return false;
-            const float* values=reinterpret_cast<const float*>(
-                tagBase+static_cast<size_t>(wordAddress)*4u);
-            minimum[0]=values[0]; maximum[0]=values[1];
-            minimum[1]=values[2]; maximum[1]=values[3];
-            minimum[2]=values[4]; maximum[2]=values[5];
-            for(int axis=0;axis<3;++axis)
-                if(!std::isfinite(minimum[axis]) ||
-                   !std::isfinite(maximum[axis]) ||
-                   minimum[axis]>maximum[axis] ||
-                   maximum[axis]-minimum[axis]>2.0f)
-                    return false;
-            return true;
-        }
-        __except(EXCEPTION_EXECUTE_HANDLER)
-        {
-            return false;
-        }
-    }
-
     bool LegacyBuildAuthoredWeaponBounds(
         GameTitle title, uint16_t renderModelTag, const BoneMatrix& modelRoot,
         const float collisionRoot[3], const float wrist[3],
         float output[][3])
     {
         const uint8_t* definition=nullptr;
-        const uint8_t* tagBase=nullptr;
+        uint32_t checksum=0;
         if(title==GameTitle::Halo3)
         {
             definition=Halo3LoadedTagDefinition(renderModelTag);
-            tagBase=g_halo3TagDataBase && *g_halo3TagDataBase
-                ? static_cast<const uint8_t*>(*g_halo3TagDataBase):nullptr;
         }
         else if(title==GameTitle::Halo3ODST)
         {
             definition=OdstLoadedTagDefinition(renderModelTag);
-            tagBase=g_odstTagDataBase && *g_odstTagDataBase
-                ? static_cast<const uint8_t*>(*g_odstTagDataBase):nullptr;
         }
         else if(title==GameTitle::HaloReach)
         {
-            if(!ReachResolveRenderModelDescriptor(renderModelTag,definition))
+            int nodeCount=0;
+            if(!ReachReadRenderModelIdentity(
+                    renderModelTag,checksum,nodeCount))
                 return false;
-            // Reach's loaded tag-block word addresses use the same block-base
-            // table as the descriptor itself.
-            uint32_t wordAddress=0;
-            if(!SafeReadBytes(definition+0x58,&wordAddress,
-                              sizeof(wordAddress)) || !wordAddress)
-                return false;
-            const uint8_t* blockBase=nullptr;
-            if(!SafeReadBytes(reinterpret_cast<const uint8_t*>(
-                    g_reachCamera.base+kReachNodeRecordBlockTableRva)+
-                    static_cast<size_t>(wordAddress>>28)*8u,
-                    &blockBase,sizeof(blockBase)) || !blockBase)
-                return false;
-            tagBase=blockBase;
         }
-        float minimum[3]{},maximum[3]{};
-        if(!LegacyReadCompressionBounds(
-                definition,tagBase,minimum,maximum))
-            return false;
+        if(title!=GameTitle::HaloReach)
+        {
+            if(!definition || !SafeReadBytes(
+                    definition+0x08,&checksum,sizeof(checksum))) return false;
+        }
+        const LegacyWeaponCollisionBounds* authored=
+            title==GameTitle::HaloReach
+                ? LegacyFindWeaponCollisionBounds(
+                    kReachWeaponCollisionBounds,checksum)
+                : LegacyFindWeaponCollisionBounds(
+                    kH3OdstWeaponCollisionBounds,checksum);
+        if(!authored) return false;
         float basis[9]{};
         if(!NormalizedBasis(modelRoot,basis)) return false;
         Halo4WeaponCollisionBounds bounds{};
-        memcpy(bounds.minimum,minimum,sizeof(minimum));
-        memcpy(bounds.maximum,maximum,sizeof(maximum));
+        bounds.runtimeImportChecksum=checksum;
+        memcpy(bounds.minimum,authored->minimum,sizeof(bounds.minimum));
+        memcpy(bounds.maximum,authored->maximum,sizeof(bounds.maximum));
         return Halo4BuildWeaponCollisionBoundsSamples(
             bounds,modelRoot.scale,basis,modelRoot.translation,
             collisionRoot,wrist,output,kLegacyCollisionWeaponSamples)==
@@ -22330,7 +22316,8 @@ namespace
         LegacyWorldCollisionFeature& feature, GameTitle title,
         uintptr_t base, size_t size, uint32_t generation,
         void* detour, uint32_t expectedRva,
-        const char* signature, bool fourArgumentResolver)
+        const char* signature, bool fourArgumentResolver,
+        uint32_t schedulerRva, const char* schedulerSignature)
     {
         const char* const titleName=title==GameTitle::Halo3?"Halo 3":
             title==GameTitle::Halo3ODST?"ODST":
@@ -22345,6 +22332,9 @@ namespace
         feature.generation=generation;
         feature.fourArgumentResolver=fourArgumentResolver;
         feature.installed.store(false,std::memory_order_release);
+        feature.target=nullptr;
+        feature.original=nullptr;
+        feature.resolver=nullptr;
         feature.nextQueryAtMs.store(0,std::memory_order_release);
         feature.worker[0]=LegacyCollisionWorkerHand{};
         feature.worker[1]=LegacyCollisionWorkerHand{};
@@ -22370,8 +22360,27 @@ namespace
                 unique&&hit!=base+expectedRva?" but moved":"");
             return false;
         }
+        uintptr_t hookHit=hit;
+        if(schedulerRva)
+        {
+            if(!schedulerSignature)
+                return false;
+            hookHit=sig::Find(base,size,schedulerSignature);
+            const bool schedulerUnique=hookHit && !sig::Find(
+                hookHit+1,base+size-hookHit-1,schedulerSignature);
+            if(!schedulerUnique || hookHit!=base+schedulerRva)
+            {
+                LOG("%s world collision StockFallback: editing-kit-mapped "
+                    "active collision scheduler was %s%s; camera, hands, "
+                    "input and OpenXR remain live",titleName,
+                    schedulerUnique?"unique":"missing/ambiguous",
+                    schedulerUnique&&hookHit!=base+schedulerRva
+                        ?" but moved":"");
+                return false;
+            }
+        }
         void* trampoline=nullptr;
-        void* const target=reinterpret_cast<void*>(hit);
+        void* const target=reinterpret_cast<void*>(hookHit);
         if(MH_CreateHook(target,detour,&trampoline)!=MH_OK || !trampoline)
         {
             LOG("%s world collision StockFallback: optional resolver hook "
@@ -22380,20 +22389,30 @@ namespace
         }
         feature.target=target;
         feature.original=trampoline;
+        feature.resolver=schedulerRva
+            ? reinterpret_cast<void*>(hit):trampoline;
         if(MH_EnableHook(target)!=MH_OK)
         {
             MH_RemoveHook(target);
             feature.target=nullptr;
             feature.original=nullptr;
+            feature.resolver=nullptr;
             LOG("%s world collision StockFallback: optional resolver hook "
                 "enable failed",titleName);
             return false;
         }
         feature.installed.store(true,std::memory_order_release);
-        LOG("%s world collision Installed: native resolve wrapper +0x%X; "
-            "final visible hand extrema and render-model compression bounds; "
-            "33 ms bounded sweeps, contact haptics, fail-open isolation",
-            titleName,expectedRva);
+        if(schedulerRva)
+            LOG("%s world collision Installed: native resolve wrapper "
+                "+0x%X, active central scheduler +0x%X; final visible hand "
+                "extrema and checksum-selected authored weapon bounds; "
+                "33 ms bounded sweeps, contact haptics, fail-open isolation",
+                titleName,expectedRva,schedulerRva);
+        else
+            LOG("%s world collision Installed: native resolve wrapper +0x%X; "
+                "final visible hand extrema and checksum-selected authored "
+                "weapon bounds; 33 ms bounded sweeps, contact haptics, "
+                "fail-open isolation",titleName,expectedRva);
         return true;
     }
 
@@ -25440,6 +25459,18 @@ namespace
                 tracking,true,candidate.gameplayBasePosition,
                 candidate.fpTargets.leftWrist,
                 candidate.fpTargets.leftScale);
+        // Reach supplies explicit prepared wrist targets to the shared palette
+        // solve, so it never passes through DesiredWristWorld (where H3/ODST
+        // consume their correction).  Consume the prior bounded native result
+        // at this exact outer-frame ownership boundary instead.  This changes
+        // translation only; controller orientation, authored barrel alignment,
+        // physical melee, and every failed/disabled feature path stay intact.
+        if(candidate.fpTargets.rightWristValid)
+            (void)LegacyApplyWorldCollision(
+                GameTitle::HaloReach,1,candidate.fpTargets.rightWrist);
+        if(candidate.fpTargets.leftWristValid)
+            (void)LegacyApplyWorldCollision(
+                GameTitle::HaloReach,0,candidate.fpTargets.leftWrist);
         candidate.fpTargets.twoHandAimActive=tracking.twoHandAimActive;
         candidate.renderAccess = &access;
         candidate.active = true;
@@ -25911,6 +25942,7 @@ namespace
             {
                 g_reachWorldCollision.target = nullptr;
                 g_reachWorldCollision.original = nullptr;
+                g_reachWorldCollision.resolver = nullptr;
             }
             else
             {
@@ -26366,6 +26398,7 @@ namespace
         g_reachWorldCollision.title = GameTitle::None;
         g_reachWorldCollision.generation = 0;
         g_reachWorldCollision.fourArgumentResolver = false;
+        g_reachWorldCollision.resolver = nullptr;
         g_reachWorldCollision.nextQueryAtMs.store(
             0, std::memory_order_release);
         g_reachWorldCollision.worker[0] = LegacyCollisionWorkerHand{};
