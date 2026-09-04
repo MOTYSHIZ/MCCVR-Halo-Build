@@ -961,7 +961,7 @@ try {
             evidence = 'docs/HALO2-SIGNATURE-EVIDENCE.md'
         }
         gen3_world_contact_candidate = [ordered]@{
-            id = 'GEN3-WC-2'
+            id = 'GEN3-WC-3'
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             titles = @('Halo 3', 'Halo 3: ODST', 'Halo: Reach')
             default_enabled = $false
@@ -971,6 +971,10 @@ try {
             collision_shape = 'fixed-seven-visible-hand-samples-plus-checksum-selected-editing-kit-render-model-bounds-eight-corners-six-face-centres'
             query_interval_ms = 33
             publication_max_age_ms = 150
+            held_model_publication = 'every-submitted-render-model-observed-catalog-verified-identity-reused-by-next-combined-publication'
+            held_model_identity_scope = 'same-nonzero-title-generation-revalidated-tag-and-checksum'
+            held_model_identity_max_age_ms = 150
+            unknown_or_changed_model_policy = 'expire-to-hand-only'
             halo3_wrapper_rva = '0x001FFD18'
             odst_wrapper_rva = '0x00231EC4'
             reach_wrapper_rva = '0x0012C5D4'
@@ -1063,7 +1067,7 @@ try {
                 sha256 = $configHash
             }
         }
-        note = 'UNTESTED cumulative refinement: Halo 2 corrects byte-relative authored weapon bounds; Halo 3 and ODST schedule world collision from their active central native routines; Reach consumes correction in its explicit wrist-target path; Samsung Odyssey/WMR advertised-zero controller velocity receives a bounded pose-delta fallback while meaningful native velocity and the accepted Quest path remain unchanged. Physical melee continues to emit the verified virtual right-shoulder action, independent of its physical WMR/Vive control location. Halo 4 collision/render behavior is unchanged. CE remains excluded. Every optional feature fails open independently. Package-only; no MCC installation was performed.'
+        note = 'UNTESTED cumulative refinement: Halo 2 retains its byte-relative authored weapon bounds. Halo 3, ODST, and Reach now retain every exact catalog-verified held render-model identity across the short body/weapon callback ordering gap, scoped to the same title generation for at most 150 ms and revalidated before use; unknown or changed models expire to hand-only. Their active native collision schedulers and Reach explicit wrist correction remain unchanged. Samsung Odyssey/WMR advertised-zero controller velocity keeps the pending bounded pose-delta fallback while meaningful native velocity and the accepted Quest path remain unchanged. Physical melee continues to emit the verified virtual right-shoulder action. Halo 4 collision/render behavior is unchanged. CE remains excluded. Every optional feature fails open independently. Package-only; no MCC installation was performed.'
     }
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
