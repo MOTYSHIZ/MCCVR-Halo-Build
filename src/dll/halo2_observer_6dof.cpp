@@ -1294,7 +1294,7 @@ namespace
         constexpr bool kEnableUnverifiedCompressionBlock = false;
         // The new binding decodes the exact native ADD instruction. The old
         // decoder never armed tagBaseSlot, so the bounds were never reached.
-        constexpr bool kEnableInstructionDecodedCompressionBounds = true;
+        constexpr bool kEnableInstructionDecodedCompressionBounds = false;
         if (!kEnableUnverifiedCompressionBlock &&
             !kEnableInstructionDecodedCompressionBounds) return false;
         if (renderModelTag == UINT32_MAX || !gunMatrices || !correction ||
