@@ -1213,7 +1213,7 @@ namespace
                 changed |= ImGui::SliderFloat(
                     "Required swing speed", &g_config.physical_melee_swing_speed,
                     0.3f, 5.0f, "%.2f m/s");
-                ImGui::TextDisabled("Lower is more sensitive; 1.20 m/s is the default.");
+                ImGui::TextDisabled("Lower is more sensitive; 5.00 m/s is the default and needs a fast swing.");
             }
             ImGui::Unindent();
         }
@@ -1280,7 +1280,7 @@ namespace
 
         if (g_activeCategory == Cat_Picture)
         {
-        ImGui::Text("Render resolution");
+        ImGui::Text("Render resolution (next game launch)");
         changed |= ImGui::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
         // Same even-rounding the launcher applies, so this is the exact render
@@ -1289,8 +1289,6 @@ namespace
             int value = (int)lroundf((float)base * scale);
             return (value & 1) ? value + 1 : value;
         };
-        ImGui::TextDisabled("Renders %d x %d.", scaleEven(kNativeRenderWidth, g_config.resolution_scale),
-                            scaleEven(kNativeRenderHeight, g_config.resolution_scale));
         struct ResolutionPreset { const char* name; float scale; };
         // Tiers span the full 0.35..2.75 range. "Keith David" is true 8K width
         // (7680, scale ~2.64); "Ultra" sits at ~5k, the heavy threshold below.
@@ -1311,6 +1309,18 @@ namespace
                 changed = true;
             }
         }
+        unsigned activeWidth=0,activeHeight=0;
+        D3D_GetForcedRenderSize(activeWidth,activeHeight);
+        const int nextWidth=scaleEven(kNativeRenderWidth,g_config.resolution_scale);
+        const int nextHeight=scaleEven(kNativeRenderHeight,g_config.resolution_scale);
+        if(activeWidth && activeHeight)
+            ImGui::TextDisabled("Current session: %u x %u",activeWidth,activeHeight);
+        ImGui::TextDisabled("Next launch: %d x %d",nextWidth,nextHeight);
+        if(activeWidth && activeHeight &&
+            (activeWidth!=static_cast<unsigned>(nextWidth) ||
+             activeHeight!=static_cast<unsigned>(nextHeight)))
+            ImGui::TextColored(Rgb(kWarning),
+                "Resolution change saved. Exit MCC and launch the mod again to apply.");
         ImGui::TextDisabled("The buttons are shortcuts; the slider takes any value in between,\n"
                             "as does resolution_scale in halomccvr.cfg. Below 1.00x trades\n"
                             "sharpness for frame rate; above it supersamples. Keith David is\n"
