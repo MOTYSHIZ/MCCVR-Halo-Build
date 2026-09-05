@@ -153,7 +153,7 @@ $repoStatus = @(& git -C $repoRoot status --porcelain=v1 --untracked-files=norma
 if ($LASTEXITCODE -ne 0 -or $repoStatus.Count -ne 0) {
     throw 'Repository is dirty; refusing automatic deployment.'
 }
-if (-not (Test-ExactInt32 $manifest.schema_version 41) -or
+if (-not (Test-ExactInt32 $manifest.schema_version 42) -or
         [string]$manifest.status -cne 'UNTESTED_LOCAL_CANDIDATE' -or
         $manifest.accepted -ne $false -or
         [string]$manifest.base_release -cne 'MCC_VR_ALPHA_0.3.3' -or
@@ -164,7 +164,7 @@ if (-not (Test-ExactInt32 $manifest.schema_version 41) -or
         [string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$' -or
         [string]$manifest.source_commit -cne $head -or
         -not $packageId.StartsWith(
-            $head.Substring(0, 7) + '-all-title-world-contact-vector-and-mapped-weapons-test-',
+            $head.Substring(0, 7) + '-h2-bounds-reach-contact-and-hand-aim-test-',
             [StringComparison]::Ordinal) -or
         @($manifest.titles).Count -ne 6 -or
         [string]$manifest.titles[0] -cne 'Halo 3' -or
@@ -276,7 +276,7 @@ if (-not (Test-ExactInt32 $manifest.schema_version 41) -or
             'h4ek-screen-material-shader-bank-full-dxbc-byte-identical-retail-m30-cryptum-map' -or
         [string]$manifest.halo4_candidate.screen_effect_failure_policy -cne
             'stock-screen-effect-camera-hud-reticle-helmet-stereo-and-openxr-remain-armed' -or
-        [string]$manifest.halo2_candidate.id -cne 'H2-WC-2' -or
+        [string]$manifest.halo2_candidate.id -cne 'H2-WC-3' -or
         [string]$manifest.halo2_candidate.status -cne
             'READY_FOR_HEADSET_TEST_UNACCEPTED' -or
         [string]$manifest.halo2_candidate.module -cne 'halo2.dll' -or
@@ -691,7 +691,7 @@ if (-not (Test-ExactInt32 $manifest.schema_version 41) -or
             'floaty-or-aim-failure-leaves-that-feature-stock-camera-stereo-and-openxr-remain-armed' -or
         [string]$manifest.halo2_candidate.evidence -cne
             'docs/HALO2-SIGNATURE-EVIDENCE.md' -or
-        [string]$manifest.gen3_world_contact_candidate.id -cne 'GEN3-WC-4' -or
+        [string]$manifest.gen3_world_contact_candidate.id -cne 'GEN3-WC-5' -or
         [string]$manifest.gen3_world_contact_candidate.halo3_active_scheduler_rva -cne '0x001FD748' -or
         [string]$manifest.gen3_world_contact_candidate.odst_active_scheduler_rva -cne '0x0022F80C' -or
         [string]$manifest.gen3_world_contact_candidate.halo2_tag_data_slot_rva -cne '0x015E4B38' -or
@@ -730,8 +730,17 @@ if (-not (Test-ExactInt32 $manifest.schema_version 41) -or
         $manifest.reach_vehicle_blender_camera_defaults_enabled -ne $true -or
         $manifest.reach_vehicle_retail_camera_aliases_enabled -ne $true -or
         $manifest.reach_projectile_alignment_enabled -ne $true -or
+        -not (Test-ExactInt32 $manifest.reach_on_foot_shot_freshness_ms 100) -or
+        $manifest.reach_on_foot_shot_maximum_clip_metres -ne 1.5 -or
+        -not (Test-ExactBoolean $manifest.reach_on_foot_marker_origin_override $false) -or
+        [string]$manifest.gen3_world_contact_candidate.reach_active_scheduler_rva -cne '0x0012969C' -or
+        [string]$manifest.gen3_world_contact_candidate.reach_query_pose -cne 'raw-desired-pose-unapply-exact-prepared-pair-correction' -or
+        [string]$manifest.gen3_world_contact_candidate.halo2_compression_count_offset -cne '0x14' -or
+        [string]$manifest.gen3_world_contact_candidate.halo2_compression_address_offset -cne '0x18' -or
+        -not (Test-ExactBoolean $manifest.gen3_world_contact_candidate.shared_melee_telemetry $true) -or
+        -not (Test-ExactBoolean $manifest.gen3_world_contact_candidate.direct_hand_npc_damage $false) -or
         [string]$manifest.reach_projectile_alignment_scope -cne
-            'exact-local-reach-vehicle-central-line' -or
+            'exact-local-reach-vehicle-central-line-plus-clipped-on-foot-controller-ray' -or
         $manifest.reach_vehicle_body_hide_interval_lease_enabled -ne $false -or
         $manifest.reach_vehicle_unit_camera_scoped_body_hide_enabled -ne $true -or
         $manifest.reach_vehicle_native_fp_body_seated_legs_enabled -ne $true -or

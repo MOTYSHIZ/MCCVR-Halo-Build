@@ -20,6 +20,7 @@
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
 #include "../common/reach_vehicle_logic.h"
+#include "../common/reach_hand_shot_logic.h"
 #ifndef HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 #define HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE 0
 #endif
@@ -1120,6 +1121,9 @@ namespace
         BoneMatrix centerRoot{};
         BoneMatrix rightWrist{};
         BoneMatrix leftWrist{};
+        // Exact translations applied to this prepared pair, not a later
+        // asynchronous correction. Collision queries must consume raw poses.
+        float collisionCorrection[2][3]{};
         float rightScale = 1.0f;
         float leftScale = 1.0f;
         bool centerRootValid = false;
@@ -1245,12 +1249,13 @@ namespace
 
     LegacyWorldCollisionFeature* LegacyCollisionForTitle(GameTitle title);
     bool LegacyApplyWorldCollision(
-        GameTitle title, int hand, BoneMatrix& target);
+        GameTitle title, int hand, BoneMatrix& target,
+        float* appliedCorrection = nullptr);
     void LegacyPublishWorldCollisionVolumes(
         GameTitle title, uint16_t renderModelTag,
         const FpInterpolationContext& context, const BoneMatrix& root,
         const BoneMatrix* solved, int32_t ignoredObject,
-        uint32_t generation);
+        uint32_t generation, const FpExplicitPoseTargets* targets = nullptr);
     bool LegacyBuildAuthoredWeaponBounds(
         GameTitle title, uint16_t renderModelTag, const BoneMatrix& modelRoot,
         const float collisionRoot[3], const float wrist[3],
@@ -4585,8 +4590,9 @@ namespace
     }
 
     bool LegacyApplyWorldCollision(
-        GameTitle title, int hand, BoneMatrix& target)
+        GameTitle title, int hand, BoneMatrix& target, float* appliedCorrection)
     {
+        if(appliedCorrection) memset(appliedCorrection,0,sizeof(float)*3);
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature || hand<0 || hand>1 || !g_config.world_collision ||
             !feature->installed.load(std::memory_order_acquire) ||
@@ -4614,6 +4620,7 @@ namespace
             return false;
         for(int axis=0;axis<3;++axis)
             target.translation[axis]+=correction[axis];
+        if(appliedCorrection) memcpy(appliedCorrection,correction,sizeof(correction));
         feature->applied[hand].fetch_add(1,std::memory_order_relaxed);
         return true;
     }
@@ -4895,6 +4902,24 @@ namespace
         g_reachWorldCollision.callbacks.fetch_sub(
             1,std::memory_order_acq_rel);
         return result;
+    }
+
+    // HREK collision_test_vector (0x41B960), matched independently to retail
+    // 0x12969C. The old endpoint resolver remains callable but is too rare to
+    // schedule sustained contact; 1c08837 logs contain zero-tick windows.
+    __declspec(noinline) uint8_t __fastcall ReachCollisionVectorDetour(
+        uint64_t flags,int32_t mode,const float* start,const float* vector,
+        int32_t ignoredObjectA,int32_t ignoredObjectB,
+        int32_t ignoredObjectC,void* result)
+    {
+        g_reachWorldCollision.callbacks.fetch_add(1,std::memory_order_acq_rel);
+        uint8_t nativeResult=0;
+        __try { nativeResult=LegacyCollisionSchedulerDetourBody(
+            g_reachWorldCollision,flags,mode,start,vector,ignoredObjectA,
+            ignoredObjectB,ignoredObjectC,result); }
+        __finally { g_reachWorldCollision.callbacks.fetch_sub(
+            1,std::memory_order_acq_rel); }
+        return nativeResult;
     }
 
     bool __fastcall FpInterpolateHook(int view,int id,int slot,
@@ -5797,7 +5822,7 @@ namespace
         GameTitle title, uint16_t renderModelTag,
         const FpInterpolationContext& context, const BoneMatrix& root,
         const BoneMatrix* solved, int32_t ignoredObject,
-        uint32_t generation)
+        uint32_t generation, const FpExplicitPoseTargets* targets)
     {
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature || !solved || !context.valid || !generation ||
@@ -5866,8 +5891,14 @@ namespace
                     1,std::memory_order_relaxed);
             }
             if(handCount==kLegacyCollisionHandSamples)
+            {
+                if(targets)
+                    for(int sample=0;sample<total;++sample)
+                        for(int axis=0;axis<3;++axis)
+                            samples[sample][axis]-=targets->collisionCorrection[1][axis];
                 LegacyPublishTarget(*feature,1,generation,samples,total,
                                     handCount,ignoredObject,shapeId);
+            }
         }
         if(leftWristValid && leftCount)
         {
@@ -5876,8 +5907,14 @@ namespace
                 leftWristWorld.translation,&leftPoints[0][0],leftCount,
                 samples,kLegacyCollisionHandSamples);
             if(handCount==kLegacyCollisionHandSamples)
+            {
+                if(targets)
+                    for(int sample=0;sample<handCount;++sample)
+                        for(int axis=0;axis<3;++axis)
+                            samples[sample][axis]-=targets->collisionCorrection[0][axis];
                 LegacyPublishTarget(*feature,0,generation,samples,handCount,
                                     handCount,ignoredObject);
+            }
         }
     }
 
@@ -17343,6 +17380,7 @@ namespace
         float cutsceneTheaterAspect = 0.0f;
         ReachVrRenderAccess* renderAccess = nullptr;
         float gameplayBasePosition[3]{};
+        float presentedCameraBasePosition[3]{};
         ReachVehicleFrame vehicle{};
         bool vehicleViewApplied = false;
         ReachPendingSeatRecenter pendingSeatRecenter{};
@@ -17608,6 +17646,9 @@ namespace
         std::atomic<float> originZ{0.0f};
     };
     ReachCompletedReticleTargetPublication g_reachCompletedReticleTarget;
+    ReachCompletedReticleTargetPublication g_reachOnFootShotRay;
+    std::atomic<uint32_t> g_reachHandShotMoves{0};
+    std::atomic<uint32_t> g_reachHandShotMisses{0};
 
     void ReachClearAimFeedback()
     {
@@ -17626,6 +17667,7 @@ namespace
 
     void ReachClearCompletedFrameFeedback()
     {
+        g_reachOnFootShotRay.generation.store(0,std::memory_order_release);
         {
             auto& published = g_reachCompletedReticleAim;
             published.sequence.fetch_add(1, std::memory_order_acq_rel);
@@ -18007,9 +18049,9 @@ namespace
     }
 
     bool ReachReadCompletedReticleTarget(
-        ReachCompletedReticleTargetSnapshot& out)
+        ReachCompletedReticleTargetSnapshot& out,
+        const ReachCompletedReticleTargetPublication& published=g_reachCompletedReticleTarget)
     {
-        auto& published = g_reachCompletedReticleTarget;
         for (int attempt = 0; attempt < 2; ++attempt)
         {
             const uint32_t before =
@@ -18304,6 +18346,70 @@ namespace
             unitIndex, origin, direction, basisForward, barrelOffset,
             optionalCameraPoint, firesFromCamera, useUnitAim, collision,
             simulation);
+        // The same HREK-proven weapon transaction handles on-foot shots. Own
+        // only the exact current local unit and a completed, fresh on-foot ray.
+        // Reuse native world clipping from the already-safe stock origin to
+        // the hand so extending through a wall cannot move a bullet behind it.
+        if(origin && direction && g_enabled.load(std::memory_order_acquire) &&
+            g_vrAim.load(std::memory_order_acquire) && VR_IsStereoEnabled() &&
+            g_reachCamera.armed.load(std::memory_order_acquire) &&
+            !g_reachCinematicLocked.load(std::memory_order_relaxed))
+        {
+            ReachCompletedReticleTargetSnapshot handRay{};
+            ReachShotOccupationSnapshot occupationNow{};
+            const bool onFootNow=ReachReadShotOccupation(occupationNow) &&
+                !occupationNow.active;
+            const int32_t currentUnit=LegacyCollisionIgnoredObject(GameTitle::HaloReach);
+            const uint32_t generation=g_reachCamera.generation.load(std::memory_order_acquire);
+            bool nativeOnFoot=false;
+            if(currentUnit!=-1 && unitIndex==currentUnit && g_reachCamera.unitInVehicle)
+            {
+                __try { nativeOnFoot=!g_reachCamera.unitInVehicle(currentUnit); }
+                __except(EXCEPTION_EXECUTE_HANDLER) { nativeOnFoot=false; }
+            }
+            float handDirection[3]{};
+            const bool owned=onFootNow && nativeOnFoot &&
+                ReachReadCompletedReticleTarget(handRay,g_reachOnFootShotRay) &&
+                ReachBuildHandShotDirection(generation,handRay.generation,
+                    unitIndex,currentUnit,handRay.key.unitHandle,GetTickCount64(),
+                    handRay.sampleMs,handRay.origin,handRay.target,handDirection);
+            if(onFootNow && unitIndex==currentUnit && currentUnit!=-1 && !owned)
+                g_reachHandShotMisses.fetch_add(1,std::memory_order_relaxed);
+            if(owned)
+            {
+                auto& feature=g_reachWorldCollision;
+                const float distance=Halo4WorldCollisionDistanceSquared(origin,handRay.origin);
+                const float maximum=1.5f*kReachWorldUnitsPerMeter;
+                bool clipped=false;
+                float accepted[3]{};
+                if(feature.installed.load(std::memory_order_acquire) &&
+                    feature.generation==generation && feature.resolver &&
+                    distance>=0 && distance<=maximum*maximum)
+                {
+                    memcpy(accepted,handRay.origin,sizeof(accepted));
+                    const bool previousOwned=g_legacyCollisionOwnedQuery;
+                    g_legacyCollisionOwnedQuery=true;
+                    __try
+                    {
+                        reinterpret_cast<ReachCollisionResolveFn>(feature.resolver)(
+                            origin,handRay.origin,accepted,unitIndex);
+                        const float acceptedDistance=
+                            Halo4WorldCollisionDistanceSquared(origin,accepted);
+                        clipped=acceptedDistance>=0 && acceptedDistance<=maximum*maximum;
+                    }
+                    __except(EXCEPTION_EXECUTE_HANDLER) { clipped=false; }
+                    g_legacyCollisionOwnedQuery=previousOwned;
+                }
+                if(clipped)
+                {
+                    memcpy(origin,accepted,sizeof(accepted));
+                    memcpy(direction,handDirection,sizeof(handDirection));
+                    g_reachHandShotMoves.fetch_add(1,std::memory_order_relaxed);
+                    return;
+                }
+                g_reachHandShotMisses.fetch_add(1,std::memory_order_relaxed);
+            }
+        }
         if (!origin || !direction ||
             !g_reachVehicleShotRedirectEnabled.load(
                 std::memory_order_acquire) ||
@@ -21521,8 +21627,7 @@ namespace
         const ReachOwnerScope& owner, float outTarget[3], float outOrigin[3],
         uint64_t& outSampleMs)
     {
-        if (!outTarget || !outOrigin || !owner.vehicleViewApplied ||
-            !owner.vehicle.active)
+        if (!outTarget || !outOrigin || !owner.active)
         {
             return false;
         }
@@ -21597,7 +21702,9 @@ namespace
                 // camera base. gameplayBasePosition may deliberately select the
                 // rigid hands base and would offset the sight when
                 // body-following hands are enabled.
-                out[axis] = owner.vehicle.cameraBase[axis] +
+                const float base=owner.vehicleViewApplied && owner.vehicle.active
+                    ? owner.vehicle.cameraBase[axis] : owner.presentedCameraBasePosition[axis];
+                out[axis] = base +
                     offset[axis] * kReachWorldUnitsPerMeter;
                 if (!std::isfinite(out[axis]))
                     return false;
@@ -21694,6 +21801,26 @@ namespace
         float presentedTarget[3]{};
         float presentedOrigin[3]{};
         uint64_t presentedTargetMs = 0;
+        {
+            auto& published=g_reachOnFootShotRay;
+            const int32_t unit=LegacyCollisionIgnoredObject(GameTitle::HaloReach);
+            const bool onFoot=generation && preparedSerial && unit!=-1 &&
+                !owner.vehicleViewApplied && !owner.vehicle.active &&
+                !owner.cutsceneTheater && owner.fpTargets.rightWristValid &&
+                ReachBuildPresentedReticleWorldTarget(
+                    owner,presentedTarget,presentedOrigin,presentedTargetMs);
+            published.sequence.fetch_add(1,std::memory_order_acq_rel);
+            published.generation.store(onFoot?generation:0,std::memory_order_relaxed);
+            published.sampleMs.store(onFoot?presentedTargetMs:0,std::memory_order_relaxed);
+            published.unitHandle.store(onFoot?unit:-1,std::memory_order_relaxed);
+            published.x.store(presentedTarget[0],std::memory_order_relaxed);
+            published.y.store(presentedTarget[1],std::memory_order_relaxed);
+            published.z.store(presentedTarget[2],std::memory_order_relaxed);
+            published.originX.store(presentedOrigin[0],std::memory_order_relaxed);
+            published.originY.store(presentedOrigin[1],std::memory_order_relaxed);
+            published.originZ.store(presentedOrigin[2],std::memory_order_relaxed);
+            published.sequence.fetch_add(1,std::memory_order_release);
+        }
         const bool targetValid = seated &&
             ReachSeatLeaseKeyValid(reticle.occupation) &&
             ReachBuildPresentedReticleWorldTarget(
@@ -22630,15 +22757,43 @@ namespace
         return true;
     }
 
+    struct SharedMeleeTelemetry
+    {
+        std::atomic<uint32_t> polls{0}, unavailable{0}, invalidVelocity{0};
+        std::atomic<uint32_t> crossings{0}, pulses{0}, cooldownBlocks{0}, peakCmPerSecond{0};
+    };
+    SharedMeleeTelemetry g_sharedMeleeTelemetry[4];
+
+    SharedMeleeTelemetry* SharedMeleeForTitle(GameTitle title)
+    {
+        switch(title)
+        {
+        case GameTitle::Halo2: return &g_sharedMeleeTelemetry[0];
+        case GameTitle::Halo3: return &g_sharedMeleeTelemetry[1];
+        case GameTitle::Halo3ODST: return &g_sharedMeleeTelemetry[2];
+        case GameTitle::HaloReach: return &g_sharedMeleeTelemetry[3];
+        default: return nullptr;
+        }
+    }
+
     void LegacyWorldCollisionLogTick()
     {
         const GameTitle title=TitleAdapter_GetActiveTitle();
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
-        if(!feature) return;
         static uint64_t lastLogMs=0;
         const uint64_t now=GetTickCount64();
         if(now-lastLogMs<2000) return;
         lastLogMs=now;
+        if(auto* melee=SharedMeleeForTitle(title))
+            LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
+                "%u polls / %u unavailable, %u missing velocity, peak %.2f m/s, "
+                "%u crossings / %u native-input pulses / %u cooldown blocks; native range/target/damage",
+                static_cast<int>(title),g_config.physical_melee?1:0,g_config.world_collision?1:0,
+                g_config.physical_melee_swing_speed,melee->polls.exchange(0),
+                melee->unavailable.exchange(0),melee->invalidVelocity.exchange(0),
+                melee->peakCmPerSecond.exchange(0)/100.0f,melee->crossings.exchange(0),
+                melee->pulses.exchange(0),melee->cooldownBlocks.exchange(0));
+        if(!feature) return;
         const char* const name=title==GameTitle::Halo3?"Halo 3":
             title==GameTitle::Halo3ODST?"ODST":"Reach";
         LOG("%s world collision: installed=%d requested=%d, %llu native "
@@ -22674,6 +22829,11 @@ namespace
             static_cast<unsigned long long>(feature->targetMisses.exchange(0)),
             static_cast<unsigned long long>(feature->seeds.exchange(0)),
             feature->observedWeaponRoot.load(std::memory_order_relaxed));
+        if(title==GameTitle::HaloReach)
+            LOG("Reach on-foot hand shot ray: %u applied / %u local stock fallback; "
+                "exact completed-pair controller origin/direction, native world clipping",
+                g_reachHandShotMoves.exchange(0,std::memory_order_relaxed),
+                g_reachHandShotMisses.exchange(0,std::memory_order_relaxed));
     }
 
     const ReachFpLayoutCacheEntry* ReachFindFrozenLayout(
@@ -23527,7 +23687,7 @@ namespace
                         g_fpPaletteScratch,
                         LegacyCollisionIgnoredObject(GameTitle::HaloReach),
                         g_reachCamera.generation.load(
-                            std::memory_order_acquire));
+                            std::memory_order_acquire),&targets);
                     // Reach temporarily forces the accepted floating-hands
                     // presentation independent of the universal config. The
                     // exact hand masks and held-object boundary come from the
@@ -25529,6 +25689,8 @@ namespace
         candidate.preparedSerial = prepared.Serial();
         memcpy(candidate.gameplayBasePosition,primaryCompact+0x00,
                sizeof(candidate.gameplayBasePosition));
+        memcpy(candidate.presentedCameraBasePosition,primaryCompact+0x00,
+               sizeof(candidate.presentedCameraBasePosition));
         candidate.vehicle = vehicleFrame;
         const float* authoredProjection = reinterpret_cast<const float*>(
             primaryDerived + kReachDerivedProjectionOffset);
@@ -25690,10 +25852,12 @@ namespace
         // physical melee, and every failed/disabled feature path stay intact.
         if(candidate.fpTargets.rightWristValid)
             (void)LegacyApplyWorldCollision(
-                GameTitle::HaloReach,1,candidate.fpTargets.rightWrist);
+                GameTitle::HaloReach,1,candidate.fpTargets.rightWrist,
+                candidate.fpTargets.collisionCorrection[1]);
         if(candidate.fpTargets.leftWristValid)
             (void)LegacyApplyWorldCollision(
-                GameTitle::HaloReach,0,candidate.fpTargets.leftWrist);
+                GameTitle::HaloReach,0,candidate.fpTargets.leftWrist,
+                candidate.fpTargets.collisionCorrection[0]);
         candidate.fpTargets.twoHandAimActive=tracking.twoHandAimActive;
         candidate.renderAccess = &access;
         candidate.active = true;
@@ -25968,7 +26132,7 @@ namespace
                 reinterpret_cast<const void*>(&ReachUnitAdjustHook),
                 reinterpret_cast<const void*>(&ReachFirstPersonRenderGateHook),
                 reinterpret_cast<const void*>(&ReachHudXformDetour),
-                reinterpret_cast<const void*>(&ReachCollisionResolveDetour),
+                reinterpret_cast<const void*>(&ReachCollisionVectorDetour),
             };
             static_assert(_countof(functions) == _countof(ranges));
             bool resolved = true;
@@ -28903,11 +29067,16 @@ namespace
             "48 89 5C 24 20 55 56 57 41 56 41 57 48 8D 6C 24 D1 48 81 EC "
             "D0 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 1F 41 83 "
             "CF FF 48 8D 45 AF 48 89 44 24 38 49 8B F8";
+        static constexpr char kReachCollisionVectorSignature[]=
+            "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 "
+            "48 8D AC 24 F0 97 FE FF B8 10 69 01 00 E8 ?? ?? ?? ?? "
+            "48 2B E0 0F 29 B4 24 00 69 01 00 0F 29 BC 24 F0 68 01 00";
         InstallLegacyWorldCollision(
             g_reachWorldCollision, GameTitle::HaloReach, base, size,
             generation,
-            reinterpret_cast<void*>(&ReachCollisionResolveDetour),
-            0x0012C5D4, kReachCollisionResolveSignature, true);
+            reinterpret_cast<void*>(&ReachCollisionVectorDetour),
+            0x0012C5D4, kReachCollisionResolveSignature, true,
+            0x0012969C, kReachCollisionVectorSignature);
         LOG("Reach camera core installed: outer/inner stereo + FP "
             "interpolation/palette + per-eye world-projection camera "
             "transactions hooked; waiting one-second fresh-camera interval "
@@ -40562,10 +40731,15 @@ bool Game_PhysicalMeleePulseActive(uint64_t nowMs)
     if (title != GameTitle::Halo2 && title != GameTitle::Halo3 &&
         title != GameTitle::Halo3ODST && title != GameTitle::HaloReach)
         return false;
+    auto& telemetry=*SharedMeleeForTitle(title);
+    telemetry.polls.fetch_add(1,std::memory_order_relaxed);
     if (!g_config.world_collision || !g_config.physical_melee ||
         !g_enabled.load(std::memory_order_acquire) ||
         !VR_IsStereoEnabled())
+    {
+        telemetry.unavailable.fetch_add(1,std::memory_order_relaxed);
         return false;
+    }
 
     bool titleArmed = false;
     switch (title)
@@ -40600,7 +40774,10 @@ bool Game_PhysicalMeleePulseActive(uint64_t nowMs)
         break;
     }
     if (!titleArmed)
+    {
+        telemetry.unavailable.fetch_add(1,std::memory_order_relaxed);
         return false;
+    }
 
     struct SharedPhysicalMeleeState
     {
@@ -40630,6 +40807,15 @@ bool Game_PhysicalMeleePulseActive(uint64_t nowMs)
             VR_GetControllerLinearVelocity(hand == 0, velocity);
         const float speed = velocityValid
             ? Halo4PhysicalMeleeVelocityMagnitude(velocity) : -1.0f;
+        if(!velocityValid)
+            telemetry.invalidVelocity.fetch_add(1,std::memory_order_relaxed);
+        if(std::isfinite(speed) && speed>=0)
+        {
+            const uint32_t peak=static_cast<uint32_t>(std::min(speed,100.0f)*100.0f);
+            uint32_t previous=telemetry.peakCmPerSecond.load(std::memory_order_relaxed);
+            while(previous<peak && !telemetry.peakCmPerSecond.compare_exchange_weak(
+                previous,peak,std::memory_order_relaxed)) {}
+        }
         std::atomic<bool>& latch = state.velocityLatched[hand];
         const bool wasLatched = latch.load(std::memory_order_acquire);
         const Halo4PhysicalMeleeVelocityDecision decision =
@@ -40647,8 +40833,10 @@ bool Game_PhysicalMeleePulseActive(uint64_t nowMs)
                 expected, true, std::memory_order_acq_rel,
                 std::memory_order_relaxed))
             continue;
+        telemetry.crossings.fetch_add(1,std::memory_order_relaxed);
         if (nowMs >= state.cooldownUntilMs.load(std::memory_order_acquire))
         {
+            telemetry.pulses.fetch_add(1,std::memory_order_relaxed);
             state.pulseUntilMs.store(
                 nowMs + kHalo4PhysicalMeleePulseMs,
                 std::memory_order_release);
@@ -40656,6 +40844,7 @@ bool Game_PhysicalMeleePulseActive(uint64_t nowMs)
                 nowMs + kHalo4PhysicalMeleeCooldownMs,
                 std::memory_order_release);
         }
+        else telemetry.cooldownBlocks.fetch_add(1,std::memory_order_relaxed);
     }
     return nowMs != 0 &&
         nowMs < state.pulseUntilMs.load(std::memory_order_acquire);

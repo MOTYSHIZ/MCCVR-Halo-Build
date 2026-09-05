@@ -385,7 +385,9 @@ try {
             '0x00231EC4' -or
         $gameSource -notmatch
             '0x0012C5D4' -or
-        $gameSource -notmatch 'ReachCollisionResolveDetour' -or
+        $gameSource -notmatch 'ReachCollisionVectorDetour' -or
+        $gameSource -notmatch 'kReachCollisionVectorSignature' -or
+        $halo2ObserverSource -notmatch 'kEnableRuntimeVerifiedCompressionLayout = true' -or
         $gameSource -notmatch
             'kReachCollisionResolveSignature' -or
         $gameSource -notmatch
@@ -463,7 +465,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'all-title-world-contact-vector-and-mapped-weapons-test',
+        'h2-bounds-reach-contact-and-hand-aim-test',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -510,7 +512,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 41
+        schema_version = 42
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -694,7 +696,7 @@ try {
                 'base-rigid-or-state-parent-invalid-input-leaves-that-palette-stock-while-optional-marker-parity-invalid-input-keeps-the-valid-c38-free-reroot-and-continues-right-hand-held-model-and-camera-core'
         }
         halo2_candidate = [ordered]@{
-            id = 'H2-WC-2'
+            id = 'H2-WC-3'
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             module = 'halo2.dll'
             scope = 'campaign-both-renderers-groundhog-excluded'
@@ -961,7 +963,7 @@ try {
             evidence = 'docs/HALO2-SIGNATURE-EVIDENCE.md'
         }
         gen3_world_contact_candidate = [ordered]@{
-            id = 'GEN3-WC-4'
+            id = 'GEN3-WC-5'
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             titles = @('Halo 3', 'Halo 3: ODST', 'Halo: Reach')
             default_enabled = $false
@@ -970,6 +972,10 @@ try {
             threshold_range_metres_per_second = '0.30-5.00'
             default_threshold_metres_per_second = 5.0
             halo2_tag_data_slot_rva = '0x015E4B38'
+            halo2_compression_count_offset = '0x14'
+            halo2_compression_address_offset = '0x18'
+            shared_melee_telemetry = $true
+            direct_hand_npc_damage = $false
             halo2_tag_data_decoder = 'exact-add-rip-disp32-at-getter-plus-0x12-displacement-plus-0x15-end-plus-0x19'
             collision_shape = 'fixed-seven-visible-hand-samples-plus-checksum-selected-editing-kit-render-model-bounds-eight-corners-six-face-centres'
             query_interval_ms = 33
@@ -981,6 +987,8 @@ try {
             halo3_wrapper_rva = '0x001FFD18'
             odst_wrapper_rva = '0x00231EC4'
             reach_wrapper_rva = '0x0012C5D4'
+            reach_active_scheduler_rva = '0x0012969C'
+            reach_query_pose = 'raw-desired-pose-unapply-exact-prepared-pair-correction'
             halo3_active_scheduler_rva = '0x001FD748'
             odst_active_scheduler_rva = '0x0022F80C'
             halo3_odst_abi = 'five-argument-start-desired-accepted-ignore-a-ignore-b'
@@ -1010,9 +1018,12 @@ try {
         reach_flat_crosshair_substitute_enabled = $false
         reach_procedural_crosshair_substitute_enabled = $false
         reach_native_hud_layout_enabled = $false
+        reach_on_foot_shot_freshness_ms = 100
+        reach_on_foot_shot_maximum_clip_metres = 1.5
+        reach_on_foot_marker_origin_override = $false
         reach_projectile_alignment_enabled = $true
         reach_projectile_alignment_scope =
-            'exact-local-reach-vehicle-central-line'
+            'exact-local-reach-vehicle-central-line-plus-clipped-on-foot-controller-ray'
         reach_vehicle_view_follow_off_preserved = $true
         reach_vehicle_view_follow_render_matched_enabled = $true
         reach_vehicle_view_follow_refresh_invariant = $true
@@ -1070,7 +1081,7 @@ try {
                 sha256 = $configHash
             }
         }
-        note = 'UNTESTED world-contact refinement: Halo 3 and ODST schedule bounded probes from their verified start/vector collision entries, including native callers that bypass the former segment adapters. Halo 3, ODST, and Reach attach authored weapon bounds to the actual mapped weapon root in the same source graph, with generation/checksum/index/freshness guards and reseeding on a shape change. Halo 2 corrects the native tag-base displacement decoder so the guarded weapon-bound reader can run. Physical melee defaults to 5.00 m/s; saved custom settings are preserved. Halo 4 contact geometry and rendering are unchanged. The WMR velocity fallback remains pending its own headset test. CE is excluded. Every optional feature fails open independently. Installation, when requested, is recorded by the installer output and preserved deployment backup.'
+        note = 'UNTESTED refinements on headset-accepted 1c08837: H2 compression header is live-verified at count+0x14/address+0x18 with weapon-swap reseeding. Reach uses a HREK-matched central collision scheduler and raw desired sample feedback. Its on-foot firing helper consumes the exact local completed controller ray with native world clipping; authored marker-origin barrels may override the origin later. Shared melee adds diagnostics, not direct hand/NPC damage. Default threshold remains 5.00 m/s. Resolution UI distinguishes current session and next launch. Doubled grass/effects remain unconfirmed on the current baseline. See docs/CONTACT-REFINEMENT-2026-09-05.md for findings, limitations, and tests. CE is excluded; optional failures remain isolated.'
     }
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'

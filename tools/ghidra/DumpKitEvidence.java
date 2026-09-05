@@ -143,6 +143,9 @@ public class DumpKitEvidence extends GhidraScript {
                 else if (argument.startsWith("rva:"))
                     dumpFunction(decompiler,
                         Long.parseUnsignedLong(argument.substring(4), 16));
+                else if (argument.startsWith("refs:"))
+                    dumpReferences(fromRva(
+                        Long.parseUnsignedLong(argument.substring(5), 16)), "  ");
                 else if (argument.startsWith("find:")) {
                     String[] parts = argument.substring(5).split(":", 3);
                     if (parts.length != 3)

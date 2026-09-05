@@ -19,6 +19,17 @@
 > `1c08837`; the exact tester mission is unknown. Preserve these as separate
 > versioned reports. Ongoing refinements do not replace this accepted artifact.
 
+> **NEXT REFINEMENT CANDIDATE, NOT ACCEPTED (2026-09-05).** Live H2 BR
+> inspection proves the compression header is count+0x14/address+0x18;
+> the reader and weapon-swap reseeding are corrected. Reach gains its verified
+> central collision scheduler, raw desired-pose feedback, and a guarded on-foot
+> controller shot ray. Shared melee gains diagnostic counters; direct hand/NPC
+> damage remains unfinished. F1 distinguishes current and next-launch resolution.
+> The older tester's doubled Reach grass/effects remain unresolved. Release
+> build, tests, pinned bindings and Reach gate pass; headset testing is pending.
+> Full findings, limits and future work: `CONTACT-REFINEMENT-2026-09-05.md`.
+> Exact candidate identity belongs to its manifest; `1c08837` remains accepted.
+
 > **ALL-TITLE WORLD-CONTACT REFINEMENT PREPARED FOR HEADSET TEST
 > (2026-09-04).** Behavior commit
 > `61a8d8f341b4bdf7d35370da9aec0be73119dd7e`. Following the user's partial

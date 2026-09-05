@@ -17,6 +17,8 @@ source = (Path(__file__).resolve().parents[1] / 'src/dll/game.cpp').read_text(en
 identities = {
     'halo3.dll': 'B209D8454B12DC77E54CCD2C9924EC8D44B8619D21CF98E36FFAF601E67EFB63',
     'halo3odst.dll': '5BB20976EFDFD9E1CE59C589339804725FEC239021027C8D65B2733EAB94829A',
+    'haloreach.dll': '738DD2D24EA3AEA12E1EE9AA4A61094BF116027D42004C35A19E5048608B0894',
+    'reach_tag_test.exe': 'CBDD8448A87A433B0DFFC0DE47D06DB7A18B4BF868B96B057135DAA86790ABA8',
     'halo3_tag_test.exe': '59A78F2C96034D7CEB5D710505B2B36813AA141FC81A083E3F952973DBCE4602',
     'halo3odst_tag_test.exe': '354EC94158AECCE3E9D0F6463023AD5FA6D2AFE49B390E6067EBC17465C63C2D',
 }
@@ -37,6 +39,7 @@ def call_target(image, rva):
 for name, symbol, segment_call, vector_rva in [
     ('halo3.dll', 'kHalo3CollisionVectorSignature', 0x1FE63F, 0x1FD748),
     ('halo3odst.dll', 'kOdstCollisionVectorSignature', 0x2307DB, 0x22F80C),
+    ('haloreach.dll', 'kReachCollisionVectorSignature', 0x12B046, 0x12969C),
 ]:
     body = re.search(r'char\s+' + symbol + r'\[\]\s*=([^;]+);', source).group(1)
     tokens = ' '.join(re.findall(r'"([^"]*)"', body)).split()
@@ -48,9 +51,12 @@ for name, symbol, segment_call, vector_rva in [
     report[name].update(vector_rva=hex(vector_rva), signature_matches=1,
                         segment_adapter_call=hex(segment_call))
 
+assert call_target(images['haloreach.dll'], 0x12C63D) == 0x12AFCC
+
 for name, call, target in [
     ('halo3_tag_test.exe', 0x64D055, 0x652A10),
     ('halo3odst_tag_test.exe', 0x69E115, 0x6A3B30),
+    ('reach_tag_test.exe', 0x41677C, 0x41B960),
 ]:
     assert call_target(images[name], call) == target
     report[name].update(resolve_to_vector_call=hex(call), vector_rva=hex(target))

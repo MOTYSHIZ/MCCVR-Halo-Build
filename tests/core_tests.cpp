@@ -31,6 +31,7 @@
 #include "halo2_hud_shader_logic.h"
 #include "halo2_render_logic.h"
 #include "halo2_world_collision_logic.h"
+#include "reach_hand_shot_logic.h"
 #include "halo4_adapter.h"
 #include "halo4_cui_reticle_logic.h"
 #include "halo4_helmet_shader_logic.h"
@@ -13620,6 +13621,52 @@ int main()
           !LegacyMappedWeaponRootIsUsable(17, 32, 0x1000, 0x2000) &&
           !LegacyMappedWeaponRootIsUsable(0, 32, 0, 0),
         "mapped weapon roots require the renderer's exact source graph and bounded map index");
+    const float sideHand[3]{0.0f,0.3f,0.0f};
+    const float sideReticle[3]{10.0f,0.3f,0.0f};
+    float handShot[3]{};
+    Check(ReachBuildHandShotDirection(4,4,0x12340007,0x12340007,0x12340007,
+              500,450,sideHand,sideReticle,handShot) &&
+          std::fabs(handShot[0]-1.0f)<1e-6f && std::fabs(handShot[1])<1e-6f,
+        "Reach side-positioned handgun ray remains parallel at close and distant ranges");
+    Check(!ReachBuildHandShotDirection(4,4,0x12340007,0x56780007,0x12340007,
+              500,450,sideHand,sideReticle,handShot) &&
+          !ReachBuildHandShotDirection(4,3,7,7,7,500,450,sideHand,sideReticle,handShot) &&
+          !ReachBuildHandShotDirection(4,4,7,7,7,600,450,sideHand,sideReticle,handShot) &&
+          !ReachBuildHandShotDirection(4,4,7,7,7,400,450,sideHand,sideReticle,handShot) &&
+          !ReachBuildHandShotDirection(4,4,7,7,7,500,450,sideHand,sideHand,handShot),
+        "Reach hand shot rejects recycled units, old titles, stale/future poses, and zero rays");
+    const float invalidHandTarget[3]{std::numeric_limits<float>::infinity(),0,0};
+    Check(!ReachBuildHandShotDirection(4,4,7,7,7,500,450,
+              sideHand,invalidHandTarget,handShot) &&
+          !ReachBuildHandShotDirection(4,4,7,7,7,500,450,
+              nullptr,sideReticle,handShot) &&
+          ReachBuildHandShotDirection(4,4,7,7,7,550,450,
+              sideHand,sideReticle,handShot),
+        "Reach hand shot rejects nonfinite/null inputs and admits the exact freshness boundary");
+    // Read-only live fp_battle_rifle datum FA361801: the import address is zero,
+    // followed by one compression record at byte offset 012A9664.
+    std::array<uint8_t,28> h2LiveModelHeader{
+        0xE6,0x2C,0x00,0x0F,0x0C,0x00,0x00,0x00,
+        0x0F,0x10,0x1C,0x1D,0,0,0,0,0,0,0,0,
+        1,0,0,0,0x64,0x96,0x2A,0x01};
+    int32_t h2CompressionOffset=0;
+    Check(Halo2ReadWeaponCompressionHeader(h2LiveModelHeader,h2CompressionOffset) &&
+          h2CompressionOffset==0x012A9664,
+        "H2 loaded battle-rifle compression follows the empty import block");
+    Check(!Halo2ReadWeaponCompressionHeader(
+              std::span<const uint8_t>(h2LiveModelHeader.data(),27),h2CompressionOffset) &&
+          h2CompressionOffset==0,
+        "H2 compression rejects a truncated loaded model");
+    h2LiveModelHeader[0x14]=0;
+    Check(!Halo2ReadWeaponCompressionHeader(h2LiveModelHeader,h2CompressionOffset),
+        "H2 compression does not read missing records");
+    h2LiveModelHeader[0x14]=2;
+    Check(!Halo2ReadWeaponCompressionHeader(h2LiveModelHeader,h2CompressionOffset),
+        "H2 compression does not guess between multiple records");
+    h2LiveModelHeader[0x14]=1;
+    for(int byte=0x18;byte<0x1C;++byte) h2LiveModelHeader[byte]=0;
+    Check(!Halo2ReadWeaponCompressionHeader(h2LiveModelHeader,h2CompressionOffset),
+        "H2 compression rejects a nonempty count with a null address");
     // Exact pinned H2 tag getter: the ADD opcode's 05 is not displacement data.
     std::array<uint8_t, 26> h2TagGetter{
         0x48,0x8B,0x05,0x89,0x5C,0xE4,0x00,0x0F,0xB7,0xC9,
