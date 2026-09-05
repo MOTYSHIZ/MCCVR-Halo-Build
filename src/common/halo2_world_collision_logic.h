@@ -5,6 +5,22 @@
 #include <cstring>
 #include <span>
 
+// Loaded retail mode record, verified against the live fp_battle_rifle and
+// independently matched to its official H2EK compression bounds. The import
+// block address occupies +0x10; it is not the compression count.
+inline bool Halo2ReadWeaponCompressionHeader(
+    std::span<const uint8_t> definition, int32_t& byteOffset) noexcept
+{
+    byteOffset=0;
+    if(definition.size()<0x1C) return false;
+    int32_t count=0,offset=0;
+    std::memcpy(&count,definition.data()+0x14,sizeof(count));
+    std::memcpy(&offset,definition.data()+0x18,sizeof(offset));
+    if(count!=1 || !offset) return false;
+    byteOffset=offset;
+    return true;
+}
+
 // Pinned H2 loaded-tag getter ends in ADD RAX,[RIP+disp32] at +0x12.
 // The displacement begins at +0x15 and RIP is +0x19, not +0x14/+0x18.
 inline uintptr_t Halo2CollisionTagBaseSlot(

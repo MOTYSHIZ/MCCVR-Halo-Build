@@ -438,6 +438,8 @@ namespace
         uint32_t generation = 0;
         uint64_t publishedAtMs = 0;
         uint32_t sampleCount = 0;
+        int32_t ignoredUnit = -1;
+        int32_t ignoredWeapon = -1;
         float accepted[kHalo2WorldCollisionMaxSamples][3]{};
     };
     struct Halo2WorldCollisionFeature
@@ -1295,8 +1297,10 @@ namespace
         // The new binding decodes the exact native ADD instruction. The old
         // decoder never armed tagBaseSlot, so the bounds were never reached.
         constexpr bool kEnableInstructionDecodedCompressionBounds = false;
+        constexpr bool kEnableRuntimeVerifiedCompressionLayout = true;
         if (!kEnableUnverifiedCompressionBlock &&
-            !kEnableInstructionDecodedCompressionBounds) return false;
+            !kEnableInstructionDecodedCompressionBounds &&
+            !kEnableRuntimeVerifiedCompressionLayout) return false;
         if (renderModelTag == UINT32_MAX || !gunMatrices || !correction ||
             !output)
             return false;
@@ -1318,19 +1322,25 @@ namespace
             unsigned char* const tagBase = *tagBaseSlot;
             if (!definition || !tagBase)
                 return false;
-            // H2 retains its compression-info tag block at +0x10. The
-            // generic loaded-tag resolver used above proves that H2 cache
-            // block addresses are signed BYTE offsets from tagBase; the
-            // rejected first pass incorrectly multiplied this value by four.
-            // Resolve the one authored record exactly as the engine resolves
-            // a definition, rather than copying a later-engine checksum
-            // layout into H2.
-            const int32_t count = *reinterpret_cast<const int32_t*>(
-                definition + 0x10);
-            const int32_t byteOffset = *reinterpret_cast<const int32_t*>(
-                definition + 0x14);
-            if (count != 1 || !byteOffset)
-                return false;
+            // Live H2 1c08837 evidence: the loaded mode compression block is
+            // +0x14/+0x18. +0x10 was the preceding empty import-block address,
+            // and therefore rejected EVERY weapon. The loaded fp_battle_rifle
+            // record independently matches all six H2EK-exported bounds.
+            // Keep both old addressing experiments dormant; the native tag
+            // getter still proves signed BYTE addressing from tagBase.
+            int32_t byteOffset=0;
+            if constexpr(kEnableRuntimeVerifiedCompressionLayout)
+            {
+                if(!Halo2ReadWeaponCompressionHeader(
+                    std::span<const uint8_t>(definition,0x1C),byteOffset))
+                    return false;
+            }
+            else
+            {
+                const int32_t count=*reinterpret_cast<const int32_t*>(definition+0x10);
+                byteOffset=*reinterpret_cast<const int32_t*>(definition+0x14);
+                if(count!=1 || !byteOffset) return false;
+            }
             const float* bounds = reinterpret_cast<const float*>(
                 tagBase + static_cast<ptrdiff_t>(byteOffset));
             float minimum[3]{bounds[0], bounds[2], bounds[4]};
@@ -1609,6 +1619,8 @@ namespace
             }
             if (!worker.seeded || worker.generation != generation ||
                 worker.sampleCount != sampleCount ||
+                worker.ignoredUnit != ignoredUnit ||
+                worker.ignoredWeapon != ignoredWeapon ||
                 Halo2WorldCollisionMovementIsTeleport(
                     worker.accepted[0], desired[0], worldScale))
             {
@@ -1616,6 +1628,8 @@ namespace
                 worker.generation = generation;
                 worker.publishedAtMs = targetAtMs;
                 worker.sampleCount = sampleCount;
+                worker.ignoredUnit = ignoredUnit;
+                worker.ignoredWeapon = ignoredWeapon;
                 std::memcpy(worker.accepted, desired,
                     sizeof(float) * sampleCount * 3);
                 const float zero[3]{};

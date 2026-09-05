@@ -1,5 +1,46 @@
 # Halo 2 world-collision evidence
 
+## 1c08837 live battle-rifle diagnosis (2026-09-04)
+
+The user accepts working hand contact and reports the SMG responds better than
+the battle rifle. The supplied log proves the corrected tag-data slot installs,
+but still records **zero** authored weapon bounds and 3,326 fallbacks. The SMG
+response therefore does not prove the authored-volume reader works.
+
+At the user's invitation, a read-only `ReadProcessMemory` check of the loaded
+Halo 2 mission (PID 20764) located the native tag table and tag-data base through
+the already-proven getter's two slots. No injection, game-memory writes, disk
+patching, or EAC interaction was performed. Full render-model datum `FA361801`
+has the following first 28 definition bytes:
+
+```text
+E6 2C 00 0F 0C 00 00 00 0F 10 1C 1D 00 00 00 00
+00 00 00 00 01 00 00 00 64 96 2A 01
+```
+
+The loaded compression count/address are **+0x14/+0x18**, not +0x10/+0x14.
+The old count was actually the preceding import-block address, zero in this
+record. At byte-relative address `012A9664`, the six floats are
+`(-0.1052100956, 0.1898390800, -0.0083235390, 0.0120922094,
+-0.0138870794, 0.0852878466)`. They independently match the official H2EK
+`fp_battle_rifle` XML's six rounded compression bounds. The model SID's length
+byte is 15, also matching `fp_battle_rifle`. This is direct loaded-layout and
+authored-content evidence; the earlier claimed +0x10 layout is disproven.
+
+The failed layout is disabled in its own commit `b3fe7ea`, retaining its code.
+The replacement reads the verified header, keeps count/address/finite/extent
+guards, and reseeds on local-unit or held-weapon changes even when sample counts
+are equal. Four-byte shifted, truncated, missing, or multiple records cannot
+silently pass the new header regression tests. Fourteen bounds samples cover
+the actual authored model, rather than an invented per-weapon length.
+
+The read-only capture is preserved at
+`out/h2-live-battle-rifle-proof.txt`, SHA-256
+`0509DC79E90FFB8AC2AC4B874F55FED59B83BC77BC36BCFDD0F1B658892D76E0`.
+Its last line deliberately prints the rejected old-field interpretation; its
+MODE entries contain the corrected records. This proves the data read, not
+headset-visible collision; Classic and Anniversary headset tests remain needed.
+
 ## ff6d1fd decoder failure and correction (2026-09-04)
 
 The new Steam headset log still reports zero authored-bound publications; hand
