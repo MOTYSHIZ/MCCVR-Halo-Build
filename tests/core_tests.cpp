@@ -12606,7 +12606,7 @@ int main()
     Check(!g_config.world_collision,
         "legacy configs inherit the opt-in world-collision default");
     Check(!g_config.physical_melee &&
-              g_config.physical_melee_swing_speed == 1.2f,
+              g_config.physical_melee_swing_speed == 5.0f,
         "legacy configs inherit the opt-in physical-melee defaults");
     Check(g_config.y_b_start_chord,
         "legacy configs inherit the enabled Y+B Start chord default");
@@ -13613,6 +13613,29 @@ int main()
           !LegacyWeaponCollisionCacheCanSupply(1000, 900, 7, 8) &&
           !LegacyWeaponCollisionCacheCanSupply(1000, 900, 0, 0),
         "legacy weapon identity cache is generation exact, bounded, and expires to hand-only");
+    Check(LegacyMappedWeaponRootIsUsable(17, 32, 0x1000, 0x1000) &&
+          !LegacyMappedWeaponRootIsUsable(-1, 32, 0x1000, 0x1000) &&
+          !LegacyMappedWeaponRootIsUsable(32, 32, 0x1000, 0x1000) &&
+          !LegacyMappedWeaponRootIsUsable(17, 65, 0x1000, 0x1000) &&
+          !LegacyMappedWeaponRootIsUsable(17, 32, 0x1000, 0x2000) &&
+          !LegacyMappedWeaponRootIsUsable(0, 32, 0, 0),
+        "mapped weapon roots require the renderer's exact source graph and bounded map index");
+    // Exact pinned H2 tag getter: the ADD opcode's 05 is not displacement data.
+    std::array<uint8_t, 26> h2TagGetter{
+        0x48,0x8B,0x05,0x89,0x5C,0xE4,0x00,0x0F,0xB7,0xC9,
+        0x48,0x03,0xC9,0x48,0x63,0x44,0xC8,0x08,
+        0x48,0x03,0x05,0x7F,0x5C,0xE4,0x00,0xC3};
+    Check(Halo2CollisionTagBaseSlot(0x180000000ull, 0x2A38000, 0x79EEA0,
+              h2TagGetter) == 0x1815E4B38ull &&
+          Halo2CollisionTagBaseSlot(0x180000000ull, 0x1000, 0x79EEA0,
+              h2TagGetter) == 0 &&
+          Halo2CollisionTagBaseSlot(0x180000000ull, 0x2A38000, 0x79EEA0,
+              std::span<const uint8_t>{h2TagGetter.data(), 25}) == 0,
+        "H2 tag-data slot decodes instruction boundaries and rejects truncated or outside-image data");
+    h2TagGetter[0x14] = 0x0D;
+    Check(Halo2CollisionTagBaseSlot(0x180000000ull, 0x2A38000, 0x79EEA0,
+              h2TagGetter) == 0,
+        "H2 collision tag-data decoder rejects a changed native instruction");
     if (assaultRifleBounds)
     {
         const float identityBasis[9]{

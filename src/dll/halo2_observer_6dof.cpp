@@ -1292,7 +1292,11 @@ namespace
         // ff6d1fd still produced zero authored bounds. Preserve the rejected
         // cache-block experiment dormant while retaining accepted hand samples.
         constexpr bool kEnableUnverifiedCompressionBlock = false;
-        if (!kEnableUnverifiedCompressionBlock) return false;
+        // The new binding decodes the exact native ADD instruction. The old
+        // decoder never armed tagBaseSlot, so the bounds were never reached.
+        constexpr bool kEnableInstructionDecodedCompressionBounds = true;
+        if (!kEnableUnverifiedCompressionBlock &&
+            !kEnableInstructionDecodedCompressionBounds) return false;
         if (renderModelTag == UINT32_MAX || !gunMatrices || !correction ||
             !output)
             return false;
@@ -4390,8 +4394,15 @@ namespace
             {
                 const uintptr_t graphGetAddress =
                     base + kHalo2AnimationGraphDefinitionGetRva;
-                const uintptr_t tagBaseSlot = graphGetAddress + 24 +
-                    *reinterpret_cast<const int32_t*>(graphGetAddress + 20);
+                // Preserve the rejected decoder dormant: +20 included opcode
+                // byte 05 in the displacement and +24 was not instruction end.
+                constexpr bool kEnableRejectedTagBaseDecoder = false;
+                const uintptr_t tagBaseSlot = kEnableRejectedTagBaseDecoder
+                    ? graphGetAddress + 24 +
+                        *reinterpret_cast<const int32_t*>(graphGetAddress + 20)
+                    : Halo2CollisionTagBaseSlot(base, size,
+                        kHalo2AnimationGraphDefinitionGetRva,
+                        {reinterpret_cast<const uint8_t*>(graphGetAddress), 26});
                 g_graphDefinitionGet.store(
                     graphGetAddress,
                     std::memory_order_release);
@@ -4404,6 +4415,9 @@ namespace
                     g_halo2TagDataBaseSlot.store(
                         tagBaseSlot, std::memory_order_release);
                 }
+                LOG("Halo 2 weapon bounds tag-data binding: %s, native slot RVA +0x%llX",
+                    tagBaseSlot ? "Installed" : "StockFallback",
+                    static_cast<unsigned long long>(tagBaseSlot ? tagBaseSlot-base : 0));
                 if (findOk)
                 {
                     g_graphFindNodeByFlags.store(

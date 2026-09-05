@@ -1,6 +1,28 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <span>
+
+// Pinned H2 loaded-tag getter ends in ADD RAX,[RIP+disp32] at +0x12.
+// The displacement begins at +0x15 and RIP is +0x19, not +0x14/+0x18.
+inline uintptr_t Halo2CollisionTagBaseSlot(
+    uintptr_t moduleBase, size_t moduleSize, uint32_t getterRva,
+    std::span<const uint8_t> getterBytes) noexcept
+{
+    if (!moduleBase || moduleSize < 8 || getterBytes.size() < 26 ||
+        getterBytes[0x12] != 0x48 || getterBytes[0x13] != 0x03 ||
+        getterBytes[0x14] != 0x05 || getterBytes[0x19] != 0xC3)
+        return 0;
+    int32_t displacement = 0;
+    std::memcpy(&displacement, getterBytes.data() + 0x15, sizeof(displacement));
+    const int64_t slotRva = static_cast<int64_t>(getterRva) + 0x19 + displacement;
+    if (slotRva < 0 || static_cast<uint64_t>(slotRva) > moduleSize - 8 ||
+        static_cast<uint64_t>(slotRva) > UINTPTR_MAX - moduleBase)
+        return 0;
+    return moduleBase + static_cast<uintptr_t>(slotRva);
+}
 
 // Halo 2 publishes one stable root plus min/max X/Y/Z samples selected from
 // the title's final, already root-composed first-person packet.  The packet is

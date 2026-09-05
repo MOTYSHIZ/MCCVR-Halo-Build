@@ -1,5 +1,40 @@
 # Halo 2 world-collision evidence
 
+## ff6d1fd decoder failure and correction (2026-09-04)
+
+The new Steam headset log still reports zero authored-bound publications; hand
+collision remains accepted. Before diagnosing the compression block itself,
+the native base-slot decoder must work. It did not: `graphGetAddress+20`
+included the instruction's ModRM byte `05` in the displacement, and `+24`
+was not the instruction end. The resulting RVA is `-0x1B299243`, outside the
+module, so `g_halo2TagDataBaseSlot` was never armed and no bounds were read.
+The previous claims that the byte-relative change had reached runtime bounds
+were not supported by the log.
+
+Pinned `halo2.dll` SHA-256
+`DE65B4F4FDBF3F0A5EAB7431FE530DA17DD815599182DFD6AE9B7E21CF171946`
+contains this exact native loaded-tag getter at `+0x79EEA0`:
+
+```text
+48 8B 05 89 5C E4 00 0F B7 C9 48 03 C9 48 63 44 C8 08
+48 03 05 7F 5C E4 00 C3
+```
+
+The last instruction starts at `+0x12`, reads its signed displacement at
+`+0x15`, and ends at `+0x19`. Its correct tag-data slot RVA is `0x015E4B38`.
+The replacement validates the ADD opcode and RET, bounds-checks the result,
+and logs Installed/StockFallback plus the resolved slot from the cold setup
+path. It retains the previous decoder dormant. Unit tests use these exact
+bytes and reject changed, truncated, and out-of-image cases.
+
+H2EK's Classic consumer at `+0x2B6140` independently calls
+`tag_get('mode', packet[0])`, confirming the packet supplies a render-model
+tag. The existing guarded compression-block reader can now run after the
+base binding succeeds. Actual bounds publication and gun contact in both
+Classic and Anniversary remain headset tests; this correction does not claim
+that those runtime results have already passed. Log identity and preservation
+are recorded in `ALL-TITLE-WORLD-COLLISION-EVIDENCE.md`.
+
 ## Candidate scope
 
 Halo 2 Classic/Anniversary hand collision, haptics, and physical melee were

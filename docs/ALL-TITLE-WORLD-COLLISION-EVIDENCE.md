@@ -1,5 +1,71 @@
 # All-title world-collision evidence
 
+## ff6d1fd headset result and replacement evidence (2026-09-04)
+
+The user accepts hands in the tested titles except ODST in the loaded level;
+Halo 4 remains the explicitly accepted hand/weapon reference. Visible gun
+collision in the other titles is not accepted. Source `ff6d1fd9ad9c87dde5b423119ab8b41bfe1b9e6d`,
+Steam, SteamVR/OpenXR 2.17.8, Oculus-family headset at 120 Hz (model not named
+by the log). Supplied log SHA-256:
+`93C34B1174E03F3666476D02C9716E33920483556DD3B9E9E33F36487AA8546C`.
+The separately checked installed DLL matches the candidate manifest:
+`16FD06E8E76C8EB4F2E70E1E5074C70AFE0C0597FF90E60039CFA11A6C1AEE2A`.
+Evidence is preserved in `out/test-runs/ff6d1fd-collision-partial-20260904/`.
+The deployment backups available on this machine predate collision work;
+comparison therefore uses the preserved supplied `64b9545` log alongside them.
+
+ODST previously recorded 602 native queries and seven left-hand contacts in
+one window. The new level repeatedly records zero queries despite roughly
+726 authored-volume publications per window, and records no contacts or
+corrections. The old `callbacks` metric is an in-flight count, not a cumulative
+call count: its zero value does not prove the hook was never called.
+
+Two concrete errors are independently established:
+
+- The alleged H3/ODST central schedulers at `+0x1FE5D4` / `+0x230770`
+  are only point-to-point adapters. They subtract start from desired, then call
+  the actual start/vector collision entries at `+0x1FD748` / `+0x22F80C`.
+  Direct vector users bypass the former hooks. H3EK resolve at `+0x64CF20`
+  independently calls its vector engine at `+0x652A10` via `+0x64D055`;
+  H3ODSTEK resolve at `+0x69DFE0` independently calls `+0x6A3B30` via
+  `+0x69E115`. The retail adapter calls at `+0x1FE63F` / `+0x2307DB`
+  verify the corresponding edges. The replacement hooks each title's actual
+  vector entry, with a separate unique full entry signature and the native
+  eight-argument ABI. The existing accepted-position resolver remains native.
+  Query work is bounded to 33 ms and protected by a nonblocking single-worker
+  lease; native calls never wait. Runtime telemetry now counts engine calls,
+  admitted ticks, rejected publications, and reseeds separately. The precise
+  contribution of scheduling versus publication rejection in the failed ODST
+  level remains a headset/log validation item.
+- Catalog lookup succeeded, but weapon bounds were composed using combined
+  body `solved[0]`. The visible-palette contract is instead
+  `destination[0] = root * source[boneMap[0]]`. Existing official HREK proof
+  is recorded in `REACH-SIGNATURE-EVIDENCE.md`; ODST's pinned mapper at
+  `+0x2EDD10` independently reads `boneMap[i]`, scales its index by `0x34`,
+  and composes that source with the call's root. The replacement remembers
+  the actual weapon callback's mapped root index and source pointer together
+  with its title-generation/tag/checksum identity, then uses the corresponding
+  solved bone in the combined publication. A different source graph, invalid
+  map index, unknown checksum, or identity older than 150 ms falls back to
+  hands. Shape identity changes reseed the sweep, preventing a sweep between
+  unrelated gun volumes. No guessed weapon node is introduced.
+
+The failed combined-body-root behavior and H2 decoder-dependent bounds were
+disabled in their own commit `2aa4e8d` before this replacement. Dormant code
+is retained. H2's separately verified decoder correction is recorded in
+`HALO2-WORLD-COLLISION-EVIDENCE.md`. The requested default melee threshold is
+now 5.00 m/s, including generated configs; saved custom settings still load.
+Halo 4 collision geometry, query scheduling, and contact response are unchanged.
+Its physical-melee threshold initializer follows the new shared default.
+
+`tools/verify-world-collision-bindings.py` verifies pinned file hashes, both
+unique vector signatures, each editing-kit and retail call edge, and the H2
+tag-base decoder. Its output is preserved at
+`out/collision-bindings-verified.json`. Core tests cover mapped-root rejection
+and the exact H2 instruction bytes, including truncated/mismatched instructions
+and an out-of-module result. Headset acceptance remains pending for ODST hands,
+guns across H2/H3/ODST/Reach, and the Halo 3/Halo 4 regressions.
+
 ## Scope and player-visible target
 
 This candidate extends the default-off `world_collision` and nested

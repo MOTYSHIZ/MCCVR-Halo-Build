@@ -1156,6 +1156,14 @@ namespace
         "48 8B 84 24 98 00 00 00 F3 41 0F 5C 48 04 48 89 44 24 38 8B "
         "84 24 90 00 00 00 89 44 24 30 8B 84 24 88 00 00 00 F3 0F 11 "
         "44 24 40 F3 41 0F 10 41 08 4C 8D 4C 24 40 F3 41 0F 5C 40 08";
+    // The former scheduler above is only a point-to-point adapter. These
+    // independently verified entries also receive direct start/vector queries.
+    inline constexpr char kHalo3CollisionVectorSignature[]=
+        "48 8B C4 4C 89 40 18 88 50 10 48 89 48 08 55 53 56 57 41 54 "
+        "41 55 41 56 41 57 48 8D A8 18 BB FF FF B8 A8 45 00 00 E8 ?? ?? ?? ?? 48 2B E0";
+    inline constexpr char kOdstCollisionVectorSignature[]=
+        "48 8B C4 4C 89 40 18 88 50 10 48 89 48 08 55 53 56 57 41 54 "
+        "41 55 41 56 41 57 48 8D A8 08 BB FF FF B8 B8 45 00 00 E8 ?? ?? ?? ?? 48 2B E0";
     inline constexpr int kLegacyCollisionHandSamples = 7;
     inline constexpr int kLegacyCollisionWeaponSamples = 14;
     inline constexpr int kLegacyCollisionMaxSamples = 21;
@@ -1166,6 +1174,7 @@ namespace
         uint64_t publishedAtMs = 0;
         uint32_t sampleCount = 0;
         uint32_t handSampleCount = 0;
+        uint64_t shapeId = 0;
         int32_t ignoredObject = -1;
         float samples[kLegacyCollisionMaxSamples][3]{};
     };
@@ -1184,6 +1193,7 @@ namespace
         uint32_t generation = 0;
         uint64_t publishedAtMs = 0;
         uint32_t sampleCount = 0;
+        uint64_t shapeId = 0;
         float accepted[kLegacyCollisionMaxSamples][3]{};
     };
     struct LegacyWorldCollisionFeature
@@ -1197,6 +1207,11 @@ namespace
         std::atomic<bool> installed{false};
         std::atomic<uint32_t> callbacks{0};
         std::atomic<uint64_t> nextQueryAtMs{0};
+        std::atomic<bool> queryActive{false};
+        std::atomic<uint64_t> engineCalls{0};
+        std::atomic<uint64_t> queryTicks{0};
+        std::atomic<uint64_t> targetMisses{0};
+        std::atomic<uint64_t> seeds{0};
         LegacyCollisionPublication targetPublication[2]{};
         LegacyCollisionCorrection correction[2]{};
         LegacyCollisionWorkerHand worker[2]{};
@@ -1214,6 +1229,8 @@ namespace
         std::atomic<uint32_t> observedWeaponChecksum{0};
         std::atomic<uint32_t> observedWeaponGeneration{0};
         std::atomic<uint64_t> observedWeaponAtMs{0};
+        std::atomic<int32_t> observedWeaponRoot{-1};
+        std::atomic<const BoneMatrix*> observedWeaponSource{nullptr};
         std::atomic<uint64_t> applied[2]{};
         std::atomic<uint64_t> failures{0};
     };
@@ -1239,7 +1256,12 @@ namespace
         const float collisionRoot[3], const float wrist[3],
         float output[][3]);
     bool LegacyObserveWeaponRenderModel(
-        GameTitle title, uint16_t renderModelTag, uint32_t generation);
+        GameTitle title, uint16_t renderModelTag, uint32_t generation,
+        const BoneMatrix* source = nullptr, const int32_t* boneMap = nullptr);
+    bool LegacyBuildMappedWeaponBounds(
+        GameTitle title, const FpInterpolationContext& context,
+        const BoneMatrix& root, const BoneMatrix* solved, float output[][3],
+        uint64_t& shapeId);
     int32_t LegacyCollisionIgnoredObject(GameTitle title);
     bool InstallLegacyWorldCollision(
         LegacyWorldCollisionFeature& feature, GameTitle title,
@@ -4599,7 +4621,7 @@ namespace
     void LegacyPublishTarget(
         LegacyWorldCollisionFeature& feature, int hand, uint32_t generation,
         const float samples[][3], uint32_t sampleCount,
-        uint32_t handSampleCount, int32_t ignoredObject)
+        uint32_t handSampleCount, int32_t ignoredObject, uint64_t shapeId = 0)
     {
         if(hand<0 || hand>1 || !samples || !generation || !sampleCount ||
             sampleCount>kLegacyCollisionMaxSamples ||
@@ -4613,6 +4635,7 @@ namespace
         publication.publishedAtMs=GetTickCount64();
         publication.sampleCount=sampleCount;
         publication.handSampleCount=handSampleCount;
+        publication.shapeId=shapeId;
         publication.ignoredObject=ignoredObject;
         memcpy(publication.samples,samples,sizeof(float)*sampleCount*3);
         publication.version.fetch_add(1,std::memory_order_release);
@@ -4622,7 +4645,7 @@ namespace
         LegacyWorldCollisionFeature& feature, int hand, uint32_t& generation,
         uint64_t& publishedAtMs, uint32_t& sampleCount,
         uint32_t& handSampleCount, int32_t& ignoredObject,
-        float samples[][3])
+        float samples[][3], uint64_t& shapeId)
     {
         const auto& publication=feature.targetPublication[hand];
         for(int attempt=0;attempt<4;++attempt)
@@ -4634,6 +4657,7 @@ namespace
             publishedAtMs=publication.publishedAtMs;
             sampleCount=publication.sampleCount;
             handSampleCount=publication.handSampleCount;
+            shapeId=publication.shapeId;
             ignoredObject=publication.ignoredObject;
             if(!generation || !sampleCount ||
                 sampleCount>kLegacyCollisionMaxSamples ||
@@ -4651,7 +4675,7 @@ namespace
         return false;
     }
 
-    void LegacyWorldCollisionTick(LegacyWorldCollisionFeature& feature)
+    void LegacyWorldCollisionTickBody(LegacyWorldCollisionFeature& feature)
     {
         if(!feature.installed.load(std::memory_order_acquire) ||
             !feature.resolver || !g_config.world_collision ||
@@ -4665,20 +4689,23 @@ namespace
                 due,now+33,std::memory_order_acq_rel,
                 std::memory_order_relaxed))
             return;
+        feature.queryTicks.fetch_add(1,std::memory_order_relaxed);
         const float worldScale=g_worldScale.load(std::memory_order_relaxed);
         if(!std::isfinite(worldScale) || worldScale<=0.0f) return;
         for(int hand=0;hand<2;++hand)
         {
             uint32_t generation=0,sampleCount=0,handSampleCount=0;
             uint64_t targetAtMs=0;
+            uint64_t shapeId=0;
             int32_t ignoredObject=-1;
             float desired[kLegacyCollisionMaxSamples][3]{};
             auto& worker=feature.worker[hand];
             if(!LegacyReadTarget(feature,hand,generation,targetAtMs,
-                    sampleCount,handSampleCount,ignoredObject,desired) ||
+                    sampleCount,handSampleCount,ignoredObject,desired,shapeId) ||
                 generation!=feature.generation || targetAtMs>now ||
                 now-targetAtMs>150)
             {
+                feature.targetMisses.fetch_add(1,std::memory_order_relaxed);
                 worker.seeded=false;
                 const float zero[3]{};
                 LegacyPublishCorrection(
@@ -4687,13 +4714,16 @@ namespace
             }
             if(!worker.seeded || worker.generation!=generation ||
                 worker.sampleCount!=sampleCount ||
+                worker.shapeId!=shapeId ||
                 Halo4WorldCollisionMovementIsTeleport(
                     worker.accepted[0],desired[0],worldScale))
             {
+                feature.seeds.fetch_add(1,std::memory_order_relaxed);
                 worker.seeded=true;
                 worker.generation=generation;
                 worker.publishedAtMs=targetAtMs;
                 worker.sampleCount=sampleCount;
+                worker.shapeId=shapeId;
                 memcpy(worker.accepted,desired,sizeof(float)*sampleCount*3);
                 const float zero[3]{};
                 LegacyPublishCorrection(
@@ -4776,6 +4806,17 @@ namespace
         }
     }
 
+    void LegacyWorldCollisionTick(LegacyWorldCollisionFeature& feature)
+    {
+        // The vector entry may be used by several engine threads. Serialize
+        // our own worker with a nonblocking lease; stock calls never wait.
+        bool idle=false;
+        if(!feature.queryActive.compare_exchange_strong(
+                idle,true,std::memory_order_acq_rel)) return;
+        __try { LegacyWorldCollisionTickBody(feature); }
+        __finally { feature.queryActive.store(false,std::memory_order_release); }
+    }
+
     uint8_t LegacyCollisionSchedulerDetourBody(
         LegacyWorldCollisionFeature& feature, uint64_t flags, int32_t mode,
         const float* start, const float* desired, int32_t ignoredObjectA,
@@ -4788,7 +4829,10 @@ namespace
             flags,mode,start,desired,ignoredObjectA,ignoredObjectB,
             ignoredObjectC,result);
         if(!g_legacyCollisionOwnedQuery)
+        {
+            feature.engineCalls.fetch_add(1,std::memory_order_relaxed);
             LegacyWorldCollisionTick(feature);
+        }
         return nativeResult;
     }
 
@@ -4840,7 +4884,11 @@ namespace
             {
                 result=original(start,desired,accepted,ignoredObject);
                 if(!g_legacyCollisionOwnedQuery)
+                {
+                    g_reachWorldCollision.engineCalls.fetch_add(
+                        1,std::memory_order_relaxed);
                     LegacyWorldCollisionTick(g_reachWorldCollision);
+                }
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -5803,13 +5851,10 @@ namespace
                 rightWristWorld.translation,&rightPoints[0][0],rightCount,
                 samples,kLegacyCollisionMaxSamples);
             int total=handCount;
-            BoneMatrix modelRoot{};
+            uint64_t shapeId=0;
             if(handCount==kLegacyCollisionHandSamples &&
-                ComposeBoneMatrices(root,solved[0],modelRoot) &&
-                LegacyBuildAuthoredWeaponBounds(
-                    title,renderModelTag,modelRoot,
-                    rightWristWorld.translation,rightWristWorld.translation,
-                    samples+handCount))
+                LegacyBuildMappedWeaponBounds(
+                    title,context,root,solved,samples+handCount,shapeId))
             {
                 total+=kLegacyCollisionWeaponSamples;
                 feature->boundsPublished.fetch_add(
@@ -5822,7 +5867,7 @@ namespace
             }
             if(handCount==kLegacyCollisionHandSamples)
                 LegacyPublishTarget(*feature,1,generation,samples,total,
-                                    handCount,ignoredObject);
+                                    handCount,ignoredObject,shapeId);
         }
         if(leftWristValid && leftCount)
         {
@@ -5843,7 +5888,7 @@ namespace
         const uint32_t collisionGeneration=
             g_halo3RuntimeGeneration.load(std::memory_order_acquire);
         (void)LegacyObserveWeaponRenderModel(
-            GameTitle::Halo3,tag,collisionGeneration);
+            GameTitle::Halo3,tag,collisionGeneration,source,boneMap);
         // Match this palette submission to its slot's interpolation context by
         // the source pointer (each slot interpolates into its own bank), then
         // consume that context so a stale frame can never be re-applied.
@@ -12677,7 +12722,7 @@ namespace
         const uint32_t collisionGeneration=
             g_odstRuntimeGeneration.load(std::memory_order_acquire);
         (void)LegacyObserveWeaponRenderModel(
-            GameTitle::Halo3ODST,tag,collisionGeneration);
+            GameTitle::Halo3ODST,tag,collisionGeneration,source,boneMap);
         FpInterpolationContext context{};
         for (FpInterpolationContext& candidate : g_fpInterpolationContexts)
             if (candidate.valid && source && candidate.source == source)
@@ -14803,8 +14848,8 @@ namespace
                 g_halo3WorldCollision, GameTitle::Halo3, base, size,
                 runtimeGeneration,
                 reinterpret_cast<void*>(&Halo3CollisionResolveDetour),
-                0x001FFD18,nullptr,false,0x001FE5D4,
-                kLegacyCollisionSchedulerSignature))
+                0x001FFD18,nullptr,false,0x001FD748,
+                kHalo3CollisionVectorSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
@@ -16876,8 +16921,8 @@ namespace
                 g_odstWorldCollision, GameTitle::Halo3ODST, base, size,
                 runtimeGeneration,
                 reinterpret_cast<void*>(&OdstCollisionResolveDetour),
-                0x00231EC4,nullptr,false,0x00230770,
-                kLegacyCollisionSchedulerSignature))
+                0x00231EC4,nullptr,false,0x0022F80C,
+                kOdstCollisionVectorSignature))
         {
             const size_t slot = g_odstCamera.hookTargetCount++;
             g_odstCamera.hookTargets[slot] = g_odstWorldCollision.target;
@@ -22317,7 +22362,8 @@ namespace
     }
 
     bool LegacyObserveWeaponRenderModel(
-        GameTitle title, uint16_t renderModelTag, uint32_t generation)
+        GameTitle title, uint16_t renderModelTag, uint32_t generation,
+        const BoneMatrix* source, const int32_t* boneMap)
     {
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature || !generation || feature->generation!=generation)
@@ -22327,6 +22373,12 @@ namespace
                 title,renderModelTag,checksum) ||
             !LegacyWeaponBoundsForTitle(title,checksum))
             return false;
+        int32_t mappedRoot=-1;
+        if(!source || !boneMap ||
+            !SafeReadBytes(boneMap,&mappedRoot,sizeof(mappedRoot)) ||
+            mappedRoot<0 || mappedRoot>=64) return false;
+        feature->observedWeaponRoot.store(mappedRoot,std::memory_order_relaxed);
+        feature->observedWeaponSource.store(source,std::memory_order_relaxed);
         feature->observedWeaponTag.store(
             renderModelTag,std::memory_order_relaxed);
         feature->observedWeaponChecksum.store(
@@ -22336,6 +22388,54 @@ namespace
         feature->observedWeaponAtMs.store(
             GetTickCount64(),std::memory_order_release);
         return true;
+    }
+
+    bool LegacyBuildMappedWeaponBounds(
+        GameTitle title, const FpInterpolationContext& context,
+        const BoneMatrix& root, const BoneMatrix* solved, float output[][3],
+        uint64_t& shapeId)
+    {
+        shapeId=0;
+        auto* feature=LegacyCollisionForTitle(title);
+        if(!feature || !solved || !context.valid || context.slot!=0)
+            return false;
+        const uint64_t observedAt=feature->observedWeaponAtMs.load(
+            std::memory_order_acquire);
+        if(!LegacyWeaponCollisionCacheCanSupply(GetTickCount64(),observedAt,
+                feature->generation,feature->observedWeaponGeneration.load(
+                    std::memory_order_relaxed))) return false;
+        const int32_t mappedRoot=feature->observedWeaponRoot.load(
+            std::memory_order_relaxed);
+        if(!LegacyMappedWeaponRootIsUsable(mappedRoot,context.count,
+                reinterpret_cast<uintptr_t>(feature->observedWeaponSource.load(
+                    std::memory_order_relaxed)),
+                reinterpret_cast<uintptr_t>(context.source)))
+            return false;
+        const uint32_t tag=feature->observedWeaponTag.load(std::memory_order_relaxed);
+        const uint32_t checksum=feature->observedWeaponChecksum.load(
+            std::memory_order_relaxed);
+        uint32_t liveChecksum=0;
+        if(tag>0xFFFEu || !LegacyReadWeaponRenderModelChecksum(
+                title,static_cast<uint16_t>(tag),liveChecksum) ||
+            liveChecksum!=checksum) return false;
+        const auto* authored=LegacyWeaponBoundsForTitle(title,checksum);
+        BoneMatrix modelRoot{};
+        float basis[9]{};
+        if(!authored || !ComposeBoneMatrices(root,solved[mappedRoot],modelRoot) ||
+            !NormalizedBasis(modelRoot,basis)) return false;
+        // Match the renderer: destination[0] = root * source[boneMap[0]].
+        // The combined graph's source[0] is a body/camera root, not the gun.
+        Halo4WeaponCollisionBounds bounds{};
+        bounds.runtimeImportChecksum=checksum;
+        memcpy(bounds.minimum,authored->minimum,sizeof(bounds.minimum));
+        memcpy(bounds.maximum,authored->maximum,sizeof(bounds.maximum));
+        const bool valid=Halo4BuildWeaponCollisionBoundsSamples(
+            bounds,modelRoot.scale,basis,modelRoot.translation,
+            modelRoot.translation,modelRoot.translation,output,
+            kLegacyCollisionWeaponSamples)==kLegacyCollisionWeaponSamples;
+        if(valid) shapeId=(static_cast<uint64_t>(checksum)<<32) |
+            static_cast<uint32_t>(mappedRoot);
+        return valid;
     }
 
     bool LegacySelectWeaponRenderModel(
@@ -22439,6 +22539,11 @@ namespace
         feature.original=nullptr;
         feature.resolver=nullptr;
         feature.nextQueryAtMs.store(0,std::memory_order_release);
+        feature.queryActive.store(false,std::memory_order_release);
+        feature.engineCalls.store(0,std::memory_order_release);
+        feature.queryTicks.store(0,std::memory_order_release);
+        feature.targetMisses.store(0,std::memory_order_release);
+        feature.seeds.store(0,std::memory_order_release);
         feature.worker[0]=LegacyCollisionWorkerHand{};
         feature.worker[1]=LegacyCollisionWorkerHand{};
         feature.callbacks.store(0,std::memory_order_release);
@@ -22452,6 +22557,8 @@ namespace
         feature.observedWeaponChecksum.store(0,std::memory_order_release);
         feature.observedWeaponGeneration.store(0,std::memory_order_release);
         feature.observedWeaponAtMs.store(0,std::memory_order_release);
+        feature.observedWeaponRoot.store(-1,std::memory_order_release);
+        feature.observedWeaponSource.store(nullptr,std::memory_order_release);
         feature.applied[0].store(0,std::memory_order_release);
         feature.applied[1].store(0,std::memory_order_release);
         feature.failures.store(0,std::memory_order_release);
@@ -22538,7 +22645,8 @@ namespace
             "queries, left/right contacts %llu/%llu, weapon contacts %llu, "
             "authored bounds %llu published / %llu hand-only fallback, "
             "visible corrections %llu/%llu, callbacks %u, isolated "
-            "failures %llu",
+            "failures %llu; scheduling %llu engine calls / %llu ticks / "
+            "%llu target misses / %llu seeds, mapped gun root %d",
             name,
             feature->installed.load(std::memory_order_acquire)?1:0,
             g_config.world_collision?1:0,
@@ -22560,7 +22668,12 @@ namespace
                 0,std::memory_order_relaxed)),
             feature->callbacks.load(std::memory_order_acquire),
             static_cast<unsigned long long>(feature->failures.load(
-                std::memory_order_relaxed)));
+                std::memory_order_relaxed)),
+            static_cast<unsigned long long>(feature->engineCalls.exchange(0)),
+            static_cast<unsigned long long>(feature->queryTicks.exchange(0)),
+            static_cast<unsigned long long>(feature->targetMisses.exchange(0)),
+            static_cast<unsigned long long>(feature->seeds.exchange(0)),
+            feature->observedWeaponRoot.load(std::memory_order_relaxed));
     }
 
     const ReachFpLayoutCacheEntry* ReachFindFrozenLayout(
@@ -23182,7 +23295,7 @@ namespace
         ReachFpPaletteFn original=g_reachOrigFpPalette;
         (void)LegacyObserveWeaponRenderModel(
             GameTitle::HaloReach,tag,
-            g_reachCamera.generation.load(std::memory_order_acquire));
+            g_reachCamera.generation.load(std::memory_order_acquire),source,boneMap);
         // R-V27: one relaxed increment when a seat is occupied. Reach builds
         // the occupant's first-person arms and weapon through this exact
         // transaction, so a non-zero count while seated means the engine did
@@ -31431,7 +31544,7 @@ namespace
         // raycast hot paths never race directly with the F1 menu writer.
         std::atomic<bool> configured{false};
         std::atomic<bool> physicalMeleeConfigured{false};
-        std::atomic<float> physicalMeleeRequiredSpeed{1.2f};
+        std::atomic<float> physicalMeleeRequiredSpeed{5.0f};
         std::atomic<bool> configurationResetPending{true};
         std::atomic<bool> objectPushInstalled{false};
         Halo4PhysicsRayCastFn originalRayCast = nullptr;

@@ -23,6 +23,7 @@ public class DumpKitEvidence extends GhidraScript {
 
     private String label(Function function) {
         if (function == null) return "<no function>";
+        if (function.isExternal()) return function.getName() + " <external>";
         long rva = function.getEntryPoint().subtract(currentProgram.getImageBase());
         return function.getName() + " @ RVA 0x" + Long.toHexString(rva);
     }

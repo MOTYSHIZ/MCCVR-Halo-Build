@@ -832,7 +832,7 @@ struct Config
     // fast tracking-space controller swing asks the active proven title for
     // its normal melee input so the engine retains range, damage and animation.
     bool physical_melee = false;
-    float physical_melee_swing_speed = 1.2f;
+    float physical_melee_swing_speed = 5.0f;
 
     // Lower the RIGHT (weapon) shoulder so Master Chief's arm doesn't clip up
     // into your face — drops the shoulder anchor along your view-down axis.

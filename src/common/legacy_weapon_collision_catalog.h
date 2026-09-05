@@ -106,3 +106,12 @@ inline bool LegacyWeaponCollisionCacheCanSupply(
         observedAtMs != 0 && observedAtMs <= nowMs &&
         nowMs - observedAtMs <= maximumAgeMs;
 }
+
+inline bool LegacyMappedWeaponRootIsUsable(
+    int32_t mappedRoot, int32_t sourceCount, uintptr_t observedSource,
+    uintptr_t currentSource) noexcept
+{
+    return observedSource != 0 && observedSource == currentSource &&
+        sourceCount > 0 && sourceCount <= 64 && mappedRoot >= 0 &&
+        mappedRoot < sourceCount;
+}
