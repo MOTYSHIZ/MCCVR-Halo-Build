@@ -463,7 +463,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'all-title-weapon-collision-publication-test',
+        'all-title-world-contact-vector-and-mapped-weapons-test',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -669,7 +669,7 @@ try {
                     default_enabled = $false
                     config_key = 'physical_melee'
                     threshold_config_key = 'physical_melee_swing_speed'
-                    default_threshold_metres_per_second = 1.2
+                    default_threshold_metres_per_second = 5.0
                     rejected_stage7_contact_identity_trigger_enabled = $false
                     rejected_stage8_b_crouch_route_enabled = $false
                     trigger = 'either-controller-native-openxr-velocity-or-bounded-pose-delta-fallback-threshold-crossing'
@@ -961,27 +961,30 @@ try {
             evidence = 'docs/HALO2-SIGNATURE-EVIDENCE.md'
         }
         gen3_world_contact_candidate = [ordered]@{
-            id = 'GEN3-WC-3'
+            id = 'GEN3-WC-4'
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             titles = @('Halo 3', 'Halo 3: ODST', 'Halo: Reach')
             default_enabled = $false
             config_key = 'world_collision'
             physical_melee_config_key = 'physical_melee'
             threshold_range_metres_per_second = '0.30-5.00'
+            default_threshold_metres_per_second = 5.0
+            halo2_tag_data_slot_rva = '0x015E4B38'
+            halo2_tag_data_decoder = 'exact-add-rip-disp32-at-getter-plus-0x12-displacement-plus-0x15-end-plus-0x19'
             collision_shape = 'fixed-seven-visible-hand-samples-plus-checksum-selected-editing-kit-render-model-bounds-eight-corners-six-face-centres'
             query_interval_ms = 33
             publication_max_age_ms = 150
-            held_model_publication = 'every-submitted-render-model-observed-catalog-verified-identity-reused-by-next-combined-publication'
-            held_model_identity_scope = 'same-nonzero-title-generation-revalidated-tag-and-checksum'
+            held_model_publication = 'actual-weapon-boneMap-zero-index-selects-solved-source-root-for-catalog-bounds'
+            held_model_identity_scope = 'same-source-graph-and-title-generation-revalidated-tag-checksum-and-bounded-root-index'
             held_model_identity_max_age_ms = 150
             unknown_or_changed_model_policy = 'expire-to-hand-only'
             halo3_wrapper_rva = '0x001FFD18'
             odst_wrapper_rva = '0x00231EC4'
             reach_wrapper_rva = '0x0012C5D4'
-            halo3_active_scheduler_rva = '0x001FE5D4'
-            odst_active_scheduler_rva = '0x00230770'
+            halo3_active_scheduler_rva = '0x001FD748'
+            odst_active_scheduler_rva = '0x0022F80C'
             halo3_odst_abi = 'five-argument-start-desired-accepted-ignore-a-ignore-b'
-            halo3_odst_scheduler_abi = 'eight-argument-central-vector-test'
+            halo3_odst_scheduler_abi = 'eight-argument-start-vector-test'
             reach_abi = 'four-argument-retail-specialization-ignore-b-none'
             reach_correction_consumer = 'outer-frame-explicit-prepared-wrist-targets'
             action = 'short-native-right-shoulder-pulse-matching-quest-right-grip-route'
@@ -1067,7 +1070,7 @@ try {
                 sha256 = $configHash
             }
         }
-        note = 'UNTESTED cumulative refinement: Halo 2 retains its byte-relative authored weapon bounds. Halo 3, ODST, and Reach now retain every exact catalog-verified held render-model identity across the short body/weapon callback ordering gap, scoped to the same title generation for at most 150 ms and revalidated before use; unknown or changed models expire to hand-only. Their active native collision schedulers and Reach explicit wrist correction remain unchanged. Samsung Odyssey/WMR advertised-zero controller velocity keeps the pending bounded pose-delta fallback while meaningful native velocity and the accepted Quest path remain unchanged. Physical melee continues to emit the verified virtual right-shoulder action. Halo 4 collision/render behavior is unchanged. CE remains excluded. Every optional feature fails open independently. Package-only; no MCC installation was performed.'
+        note = 'UNTESTED world-contact refinement: Halo 3 and ODST schedule bounded probes from their verified start/vector collision entries, including native callers that bypass the former segment adapters. Halo 3, ODST, and Reach attach authored weapon bounds to the actual mapped weapon root in the same source graph, with generation/checksum/index/freshness guards and reseeding on a shape change. Halo 2 corrects the native tag-base displacement decoder so the guarded weapon-bound reader can run. Physical melee defaults to 5.00 m/s; saved custom settings are preserved. Halo 4 contact geometry and rendering are unchanged. The WMR velocity fallback remains pending its own headset test. CE is excluded. Every optional feature fails open independently. Installation, when requested, is recorded by the installer output and preserved deployment backup.'
     }
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'

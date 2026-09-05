@@ -1,5 +1,24 @@
 # Current state
 
+> **ALL-TITLE WORLD-CONTACT REFINEMENT PREPARED FOR HEADSET TEST
+> (2026-09-04).** Behavior commit
+> `61a8d8f341b4bdf7d35370da9aec0be73119dd7e`. Following the user's partial
+> `ff6d1fd` result, H3/ODST use uniquely verified native start/vector collision
+> schedulers instead of the narrower segment adapters. H3/ODST/Reach weapon
+> bounds use the actual weapon callback's `boneMap[0]` in the matching source
+> graph, with generation/checksum/index/freshness guards and shape reseeding.
+> Halo 2 fixes a one-byte instruction-decoder error which prevented its
+> tag-data base from ever being armed. The physical-melee default is now
+> 5.00 m/s; saved custom settings are preserved. Halo 4 remains the accepted
+> hand/weapon-contact reference. Camera/render/HUD behavior is unchanged.
+> Preliminary Release build, tests, and Reach gate passed; packaging repeats
+> them for the exact candidate commit. Pinned-image signature and call-edge
+> verification passes. Headset acceptance remains pending for this replacement;
+> the accepted pointer does not move. See the latest sections of
+> `ALL-TITLE-WORLD-COLLISION-EVIDENCE.md` and
+> `HALO2-WORLD-COLLISION-EVIDENCE.md`. Exact package identity is recorded in its
+> `CANDIDATE-MANIFEST.json` under `out/candidates/`.
+
 > **ff6d1fd PARTIAL HEADSET RESULT / WEAPON EXPERIMENT DISABLED
 > (2026-09-04).** The user confirms hand collision in the supported titles
 > except ODST in the tested level, and confirms Halo 4 remains the desired
