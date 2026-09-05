@@ -1,5 +1,24 @@
 # Current state
 
+> **CURRENT ACCEPTED COLLISION BASELINE: `1c08837` (user headset,
+> 2026-09-04).** Exact source
+> `1c088372ac5e8dfca2648f9a1147d8478b9dbbe6`, DLL SHA-256
+> `FF1B0E49FD81D344FC64FE06D60D5F41C55A298774753DD150DEF71561135CB3`.
+> Package `out/candidates/HaloMCCVR-1c08837-World-Contact-Test.zip`.
+> The user confirms world contact across all supported titles, particularly
+> stable Halo 4 and Halo 3 contact. ODST's prior missing collision is resolved.
+> Remaining refinements: H2 SMG responds but battle rifle is weak; Reach contact
+> jitters; physical melee still uses native input targeting instead of actual
+> hand/NPC contact. These limitations are not accepted as completed features.
+> Steam, SteamVR/OpenXR 2.17.8, Oculus-family headset, 120 Hz. Exact model is not
+> named in this log. Preserved log SHA-256
+> `E68A1E5172F0D1E58194CA5AA27F737B561518FEB4A80F7D4BA5F056EB1E31E0`.
+> The tester's separate `f5b3081` Reach report concerns doubled grass/effects,
+> close-range sideways shot alignment, melee response, and resolution presets.
+> The user has not personally observed the doubled effects or preset issue on
+> `1c08837`; the exact tester mission is unknown. Preserve these as separate
+> versioned reports. Ongoing refinements do not replace this accepted artifact.
+
 > **ALL-TITLE WORLD-CONTACT REFINEMENT PREPARED FOR HEADSET TEST
 > (2026-09-04).** Behavior commit
 > `61a8d8f341b4bdf7d35370da9aec0be73119dd7e`. Following the user's partial
