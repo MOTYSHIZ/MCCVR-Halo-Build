@@ -153,7 +153,7 @@ $repoStatus = @(& git -C $repoRoot status --porcelain=v1 --untracked-files=norma
 if ($LASTEXITCODE -ne 0 -or $repoStatus.Count -ne 0) {
     throw 'Repository is dirty; refusing automatic deployment.'
 }
-if (-not (Test-ExactInt32 $manifest.schema_version 35) -or
+if (-not (Test-ExactInt32 $manifest.schema_version 41) -or
         [string]$manifest.status -cne 'UNTESTED_LOCAL_CANDIDATE' -or
         $manifest.accepted -ne $false -or
         [string]$manifest.base_release -cne 'MCC_VR_ALPHA_0.3.3' -or
@@ -164,14 +164,15 @@ if (-not (Test-ExactInt32 $manifest.schema_version 35) -or
         [string]$manifest.source_commit -notmatch '^[0-9a-f]{40}$' -or
         [string]$manifest.source_commit -cne $head -or
         -not $packageId.StartsWith(
-            $head.Substring(0, 7) + '-c-h2-92-controller-melee-h4-effects-',
+            $head.Substring(0, 7) + '-all-title-world-contact-vector-and-mapped-weapons-test-',
             [StringComparison]::Ordinal) -or
-        @($manifest.titles).Count -ne 5 -or
+        @($manifest.titles).Count -ne 6 -or
         [string]$manifest.titles[0] -cne 'Halo 3' -or
         [string]$manifest.titles[1] -cne 'Halo 3: ODST' -or
         [string]$manifest.titles[2] -cne 'Halo: Reach' -or
         [string]$manifest.titles[3] -cne 'Halo 4' -or
         [string]$manifest.titles[4] -cne 'Halo 2 Anniversary' -or
+        [string]$manifest.titles[5] -cne 'Halo 2 Classic' -or
         $manifest.embedded_build_identity.source_commit -cne
             $manifest.source_commit -or
         $manifest.embedded_build_identity.odst -ne $true -or
@@ -186,7 +187,7 @@ if (-not (Test-ExactInt32 $manifest.schema_version 35) -or
         # Producer and installer advance together. This prevents a package for
         # the new source from silently carrying the preceding Halo 4 candidate's
         # behavior block, which happened repeatedly during bring-up.
-        [string]$manifest.halo4_candidate.id -cne 'C-H4-58' -or
+        [string]$manifest.halo4_candidate.id -cne 'H4-WORLD-CONTACT-STAGE9-RIGHT-GRIP-MELEE' -or
         [string]$manifest.halo4_candidate.status -cne
             'READY_FOR_HEADSET_TEST_UNACCEPTED' -or
         [string]$manifest.halo4_candidate.behavior -notmatch '\S' -or
@@ -275,14 +276,14 @@ if (-not (Test-ExactInt32 $manifest.schema_version 35) -or
             'h4ek-screen-material-shader-bank-full-dxbc-byte-identical-retail-m30-cryptum-map' -or
         [string]$manifest.halo4_candidate.screen_effect_failure_policy -cne
             'stock-screen-effect-camera-hud-reticle-helmet-stereo-and-openxr-remain-armed' -or
-        [string]$manifest.halo2_candidate.id -cne 'C-H2-92' -or
+        [string]$manifest.halo2_candidate.id -cne 'H2-WC-2' -or
         [string]$manifest.halo2_candidate.status -cne
             'READY_FOR_HEADSET_TEST_UNACCEPTED' -or
         [string]$manifest.halo2_candidate.module -cne 'halo2.dll' -or
         [string]$manifest.halo2_candidate.scope -cne
             'campaign-both-renderers-groundhog-excluded' -or
         [string]$manifest.halo2_candidate.behavior -cne
-            'c-h2-90-camera-assist-off-plus-controller-scoped-native-melee-target-selection' -or
+            'h2ek-native-final-packet-hand-weapon-world-contact-plus-right-grip-route-physical-melee' -or
         $manifest.halo2_candidate.classic_muzzle_suppression -ne $true -or
         [string]$manifest.halo2_candidate.classic_muzzle_particle_renderer_rva -cne
             '0x0076DC90' -or
@@ -690,6 +691,15 @@ if (-not (Test-ExactInt32 $manifest.schema_version 35) -or
             'floaty-or-aim-failure-leaves-that-feature-stock-camera-stereo-and-openxr-remain-armed' -or
         [string]$manifest.halo2_candidate.evidence -cne
             'docs/HALO2-SIGNATURE-EVIDENCE.md' -or
+        [string]$manifest.gen3_world_contact_candidate.id -cne 'GEN3-WC-4' -or
+        [string]$manifest.gen3_world_contact_candidate.halo3_active_scheduler_rva -cne '0x001FD748' -or
+        [string]$manifest.gen3_world_contact_candidate.odst_active_scheduler_rva -cne '0x0022F80C' -or
+        [string]$manifest.gen3_world_contact_candidate.halo2_tag_data_slot_rva -cne '0x015E4B38' -or
+        [string]$manifest.gen3_world_contact_candidate.held_model_identity_scope -cne
+            'same-source-graph-and-title-generation-revalidated-tag-checksum-and-bounded-root-index' -or
+        -not (Test-ExactInt32 $manifest.gen3_world_contact_candidate.query_interval_ms 33) -or
+        -not (Test-ExactInt32 $manifest.gen3_world_contact_candidate.held_model_identity_max_age_ms 150) -or
+        $manifest.gen3_world_contact_candidate.default_threshold_metres_per_second -ne 5.0 -or
         $manifest.deployment_policy.automatic_after_package -ne $false -or
         [string]$manifest.deployment_policy.installer -cne
             'tools/install-candidate.ps1' -or

@@ -66,6 +66,13 @@ and the exact H2 instruction bytes, including truncated/mismatched instructions
 and an out-of-module result. Headset acceptance remains pending for ODST hands,
 guns across H2/H3/ODST/Reach, and the Halo 3/Halo 4 regressions.
 
+The first replacement package (`2bdd2c2`) passed build/tests/gate but was not
+installed: the installer still required schema 35, five titles, and the old
+H2-92/H4-58 candidate IDs. The installer now validates the current schema 41,
+six title entries, current candidate IDs, and this candidate's collision
+bindings. Source/HEAD equality, exact hashes, closed-game checks, backups,
+all-present-edition installation and config preservation remain mandatory.
+
 ## Scope and player-visible target
 
 This candidate extends the default-off `world_collision` and nested
