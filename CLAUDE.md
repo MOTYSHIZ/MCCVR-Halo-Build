@@ -1,5 +1,11 @@
 # Project instructions
 
+User delivery override (2026-09-05): package only. Provide the build ZIP and
+matching source ZIP in chat, then wait for testing and instructions. Never
+install, move/replace game-folder files, launch MCC or open a PR unless newly
+requested. Run packaging without `-Install`. This supersedes the older automatic
+deployment workflow below; local source work/builds/tests remain authorized.
+
 Halo MCC VR is a native C++20 OpenXR mod for Halo: The Master Chief Collection,
 supporting both the Steam and the Microsoft Store editions. The published
 cumulative release (Alpha 0.3.3) supports Halo 3, Halo 3: ODST and Halo: Reach.

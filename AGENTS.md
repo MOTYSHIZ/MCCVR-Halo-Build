@@ -1,5 +1,14 @@
 # Halo MCC VR agent contract
 
+## User delivery override (2026-09-05)
+
+Deliver the build ZIP and matching source ZIP in Codex chat, then wait for the
+user's testing and instructions. Run `tools/package-candidate.ps1` without
+`-Install`. Do not install, move/replace game-folder files, launch MCC, or open
+a PR without a new explicit request. This overrides the older automatic
+deployment instructions below. Local source edits, builds, tests and commits
+remain part of preparing the requested candidate. Both editions stay supported.
+
 Read `CLAUDE.md` and `docs/CURRENT-STATE.md` before changing code.
 `docs/CURRENT-STATE.md` is the authoritative accepted-build pointer.
 Reverse-engineering facts live in the evidence documents under `docs/`.

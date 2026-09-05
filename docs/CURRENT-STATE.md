@@ -1,6 +1,22 @@
 # Current state
 
-> **CURRENT ACCEPTED COLLISION BASELINE: `1c08837` (user headset,
+> **CURRENT ACCEPTED CONTACT / MELEE BASELINE: `ad7fbf5` (user headset,
+> 2026-09-05).** Source `ad7fbf54e553db7ec4831f369f25088fd1a097c7`,
+> DLL SHA-256 `18363917C2A503A233C6A1D999F1D53F3C3B74A4000EA5BC0E3912AC0731594C`.
+> Build `out/candidates/HaloMCCVR-ad7fbf5-Contact-and-Aim-Refinements-Test.zip`;
+> matching source ZIP `HaloMCCVR-ad7fbf5-Contact-and-Aim-Source.zip` alongside it.
+> User confirms equivalent collision and current physical melee in all titles.
+> This accepts the baseline, not unimplemented direct hand/NPC damage. New work:
+> smoother sustained contact, melee responsiveness, independent melee/collision
+> toggles with melee default five, H3/H2A lower-edge visibility, and H2 AI.
+> User confirms H2 AI issue across missions/difficulties, absent without the mod.
+> Log: Steam, SteamVR/OpenXR 2.17.8, Oculus-family, 120 Hz; user names Quest 3.
+> Log SHA-256 `FB594D01BC8AAA42591F8CBD4189631A61D3F6D07FAA7E003BDA0B93648ECDBC`;
+> preserved `out/test-runs/ad7fbf5-accepted-feedback/user.log`.
+> **Delivery is package-only: build ZIP + matching source ZIP here, then wait.
+> No installation, game-folder changes, launch or PR without a new request.**
+
+> **PREVIOUS ACCEPTED COLLISION BASELINE: `1c08837` (user headset,
 > 2026-09-04).** Exact source
 > `1c088372ac5e8dfca2648f9a1147d8478b9dbbe6`, DLL SHA-256
 > `FF1B0E49FD81D344FC64FE06D60D5F41C55A298774753DD150DEF71561135CB3`.
