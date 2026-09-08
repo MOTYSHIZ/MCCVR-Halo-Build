@@ -114,7 +114,9 @@ try {
         $gameSource -notmatch
             '!soleHalo4Title\s*\|\|\s*!levelRunning' -or
         $gameSource -notmatch
-            'Halo 3 hook epoch retired at the level-liveness boundary' -or
+            'hookRefreshPending\s*=\s*!RemoveInstalledGameHooks\(\)' -or
+        $gameSource -notmatch
+            'Halo 3 hook epoch retirement at level-liveness boundary' -or
         $gameSource -notmatch
             'ODST level-liveness boundary: retiring hooks' -or
         $guardSource -notmatch
@@ -139,7 +141,7 @@ try {
         $halo2WorldCollisionLogicSource -notmatch
             'Halo2ResolveWorldCollision' -or
         $gameSource -notmatch
-            'Halo2Observer6Dof_WorldCollisionActive\s*\(\s*\)' -or
+            'Halo2Observer6Dof_Armed\s*\(\s*\)\s*&&\s*Halo2Observer6Dof_FinalPaletteArmed\s*\(\s*\)' -or
         $coreTestsSource -notmatch
             'Halo 2 visible packets select stable root and model extrema') {
         throw 'Halo 2 world-contact gate failed: H2EK collision/object identities, final-packet volume, fail-open admission, or pure-logic coverage is missing.'
@@ -357,16 +359,16 @@ try {
         $gameSource -notmatch 'Halo4PublishAuthoredWeaponCollisionVolume' -or
         $gameSource -notmatch 'Game_Halo4PhysicalMeleePulseActive' -or
         $gameSource -notmatch
-            'return\s+Game_Halo4PhysicalMeleePulseActive\s*\(\s*nowMs\s*\)' -or
+            'bool\s+Game_PhysicalMeleePulseActive\(uint64_t\)\s*\{\s*return false;\s*\}' -or
         $inputSource -notmatch
-            'Game_PhysicalMeleePulseActive\s*\(\s*inputNow\s*\)\s*\)\s*\r?\n\s*btn\s*\|=\s*XINPUT_GAMEPAD_RIGHT_SHOULDER' -or
+            'Game_GestureMeleeInput\s*\(\s*inputNow\s*\)' -or
         $halo4WorldCollisionSource -notmatch
             'Halo4UpdatePhysicalMeleeVelocityLatch' -or
         $vrSource -notmatch 'XrSpaceVelocity' -or
         $vrSource -notmatch 'VR_GetControllerLinearVelocity' -or
         $coreTestsSource -notmatch
             'physical melee fires once per tracked swing, supports the five metre ceiling') {
-        throw 'H4 world-contact Stage 9 gate failed: accepted Stage 6 geometry, rejected Stage 7/8 routes, OpenXR velocity sampling, right-shoulder melee transaction, or its safety proofs are missing.'
+        throw 'H4 world-contact gate failed: accepted geometry, dormant legacy melee transport, active-binding gesture dispatcher, velocity sampling, or safety proofs are missing.'
     }
     if ($halo2WorldCollisionLogicSource -notmatch
             'kHalo2WeaponCollisionBoundsSampleCount\s*=\s*14' -or
@@ -465,7 +467,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'h2-bounds-reach-contact-and-hand-aim-test',
+        'physical-and-gesture-melee-test',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -679,7 +681,7 @@ try {
                     proximity_and_target = 'native-halo4-melee-action'
                     locomotion_false_trigger_policy = 'runtime-tracking-space-velocity-excludes-game-world-motion'
                     hysteresis_release_ratio = 0.55
-                    action = 'short-native-right-shoulder-input-pulse-matching-quest-right-grip-melee-route'
+                    action = 'legacy-dormant-see-melee-candidate-note'
                     pulse_ms = 120
                     cooldown_ms = 600
                     engine_ownership = 'native-halo4-melee-damage-animation-audio-ragdoll-networking'
@@ -718,7 +720,7 @@ try {
                     available = $true
                     default_enabled = $false
                     threshold_range_metres_per_second = '0.30-5.00'
-                    action = 'short-native-right-shoulder-pulse-matching-quest-right-grip-route'
+                    action = 'native-contact-or-separate-active-binding-gesture-see-melee-candidate-note'
                     velocity_policy = 'meaningful-native-openxr-preferred-bounded-pose-delta-fallback'
                 }
                 failure_policy = 'stock-halo2-collision-camera-stereo-packets-aim-hud-and-openxr-remain-armed'
@@ -975,7 +977,8 @@ try {
             halo2_compression_count_offset = '0x14'
             halo2_compression_address_offset = '0x18'
             shared_melee_telemetry = $true
-            direct_hand_npc_damage = $false
+            direct_hand_npc_damage = 'experimental-incomplete-unarmed-and-secondary-response-selection'
+            gesture_melee_config_key = 'gesture_melee'
             halo2_tag_data_decoder = 'exact-add-rip-disp32-at-getter-plus-0x12-displacement-plus-0x15-end-plus-0x19'
             collision_shape = 'fixed-seven-visible-hand-samples-plus-checksum-selected-editing-kit-render-model-bounds-eight-corners-six-face-centres'
             query_interval_ms = 33
@@ -995,7 +998,7 @@ try {
             halo3_odst_scheduler_abi = 'eight-argument-start-vector-test'
             reach_abi = 'four-argument-retail-specialization-ignore-b-none'
             reach_correction_consumer = 'outer-frame-explicit-prepared-wrist-targets'
-            action = 'short-native-right-shoulder-pulse-matching-quest-right-grip-route'
+            action = 'native-contact-or-separate-active-binding-gesture-see-melee-candidate-note'
             velocity_policy = 'meaningful-native-openxr-preferred-bounded-pose-delta-fallback-for-wmr-vive-style-runtimes'
             haptic_amplitude = 0.18
             failure_policy = 'feature-local-stock-fallback-camera-render-input-and-openxr-remain-armed'
@@ -1081,8 +1084,10 @@ try {
                 sha256 = $configHash
             }
         }
-        note = 'UNTESTED refinements on headset-accepted 1c08837: H2 compression header is live-verified at count+0x14/address+0x18 with weapon-swap reseeding. Reach uses a HREK-matched central collision scheduler and raw desired sample feedback. Its on-foot firing helper consumes the exact local completed controller ray with native world clipping; authored marker-origin barrels may override the origin later. Shared melee adds diagnostics, not direct hand/NPC damage. Default threshold remains 5.00 m/s. Resolution UI distinguishes current session and next launch. Doubled grass/effects remain unconfirmed on the current baseline. See docs/CONTACT-REFINEMENT-2026-09-05.md for findings, limitations, and tests. CE is excluded; optional failures remain isolated.'
+        note = 'UNTESTED current-work snapshot on accepted ad7fbf5, delivered at user request. Experimental native contact and active-binding gesture melee; unarmed and secondary-weapon damage selection remain unfinished. Includes preserved contact/H2/visibility/alignment refinements. See MELEE-CANDIDATE-NOTES.md for scope and limits. Both editions supported; package only.'
     }
+
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/MELEE-CANDIDATE-2026-09-07.md') -Destination (Join-Path $packageDir 'MELEE-CANDIDATE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

@@ -137,6 +137,8 @@ struct Halo2VrEyeSnapshot
 struct Halo2VrRenderSnapshot
 {
     uint64_t preparedSerial = 0;
+    int64_t predictedDisplayTimeNs = 0;
+    uint64_t trackingSpaceEpoch = 0;
     // Exact OpenXR timing for this prepared serial. The period is the
     // xrWaitFrame target; the delta is current minus prior predicted display
     // time and exposes half-rate delivery before the game can claim the frame.
@@ -157,6 +159,10 @@ struct Halo2VrRenderSnapshot
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
+    // Mount-calibrated primary aim without support-hand coupling, from this
+    // same prepared frame. Dual weapons must not inherit a two-hand latch.
+    bool independentRightAimValid = false;
+    float independentRightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
 };
 #endif
 
@@ -666,6 +672,8 @@ bool VR_GetLeftControllerPose(float outQuat[4], float outPos[3]);
 // Runtime-reported tracking-space linear velocity in metres per second.
 // Unlike a world-space hand delta, this excludes artificial locomotion.
 bool VR_GetControllerLinearVelocity(bool left, float outVelocity[3]);
+// Melee-only 60 ms tracked peak; ordinary motion velocity stays instantaneous.
+bool VR_GetPhysicalMeleeSpeed(bool left,float& speed);
 // Called only from Halo's already-validated class-2 CHUD path. The active
 // weapon reticle is redirected into the controller-ray quad texture instead
 // of being drawn at the center of either VR eye.
@@ -757,6 +765,9 @@ struct ReachVrRenderSnapshot
     // The shared weapon aim after two-hand adjustment and controller-local
     // mount calibration. Position remains the raw right-controller position.
     bool rightAimValid = false;
+    // Physical pose for contact velocity, independent of two-hand visual aim.
+    bool rightPhysicalValid = false;
+    float rightPhysicalOrientation[4]{0,0,0,1};
     // True only when this exact prepared frame used the support-hand weapon
     // line. Reach's palette path must not resample the asynchronous global.
     bool twoHandAimActive = false;
@@ -768,12 +779,30 @@ struct ReachVrRenderSnapshot
     float leftControllerPosition[3]{};
     VrPadState pad{};
     ReachVrEyeSnapshot eyes[2]{};
+    int64_t predictedDisplayTimeNs = 0;
+    uint64_t trackingSpaceEpoch = 0;
 };
 
 bool VR_ReachGetRenderSnapshot(
     const ReachPreparedFrameToken& prepared,
     ReachVrRenderSnapshot& snapshot);
 #endif
+// Immutable tracking sample for contact consumers in every title. Hand 0 is
+// left; hand 1 is the weapon aim pose used by the visible right-hand carrier.
+struct VrContactTrackingSnapshot
+{
+    struct Hand
+    {
+        bool valid=false;
+        float orientation[4]{0,0,0,1};
+        float position[3]{};
+    } hands[2];
+    uint64_t serial=0,referenceEpoch=0;
+    int64_t timeNs=0;
+    bool twoHandAimActive=false;
+};
+bool VR_GetContactTrackingSnapshot(VrContactTrackingSnapshot& snapshot);
+
 // Universal scope state is owned by the VR controller input path and consumed
 // by the render/compositor path. It is independent of Halo's native zoom.
 void VR_SetScopeActive(bool active);

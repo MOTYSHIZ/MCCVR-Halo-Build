@@ -239,8 +239,8 @@ namespace
             if (pad.gripL > 0.6f) btn |= XINPUT_GAMEPAD_LEFT_SHOULDER;
             if (pad.gripR > 0.6f) btn |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
         }
-        if (Game_PhysicalMeleePulseActive(inputNow))
-            btn |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        const uint32_t gestureMelee=Game_GestureMeleeInput(inputNow);
+        btn |= static_cast<WORD>(gestureMelee & 0xFFFF);
         state->Gamepad.wButtons = btn;
         NoteFedButtons(btn);
 
@@ -248,6 +248,8 @@ namespace
         const BYTE tr = (BYTE)(pad.trigR * 255.0f);
         if (tl > state->Gamepad.bLeftTrigger) state->Gamepad.bLeftTrigger = tl;
         if (tr > state->Gamepad.bRightTrigger) state->Gamepad.bRightTrigger = tr;
+        if (gestureMelee & (1u<<16)) state->Gamepad.bLeftTrigger = 255;
+        if (gestureMelee & (1u<<17)) state->Gamepad.bRightTrigger = 255;
 
         // UEVR-style D-pad gesture: hold the configured controller (F1 menu:
         // left by default) up next to your head and the left stick becomes the

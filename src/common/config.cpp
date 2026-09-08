@@ -965,10 +965,12 @@ void ConfigLoad(const wchar_t* path)
             g_config.arm_ik = atoi(val) != 0;
         else if (!strcmp(key, "floating_hands") ||
                  !strcmp(key, "world_collision") ||
+                 !strcmp(key, "gesture_melee") ||
                  !strcmp(key, "physical_melee"))
         {
             bool* destination = key[0] == 'f' ? &g_config.floating_hands :
                 (key[0] == 'w' ? &g_config.world_collision :
+                 key[0] == 'g' ? &g_config.gesture_melee :
                     &g_config.physical_melee);
             *destination = atoi(val) != 0;
         }
@@ -1279,8 +1281,8 @@ void ConfigSave()
     fprintf(f, "# Set it to the same number as gun_scale for matching hands.\n");
     fprintf(f, "# (default %.2f, range 0.3 to 3)\n", d.left_hand_scale);
     fprintf(f, "left_hand_scale = %.2f\n\n", g_config.base_tunables.left_hand_scale);
-    fprintf(f, "# Weapon mounting rotation on the controller, in degrees. Rotates only\n");
-    fprintf(f, "# the visible gun; the cursor/bullet ray stays fixed on the controller.\n");
+    fprintf(f, "# Controller aim calibration in degrees: rotates the aiming ray,\n");
+    fprintf(f, "# crosshair and gun together. Use barrel_* for visual-only alignment.\n");
     fprintf(f, "# (defaults %.0f / %.0f / %.0f, range -180 to 180)\n",
             d.gun_pitch_deg, d.gun_yaw_deg, d.gun_roll_deg);
     fprintf(f, "gun_pitch_deg = %.0f\n", g_config.base_tunables.gun_pitch_deg);
@@ -1701,11 +1703,14 @@ void ConfigSave()
     fprintf(f, "# Halo 2, Halo 3, ODST, Reach, and Halo 4.\n");
     fprintf(f, "# (default %d)\n", d.world_collision ? 1 : 0);
     fprintf(f, "world_collision = %d\n\n", g_config.world_collision ? 1 : 0);
-    fprintf(f, "# Physical melee (experimental): a fast tracked hand/weapon swing\n");
-    fprintf(f, "# asks the active title for its native melee action. Requires world_collision.\n");
+    fprintf(f, "# True physical melee (experimental): a fast tracked hand/weapon\n");
+    fprintf(f, "# contact damages the struck target. Independent of world_collision.\n");
     fprintf(f, "# Implemented for Halo 2, Halo 3, ODST, Reach, and Halo 4.\n");
     fprintf(f, "# (default %d)\n", d.physical_melee ? 1 : 0);
     fprintf(f, "physical_melee = %d\n", g_config.physical_melee ? 1 : 0);
+    fprintf(f, "# Gesture melee: connect a fast swing to the active game's melee binding.\n");
+    fprintf(f, "# (default %d)\n", d.gesture_melee ? 1 : 0);
+    fprintf(f, "gesture_melee = %d\n", g_config.gesture_melee ? 1 : 0);
     fprintf(f, "# Required controller/weapon sample speed in metres per second.\n");
     fprintf(f, "# (default %.2f, range 0.3 to 5.0)\n",
             d.physical_melee_swing_speed);

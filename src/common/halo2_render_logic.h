@@ -1,4 +1,5 @@
 #pragma once
+#include "vr_interaction_refinement_logic.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1647,6 +1648,8 @@ inline bool Halo2ShouldAttemptDirectShotOwnership(
 struct Halo2ObserverPoseSnapshot
 {
     bool valid = false;
+    int64_t predictedDisplayTimeNs = 0;
+    uint64_t trackingSpaceEpoch = 0;
     float headOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float headPosition[3]{};
     // Per eye: offset from the head (metres, head-local) and the absolute
@@ -1669,6 +1672,8 @@ struct Halo2ObserverPoseSnapshot
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
+    bool independentRightAimValid = false;
+    float independentRightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
 };
 
 struct Halo2ObserverPosePublication
@@ -2642,7 +2647,8 @@ inline bool Halo2DeriveSaberAspectLockedEyeCover(
 // an authored engine FOV when it is wider; this helper can only expand culling.
 inline bool Halo2DeriveObserverVisibilityVerticalFov(
     const float leftFov[4], const float rightFov[4],
-    float stockVerticalRadians, float& outVerticalRadians) noexcept
+    float stockVerticalRadians, float& outVerticalRadians,
+    bool guardBand = false) noexcept
 {
     constexpr float kPi = 3.14159265f;
     if (!std::isfinite(stockVerticalRadians) ||
@@ -2654,7 +2660,9 @@ inline bool Halo2DeriveObserverVisibilityVerticalFov(
     Halo2SaberEyeCover cover{};
     if (!Halo2DeriveSaberEyeCover(leftFov, rightFov, cover))
         return false;
-    const float required = cover.verticalDegrees * kPi / 180.0f;
+    const float required = guardBand
+        ? 2.0f*std::atan(ExpandVisibilityTangent(std::tan(cover.halfVerticalRadians)))
+        : cover.verticalDegrees * kPi / 180.0f;
     if (!std::isfinite(required) || required <= 1.0e-4f ||
         required >= kPi - 1.0e-4f)
     {
@@ -3104,6 +3112,15 @@ inline constexpr uint8_t kHalo2ObjectDatumAccessorEntryBytes[] = {
     0x8B, 0x51, 0x08, 0x48, 0x8B, 0x0D};
 inline constexpr uint32_t kHalo2UnitDesiredAimingVectorOffset = 0x168;
 inline constexpr uint32_t kHalo2UnitAimingVectorOffset = 0x174;
+// H2EK unit_in_vehicle: HS evaluator 221D60 -> native 4DA690.
+// Retail evaluator 785650 -> native 93FB20 checks this exact seat member.
+inline constexpr uint32_t kHalo2UnitInVehicleRva = 0x0093FB20;
+inline constexpr uint32_t kHalo2UnitParentSeatOffset = 0x210;
+inline constexpr char kHalo2UnitInVehiclePattern[] =
+    "40 53 48 83 EC 20 32 DB 83 F9 FF 74 45 48 8B 05 ?? ?? ?? ?? "
+    "48 8B 50 48 48 85 D2 74 06 4C 8D 04 02 EB 03 45 33 C0 "
+    "0F B7 C9 48 8D 04 49 49 8D 0C 80 E8 ?? ?? ?? ?? 0F B6 CB "
+    "BA 01 00 00 00 66 83 B8 10 02 00 00 FF 0F 45 CA";
 
 // ---------------------------------------------------------------------------
 // E-H2-40 / E-H2-41 (C-H2-47): Halo 2 tags its own hands.
@@ -4581,6 +4598,118 @@ inline bool Halo2OwnFinalFirstPersonPackets(
     std::memcpy(gunMatrices, stagedGun,
                 static_cast<size_t>(gunCount) * kHalo2FirstPersonNodeStride);
     return out.applied;
+}
+
+// H2EK 306E04 merges both slots' authored hand remaps into one hands packet,
+// then emits a separate gun packet for each weapon. Slot 1 may omit the right
+// wrist entirely (confirmed by the 2026-09-05 live dual-slot capture). Preserve
+// the primary transaction and replace only the secondary's actual left subtree
+// with a rigid hand/gun transform derived from that gun's completed native root.
+inline bool Halo2OwnDualFirstPersonPackets(
+    float* hands, uint32_t handsCount, const int32_t* primaryRemap,
+    const Halo2FirstPersonArmBinding& primaryBinding,
+    float* primaryGun, uint32_t primaryCount,
+    const int32_t* secondaryRemap,
+    const Halo2FirstPersonArmBinding& secondaryBinding,
+    float* secondaryGun, uint32_t secondaryCount,
+    const Halo2CameraBasis& authoredRoot,
+    const Halo2CameraBasis& rightCarrier, const Halo2CameraBasis& leftCarrier,
+    float rightScale, float leftScale, float worldScale,
+    Halo2FinalPacketOwnershipResult& out) noexcept
+{
+    out={};
+    if(!hands || !primaryRemap || !primaryGun || !secondaryRemap || !secondaryGun ||
+        !handsCount || handsCount>kHalo2FirstPersonPaletteCapacity ||
+        !primaryCount || primaryCount>kHalo2FirstPersonPaletteCapacity ||
+        !secondaryCount || secondaryCount>kHalo2FirstPersonPaletteCapacity ||
+        !primaryBinding.valid || !primaryBinding.count ||
+        primaryBinding.count>kHalo2FirstPersonPaletteCapacity ||
+        !secondaryBinding.valid || !secondaryBinding.count ||
+        secondaryBinding.count>kHalo2FirstPersonPaletteCapacity ||
+        secondaryBinding.rigKind!=primaryBinding.rigKind)
+        return false;
+    int leftWrist=-1;
+    uint64_t leftDestinations=0;
+    for(uint32_t destination=0;destination<handsCount;++destination)
+    {
+        const int32_t source=secondaryRemap[destination];
+        const int32_t primarySource=primaryRemap[destination];
+        if(source < -1 || source>=static_cast<int32_t>(secondaryBinding.count) ||
+            primarySource < -1 || primarySource>=static_cast<int32_t>(primaryBinding.count))
+            return false;
+        if(source==secondaryBinding.leftWrist)
+        {
+            if(leftWrist!=-1) return false;
+            leftWrist=static_cast<int>(destination);
+        }
+        if(source>=0 && (secondaryBinding.leftSubtree&(uint64_t{1}<<source)))
+        {
+            // A malformed map may not transfer a primary right-hand bone to
+            // the secondary transaction.
+            if(primarySource>=0 &&
+                (primaryBinding.rightSubtree&(uint64_t{1}<<primarySource)))
+                return false;
+            leftDestinations|=uint64_t{1}<<destination;
+        }
+    }
+    if(leftWrist<0 || !(leftDestinations&(uint64_t{1}<<leftWrist))) return false;
+    Halo2FirstPersonTransform stockLeft{},stockGun{},leftDelta{},desiredLeft{};
+    if(!Halo2ReadFirstPersonTransform(
+            hands+leftWrist*kHalo2FirstPersonNodeFloats,stockLeft) ||
+        !Halo2ReadFirstPersonTransform(secondaryGun,stockGun) ||
+        !Halo2BuildAuthoredBarrelDelta(stockLeft,stockGun,authoredRoot,
+            leftCarrier,leftScale,leftDelta,desiredLeft) ||
+        !Halo2FirstPersonWristDeltaPlausible(stockLeft,desiredLeft,worldScale))
+        return false;
+    float stagedHands[kHalo2FirstPersonPaletteCapacity*kHalo2FirstPersonNodeFloats]{};
+    float stagedPrimary[kHalo2FirstPersonPaletteCapacity*kHalo2FirstPersonNodeFloats]{};
+    float stagedSecondary[kHalo2FirstPersonPaletteCapacity*kHalo2FirstPersonNodeFloats]{};
+    const size_t handsBytes=handsCount*kHalo2FirstPersonNodeStride;
+    const size_t primaryBytes=primaryCount*kHalo2FirstPersonNodeStride;
+    const size_t secondaryBytes=secondaryCount*kHalo2FirstPersonNodeStride;
+    std::memcpy(stagedHands,hands,handsBytes);
+    std::memcpy(stagedPrimary,primaryGun,primaryBytes);
+    Halo2FinalPacketOwnershipResult result{};
+    if(!Halo2OwnFinalFirstPersonPackets(stagedHands,handsCount,primaryRemap,
+            primaryBinding,stagedPrimary,primaryCount,authoredRoot,
+            rightCarrier,leftCarrier,false,rightScale,leftScale,worldScale,result))
+        return false;
+    result.leftNodes=0;
+    for(uint32_t destination=0;destination<handsCount;++destination)
+    {
+        if(!(leftDestinations&(uint64_t{1}<<destination))) continue;
+        Halo2FirstPersonTransform stock{},moved{};
+        if(!Halo2ReadFirstPersonTransform(
+                hands+destination*kHalo2FirstPersonNodeFloats,stock) ||
+            !Halo2ComposeFirstPersonTransforms(leftDelta,stock,moved))
+            return false;
+        Halo2WriteFirstPersonTransform(moved,
+            stagedHands+destination*kHalo2FirstPersonNodeFloats);
+        ++result.leftNodes;
+    }
+    for(uint32_t node=0;node<secondaryCount;++node)
+    {
+        Halo2FirstPersonTransform stock{},moved{};
+        if(!Halo2ReadFirstPersonTransform(
+                secondaryGun+node*kHalo2FirstPersonNodeFloats,stock) ||
+            !Halo2ComposeFirstPersonTransforms(leftDelta,stock,moved))
+            return false;
+        Halo2WriteFirstPersonTransform(moved,
+            stagedSecondary+node*kHalo2FirstPersonNodeFloats);
+    }
+    float distanceSquared=0;
+    for(int axis=0;axis<3;++axis)
+    {
+        const float delta=desiredLeft.translation[axis]-stockLeft.translation[axis];
+        distanceSquared+=delta*delta;
+    }
+    result.leftWristDeltaWorld=std::sqrt(distanceSquared);
+    result.gunNodes+=secondaryCount;
+    std::memcpy(hands,stagedHands,handsBytes);
+    std::memcpy(primaryGun,stagedPrimary,primaryBytes);
+    std::memcpy(secondaryGun,stagedSecondary,secondaryBytes);
+    out=result;
+    return true;
 }
 
 // True when the two bases are so close the re-anchor would be a no-op.
