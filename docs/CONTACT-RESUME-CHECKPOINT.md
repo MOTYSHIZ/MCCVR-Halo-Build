@@ -1,5 +1,11 @@
 # Contact work resume checkpoint, 2026-09-07
 
+> SUPERSEDED for the current task by
+> [MELEE-DUAL-RESUME-CHECKPOINT-2026-09-08.md](MELEE-DUAL-RESUME-CHECKPOINT-2026-09-08.md).
+> User explicitly paused work for usage limits. Wait for their resume request.
+> The September 8 checkpoint records accepted 4e01f28, in-progress H2 dual aim,
+> unfinished left-handed UI, and ALL-title ordinary-campaign dual-wield scope.
+
 Read this alongside `CONTACT-PASS-REQUEST-CHECKLIST.md` and
 `PHYSICAL-CONTACT-MELEE-WORK.md`; neither the accepted pointer nor delivery scope
 has changed. This compact checkpoint exists to survive interrupted compaction.
