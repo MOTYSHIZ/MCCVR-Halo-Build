@@ -1,5 +1,24 @@
 # Current state
 
+> **CURRENT ACCEPTED PHYSICAL MELEE BASELINE: `4e01f28` (user headset,
+> 2026-09-08).** Source `4e01f28b3ec5f5f8f533ac66d94978509cbcea54`,
+> DLL SHA-256 `BE25108E16209DDB5ECF82D39C1EAB7B6982F0B3AC50F7DB8966B20D3630B21F`.
+> Build `out/candidates/HaloMCCVR-4e01f28-Physical-and-Gesture-Melee-Test.zip`;
+> matching source `HaloMCCVR-4e01f28-Physical-and-Gesture-Melee-Source.zip`.
+> User tested all supported titles and confirms responsive, precise physical
+> melee with both hands. Exception: left-hand impact with the SMG in the modded
+> ODST Mythic Overhaul campaign. H2 dual-wield hand rendering is improved, but
+> the secondary gun does not yet have independent bullet direction. Gesture
+> mode, fully unarmed damage selection and secondary-weapon damage response
+> selection are not separately accepted by this report. New work: refine
+> melee, finish independent dual wield, and add optional left-hand main weapon
+> and aiming. GitHub publishing is explicitly deferred until a satisfactory ZIP.
+> Log: Steam, SteamVR/OpenXR 2.17.8, Oculus-family, panel 120 Hz, app cadence
+> 60 Hz. Prior user identification is Quest 3; this log names no exact model.
+> Preserved `out/test-runs/4e01f28-accepted-feedback/user.log`, SHA-256
+> `BD269C3800377EEDC2369BEA174D3ACA4A0000AEC655B12E8C03176DA2977DB1`.
+> Package only; no game-folder writes, installation or launch.
+
 > **CURRENT ACCEPTED CONTACT / MELEE BASELINE: `ad7fbf5` (user headset,
 > 2026-09-05).** Source `ad7fbf54e553db7ec4831f369f25088fd1a097c7`,
 > DLL SHA-256 `18363917C2A503A233C6A1D999F1D53F3C3B74A4000EA5BC0E3912AC0731594C`.
