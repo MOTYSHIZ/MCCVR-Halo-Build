@@ -114,7 +114,9 @@ try {
         $gameSource -notmatch
             '!soleHalo4Title\s*\|\|\s*!levelRunning' -or
         $gameSource -notmatch
-            'Halo 3 hook epoch retired at the level-liveness boundary' -or
+            'hookRefreshPending\s*=\s*!RemoveInstalledGameHooks\(\)' -or
+        $gameSource -notmatch
+            'Halo 3 hook epoch retirement at level-liveness boundary' -or
         $gameSource -notmatch
             'ODST level-liveness boundary: retiring hooks' -or
         $guardSource -notmatch
@@ -139,7 +141,7 @@ try {
         $halo2WorldCollisionLogicSource -notmatch
             'Halo2ResolveWorldCollision' -or
         $gameSource -notmatch
-            'Halo2Observer6Dof_WorldCollisionActive\s*\(\s*\)' -or
+            'Halo2Observer6Dof_Armed\s*\(\s*\)\s*&&\s*Halo2Observer6Dof_FinalPaletteArmed\s*\(\s*\)' -or
         $coreTestsSource -notmatch
             'Halo 2 visible packets select stable root and model extrema') {
         throw 'Halo 2 world-contact gate failed: H2EK collision/object identities, final-packet volume, fail-open admission, or pure-logic coverage is missing.'
