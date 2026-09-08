@@ -569,11 +569,9 @@ struct Config
     // expressible in the engine's uniform-scale bone format; moving bone
     // origins just translated the rigid gun mesh.)
 
-    // Fixed mounting rotation between the weapon bone's authored frame and
-    // the controller (degrees). Rotates ONLY the visible gun + muzzle flash;
-    // the cursor/bullet ray stays fixed on the controller, so tune these
-    // until the barrel lies on the cursor line. Tune LIVE in the F1 menu;
-    // save keeps your calibration.
+    // Shared controller aim calibration (degrees). ComputeAimPose applies it
+    // to the aim ray, reticle and weapon together. Keep the historical keys
+    // and saved calibration; use barrel_* below for visual-only alignment.
     float gun_pitch_deg = -3.0f;
     float gun_yaw_deg = 0.0f;
     float gun_roll_deg = 0.0f;
@@ -832,6 +830,7 @@ struct Config
     // fast tracking-space controller swing asks the active proven title for
     // its normal melee input so the engine retains range, damage and animation.
     bool physical_melee = false;
+    bool gesture_melee = false;
     float physical_melee_swing_speed = 5.0f;
 
     // Lower the RIGHT (weapon) shoulder so Master Chief's arm doesn't clip up

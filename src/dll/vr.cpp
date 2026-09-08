@@ -1,3 +1,4 @@
+#include "../common/vr_interaction_refinement_logic.h"
 #include <windows.h>
 #include <tlhelp32.h>
 #include <d3d11.h>
@@ -90,6 +91,12 @@ namespace
     XrSystemId g_systemId = XR_NULL_SYSTEM_ID;
     XrSession g_session = XR_NULL_HANDLE;
     XrSpace g_localSpace = XR_NULL_HANDLE; // world-fixed, origin = headset pose at session start
+    std::atomic<int64_t> g_contactSpaceChangeAtNs{0};
+    std::atomic<uint64_t> g_contactSpaceEpoch{1};
+    VrContactTrackingSnapshot g_contactTrackingSnapshots[2]{};
+    std::atomic<uint32_t> g_contactTrackingStates[2]{};
+    std::atomic<uint32_t> g_contactTrackingIndex{2};
+    constexpr uint32_t kContactTrackingWriter=UINT32_MAX;
     XrSpace g_viewSpace = XR_NULL_HANDLE;  // follows the headset; used for recentering
     XrActionSet g_gameplayActions = XR_NULL_HANDLE;
     XrAction g_rightAimAction = XR_NULL_HANDLE;
@@ -647,6 +654,7 @@ namespace
     bool g_headPoseValid = false;
     XrPosef g_rightAimPose{{0, 0, 0, 1}, {0, 0, 0}};
     bool g_rightAimPoseValid = false;
+    PhysicalMeleeSpeedHistory g_meleeSpeedHistory[2]{};
     XrVector3f g_rightAimLinearVelocity{};
     bool g_rightAimLinearVelocityValid = false;
     uint64_t g_rightAimLinearVelocityAtMs = 0;
@@ -5734,6 +5742,19 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         {
             switch (ev.type)
             {
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
+            {
+                const auto& change = *reinterpret_cast<const XrEventDataReferenceSpaceChangePending*>(&ev);
+                if (change.session == g_session && change.referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL)
+                {
+                    // Inhibit contact motion until the new space actually
+                    // takes effect; an epoch bump at notification time alone
+                    // would allow a later origin jump to look like a punch.
+                    g_contactSpaceChangeAtNs.store(change.changeTime, std::memory_order_release);
+                    g_contactSpaceEpoch.fetch_add(1, std::memory_order_acq_rel);
+                }
+                break;
+            }
             case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
             {
                 auto& sc = *reinterpret_cast<XrEventDataSessionStateChanged*>(&ev);
@@ -7616,6 +7637,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_leftAimLinearVelocity = selectedLeftVelocity;
         g_leftAimLinearVelocityAtMs = g_leftAimLinearVelocityValid
             ? GetTickCount64() : 0;
+        const auto recordMeleeSpeed=[](int hand,bool valid,const XrVector3f& velocity)
+        {
+            const float speed=std::sqrt(velocity.x*velocity.x+velocity.y*velocity.y+velocity.z*velocity.z);
+            g_meleeSpeedHistory[hand].Update(GetTickCount64(),
+                valid && (g_config.physical_melee || g_config.gesture_melee),speed);
+        };
+        recordMeleeSpeed(0,g_leftAimLinearVelocityValid,g_leftAimLinearVelocity);
+        recordMeleeSpeed(1,g_rightAimLinearVelocityValid,g_rightAimLinearVelocity);
         LeaveCriticalSection(&g_headCs);
         static bool loggedPoseVelocityFallback=false;
         if((rightUsedPoseDerived || leftUsedPoseDerived) &&
@@ -7933,6 +7962,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             Fail("Could not create the LOCAL reference space");
             return false;
         }
+        g_contactSpaceChangeAtNs.store(0, std::memory_order_release);
+        g_contactSpaceEpoch.fetch_add(1, std::memory_order_acq_rel);
         rsci.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
         if (XR_FAILED(xrCreateReferenceSpace(g_session, &rsci, &g_viewSpace)))
         {
@@ -8138,6 +8169,44 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     bool LocateViewsForUpcomingRender(XrTime displayTime);
 
+    void PublishContactTrackingSnapshot(uint64_t serial,bool trackingFresh) noexcept
+    {
+        VrContactTrackingSnapshot next{};
+        next.serial=serial;
+        next.timeNs=g_preparedFrame.state.predictedDisplayTime;
+        const int64_t pending=g_contactSpaceChangeAtNs.load(std::memory_order_acquire);
+        if(!pending || next.timeNs>=pending)
+            next.referenceEpoch=g_contactSpaceEpoch.load(std::memory_order_acquire);
+        const bool rightFresh=trackingFresh && g_rightAimPoseValid;
+        const bool leftFresh=trackingFresh && g_leftAimPoseValid;
+        const AimPoseResult aim=ComputeAimPose(CurrentAimPoseInputs(
+            rightFresh,g_rightAimPose,leftFresh,g_leftAimPose));
+        next.twoHandAimActive=aim.valid && aim.twoHandActive;
+        auto physicalInputs=CurrentAimPoseInputs(rightFresh,g_rightAimPose,leftFresh,g_leftAimPose);
+        physicalInputs.twoHandEnabled=false;
+        const AimPoseResult physical=ComputeAimPose(physicalInputs);
+        const XrPosef poses[2]{g_leftAimPose,physical.pose};
+        next.hands[0].valid=leftFresh;
+        next.hands[1].valid=physical.valid;
+        for(unsigned hand=0;hand<2;++hand)
+        {
+            if(!next.hands[hand].valid) continue;
+            const auto& pose=poses[hand];
+            const float q[]{pose.orientation.x,pose.orientation.y,pose.orientation.z,pose.orientation.w};
+            const float p[]{pose.position.x,pose.position.y,pose.position.z};
+            memcpy(next.hands[hand].orientation,q,sizeof(q));
+            memcpy(next.hands[hand].position,p,sizeof(p));
+        }
+        const uint32_t current=g_contactTrackingIndex.load(std::memory_order_seq_cst);
+        const uint32_t target=current<2 ? 1-current : 0;
+        uint32_t expected=0;
+        if(!g_contactTrackingStates[target].compare_exchange_strong(
+                expected,kContactTrackingWriter,std::memory_order_seq_cst)) return;
+        g_contactTrackingSnapshots[target]=next;
+        g_contactTrackingIndex.store(target,std::memory_order_seq_cst);
+        g_contactTrackingStates[target].store(0,std::memory_order_seq_cst);
+    }
+
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
     bool PublishReachRenderSnapshot(
         uint64_t preparedSerial, bool padFresh) noexcept
@@ -8147,6 +8216,26 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
         ReachVrRenderSnapshot next{};
         next.preparedSerial = preparedSerial;
+        auto physicalInputs=CurrentAimPoseInputs(padFresh && g_rightAimPoseValid,
+            g_rightAimPose,padFresh && g_leftAimPoseValid,g_leftAimPose);
+        physicalInputs.twoHandEnabled=false;
+        const AimPoseResult physical=ComputeAimPose(physicalInputs);
+        next.rightPhysicalValid=physical.valid;
+        if(physical.valid)
+        {
+            next.rightPhysicalOrientation[0]=physical.pose.orientation.x;
+            next.rightPhysicalOrientation[1]=physical.pose.orientation.y;
+            next.rightPhysicalOrientation[2]=physical.pose.orientation.z;
+            next.rightPhysicalOrientation[3]=physical.pose.orientation.w;
+        }
+        next.predictedDisplayTimeNs = g_preparedFrame.state.predictedDisplayTime;
+        const int64_t spaceChangeAt = g_contactSpaceChangeAtNs.load(std::memory_order_acquire);
+        if (!spaceChangeAt || next.predictedDisplayTimeNs >= spaceChangeAt)
+        {
+            next.trackingSpaceEpoch = g_contactSpaceEpoch.load(std::memory_order_acquire);
+            if (spaceChangeAt)
+                g_contactSpaceChangeAtNs.store(0, std::memory_order_release);
+        }
         next.headOrientation[0] = g_headPose.orientation.x;
         next.headOrientation[1] = g_headPose.orientation.y;
         next.headOrientation[2] = g_headPose.orientation.z;
@@ -8247,6 +8336,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
         Halo2VrRenderSnapshot next{};
         next.preparedSerial = preparedSerial;
+        next.predictedDisplayTimeNs = g_preparedFrame.state.predictedDisplayTime;
+        const int64_t pendingSpaceChange = g_contactSpaceChangeAtNs.load(std::memory_order_acquire);
+        if(!pendingSpaceChange || next.predictedDisplayTimeNs>=pendingSpaceChange)
+            next.trackingSpaceEpoch=g_contactSpaceEpoch.load(std::memory_order_acquire);
         next.predictedDisplayPeriodNs =
             g_preparedFrame.state.predictedDisplayPeriod > 0
             ? static_cast<uint64_t>(
@@ -8257,6 +8350,19 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             ? static_cast<uint64_t>(g_preparedFrame.predictedDisplayDelta)
             : 0;
         next.generation = generation;
+        AimPoseInputs independentInputs = CurrentAimPoseInputs(
+            padFresh && g_rightAimPoseValid, g_rightAimPose,
+            padFresh && g_leftAimPoseValid, g_leftAimPose);
+        independentInputs.twoHandEnabled = false;
+        const AimPoseResult independentAim = ComputeAimPose(independentInputs);
+        next.independentRightAimValid = independentAim.valid;
+        if (independentAim.valid)
+        {
+            next.independentRightAimOrientation[0] = independentAim.pose.orientation.x;
+            next.independentRightAimOrientation[1] = independentAim.pose.orientation.y;
+            next.independentRightAimOrientation[2] = independentAim.pose.orientation.z;
+            next.independentRightAimOrientation[3] = independentAim.pose.orientation.w;
+        }
         next.headOrientation[0] = g_headPose.orientation.x;
         next.headOrientation[1] = g_headPose.orientation.y;
         next.headOrientation[2] = g_headPose.orientation.z;
@@ -9014,6 +9120,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 g_preparedFrame.serial, upcomingPadFresh);
 #endif
 
+        PublishContactTrackingSnapshot(g_preparedFrame.serial,
+            upcomingPadFresh && upcomingHeadValid && upcomingViewsValid);
         LARGE_INTEGER preparedAt{};
         QueryPerformanceCounter(&preparedAt);
         g_prepareQpcPublished.store(static_cast<uint64_t>(preparedAt.QuadPart),
@@ -14509,6 +14617,16 @@ bool VR_GetRightControllerPose(float outQuat[4], float outPos[3])
     return ok;
 }
 
+bool VR_GetPhysicalMeleeSpeed(bool left,float& speed)
+{
+    speed=-1.0f;
+    if(!g_headCsInit) return false;
+    EnterCriticalSection(&g_headCs);
+    const bool valid=g_meleeSpeedHistory[left?0:1].Read(GetTickCount64(),speed);
+    LeaveCriticalSection(&g_headCs);
+    return valid;
+}
+
 bool VR_GetControllerLinearVelocity(bool left, float outVelocity[3])
 {
     if (!g_headCsInit || !outVelocity)
@@ -14968,6 +15086,26 @@ void VR_SetReticleEnemy(bool enemy)
 }
 
 bool VR_IsTwoHandAiming() { return g_twoHandActive.load(); }
+
+bool VR_GetContactTrackingSnapshot(VrContactTrackingSnapshot& snapshot)
+{
+    snapshot={};
+    const uint32_t index=g_contactTrackingIndex.load(std::memory_order_seq_cst);
+    if(index>=2) return false;
+    uint32_t readers=g_contactTrackingStates[index].load(std::memory_order_seq_cst);
+    if(readers>=64 || !g_contactTrackingStates[index].compare_exchange_strong(
+            readers,readers+1,std::memory_order_seq_cst)) return false;
+    bool valid=false;
+    if(index==g_contactTrackingIndex.load(std::memory_order_seq_cst))
+    {
+        snapshot=g_contactTrackingSnapshots[index];
+        valid=snapshot.serial && snapshot.serial==
+            g_preparedSerialPublished.load(std::memory_order_acquire);
+    }
+    g_contactTrackingStates[index].fetch_sub(1,std::memory_order_seq_cst);
+    if(!valid) snapshot={};
+    return valid;
+}
 
 // The weapon-hand aim pose used by ALL aim consumers (bullet steering, the
 // reticle, and the visible-gun barrel). Position is always the right hand.

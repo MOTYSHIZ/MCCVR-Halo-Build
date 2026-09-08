@@ -1030,11 +1030,20 @@ namespace
                             "1.00 = authored size. Separate because the left hand is\n"
                             "usually empty; use Match weapon for identical hands.\n"
                             "Its front/back position is \"Left hand forward offset\" below.");
-        changed |= ImGui::SliderFloat("Weapon pitch (deg)", &g_config.gun_pitch_deg, -180.0f, 180.0f, "%.0f");
-        changed |= ImGui::SliderFloat("Weapon yaw (deg)", &g_config.gun_yaw_deg, -180.0f, 180.0f, "%.0f");
-        changed |= ImGui::SliderFloat("Weapon roll (deg)", &g_config.gun_roll_deg, -180.0f, 180.0f, "%.0f");
-        ImGui::TextDisabled("Pitch, yaw, and roll rotate on their matching local gun axes.");
-        ImGui::TextDisabled("0/0/0 keeps the current automatic barrel alignment.");
+        ImGui::Text("Visual gun alignment");
+        changed |= ImGui::SliderFloat("Gun alignment pitch (deg)", &g_config.barrel_pitch_deg, -180.0f, 180.0f, "%.1f");
+        changed |= ImGui::SliderFloat("Gun alignment yaw (deg)", &g_config.barrel_yaw_deg, -180.0f, 180.0f, "%.1f");
+        changed |= ImGui::SliderFloat("Gun alignment roll (deg)", &g_config.barrel_roll_deg, -180.0f, 180.0f, "%.1f");
+        if (ImGui::SmallButton("Reset visual rotation"))
+        {
+            g_config.barrel_pitch_deg = 0.0f;
+            g_config.barrel_yaw_deg = 0.0f;
+            g_config.barrel_roll_deg = 0.0f;
+            changed = true;
+        }
+        ImGui::TextDisabled("Align the visible barrel with the crosshair. These rotations\n"
+                            "move the gun and hands without changing the aiming ray.\n"
+                            "Saved separately for each game; zero restores automatic alignment.");
         changed |= ImGui::SliderFloat("Gun forward offset (m)", &g_config.gun_forward_m, -0.3f, 0.5f, "%.2f");
         ImGui::TextDisabled("Slides gun/arms along your aim. Negative seats the gun back in your fist.");
         changed |= ImGui::SliderFloat("Gun right offset (m)", &g_config.gun_right_m, -0.3f, 0.3f, "%.2f");
@@ -1046,6 +1055,15 @@ namespace
         ImGui::TextDisabled("Gun-stock calibration on the weapon's post-rotation right/up axes.");
 
         ImGui::TextDisabled("All supported VR titles; visual only, shots/reticle remain on controller aim.");
+        if (ImGui::TreeNode("Advanced controller aim calibration"))
+        {
+            ImGui::TextDisabled("These settings rotate the aiming direction and crosshair together.\n"
+                                "Use Visual gun alignment above to correct the drawn barrel instead.");
+            changed |= ImGui::SliderFloat("Aim pitch (deg)", &g_config.gun_pitch_deg, -180.0f, 180.0f, "%.1f");
+            changed |= ImGui::SliderFloat("Aim yaw (deg)", &g_config.gun_yaw_deg, -180.0f, 180.0f, "%.1f");
+            changed |= ImGui::SliderFloat("Aim roll (deg)", &g_config.gun_roll_deg, -180.0f, 180.0f, "%.1f");
+            ImGui::TreePop();
+        }
         ImGui::Spacing();
         ImGui::Text("Halo 2 Classic gun alignment");
         changed |= ImGui::SliderFloat(
@@ -1202,20 +1220,18 @@ namespace
                                    &g_config.world_collision);
         ImGui::TextDisabled("Hands and held weapons stop on the world and pulse gently on contact.\n"
                             "Available in Halo 2, Halo 3, ODST, Reach, and Halo 4.");
-        if (g_config.world_collision)
+        changed |= ImGui::Checkbox("True physical melee (experimental)",
+                                   &g_config.physical_melee);
+        ImGui::TextDisabled("Strike a target with either hand or its held gun. Works with world collision on or off.");
+        changed |= ImGui::Checkbox("Gesture melee (experimental)", &g_config.gesture_melee);
+        ImGui::TextDisabled("A fast swing activates the game's configured melee binding.");
+        ImGui::TextDisabled("True physical melee takes priority when both modes are selected.");
+        if (g_config.physical_melee || g_config.gesture_melee)
         {
-            ImGui::Indent();
-            changed |= ImGui::Checkbox("Physical melee (experimental)",
-                                       &g_config.physical_melee);
-            ImGui::TextDisabled("A fast tracked hand/weapon swing requests native melee; Halo decides range and target.");
-            if (g_config.physical_melee)
-            {
-                changed |= ImGui::SliderFloat(
-                    "Required swing speed", &g_config.physical_melee_swing_speed,
-                    0.3f, 5.0f, "%.2f m/s");
-                ImGui::TextDisabled("Lower is more sensitive; 5.00 m/s is the default and needs a fast swing.");
-            }
-            ImGui::Unindent();
+            changed |= ImGui::SliderFloat(
+                "Required swing speed", &g_config.physical_melee_swing_speed,
+                0.3f, 5.0f, "%.2f m/s");
+            ImGui::TextDisabled("Lower is more sensitive; 5.00 m/s is the default and needs a fast swing.");
         }
         ImGui::Spacing();
         changed |= ImGui::Checkbox("Show body (VRIK stage A1)", &g_config.body_wip);

@@ -1,3 +1,6 @@
+#include "../src/common/vr_interaction_refinement_logic.h"
+#include "../src/common/contact_melee_motion.h"
+#include "../src/dll/contact_melee_queue.h"
 #include <array>
 #include <cstdlib>
 #include <cmath>
@@ -30,6 +33,8 @@
 #include "halo2_hud_logic.h"
 #include "halo2_hud_shader_logic.h"
 #include "halo2_render_logic.h"
+#include "halo2_contact_melee_logic.h"
+#include "halo4_contact_melee_logic.h"
 #include "halo2_world_collision_logic.h"
 #include "reach_hand_shot_logic.h"
 #include "halo4_adapter.h"
@@ -182,6 +187,378 @@ namespace
 
 int main()
 {
+    {
+        using namespace contact_melee;
+        bool mapping=true, timing=true, actorExcluded=true, reset=true;
+        for(int hz:{60,72,90,120,144,240})
+        for(float scale:{0.164f,0.328f,0.656f})
+        for(bool mirrored:{false,true})
+        {
+            Halo4ControllerWorldPoseInput input{};
+            input.worldScale=scale;
+            input.mirrored=mirrored;
+            input.gameYawReference=0.7f;
+            input.headYawReference=0.4f;
+            input.bodyOrigin[0]=30;
+            input.bodyOrigin[1]=-40;
+            input.controllerPosition[0]=0.2f;
+            input.controllerPosition[1]=1.2f;
+            input.controllerPosition[2]=-0.3f;
+            const auto prepare=[&](uint64_t serial,Frame& frame,bool valid=true)
+            {
+                return Halo4PreparePhysicalContactFrame(input,valid,serial,
+                    1'000'000'000+int64_t(serial-1)*1'000'000'000/hz,
+                    4,7,0x12340001,17,1,frame);
+            };
+            Frame frame{};
+            mapping &= prepare(1,frame);
+            Halo4ControllerWorldPose visible{};
+            mapping &= Halo4BuildControllerWorldPose(input,visible);
+            auto world=frame.transform.World(frame.controllerPose.origin);
+            mapping &= std::abs(world.x-visible.position[0])<0.00001f &&
+                std::abs(world.y-visible.position[1])<0.00001f &&
+                std::abs(world.z-visible.position[2])<0.00001f;
+            const uint64_t epoch=frame.referenceEpoch;
+            frame.count=1;
+            frame.points[0]=frame.controllerPose.origin;
+            Motion motion;
+            Sweeps sweeps;
+            motion.Advance(frame,5,sweeps);
+            input.controllerPosition[0]+=6.0f/hz;
+            prepare(2,frame);
+            frame.count=1;
+            frame.points[0]=frame.controllerPose.origin;
+            motion.Advance(frame,5,sweeps);
+            timing &= sweeps.count==1 &&
+                std::abs(sweeps.values[0].speedMetresPerSecond-6)<0.001f;
+            input.bodyOrigin[0]+=20;
+            input.gameYawReference+=0.9f;
+            prepare(3,frame);
+            frame.count=1;
+            frame.points[0]=frame.controllerPose.origin;
+            motion.Advance(frame,5,sweeps);
+            actorExcluded &= !sweeps.count && frame.referenceEpoch==epoch;
+            input.headYawReference+=0.5f;
+            prepare(4,frame);
+            frame.count=1;
+            frame.points[0]=frame.controllerPose.origin;
+            motion.Advance(frame,5,sweeps);
+            reset &= !sweeps.count && frame.referenceEpoch!=epoch;
+            reset &= !prepare(5,frame,false) && !frame.referenceEpoch;
+            motion.Advance(frame,5,sweeps);
+            input.controllerPosition[0]+=1;
+            prepare(6,frame);
+            frame.count=1;
+            frame.points[0]=frame.controllerPose.origin;
+            motion.Advance(frame,5,sweeps);
+            reset &= !sweeps.count;
+        }
+        Check(mapping,"H4 physical contact matches its accepted mirrored/unmirrored carrier position");
+        Check(timing,"H4 physical swing speed is stable at 60-240 Hz and three world scales");
+        Check(actorExcluded,"H4 walking and body turning cannot create physical strikes");
+        Check(reset,"H4 recenter and tracking reacquisition discard discontinuous motion");
+    }
+    {
+        using namespace contact_melee;
+        bool elapsedTime=true,independent=true;
+        for(int hz:{60,72,90,120,144,240}) for(float scale:{0.164f,0.328f,0.656f})
+        {
+            Halo2ObserverPosePublication publication{};
+            publication.generation=7;
+            publication.serial=1;
+            publication.stock.forward[0]=1;
+            publication.stock.up[2]=1;
+            publication.snapshot.valid=true;
+            publication.snapshot.trackingSpaceEpoch=4;
+            publication.snapshot.predictedDisplayTimeNs=1'000'000'000;
+            publication.snapshot.leftControllerValid=true;
+            publication.snapshot.independentRightAimValid=true;
+            Frame frames[2]{};
+            Motion motion[2];
+            Sweeps sweeps{};
+            for(unsigned hand=0;hand<2;++hand)
+            {
+                elapsedTime &= Halo2PreparePhysicalContactFrame(publication,hand,
+                    0x81230009,5,scale,11,frames[hand]);
+                frames[hand].count=1;
+                frames[hand].points[0]=frames[hand].controllerPose.origin;
+                elapsedTime &= motion[hand].Advance(frames[hand],5,sweeps)==AdvanceResult::Seeded;
+            }
+            const int64_t dt=1'000'000'000/hz;
+            publication.serial++;
+            publication.snapshot.predictedDisplayTimeNs+=dt;
+            const float distance=float(double(dt)*6e-9);
+            publication.snapshot.leftControllerPosition[0]=-distance;
+            publication.snapshot.rightAimPosition[0]=distance;
+            // The actor moved independently. Both ends must use this NEW frame.
+            publication.stock.position[0]=20;
+            // A support-grip solver rotates visual aim; use physical right pose.
+            publication.snapshot.twoHandAimActive=true;
+            publication.snapshot.rightAimOrientation[1]=0.5f;
+            publication.snapshot.rightAimOrientation[3]=0.8660254f;
+            for(unsigned hand=0;hand<2;++hand)
+            {
+                elapsedTime &= Halo2PreparePhysicalContactFrame(publication,hand,
+                    0x81230009,5,scale,11,frames[hand]);
+                frames[hand].count=1;
+                frames[hand].points[0]=frames[hand].controllerPose.origin;
+                elapsedTime &= motion[hand].Advance(frames[hand],5,sweeps)==AdvanceResult::Advanced &&
+                    sweeps.count==1 && std::abs(sweeps.values[0].speedMetresPerSecond-6)<0.001f;
+                independent &= sweeps.count==1 &&
+                    (hand==0 ? sweeps.values[0].trackingDirection.x<-.99f :
+                        sweeps.values[0].trackingDirection.x>.99f) &&
+                    std::abs(sweeps.values[0].start.x-20)<0.001f &&
+                    frames[hand].controllerPose.axis[0].x==1;
+                elapsedTime &= motion[hand].Advance(frames[hand],5,sweeps)==AdvanceResult::Duplicate;
+            }
+            publication.serial++;
+            publication.snapshot.predictedDisplayTimeNs+=dt;
+            publication.referencePosition[0]=1;
+            elapsedTime &= Halo2PreparePhysicalContactFrame(publication,1,0x81230009,5,scale,11,frames[1]);
+            frames[1].count=1;
+            elapsedTime &= motion[1].Advance(frames[1],5,sweeps)==AdvanceResult::Seeded;
+            publication.snapshot.independentRightAimValid=false;
+            elapsedTime &= !Halo2PreparePhysicalContactFrame(publication,1,0x81230009,5,scale,11,frames[1]) &&
+                motion[1].Advance(frames[1],5,sweeps)==AdvanceResult::Rejected;
+        }
+        Check(elapsedTime,"H2 physical frames retain elapsed-time speed at 60-240 Hz, deduplicate eyes and reset on recenter/tracking loss");
+        Check(independent,"H2 physical hands move independently without actor motion or support-hand aim manufacturing velocity");
+    }
+    {
+        ContactMeleeQueue queue;
+        ContactMeleePacket packet{},received{};
+        packet.generation=7;
+        packet.frame.unit=0x81230009;
+        packet.frame.count=contact_melee::kMaxPoints;
+        bool preserved=true;
+        // Fill without a consumer: reject new work rather than overwrite a
+        // queued strike. A duplicate eye is harmless even under backpressure.
+        for(uint64_t serial=1;serial<=8;++serial)
+        {
+            packet.frame.serial=serial;
+            packet.frame.points[79].x=static_cast<float>(serial);
+            preserved &= queue.Push(packet)==2;
+        }
+        preserved &= queue.Push(packet)==1;
+        packet.frame.serial=9;
+        preserved &= queue.Push(packet)==0;
+        for(uint64_t serial=1;serial<=8;++serial)
+            preserved &= queue.Pop(received) && received.frame.serial==serial &&
+                received.frame.points[79].x==static_cast<float>(serial) &&
+                received.frame.unit==0x81230009 && received.generation==7;
+        preserved &= !queue.Pop(received);
+        // Exercise many ring wraps and re-use after a title epoch retirement.
+        for(uint64_t serial=9;serial<=1000;++serial)
+        {
+            packet.frame.serial=serial;
+            preserved &= queue.Push(packet)==2 && queue.Pop(received) &&
+                received.frame.serial==serial;
+        }
+        queue.Reset();
+        packet.frame.serial=1;
+        packet.generation=8;
+        preserved &= queue.Push(packet)==2 && queue.Pop(received) &&
+            received.generation==8 && !queue.Pop(received);
+        Check(preserved,"Native contact queue preserves complete frames, rejects overflow, deduplicates eyes, wraps and resets between epochs");
+    }
+
+    {
+        using namespace contact_melee;
+        // A small scene independent of the motion implementation: a target
+        // plane at x=.05, optionally occluded by a wall at x=.025.
+        struct Scene
+        {
+            bool wall=false, accept=true;
+            unsigned applications=0;
+            uint32_t damaged=UINT32_MAX;
+            bool Query(const Sweep& sweep,Hit& hit) noexcept
+            {
+                const float dx=sweep.end.x-sweep.start.x;
+                if (std::abs(dx)<1e-6f) return false;
+                const float t=((wall ? 0.025f : 0.05f)-sweep.start.x)/dx;
+                if (t<0 || t>1) return false;
+                hit={0xCAFE0002,{sweep.start.x+t*dx,0,0},{-1,0,0},t,!wall};
+                return true;
+            }
+            bool Apply(uint32_t, const Hit& hit,const Sweep&) noexcept
+            {
+                if (!accept) return false;
+                ++applications; damaged=hit.unit; return true;
+            }
+        } scene;
+        Frame frame;
+        frame.referenceEpoch=1; frame.shape=1; frame.unit=0x12340001;
+        frame.serial=1; frame.timeNs=1'000'000'000; frame.count=2;
+        Hand hands[2];
+        for (auto& hand:hands) hand.Process(frame,5,scene);
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.points[0].x=frame.points[1].x=0.06f;
+        for (auto& hand:hands)
+            Check(hand.Process(frame,5,scene)==ContactResult::Applied,
+                "both physical hands can hit the actual NPC in the same time interval");
+        Check(scene.applications==2 && scene.damaged==0xCAFE0002,
+            "multiple hand/gun collider hits produce one native damage submission per hand");
+        for (auto& hand:hands) hand.Process(frame,5,scene);
+        Check(scene.applications==2,"duplicate eyes cannot repeat a contact damage submission");
+        for (unsigned sample=0; sample<10; ++sample)
+        {
+            frame.serial++; frame.timeNs+=10'000'000;
+            frame.points[0].x+=0.06f; frame.points[1].x+=0.06f;
+            for (auto& hand:hands) hand.Process(frame,5,scene);
+        }
+        Check(scene.applications==2,"a continuing punch does not repeatedly damage the same NPC");
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.points[0].x=frame.points[1].x=0;
+        for (auto& hand:hands) hand.Process(frame,5,scene);
+        Check(scene.applications==2,"withdrawing a fist rearms without a backwards duplicate hit");
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.points[0].x=frame.points[1].x=0.06f;
+        hands[0].Process(frame,5,scene);
+        Check(scene.applications==3,"a retracted hand can deliver the next boxing punch");
+
+        for (int scenario=0; scenario<3; ++scenario)
+        {
+            Hand hand;
+            Scene other;
+            other.wall=scenario==0; other.accept=scenario!=1;
+            frame.serial++; frame.timeNs+=10'000'000;
+            frame.points[0].x=frame.points[1].x=0;
+            if (scenario==2) frame.unit=0xCAFE0002;
+            hand.Process(frame,5,other);
+            frame.serial++; frame.timeNs+=10'000'000;
+            frame.points[0].x=frame.points[1].x=0.06f;
+            const auto result=hand.Process(frame,5,other);
+            Check(!other.applications && result==(scenario==1
+                ? ContactResult::NativeRejected : ContactResult::NoStrike),
+                "walls, native rejection and self-contact never turn into fallback melee attacks");
+        }
+    }
+    {
+        using namespace contact_melee;
+        Frame frame;
+        frame.referenceEpoch=1; frame.shape=1; frame.unit=0x12340001;
+        frame.serial=1; frame.timeNs=1'000'000'000; frame.count=2;
+        frame.rigidMotion=true;
+        frame.points[1]={0.5f,0,0};
+        Motion motion;
+        Sweeps sweeps;
+        motion.Advance(frame,5,sweeps);
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.points[0]={0.1f,0,0}; frame.points[1]={0,0.5f,0};
+        motion.Advance(frame,5,sweeps);
+        Check(!sweeps.count,"reload and finger animation cannot become a punch with stationary controllers");
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.controllerPose.origin.x=0.06f;
+        frame.points[0].x+=0.06f; frame.points[1].x+=0.06f;
+        motion.Advance(frame,5,sweeps);
+        Check(sweeps.count==2 && std::abs(sweeps.values[0].speedMetresPerSecond-6)<0.001f,
+            "physical controller translation still sweeps animated hand and weapon geometry");
+        frame.serial++; frame.timeNs+=10'000'000;
+        constexpr float angle=0.12f;
+        const float q[4]={0,0,std::sin(angle/2),std::cos(angle/2)};
+        const float p[3]={0.06f,0,0};
+        Check(frame.controllerPose.SetPose(q,p),"contact controller pose accepts normalized OpenXR rotation");
+        frame.points[0]=frame.controllerPose.World({0.1f,0,0});
+        frame.points[1]=frame.controllerPose.World({0,0.5f,0});
+        motion.Advance(frame,5,sweeps);
+        Check(sweeps.count==1 && sweeps.values[0].pointIndex==1 &&
+            sweeps.values[0].speedMetresPerSecond>5.9f,
+            "rigid controller rotation qualifies a long weapon tip without wrist translation");
+        const float badQ[4]={0,0,0,0};
+        Check(!frame.controllerPose.SetPose(badQ,p),"zero controller quaternion is rejected");
+    }
+    // Analytic trajectories: a 6 m/s fist crosses a thin target even when no
+    // sampled endpoint is inside it. Test physical rates and engine scales.
+    for (const int hz : {60,72,80,90,120,144,165,240})
+    for (const float scale : {0.25f,1.0f,3.0f})
+    {
+        using namespace contact_melee;
+        Motion right, left;
+        Frame frame;
+        frame.referenceEpoch=1; frame.shape=1; frame.unit=0x12340001;
+        frame.count=1; frame.transform.unitsPerMetre=scale;
+        Sweeps sweeps;
+        bool crossed=false;
+        constexpr float targetX=0.317f;
+        for (int sample=0; sample<=hz/5; ++sample)
+        {
+            frame.timeNs=1'000'000'000+int64_t(std::llround(double(sample)*1e9/hz));
+            frame.serial=uint64_t(sample)+1;
+            frame.points[0].x=float(double(frame.timeNs-1'000'000'000)*6e-9);
+            const auto result=right.Advance(frame,5,sweeps);
+            if (sample)
+            {
+                Check(result==AdvanceResult::Advanced && sweeps.count==1 &&
+                    std::abs(sweeps.values[0].speedMetresPerSecond-6)<0.001f,
+                    "physical fist speed is independent of refresh rate and world scale");
+                const auto& sweep=sweeps.values[0];
+                crossed |= sweep.start.x<=targetX*scale && sweep.end.x>=targetX*scale;
+            }
+            Check(right.Advance(frame,5,sweeps)==AdvanceResult::Duplicate && !sweeps.count,
+                "the second eye cannot produce another melee sweep");
+            frame.points[0].x=-frame.points[0].x;
+            left.Advance(frame,5,sweeps);
+            Check(!sample || (sweeps.count==1 && sweeps.values[0].end.x<sweeps.values[0].start.x),
+                "the other hand independently sweeps in the opposite direction");
+        }
+        Check(crossed,"continuous hand sweep crosses an NPC between sampled endpoints");
+    }
+    {
+        using namespace contact_melee;
+        Frame frame;
+        frame.referenceEpoch=1; frame.shape=1; frame.unit=0x12340001;
+        frame.count=2; frame.serial=1; frame.timeNs=1'000'000'000;
+        frame.points[1]={0.5f,0,0}; // Long gun tip, wrist at the origin.
+        Motion motion;
+        Sweeps sweeps;
+        motion.Advance(frame,5,sweeps);
+        frame.serial++; frame.timeNs+=10'000'000;
+        const float angle=0.12f; // 12 rad/s: a stationary wrist, 6 m/s tip.
+        frame.points[1]={0.5f*std::cos(angle),0.5f*std::sin(angle),0};
+        motion.Advance(frame,5,sweeps);
+        Check(sweeps.count==1 && sweeps.values[0].pointIndex==1 &&
+            sweeps.values[0].speedMetresPerSecond>5.9f,
+            "rotating the gun can qualify its tip even when wrist translation is zero");
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.transform.origin={200,300,400};
+        frame.transform.axis[0]={0,1,0}; frame.transform.axis[1]={-1,0,0};
+        motion.Advance(frame,5,sweeps);
+        Check(!sweeps.count,"game locomotion and turning do not generate physical melee");
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.points[0].x+=0.06f; frame.points[1].x+=0.06f;
+        motion.Advance(frame,5,sweeps);
+        Check(sweeps.count==2 && std::abs(sweeps.values[0].start.x-200)<0.001f &&
+            std::abs(sweeps.values[0].start.y-300)<0.001f &&
+            std::abs(sweeps.values[0].end.y-300.06f)<0.001f,
+            "a real punch while moving sweeps in the current world frame only");
+        const auto roundTrip=frame.transform.Tracking(frame.transform.World({0.3f,0.4f,0.5f}));
+        Check(std::abs(roundTrip.x-0.3f)<0.0001f && std::abs(roundTrip.y-0.4f)<0.0001f &&
+            std::abs(roundTrip.z-0.5f)<0.0001f,"authored world points recover tracking-space coordinates");
+        for (int discontinuity=0; discontinuity<5; ++discontinuity)
+        {
+            frame.serial++; frame.timeNs+=10'000'000; frame.points[0].x+=0.2f;
+            if (discontinuity==0) ++frame.referenceEpoch;
+            if (discontinuity==1) ++frame.shape;
+            if (discontinuity==2) frame.unit=0x43210001; // Same index, new salt.
+            if (discontinuity==3) frame.timeNs+=kMaxSampleGapNs;
+            if (discontinuity==4) frame.count=1;
+            Check(motion.Advance(frame,5,sweeps)==AdvanceResult::Seeded && !sweeps.count,
+                "recenter, weapon swap, respawn, tracking gap and collider changes reseed without damage");
+        }
+        frame.serial++; frame.timeNs+=10'000'000;
+        frame.points[0].x=std::numeric_limits<float>::quiet_NaN();
+        Check(motion.Advance(frame,5,sweeps)==AdvanceResult::Rejected && !sweeps.count,
+            "invalid tracking cannot leave a queued melee sweep");
+        frame.points[0]={};
+        Check(motion.Advance(frame,5,sweeps)==AdvanceResult::Seeded && !sweeps.count,
+            "tracking reacquisition cannot hit from an old pose");
+        frame.serial++; frame.timeNs-=1;
+        Check(motion.Advance(frame,5,sweeps)==AdvanceResult::Rejected && !sweeps.count,
+            "backward tracking timestamps cannot produce velocity");
+        frame.transform.axis[0]={2,0,0};
+        Check(motion.Advance(frame,5,sweeps)==AdvanceResult::Rejected,
+            "a malformed tracking transform cannot amplify physical motion");
+    }
     Check(!ShouldApplyArmIk(false, false),
           "Arm IK remains off when disabled in config");
     Check(!ShouldApplyArmIk(false, true),
@@ -7457,6 +7834,10 @@ int main()
                 "E-H2-62 the shared observer visibility FOV expands from Saber's "
                 "91.9 degree stock cover to the 110.1 degree headset cover, and "
                 "the write allow-list admits only that one float");
+            Check(Halo2DeriveObserverVisibilityVerticalFov(
+                      leftEye,rightEye,stock,visibility,true) &&
+                      visibility>120.0f*deg && visibility<121.0f*deg,
+                "H2 pre-visibility guard extends the 110.1 degree raster cover by ten degrees total");
             const float authoredWide = 120.0f * deg;
             Check(Halo2DeriveObserverVisibilityVerticalFov(
                       leftEye, rightEye, authoredWide, visibility) &&
@@ -8113,6 +8494,64 @@ int main()
                 authoredRoot.forward[0] = 1.0f;
                 authoredRoot.up[2] = 1.0f;
                 Halo2FinalPacketOwnershipResult result{};
+                {
+                    // The live secondary map omits the right wrist. Guns must
+                    // still follow independent controllers in a merged hand packet.
+                    float dualHands[sizeof(hands) / sizeof(float)]{};
+                    float primary[kHalo2FirstPersonNodeFloats]{};
+                    float secondary[2 * kHalo2FirstPersonNodeFloats]{};
+                    const int32_t secondaryRemap[kPacketNodes] = {-1, 1, -1, 3};
+                    auto resetDual = [&]() {
+                        std::memcpy(dualHands, hands, sizeof(hands));
+                        identityNode(primary, 4.0f);
+                        identityNode(secondary, -4.0f);
+                        identityNode(secondary + kHalo2FirstPersonNodeFloats, -5.0f);
+                    };
+                    resetDual();
+                    Halo2CameraBasis dualLeft = left;
+                    dualLeft.forward[1] = -1.0f;
+                    Halo2FinalPacketOwnershipResult dualResult{};
+                    auto ownDual = [&](const Halo2FirstPersonArmBinding& binding) {
+                        return Halo2OwnDualFirstPersonPackets(
+                            dualHands, kPacketNodes, remap, binding, primary, 1,
+                            secondaryRemap, packetBinding, secondary, 2,
+                            authoredRoot, right, dualLeft, 2.0f, 0.5f, 1.0f,
+                            dualResult);
+                    };
+                    Check(ownDual(packetBinding) && dualResult.applied &&
+                              dualResult.gunNodes == 3 && dualResult.leftNodes == 2 &&
+                              nearlyEqual(primary[2], 1.0f) &&
+                              nearlyEqual(secondary[2], -1.0f) &&
+                              nearlyEqual(primary[10], 10.0f) &&
+                              nearlyEqual(primary[11], 4.0f) &&
+                              nearlyEqual(secondary[10], -10.0f) &&
+                              nearlyEqual(secondary[11], 1.0f) &&
+                              nearlyEqual(dualHands[kHalo2FirstPersonNodeFloats + 10], -10.0f) &&
+                              nearlyEqual(dualHands[kHalo2FirstPersonNodeFloats + 11], 0.0f),
+                        "H2 merged dual packets retain each gun's independent controller and grip with a partial secondary map");
+                    resetDual();
+                    // Failure on the last secondary node must leave all three
+                    // native packets byte-identical, including the valid primary.
+                    secondary[kHalo2FirstPersonNodeFloats + 10] =
+                        std::numeric_limits<float>::quiet_NaN();
+                    float beforeSecondary[2 * kHalo2FirstPersonNodeFloats]{};
+                    std::memcpy(beforeSecondary, secondary, sizeof(secondary));
+                    Check(!ownDual(packetBinding) && !dualResult.applied &&
+                              std::memcmp(dualHands, hands, sizeof(hands)) == 0 &&
+                              std::memcmp(primary, gun, sizeof(gun)) == 0 &&
+                              std::memcmp(secondary, beforeSecondary, sizeof(secondary)) == 0,
+                        "H2 dual packet failure never partially mutates the hands or either gun");
+                    resetDual();
+                    auto invalidBinding = packetBinding;
+                    invalidBinding.count = 65;
+                    Check(!ownDual(invalidBinding) && !dualResult.applied &&
+                              std::memcmp(dualHands, hands, sizeof(hands)) == 0,
+                        "H2 dual ownership rejects oversized primary graphs before remap bit shifts");
+                    invalidBinding = packetBinding;
+                    invalidBinding.rightSubtree |= 1ull << 1;
+                    Check(!ownDual(invalidBinding) && !dualResult.applied,
+                        "H2 dual ownership rejects secondary remaps that steal primary right-hand bones");
+                }
                 const bool ownedPackets = Halo2OwnFinalFirstPersonPackets(
                     hands, kPacketNodes, remap, packetBinding, gun, 1,
                     authoredRoot, right, left, false, 2.0f, 0.5f, 1.0f,
@@ -12565,7 +13004,7 @@ int main()
         "hud_vertical_offset", "motion_blur", "auto_vr", "two_handed_aim",
         "two_hand_toggle", "left_hand_forward_m", "two_hand_zone_right_m",
         "left_grip_forward_m", "arm_ik", "floating_hands", "world_collision",
-        "physical_melee", "physical_melee_swing_speed",
+        "physical_melee", "gesture_melee", "physical_melee_swing_speed",
         "right_shoulder_drop", "shoulder_level", "body_wip", "weapon_probe",
         "hud_probe", "fsr_probe", "bullet_probe", "right_eye_first"
     };
@@ -12606,7 +13045,7 @@ int main()
         "legacy configs inherit the enabled cutscene-theatre defaults");
     Check(!g_config.world_collision,
         "legacy configs inherit the opt-in world-collision default");
-    Check(!g_config.physical_melee &&
+    Check(!g_config.physical_melee && !g_config.gesture_melee &&
               g_config.physical_melee_swing_speed == 5.0f,
         "legacy configs inherit the opt-in physical-melee defaults");
     Check(g_config.y_b_start_chord,
@@ -12632,6 +13071,22 @@ int main()
     Check(g_config.physical_melee &&
               g_config.physical_melee_swing_speed == 0.3f,
         "physical-melee enable and swing threshold survive a save/load round trip");
+
+    for (int modes=0; modes<4; ++modes)
+    {
+        {
+            std::ofstream file(primary);
+            file << "world_collision = 0\n";
+            file << "physical_melee = " << (modes&1) << "\n";
+            file << "gesture_melee = " << ((modes>>1)&1) << "\n";
+        }
+        ConfigLoad(primary.c_str());
+        ConfigSave();
+        ConfigLoad(primary.c_str());
+        Check(g_config.physical_melee==bool(modes&1) &&
+              g_config.gesture_melee==bool(modes&2) && !g_config.world_collision,
+              "Both melee options persist independently with world collision off");
+    }
 
     {
         std::ofstream file(primary);
@@ -13621,6 +14076,70 @@ int main()
           !LegacyMappedWeaponRootIsUsable(17, 32, 0x1000, 0x2000) &&
           !LegacyMappedWeaponRootIsUsable(0, 32, 0, 0),
         "mapped weapon roots require the renderer's exact source graph and bounded map index");
+    // A brief real peak between input polls survives equally at 72/90/120/144 Hz.
+    for(int hz : {72,90,120,144})
+    {
+        PhysicalMeleeSpeedHistory history;
+        float speed=0;
+        history.Update(1000,true,6.0f);
+        for(uint64_t at=1000+1000/hz;at<=1040;at+=1000/hz)
+            history.Update(at,true,1.0f);
+        Check(history.Read(1040,speed) && speed==6.0f,
+            "melee peak survives intervening slower tracking samples without frame-count timing");
+        Check(!history.Read(1200,speed),"melee peak expires without new valid tracking");
+        history.Update(1201,true,6.0f); history.Update(1202,false,0);
+        Check(!history.Read(1203,speed),"tracking loss clears melee history instead of replaying a swing");
+    }
+    ContactReleaseSmoothing contactSmoothing;
+    float wallCorrection[3]{0.020f,0,0};
+    contactSmoothing.Apply(1000,true,1.0f,wallCorrection);
+    Check(wallCorrection[0]==0.020f,"first contact blocks immediately");
+    wallCorrection[0]=0.015f;
+    contactSmoothing.Apply(1033,true,1.0f,wallCorrection);
+    Check(wallCorrection[0]>0.015f && wallCorrection[0]<=0.025f &&
+          wallCorrection[1]==0 && wallCorrection[2]==0,
+        "continuing contact smooths small outward release without weakening native blocking or adding sideways drift");
+    wallCorrection[0]=0.040f;
+    contactSmoothing.Apply(1066,true,1.0f,wallCorrection);
+    Check(wallCorrection[0]==0.040f,"deeper contact is not delayed by smoothing");
+    float cornerCorrection[3]{0,0.01f,0};
+    contactSmoothing.Apply(1099,true,1.0f,cornerCorrection);
+    Check(cornerCorrection[0]==0 && cornerCorrection[1]==0.01f,
+        "a different contact direction discards the previous surface correction");
+    contactSmoothing.Apply(1132,false,1.0f,cornerCorrection);
+    Check(contactSmoothing.atMs==0,"leaving contact clears smoothing immediately");
+    // The same release step must decay by elapsed time, independently of the
+    // render/query cadence and the title's world-units-per-metre conversion.
+    for(int hz : {60,72,80,90,120,144,165,240})
+        for(float worldScale : {0.25f,1.0f,3.0f})
+        {
+            ContactReleaseSmoothing smoothing;
+            float correction[3]{0.020f*worldScale,0,0};
+            smoothing.Apply(1000,true,worldScale,correction);
+            for(uint64_t sample=1;;++sample)
+            {
+                const uint64_t elapsed=std::min<uint64_t>(100,sample*1000/hz);
+                correction[0]=0.015f*worldScale;
+                smoothing.Apply(1000+elapsed,true,worldScale,correction);
+                if(elapsed==100) break;
+            }
+            const float expected=0.015f+0.005f*std::exp(-100.0f/40.0f);
+            Check(std::fabs(correction[0]/worldScale-expected)<1e-6f,
+                "contact release has the same physical decay across cadence and world scale");
+            correction[0]=0.001f*worldScale;
+            smoothing.Apply(1101,true,worldScale,correction);
+            Check(correction[0]/worldScale<=0.011001f,
+                "contact smoothing never retains more than one centimetre of extra clearance");
+            correction[0]=0.0005f*worldScale;
+            smoothing.Apply(1300,true,worldScale,correction);
+            Check(std::fabs(correction[0]/worldScale-0.0005f)<1e-7f,
+                "a tracking or scheduling gap discards stale contact smoothing");
+        }
+    const float degree=3.14159265358979323846f/180.0f;
+    Check(std::fabs(std::atan(ExpandVisibilityTangent(std::tan(55*degree)))/degree-60)<0.001f &&
+          ExpandVisibilityTangent(-1)==-1 &&
+          ExpandVisibilityTangent(std::tan(87*degree))==std::tan(87*degree),
+        "visibility guard covers five extra degrees per edge without narrowing an already wider view");
     const float sideHand[3]{0.0f,0.3f,0.0f};
     const float sideReticle[3]{10.0f,0.3f,0.0f};
     float handShot[3]{};
