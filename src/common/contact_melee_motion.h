@@ -160,7 +160,7 @@ struct Hit
     uint32_t unit = UINT32_MAX; // Full native handle, including its salt.
     Point position{}, normal{};
     float fraction = 0;
-    bool npc = false;
+    bool object = false; // A native object hit; the engine decides damageability.
 };
 enum class ContactResult { NoStrike, Applied, NativeRejected };
 
@@ -210,7 +210,7 @@ public:
         for (unsigned i=0; i<sweeps.count; ++i)
         {
             Hit hit{};
-            if (!backend.Query(sweeps.values[i],hit) || !hit.npc ||
+            if (!backend.Query(sweeps.values[i],hit) || !hit.object ||
                 hit.unit==UINT32_MAX || hit.unit==frame.unit ||
                 !Finite(hit.position) || !Finite(hit.normal) ||
                 !std::isfinite(hit.fraction) || hit.fraction<0 || hit.fraction>1)

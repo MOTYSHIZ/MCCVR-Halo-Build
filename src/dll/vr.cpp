@@ -1,4 +1,6 @@
 #include "../common/vr_interaction_refinement_logic.h"
+#include "../common/weapon_hand_logic.h"
+#include "../common/title_runtime_state.h"
 #include <windows.h>
 #include <tlhelp32.h>
 #include <d3d11.h>
@@ -7142,6 +7144,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // multi-call aim getter). `active` mirrors it for the menu indicator.
     std::atomic<bool> g_twoHandLatched{false};
     std::atomic<bool> g_twoHandActive{false};
+    std::array<RecentSecondaryWeaponPresentation, kTitleRuntimeSlotCount>
+        g_secondaryWeaponPresentation;
+
+    bool SecondaryWeaponPresentationActive() noexcept
+    {
+        const GameTitle title = TitleAdapter_GetActiveTitle();
+        const size_t slot = TitleRuntimeSlotIndex(title);
+        return slot < kTitleRuntimeSlotCount &&
+            g_secondaryWeaponPresentation[slot].Active(
+                TitleAdapter_GetGeneration(title), GetTickCount64());
+    }
 
     // Called once per frame from the pose capture. Toggle mode (default): a
     // left-grip press while the left hand is inside the thin/long barrel zone
@@ -7207,7 +7220,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         inputs.right = right;
         inputs.leftValid = leftValid;
         inputs.left = left;
-        inputs.twoHandEnabled = g_config.two_handed_aim;
+        inputs.twoHandEnabled = g_config.two_handed_aim &&
+            !SecondaryWeaponPresentationActive();
         inputs.twoHandLatched = g_twoHandLatched.load();
         // Visual hand seating must not change the two-controller aiming line.
         inputs.leftHandForwardM = 0.0f;
@@ -7357,7 +7371,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     }
 
     void UpdateTwoHandLatch(bool rightValid, const XrPosef& rpose,
-                            bool leftValid, const XrPosef& lpose, float gripL)
+                            bool leftValid, const XrPosef& lpose, float gripL,
+                            bool rolesChanged)
     {
         // Track the physical grip edge even while tracking/handedness resets
         // invalidate the poses. A held grip is not a new grab on recovery.
@@ -7365,8 +7380,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const bool gripHeld = gripL > 0.5f;
         const bool rising = gripHeld && !prevGrip;
         prevGrip = gripHeld;
-        if (!g_config.two_handed_aim || !rightValid || !leftValid)
-        { g_twoHandLatched.store(false); return; }
+        static SupportGripAdmission admission;
+        const bool grabAllowed = admission.Observe(
+            gripHeld, SecondaryWeaponPresentationActive(), rolesChanged);
+        if (!grabAllowed || !g_config.two_handed_aim || !rightValid || !leftValid)
+        {
+            g_twoHandLatched.store(false);
+            g_twoHandActive.store(false);
+            return;
+        }
         const XrVector3f rfwd = Rotate(rpose.orientation, {0,0,-1});
         // Grab-zone side nudge: the visible barrel can sit beside the raw aim
         // ray (headset report: the AR's barrel was right of the zone), so the
@@ -7778,7 +7800,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         EnterCriticalSection(&g_headCs);
         g_padState = pad;
         LeaveCriticalSection(&g_headCs);
-        UpdateTwoHandLatch(valid, location.pose, leftValid, leftLocation.pose, pad.gripL);
+        UpdateTwoHandLatch(valid, location.pose, leftValid, leftLocation.pose,
+                           pad.gripL, handChanged);
         ApplyControllerHaptics(valid && leftValid);
         static bool padLogged = false;
         if (pad.valid && !padLogged)
@@ -15150,7 +15173,19 @@ void VR_SetReticleEnemy(bool enemy)
     g_reticleEnemy.store(enemy, std::memory_order_relaxed);
 }
 
-bool VR_IsTwoHandAiming() { return g_twoHandActive.load(); }
+void VR_ObserveSecondaryWeaponPresentation(GameTitle title, uint32_t generation)
+{
+    const size_t slot = TitleRuntimeSlotIndex(title);
+    if (slot < kTitleRuntimeSlotCount && generation &&
+        TitleAdapter_GetActiveTitle() == title &&
+        TitleAdapter_GetGeneration(title) == generation)
+        g_secondaryWeaponPresentation[slot].Publish(generation, GetTickCount64());
+}
+
+bool VR_IsTwoHandAiming()
+{
+    return g_twoHandActive.load() && !SecondaryWeaponPresentationActive();
+}
 
 bool VR_GetContactTrackingSnapshot(VrContactTrackingSnapshot& snapshot)
 {

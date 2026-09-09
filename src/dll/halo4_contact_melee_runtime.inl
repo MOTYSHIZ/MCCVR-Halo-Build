@@ -43,7 +43,7 @@ bool Halo4ContactMeleeReady()
         !g_halo4Contact.faulted.load(std::memory_order_acquire);
 }
 
-const uint8_t* Halo4ContactBiped(uint32_t handle)
+const uint8_t* Halo4ContactObject(uint32_t handle,bool requireBiped=false)
 {
     if(handle==UINT32_MAX || !(handle>>16) || !g_halo4Contact.object ||
         !g_halo4EngineTlsIndex || *g_halo4EngineTlsIndex>=256) return nullptr;
@@ -56,8 +56,12 @@ const uint8_t* Halo4ContactBiped(uint32_t handle)
         !*reinterpret_cast<const void* const*>(table+0x50)) return nullptr;
     const int32_t count=*reinterpret_cast<const int32_t*>(table+0x44);
     if(count<=0 || count>0x10000 || (handle&0xFFFF)>=static_cast<uint32_t>(count)) return nullptr;
-    return g_halo4Contact.object(handle,1);
+    // The verified native accessor applies this type mask after its own full
+    // salt check. Targets may be any object; only the attacker must be biped.
+    return g_halo4Contact.object(handle,requireBiped ? 1u : UINT32_MAX);
 }
+
+const uint8_t* Halo4ContactBiped(uint32_t handle) { return Halo4ContactObject(handle,true); }
 
 bool Halo4RedirectContactRay(uintptr_t caller,Halo4PhysicsRayCastInput* input,
     Halo4PhysicsRayCastResult* output,bool& returned)
@@ -77,7 +81,7 @@ bool Halo4RedirectContactRay(uintptr_t caller,Halo4PhysicsRayCastInput* input,
     memcpy(local.end,end,sizeof(end));
     returned=g_halo4WorldCollision.originalRayCast(&local,output) &&
         output->type==4 && static_cast<uint32_t>(output->objectIndex)==scope.target &&
-        Halo4ContactBiped(scope.target);
+        Halo4ContactObject(scope.target);
     return true;
 }
 
@@ -95,7 +99,7 @@ __declspec(noinline) void __fastcall Halo4ContactDamageDetour(uint32_t unit,int3
              caller==g_halo4Contact.base+0x601935);
         const bool exact=own && unit==scope.owner && impact &&
             *reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(impact)+0x1C)==scope.target &&
-            Halo4ContactBiped(scope.owner) && Halo4ContactBiped(scope.target);
+            Halo4ContactBiped(scope.owner) && Halo4ContactObject(scope.target);
         if(g_halo4Contact.damageOriginal && (!own || exact))
         {
             g_halo4Contact.damageOriginal(unit,damage,definition,impact,own ? scope.direction : direction);
@@ -125,12 +129,12 @@ struct Halo4ContactBackend
         g_halo4Contact.queries.fetch_add(1,std::memory_order_relaxed);
         if(!g_halo4WorldCollision.originalRayCast(&input,&output) || output.type!=4 ||
             static_cast<uint32_t>(output.objectIndex)==owner ||
-            !Halo4ContactBiped(static_cast<uint32_t>(output.objectIndex))) return false;
+            !Halo4ContactObject(static_cast<uint32_t>(output.objectIndex))) return false;
         hit.unit=static_cast<uint32_t>(output.objectIndex);
         hit.fraction=output.fraction;
         memcpy(&hit.position,output.position,sizeof(output.position));
         memcpy(&hit.normal,output.normal,sizeof(output.normal));
-        hit.npc=true;
+        hit.object=true;
         if(!contact_melee::Finite(hit.position) || !contact_melee::Finite(hit.normal) ||
             !std::isfinite(hit.fraction) || hit.fraction<0 || hit.fraction>1) return false;
         g_halo4Contact.contacts.fetch_add(1,std::memory_order_relaxed);
@@ -138,7 +142,7 @@ struct Halo4ContactBackend
     }
     bool Apply(uint32_t unit,const contact_melee::Hit& hit,const contact_melee::Sweep& sweep) noexcept
     {
-        if(unit!=owner || !Halo4ContactBiped(owner) || !Halo4ContactBiped(hit.unit)) return false;
+        if(unit!=owner || !Halo4ContactBiped(owner) || !Halo4ContactObject(hit.unit)) return false;
         const auto delta=contact_melee::Subtract(sweep.end,sweep.start);
         const float length=std::sqrt(contact_melee::Dot(delta,delta));
         if(!std::isfinite(length) || length<=1e-6f) return false;
@@ -150,7 +154,7 @@ struct Halo4ContactBackend
         {
             g_halo4Contact.build(owner,0xEA,parameters);
             if(g_halo4ContactScope.rays==25 && parameters[0]==hit.unit &&
-                Halo4ContactBiped(hit.unit))
+                Halo4ContactObject(hit.unit))
             {
                 const int16_t mode=g_halo4Contact.simulationMode()==4 ? 1 : 0;
                 g_halo4ContactScope.applying=true;
@@ -193,7 +197,7 @@ void Halo4ContactTick(uint32_t unit,void* instance)
                     Halo4ContactBackend backend{};
                     backend.owner=unit;
                     const auto result=g_halo4Contact.hands[hand].Process(packet.frame,
-                        std::clamp(g_config.physical_melee_swing_speed,0.3f,5.0f),backend);
+                        std::clamp(g_config.physical_melee_swing_speed, kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax),backend);
                     if(result==contact_melee::ContactResult::Applied)
                     { g_halo4Contact.submitted[hand].fetch_add(1,std::memory_order_relaxed); VR_PulseContactHaptics(hand==0,0.65f); }
                     else if(result==contact_melee::ContactResult::NativeRejected)

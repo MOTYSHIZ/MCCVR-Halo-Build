@@ -5,6 +5,11 @@
 
 struct IDXGISwapChain;
 struct Halo2CameraRectangle;
+enum class GameTitle : uint8_t;
+
+// Successful local slot-1 rendering only: inhibits support-grip coupling,
+// independently of collision/melee. Never authorizes inventory or firing.
+void VR_ObserveSecondaryWeaponPresentation(GameTitle title, uint32_t generation);
 
 #ifndef HALOMCCVR_HALO2_STEREO6DOF
 #define HALOMCCVR_HALO2_STEREO6DOF 0

@@ -49,7 +49,7 @@ __declspec(noinline) void __fastcall ReachContactDamageDetour(uint32_t unit,int3
         uint8_t kind=0xFF;
         const bool exact=own && unit==scope.owner && impact &&
             *reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(impact)+0x1C)==scope.target &&
-            ReachVehicleObjectData(static_cast<int32_t>(scope.target),kind) && kind==0;
+            ReachVehicleObjectData(static_cast<int32_t>(scope.target),kind) && kind<32;
         // HREK D6CD60's fifth argument is the optional impulse direction.
         // Preserve stock damage/material/ownership; redirect only our exact hit.
         if(g_reachContact.damageOriginal && (!own || exact))
@@ -164,9 +164,9 @@ struct ReachContactBackend
         uint8_t kind=0xFF;
         if(query.calls!=25 || query.object==UINT32_MAX || parameters[0]!=query.object ||
             query.object==owner || parameters[1]==UINT32_MAX ||
-            !ReachVehicleObjectData(static_cast<int32_t>(query.object),kind) || kind!=0)
+            !ReachVehicleObjectData(static_cast<int32_t>(query.object),kind) || kind>=32)
             return false;
-        hit.unit=query.object; hit.fraction=query.fraction; hit.npc=true;
+        hit.unit=query.object; hit.fraction=query.fraction; hit.object=true;
         memcpy(&hit.position,parameters+0xD,sizeof(hit.position));
         memcpy(&hit.normal,parameters+0x10,sizeof(hit.normal));
         if(!contact_melee::Finite(hit.position) || !contact_melee::Finite(hit.normal) ||
@@ -184,7 +184,7 @@ struct ReachContactBackend
     {
         uint8_t kind=0xFF;
         if(unit!=owner || selected[0]!=hit.unit || selectedPoint!=sweep.pointIndex ||
-            !ReachVehicleObjectData(static_cast<int32_t>(hit.unit),kind) || kind!=0) return false;
+            !ReachVehicleObjectData(static_cast<int32_t>(hit.unit),kind) || kind>=32) return false;
         auto** slots=reinterpret_cast<void**>(__readgsqword(0x58));
         const auto index=*reinterpret_cast<const uint32_t*>(g_reachCamera.base+kReachEngineTlsIndexRva);
         if(!slots || index>=0x200 || !slots[index]) return false;
@@ -235,7 +235,7 @@ void ReachContactTick(uint32_t unit)
                 ReachContactBackend backend{};
                 backend.owner=unit;
                 const auto result=g_reachContact.hands[hand].Process(packet.frame,
-                    std::clamp(g_config.physical_melee_swing_speed,0.3f,5.0f),backend);
+                    std::clamp(g_config.physical_melee_swing_speed, kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax),backend);
                 if(result==contact_melee::ContactResult::Applied)
                 {
                     g_reachContact.submitted[hand].fetch_add(1,std::memory_order_relaxed);

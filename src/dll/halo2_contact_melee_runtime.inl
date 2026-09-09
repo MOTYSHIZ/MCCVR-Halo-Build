@@ -36,7 +36,7 @@ bool Halo2ContactMeleeReady()
         !g_halo2Contact.faulted.load(std::memory_order_acquire);
 }
 
-const uint8_t* Halo2ContactBiped(uint32_t handle)
+const uint8_t* Halo2ContactObject(uint32_t handle,bool requireBiped=false)
 {
     if(handle==UINT32_MAX || !(handle>>16)) return nullptr;
     const uintptr_t module=g_halo2Contact.base;
@@ -54,13 +54,16 @@ const uint8_t* Halo2ContactBiped(uint32_t handle)
         offset>UINTPTR_MAX-reinterpret_cast<uintptr_t>(table)-size_t(capacity)*0xC)
         return nullptr;
     const auto* entry=table+offset+(handle&0xFFFF)*0xC;
-    if(*reinterpret_cast<const uint16_t*>(entry)!=uint16_t(handle>>16) || entry[3]!=0)
+    if(*reinterpret_cast<const uint16_t*>(entry)!=uint16_t(handle>>16) || entry[3]>=32 ||
+        (requireBiped && entry[3]!=0))
         return nullptr;
     const auto accessor=reinterpret_cast<Halo2ObjectDatumAccessorFn>(
         g_objectDatumAccessor.load(std::memory_order_acquire));
     const auto* object=accessor ? static_cast<const uint8_t*>(accessor(entry)) : nullptr;
-    return object && object[0xAA]==0 ? object : nullptr;
+    return object && object[0xAA]==entry[3] ? object : nullptr;
 }
+
+const uint8_t* Halo2ContactBiped(uint32_t handle) { return Halo2ContactObject(handle,true); }
 
 bool Halo2RedirectContactVector(uintptr_t caller,uint32_t flags,
     int32_t ignoredA,int32_t ignoredB,Halo2CollisionResult* result,uint8_t& returned)
@@ -87,7 +90,7 @@ __declspec(noinline) void __fastcall Halo2ContactDamageDetour(void* event,uint32
         const bool own=scope.active && reinterpret_cast<uintptr_t>(_ReturnAddress())==
             g_halo2Contact.base+0x8F482A;
         auto* bytes=static_cast<uint8_t*>(event);
-        if(!own || (bytes && target==scope.target && Halo2ContactBiped(target) &&
+        if(!own || (bytes && target==scope.target && Halo2ContactObject(target) &&
             *reinterpret_cast<const uint32_t*>(bytes+0x18)==scope.owner))
         {
             if(own)
@@ -120,7 +123,7 @@ __declspec(noinline) void __fastcall Halo2ContactEventDetour(uint32_t type,int32
         const bool own=scope.active && reinterpret_cast<uintptr_t>(_ReturnAddress())==
             g_halo2Contact.base+0x8858B5;
         if(!own || (type==0x17 && count==2 && objects && objects[0]==scope.owner &&
-            objects[1]==scope.target && size==0x1C && payload && Halo2ContactBiped(scope.target)))
+            objects[1]==scope.target && size==0x1C && payload && Halo2ContactObject(scope.target)))
         {
             if(g_halo2Contact.eventOriginal)
             {
@@ -148,12 +151,12 @@ struct Halo2ContactBackend
             kHalo2CollisionFlags,start,vector,int32_t(owner),-1,&result) || result.type!=4)
             return false;
         hit.unit=uint32_t(result.objectIndex);
-        if(hit.unit==owner || !Halo2ContactBiped(hit.unit)) return false;
+        if(hit.unit==owner || !Halo2ContactObject(hit.unit)) return false;
         hit.fraction=result.fraction;
         std::memcpy(&hit.position,result.position,sizeof(hit.position));
         // H2 builder reads its collision plane normal at result +2C.
         std::memcpy(&hit.normal,reinterpret_cast<const uint8_t*>(&result)+0x2C,sizeof(hit.normal));
-        hit.npc=true;
+        hit.object=true;
         if(!std::isfinite(hit.fraction) || hit.fraction<0 || hit.fraction>1 ||
             !contact_melee::Finite(hit.position) || !contact_melee::Finite(hit.normal)) return false;
         g_halo2Contact.contacts.fetch_add(1,std::memory_order_relaxed);
@@ -161,7 +164,7 @@ struct Halo2ContactBackend
     }
     bool Apply(uint32_t unit,const contact_melee::Hit& hit,const contact_melee::Sweep& sweep) noexcept
     {
-        if(unit!=owner || !Halo2ContactBiped(owner) || !Halo2ContactBiped(hit.unit)) return false;
+        if(unit!=owner || !Halo2ContactBiped(owner) || !Halo2ContactObject(hit.unit)) return false;
         const auto delta=contact_melee::Subtract(sweep.end,sweep.start);
         const float length=std::sqrt(contact_melee::Dot(delta,delta));
         if(!std::isfinite(length) || length<=1e-6f) return false;
@@ -206,7 +209,7 @@ __declspec(noinline) void Halo2ContactTick(uint32_t unit)
                     Halo2ContactBackend backend{};
                     backend.owner=unit;
                     const auto result=g_halo2Contact.hands[hand].Process(packet.frame,
-                        std::clamp(g_config.physical_melee_swing_speed,0.3f,5.0f),backend);
+                        std::clamp(g_config.physical_melee_swing_speed, kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax),backend);
                     if(result==contact_melee::ContactResult::Applied)
                     {
                         if(g_halo2ContactScope.applied)

@@ -26,29 +26,52 @@ struct PhysicalMeleeSpeedHistory
     }
 };
 
-// Smooth only release along a continuing correction direction. New/deeper
-// contact is immediate. Retain at most 10 mm extra clearance, never weaken
-// the current native correction or invent a surface normal from a point hit.
+// Presentation only: new/deeper contact is immediate. Smooth shrinking
+// correction and its final release; never feed this back into native queries,
+// damage, pushes or haptics. Retain at most 10 mm of extra clearance for at most
+// 120 ms after a clear query, with no inferred surface normal or sideways drift.
 struct ContactReleaseSmoothing
 {
-    uint64_t atMs=0;
+    uint64_t atMs=0, lastContactMs=0;
+    float scale=0;
     float previous[3]{};
     void Reset() noexcept { *this={}; }
-    void Apply(uint64_t now, bool contact, float worldUnitsPerMetre,
+    bool Apply(uint64_t now, bool contact, float worldUnitsPerMetre,
                float correction[3]) noexcept
     {
-        if(!correction) { Reset(); return; }
+        if(!correction) { Reset(); return false; }
         float lengthSquared=0,oldSquared=0,dot=0;
         for(int axis=0;axis<3;++axis)
         {
-            if(!std::isfinite(correction[axis])) { Reset(); return; }
+            if(!std::isfinite(correction[axis])) { Reset(); return false; }
             lengthSquared+=correction[axis]*correction[axis];
             oldSquared+=previous[axis]*previous[axis];
             dot+=correction[axis]*previous[axis];
         }
-        if(!contact || !now || !std::isfinite(worldUnitsPerMetre) ||
-            worldUnitsPerMetre<=0 || !std::isfinite(lengthSquared) || lengthSquared<=1e-12f)
-        { Reset(); return; }
+        if(!now || !std::isfinite(worldUnitsPerMetre) || worldUnitsPerMetre<=0 ||
+            !std::isfinite(lengthSquared) || !std::isfinite(oldSquared))
+        { Reset(); return false; }
+        if(atMs && (now<atMs || now-atMs>100 || scale!=worldUnitsPerMetre))
+        { Reset(); oldSquared=0; dot=0; }
+        if(!contact || lengthSquared<=1e-12f)
+        {
+            // A clear query may only release a small residual from this same
+            // continuing publication. Stale/teleported/new shapes reset above
+            // at the caller; this cannot keep a hand stuck after a tracking gap.
+            if(!atMs || !lastContactMs || now<lastContactMs ||
+                now-lastContactMs>=120 || oldSquared<=1e-12f)
+            { Reset(); return false; }
+            const float oldLength=std::sqrt(oldSquared);
+            const float retained=std::min(oldLength,0.01f*worldUnitsPerMetre)*
+                std::exp(-float(now-atMs)/40.0f);
+            if(retained<0.0001f*worldUnitsPerMetre)
+            { Reset(); return false; }
+            for(int axis=0;axis<3;++axis)
+                correction[axis]=previous[axis]*(retained/oldLength);
+            atMs=now;
+            for(int axis=0;axis<3;++axis) previous[axis]=correction[axis];
+            return true;
+        }
         const float length=std::sqrt(lengthSquared),oldLength=std::sqrt(oldSquared);
         if(atMs && now>=atMs && now-atMs<=100 && oldLength>length &&
             dot>0.95f*length*oldLength)
@@ -58,7 +81,10 @@ struct ContactReleaseSmoothing
             for(int axis=0;axis<3;++axis) correction[axis]*=(length+extra)/length;
         }
         atMs=now;
+        lastContactMs=now;
+        scale=worldUnitsPerMetre;
         for(int axis=0;axis<3;++axis) previous[axis]=correction[axis];
+        return true;
     }
 };
 

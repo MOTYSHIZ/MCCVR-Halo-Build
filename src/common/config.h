@@ -13,6 +13,9 @@
 inline constexpr int kNativeRenderWidth = 2912;
 inline constexpr int kNativeRenderHeight = 2100;
 inline constexpr float kResolutionScaleMin = 0.35f;
+inline constexpr float kPhysicalMeleeSpeedMin = 0.3f;
+inline constexpr float kPhysicalMeleeSpeedMax = 10.0f;
+inline constexpr float kPhysicalMeleeSpeedDefault = 5.0f;
 // 2.75 renders ~8008x5775 (8K-class width). The "Keith David" F1 tier lands on
 // true 8K width (7680, scale ~2.64); this ceiling leaves a little headroom above
 // it. Everything is a uniform multiplier, so 2912:2100 (Halo's VR aspect) is
@@ -830,12 +833,11 @@ struct Config
     // it without another config migration; Halo 4 and Halo 2 implement it.
     bool world_collision = false;
 
-    // Optional physical melee layered over world collision. A sufficiently
-    // fast tracking-space controller swing asks the active proven title for
-    // its normal melee input so the engine retains range, damage and animation.
+    // Physical contact melee and gesture input are independently optional.
+    // Higher required speed makes both less sensitive; existing saves persist.
     bool physical_melee = false;
     bool gesture_melee = false;
-    float physical_melee_swing_speed = 5.0f;
+    float physical_melee_swing_speed = kPhysicalMeleeSpeedDefault;
 
     // Lower the RIGHT (weapon) shoulder so Master Chief's arm doesn't clip up
     // into your face — drops the shoulder anchor along your view-down axis.

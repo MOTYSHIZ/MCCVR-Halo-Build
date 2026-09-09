@@ -1,8 +1,11 @@
 #include "contact_melee_queue.h"
 #include "../common/camera_recovery_logic.h"
+#include "../common/dual_weapon_aim_logic.h"
+#include "../common/weapon_hand_logic.h"
 #include "hook_quiescence.h"
 #include "../common/vr_interaction_refinement_logic.h"
 #include "../common/contact_melee_motion.h"
+#include "../common/halo3_melee_selection_logic.h"
 #include "../common/halo4_contact_melee_logic.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -1289,6 +1292,10 @@ namespace
     int32_t LegacyCollisionIgnoredObject(GameTitle title);
     bool Halo3ContactMeleeReady();
     bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation);
+    bool InstallHalo3DualAim(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveHalo3DualAim();
+    void PublishHalo3DualAim();
+    void ReportHalo3DualAim();
     bool DisableAndRemoveHalo3ContactMelee();
     void ReportHalo3ContactMelee();
     void Halo3PublishContactHand(int hand,const FpInterpolationContext& context,
@@ -1758,6 +1765,7 @@ namespace
 
     bool RemoveInstalledGameHooks()
     {
+        if (!RemoveHalo3DualAim()) return false;
         if(!DisableAndRemoveHalo3ContactMelee()) return false;
         // Called only after the Halo camera has stopped and before a reloaded
         // Halo renderer starts. Remove in reverse installation order so no
@@ -4849,9 +4857,9 @@ namespace
                     worker.accepted[sample][axis]=desired[sample][axis]+
                         (contact?strongest[axis]:0.0f);
             worker.publishedAtMs=targetAtMs;
-            worker.smoothing.Apply(now,contact,worldScale,strongest);
+            const bool visibleCorrection=worker.smoothing.Apply(now,contact,worldScale,strongest);
             LegacyPublishCorrection(
-                feature,hand,generation,desired[0],strongest,contact);
+                feature,hand,generation,desired[0],strongest,visibleCorrection);
             if(contact)
             {
                 if(contactSample<handSampleCount)
@@ -5024,6 +5032,8 @@ namespace
                 context.lWristDescendants=
                     g_fpLWristDescendants[slot].load(std::memory_order_acquire);
                 context.valid=true;
+                if (slot == 1 && view == 0 && g_enabled.load(std::memory_order_acquire))
+                    VR_ObserveSecondaryWeaponPresentation(GameTitle::Halo3, context.generation);
                 memcpy(g_fpUnmodifiedInterpolations[slot],*outBones,
                        static_cast<size_t>(count)*sizeof(BoneMatrix));
                 if (slot==1)
@@ -9953,6 +9963,7 @@ namespace
         // Cache visible FP palette solves only within this one stereo pair.
         // Exact input matching in ReconstructVisiblePaletteSource keeps any
         // changed animation pass on the existing full-solve path.
+        PublishHalo3DualAim();
         g_fpStereoSolveScope = {};
         g_fpStereoSolveScope.armed = true;
         g_fpStereoSolveScope.twoHandAimActive = VR_IsTwoHandAiming();
@@ -12905,6 +12916,9 @@ namespace
                 context.valid = true;
                 memcpy(g_fpUnmodifiedInterpolations[slot], *outBones,
                        static_cast<size_t>(count) * sizeof(BoneMatrix));
+                if (slot == 1 && view == 0)
+                    VR_ObserveSecondaryWeaponPresentation(GameTitle::Halo3ODST,
+                        g_odstRuntimeGeneration.load(std::memory_order_acquire));
                 MeasureOdstAuthoredBarrel(
                     slot, g_fpUnmodifiedInterpolations[slot],
                     layout.rightWrist);
@@ -15059,6 +15073,7 @@ namespace
                 kHalo3CollisionVectorSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
         (void)InstallHalo3ContactMelee(base,size,runtimeGeneration);
+        (void)InstallHalo3DualAim(base,size,runtimeGeneration);
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
         uintptr_t prepareHit = sig::Find(base, size, kPrepareViewSig);
@@ -24067,6 +24082,7 @@ namespace
 
     #include "reach_contact_melee_runtime.inl"
     #include "halo3_contact_melee_runtime.inl"
+    #include "halo3_dual_wield_runtime.inl"
     #include "odst_contact_melee_runtime.inl"
 
     // Optional per-frame read of the SAME local unit handle whose native
@@ -26361,6 +26377,7 @@ namespace
     bool DisableAndRemoveHalo3ContactMelee()
     {
         g_halo3Contact.enabled.store(false,std::memory_order_release);
+        if(!RemoveHalo3MeleeSelection()) return false;
         void* const targets[]{g_halo3Contact.updateTarget,g_halo3Contact.damageTarget};
         const void* functions[]{reinterpret_cast<const void*>(&Halo3ContactUpdateDetour),
                                reinterpret_cast<const void*>(&Halo3ContactDamageDetour)};
@@ -32806,9 +32823,9 @@ namespace
                 }
             }
             state.publishedAtMs = targetAtMs;
-            state.smoothing.Apply(now,contact,worldScale,strongestCorrection);
+            const bool visibleCorrection=state.smoothing.Apply(now,contact,worldScale,strongestCorrection);
             Halo4PublishCollisionCorrection(
-                hand, generation, desired[0], strongestCorrection, contact);
+                hand, generation, desired[0], strongestCorrection, visibleCorrection);
             if (contact)
             {
                 if (contactSample < handSampleCount)
@@ -41277,7 +41294,7 @@ uint32_t Game_GestureMeleeInput(uint64_t nowMs)
     }
 
     const float requiredSpeed = std::clamp(
-        g_config.physical_melee_swing_speed, 0.3f, 5.0f);
+        g_config.physical_melee_swing_speed, kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax);
     for (int hand = 0; hand < 2; ++hand)
     {
         float speed = -1.0f;

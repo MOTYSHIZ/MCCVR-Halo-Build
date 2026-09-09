@@ -2,6 +2,9 @@
 
 ## User delivery override (2026-09-05)
 
+Resume continuity: read `docs/ACTIVE-WORK-CHECKPOINT.md` for the latest user
+priority, packaging hold/WIP exception, preserved work and unresolved items.
+
 Deliver the build ZIP and matching source ZIP in Codex chat, then wait for the
 user's testing and instructions. Run `tools/package-candidate.ps1` without
 `-Install`. Do not install, move/replace game-folder files, launch MCC, or open

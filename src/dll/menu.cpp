@@ -9,6 +9,7 @@
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
 #include "menu.h"
+#include "menu_slider.h"
 #include "vr.h"
 #include "game.h"
 #include "title_adapter.h"
@@ -598,15 +599,15 @@ namespace
         // These two used to stop at 10 m even though the config file accepts 20,
         // so a value typed into halomccvr.cfg could not be reached or restored
         // from the menu. The slider now spans the file's own range.
-        changed |= ImGui::SliderFloat("Screen width (m)", &g_config.screen_width_m, 0.5f, 20.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Screen distance (m)", &g_config.screen_distance_m, 0.3f, 20.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Screen width (m)", &g_config.screen_width_m, 0.5f, 20.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Screen distance (m)", &g_config.screen_distance_m, 0.3f, 20.0f, "%.1f");
         ImGui::TextDisabled("The flat screen the game is shown on in menus and 2D mode.\n"
                             "This is NOT the F1 panel; that one lives under Advanced.");
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Head motion");
         float headsetSmoothPercent = g_config.headset_smoothing * 100.0f;
-        if (ImGui::SliderFloat("Headset micro-smoothing", &headsetSmoothPercent,
+        if (vr_menu::SliderFloat("Headset micro-smoothing", &headsetSmoothPercent,
                                0.0f, 10.0f, "%.0f%%", ImGuiSliderFlags_None))
         {
             g_config.headset_smoothing = headsetSmoothPercent / 100.0f;
@@ -639,7 +640,7 @@ namespace
         ImGui::Separator();
         ImGui::Text("Stereo depth");
         float depthPercent = g_config.cutscene_theater_depth * 100.0f;
-        if (ImGui::SliderFloat(
+        if (vr_menu::SliderFloat(
                 "Depth", &depthPercent, 0.0f, 200.0f, "%.0f%%"))
         {
             g_config.cutscene_theater_depth = depthPercent / 100.0f;
@@ -654,10 +655,10 @@ namespace
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Room-fixed screen");
-        changed |= ImGui::SliderFloat(
+        changed |= vr_menu::SliderFloat(
             "Screen width (m)##theatre",
             &g_config.cutscene_theater_width_m, 0.5f, 20.0f, "%.1f");
-        changed |= ImGui::SliderFloat(
+        changed |= vr_menu::SliderFloat(
             "Screen distance (m)##theatre",
             &g_config.cutscene_theater_distance_m, 0.3f, 20.0f, "%.1f");
         ImGui::TextDisabled(
@@ -674,10 +675,10 @@ namespace
         }
         if (matteOn)
         {
-            changed |= ImGui::SliderFloat(
+            changed |= vr_menu::SliderFloat(
                 "Picture shape##theatre",
                 &g_config.cutscene_theater_matte_aspect, 1.0f, 3.0f, "%.2f:1");
-            changed |= ImGui::SliderFloat(
+            changed |= vr_menu::SliderFloat(
                 "Slide picture##theatre",
                 &g_config.cutscene_theater_matte_offset, -0.25f, 0.25f, "%.2f");
         }
@@ -698,7 +699,7 @@ namespace
             "screen where the game placed it. MCC's own subtitle setting must be on.");
         if (g_config.cutscene_theater_subtitles)
         {
-            changed |= ImGui::SliderFloat(
+            changed |= vr_menu::SliderFloat(
                 "Search height##theatre",
                 &g_config.cutscene_theater_subtitle_band, 0.05f, 1.0f, "%.2f");
             ImGui::TextDisabled(
@@ -729,9 +730,9 @@ namespace
             changed = true;
         }
         if (g_config.turn_smooth)
-            changed |= ImGui::SliderFloat("Turn speed (deg/s)", &g_config.turn_smooth_deg_s, 30.0f, 360.0f, "%.0f");
+            changed |= vr_menu::SliderFloat("Turn speed (deg/s)", &g_config.turn_smooth_deg_s, 30.0f, 360.0f, "%.0f");
         else
-            changed |= ImGui::SliderFloat("Snap increment (deg)", &g_config.turn_snap_deg, 5.0f, 90.0f, "%.0f");
+            changed |= vr_menu::SliderFloat("Snap increment (deg)", &g_config.turn_snap_deg, 5.0f, 90.0f, "%.0f");
 
         ImGui::Spacing();
         changed |= ImGui::Checkbox("Y + B sends Start (pause / resume)",
@@ -752,7 +753,7 @@ namespace
             changed = true;
         }
         float hapticPercent = g_config.haptic_intensity * 100.0f;
-        if (ImGui::SliderFloat("Controller vibration", &hapticPercent,
+        if (vr_menu::SliderFloat("Controller vibration", &hapticPercent,
                                0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_None))
         {
             g_config.haptic_intensity = hapticPercent / 100.0f;
@@ -855,7 +856,7 @@ namespace
             seatFwd = ConfigOdstSeatCamForward(g_config, seatSlot);
         else if (s_seatBank == VehicleTrimBank::Reach)
             seatFwd = ConfigReachSeatCamForward(g_config, seatSlot);
-        if (ImGui::SliderFloat("Seat forward (m)", &seatFwd,
+        if (vr_menu::SliderFloat("Seat forward (m)", &seatFwd,
                                forwardMin, forwardMax, "%.2f"))
         {
             if (perSeat)
@@ -874,7 +875,7 @@ namespace
             seatUp = ConfigOdstSeatCamUp(g_config, seatSlot);
         else if (s_seatBank == VehicleTrimBank::Reach)
             seatUp = ConfigReachSeatCamUp(g_config, seatSlot);
-        if (ImGui::SliderFloat("Seat height (m)", &seatUp,
+        if (vr_menu::SliderFloat("Seat height (m)", &seatUp,
                                upMin, upMax, "%.2f"))
         {
             if (perSeat)
@@ -893,7 +894,7 @@ namespace
             seatRight = ConfigOdstSeatCamRight(g_config, seatSlot);
         else if (s_seatBank == VehicleTrimBank::Reach)
             seatRight = ConfigReachSeatCamRight(g_config, seatSlot);
-        if (ImGui::SliderFloat("Seat left / right (m)", &seatRight,
+        if (vr_menu::SliderFloat("Seat left / right (m)", &seatRight,
                                rightMin, rightMax, "%.2f"))
         {
             if (perSeat)
@@ -978,7 +979,7 @@ namespace
             "with the vehicle and your hands while your head turns freely.\n"
             "OFF anchors them to Halo's seated camera - your character's own\n"
             "head - so looking around drags the gun with your face.");
-        changed |= ImGui::SliderFloat("Seat bounce", &g_config.vehicle_bounce,
+        changed |= vr_menu::SliderFloat("Seat bounce", &g_config.vehicle_bounce,
                                       0.0f, 1.0f, "%.2f");
         ImGui::TextDisabled(
             "How much of the seat's bounce reaches your view. 1 is the\n"
@@ -1010,18 +1011,18 @@ namespace
             "right stick steers. A single right grip still gets you out of the\n"
             "vehicle either way. Aircraft and the Scorpion/Wraith keep their\n"
             "own controls.");
-        changed |= ImGui::SliderFloat("Full lock at (deg)",
+        changed |= vr_menu::SliderFloat("Full lock at (deg)",
             &g_config.vehicle_wheel_max_deg, 30.0f, 180.0f, "%.0f");
-        changed |= ImGui::SliderFloat("Wheel deadzone (deg)",
+        changed |= vr_menu::SliderFloat("Wheel deadzone (deg)",
             &g_config.vehicle_wheel_deadzone_deg, 0.0f, 30.0f, "%.0f");
         }
 
         if (g_activeCategory == Cat_WeaponAim)
         {
         ImGui::Text("Hand-held weapon");
-        changed |= ImGui::SliderFloat("Weapon size", &g_config.gun_scale, 0.3f, 3.0f, "%.2fx");
+        changed |= vr_menu::SliderFloat("Weapon size", &g_config.gun_scale, 0.3f, 3.0f, "%.2fx");
         ImGui::TextDisabled("Uniform scale of RIGHT hand + weapon about your grip (Home/End in-game).");
-        changed |= ImGui::SliderFloat("Left hand size", &g_config.left_hand_scale,
+        changed |= vr_menu::SliderFloat("Left hand size", &g_config.left_hand_scale,
                                       0.3f, 3.0f, "%.2fx");
         ImGui::SameLine();
         if (ImGui::SmallButton("Match weapon##lhs"))
@@ -1031,9 +1032,9 @@ namespace
                             "usually empty; use Match weapon for identical hands.\n"
                             "Its front/back position is \"Left hand forward offset\" below.");
         ImGui::Text("Visual gun alignment");
-        changed |= ImGui::SliderFloat("Gun alignment pitch (deg)", &g_config.barrel_pitch_deg, -180.0f, 180.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Gun alignment yaw (deg)", &g_config.barrel_yaw_deg, -180.0f, 180.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Gun alignment roll (deg)", &g_config.barrel_roll_deg, -180.0f, 180.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Gun alignment pitch (deg)", &g_config.barrel_pitch_deg, -180.0f, 180.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Gun alignment yaw (deg)", &g_config.barrel_yaw_deg, -180.0f, 180.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Gun alignment roll (deg)", &g_config.barrel_roll_deg, -180.0f, 180.0f, "%.1f");
         if (ImGui::SmallButton("Reset visual rotation"))
         {
             g_config.barrel_pitch_deg = 0.0f;
@@ -1044,12 +1045,12 @@ namespace
         ImGui::TextDisabled("Align the visible barrel with the crosshair. These rotations\n"
                             "move the gun and hands without changing the aiming ray.\n"
                             "Saved separately for each game; zero restores automatic alignment.");
-        changed |= ImGui::SliderFloat("Gun forward offset (m)", &g_config.gun_forward_m, -0.3f, 0.5f, "%.2f");
+        changed |= vr_menu::SliderFloat("Gun forward offset (m)", &g_config.gun_forward_m, -0.3f, 0.5f, "%.2f");
         ImGui::TextDisabled("Slides gun/arms along your aim. Negative seats the gun back in your fist.");
-        changed |= ImGui::SliderFloat("Gun right offset (m)", &g_config.gun_right_m, -0.3f, 0.3f, "%.2f");
+        changed |= vr_menu::SliderFloat("Gun right offset (m)", &g_config.gun_right_m, -0.3f, 0.3f, "%.2f");
         ImGui::SameLine();
         if (ImGui::SmallButton("Center##gnrx")) { g_config.gun_right_m = 0.0f; changed = true; }
-        changed |= ImGui::SliderFloat("Gun up offset (m)", &g_config.gun_up_m, -0.3f, 0.3f, "%.2f");
+        changed |= vr_menu::SliderFloat("Gun up offset (m)", &g_config.gun_up_m, -0.3f, 0.3f, "%.2f");
         ImGui::SameLine();
         if (ImGui::SmallButton("Center##gnux")) { g_config.gun_up_m = 0.0f; changed = true; }
         ImGui::TextDisabled("Gun-stock calibration on the weapon's post-rotation right/up axes.");
@@ -1057,16 +1058,16 @@ namespace
         ImGui::TextDisabled("All supported VR titles; visual only, shots/reticle remain on controller aim.");
         ImGui::Spacing();
         ImGui::Text("Halo 2 Classic gun alignment");
-        changed |= ImGui::SliderFloat(
+        changed |= vr_menu::SliderFloat(
             "H2 Classic gun yaw (deg)",
             &g_config.halo2_classic_gun_yaw_deg, -30.0f, 30.0f, "%.1f");
-        changed |= ImGui::SliderFloat(
+        changed |= vr_menu::SliderFloat(
             "H2 Classic gun pitch (deg)",
             &g_config.halo2_classic_gun_pitch_deg, -30.0f, 30.0f, "%.1f");
         ImGui::TextDisabled(
             "Classic/original graphics only; moves the visible gun and hands.\n"
             "Anniversary, the VR reticle, and bullet direction stay unchanged.");
-        changed |= ImGui::SliderFloat("Muzzle height (m)", &g_config.muzzle_height_m, -0.3f, 0.3f, "%.2f");
+        changed |= vr_menu::SliderFloat("Muzzle height (m)", &g_config.muzzle_height_m, -0.3f, 0.3f, "%.2f");
         ImGui::TextDisabled("Reach: adjusts its secondary muzzle placement; H3/ODST marker effects follow the gun. H2 Classic muzzle suppression is automatic and does not read this slider.");
         ImGui::TextDisabled("Raises supported muzzle/effect placement along the gun's own axis.");
         ImGui::TextDisabled("Where rounds LAND is unchanged. 0.11 is about four inches.");
@@ -1088,15 +1089,15 @@ namespace
             ImGui::SameLine();
             if (ImGui::RadioButton("Hold grip", !g_config.two_hand_toggle))
             { g_config.two_hand_toggle = false; changed = true; }
-            changed |= ImGui::SliderFloat("Left hand forward offset (m)",
+            changed |= vr_menu::SliderFloat("Left hand forward offset (m)",
                                           &g_config.left_hand_forward_m,
                                           -0.15f, 0.30f, "%.3f");
             ImGui::TextDisabled("Moves the visible support hand; the aiming line stays on the controllers.");
-            changed |= ImGui::SliderFloat("Grab zone side offset (m)",
+            changed |= vr_menu::SliderFloat("Grab zone side offset (m)",
                                           &g_config.two_hand_zone_right_m,
                                           -0.10f, 0.10f, "%.3f");
             ImGui::TextDisabled("Slides the grip-click zone sideways (+ = right) onto the visible barrel.");
-            changed |= ImGui::SliderFloat("Left palm depth (m)",
+            changed |= vr_menu::SliderFloat("Left palm depth (m)",
                                           &g_config.left_grip_forward_m,
                                           -0.05f, 0.25f, "%.3f");
             ImGui::TextDisabled("Extends the two-hand grab line and grip-click zone to your visible palm.");
@@ -1109,11 +1110,11 @@ namespace
         if (g_activeCategory == Cat_Crosshair)
         {
         ImGui::Text("Crosshair and bullet direction");
-        changed |= ImGui::SliderFloat("Crosshair vertical angle (deg)",
+        changed |= vr_menu::SliderFloat("Crosshair vertical angle (deg)",
             &g_config.gun_pitch_deg, -180.0f, 180.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Crosshair horizontal angle (deg)",
+        changed |= vr_menu::SliderFloat("Crosshair horizontal angle (deg)",
             &g_config.gun_yaw_deg, -180.0f, 180.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Aim roll (deg)",
+        changed |= vr_menu::SliderFloat("Aim roll (deg)",
             &g_config.gun_roll_deg, -180.0f, 180.0f, "%.1f");
         if (ImGui::SmallButton("Reset crosshair direction"))
         {
@@ -1130,15 +1131,15 @@ namespace
         if (g_config.crosshair)
         {
             float crosshairSmoothPercent = g_config.aim_stabilization * 100.0f;
-            if (ImGui::SliderFloat("Crosshair smoothing", &crosshairSmoothPercent,
+            if (vr_menu::SliderFloat("Crosshair smoothing", &crosshairSmoothPercent,
                                    0.0f, 95.0f, "%.0f%%", ImGuiSliderFlags_None))
             {
                 g_config.aim_stabilization = crosshairSmoothPercent / 100.0f;
                 changed = true;
             }
-            changed |= ImGui::SliderFloat("Crosshair size (deg)", &g_config.crosshair_size_deg,
+            changed |= vr_menu::SliderFloat("Crosshair size (deg)", &g_config.crosshair_size_deg,
                                           0.3f, 20.0f, "%.1f");
-            changed |= ImGui::SliderFloat("Crosshair distance (m)", &g_config.crosshair_distance_m,
+            changed |= vr_menu::SliderFloat("Crosshair distance (m)", &g_config.crosshair_distance_m,
                                           2.0f, 50.0f, "%.0f");
             // Halo 3's crosshair kicks on fire and turns red/green on a target.
             // Reading it back costs render time, so the rate is the player's
@@ -1152,7 +1153,7 @@ namespace
             if (crosshairAnimates)
             {
                 ImGui::Indent();
-                changed |= ImGui::SliderInt(
+                changed |= vr_menu::SliderInt(
                     "Refresh every N frames", &g_config.crosshair_animation_frames,
                     6, 60, "%d");
                 ImGui::TextDisabled("Lower = smoother shooting animation and faster\n"
@@ -1182,21 +1183,21 @@ namespace
         if (g_config.scope_enabled)
         {
             ImGui::Indent();
-            changed |= ImGui::SliderFloat("Default scope zoom", &g_config.scope_zoom,
+            changed |= vr_menu::SliderFloat("Default scope zoom", &g_config.scope_zoom,
                                           6.0f, 24.0f, "%.2fx");
-            changed |= ImGui::SliderFloat("Screen width (m)##scope",
+            changed |= vr_menu::SliderFloat("Screen width (m)##scope",
                                           &g_config.scope_screen_width_m,
                                           0.04f, 0.25f, "%.3f");
-            changed |= ImGui::SliderFloat("Screen right offset (m)",
+            changed |= vr_menu::SliderFloat("Screen right offset (m)",
                                           &g_config.scope_screen_right_m,
                                           -0.30f, 0.30f, "%.3f");
-            changed |= ImGui::SliderFloat("Screen up offset (m)",
+            changed |= vr_menu::SliderFloat("Screen up offset (m)",
                                           &g_config.scope_screen_up_m,
                                           -0.20f, 0.30f, "%.3f");
-            changed |= ImGui::SliderFloat("Screen forward offset (m)",
+            changed |= vr_menu::SliderFloat("Screen forward offset (m)",
                                           &g_config.scope_screen_forward_m,
                                           0.05f, 0.80f, "%.3f");
-            changed |= ImGui::SliderInt("Image refresh divisor",
+            changed |= vr_menu::SliderInt("Image refresh divisor",
                                         &g_config.scope_refresh_divisor, 1, 4);
             ImGui::TextDisabled("Offsets are direct gun-local meters with no hidden added distance.");
             ImGui::TextDisabled("Higher refresh divisors render the zoom image less often; the screen\n"
@@ -1213,7 +1214,7 @@ namespace
                             "OFF: the whole arm rigid-parents to the controller (old behavior).");
         if (g_config.arm_ik)
         {
-            changed |= ImGui::SliderFloat("Right shoulder drop", &g_config.right_shoulder_drop,
+            changed |= vr_menu::SliderFloat("Right shoulder drop", &g_config.right_shoulder_drop,
                                           0.0f, 0.3f, "%.3f");
             ImGui::TextDisabled("Lowers Chief's right arm so it doesn't clip your face.\n"
                                 "Raise until the right shoulder matches your left.");
@@ -1239,9 +1240,9 @@ namespace
         ImGui::TextDisabled("True physical melee takes priority when both modes are selected.");
         if (g_config.physical_melee || g_config.gesture_melee)
         {
-            changed |= ImGui::SliderFloat(
+            changed |= vr_menu::SliderFloat(
                 "Required swing speed", &g_config.physical_melee_swing_speed,
-                0.3f, 5.0f, "%.2f m/s");
+                kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax, "%.2f m/s");
             ImGui::TextDisabled("Lower is more sensitive; 5.00 m/s is the default and needs a fast swing.");
         }
         ImGui::Spacing();
@@ -1253,8 +1254,8 @@ namespace
         if (g_activeCategory == Cat_Hud)
         {
         ImGui::Text("HUD layout");
-        changed |= ImGui::SliderFloat("HUD size", &g_config.hud_size, 0.30f, 1.00f, "%.2f");
-        changed |= ImGui::SliderFloat("HUD width / aspect", &g_config.hud_aspect,
+        changed |= vr_menu::SliderFloat("HUD size", &g_config.hud_size, 0.30f, 1.00f, "%.2f");
+        changed |= vr_menu::SliderFloat("HUD width / aspect", &g_config.hud_aspect,
                                       kHudAspectMin, kHudAspectMax, "%.2f");
         const bool halo2NativeHud = Game_UsesHalo2NativeHudLayout();
         const bool reachNativeHud =
@@ -1262,11 +1263,11 @@ namespace
         const bool noLiveHudCurvature = halo2NativeHud || reachNativeHud;
         if (noLiveHudCurvature)
             ImGui::BeginDisabled();
-        changed |= ImGui::SliderFloat("HUD curvature", &g_config.hud_curvature,
+        changed |= vr_menu::SliderFloat("HUD curvature", &g_config.hud_curvature,
                                       kHudCurvatureMin, kHudCurvatureMax, "%.2f");
         if (noLiveHudCurvature)
             ImGui::EndDisabled();
-        changed |= ImGui::SliderFloat("HUD height", &g_config.hud_vertical_offset,
+        changed |= vr_menu::SliderFloat("HUD height", &g_config.hud_vertical_offset,
                                       kHudHeightMin, kHudHeightMax, "%+.0f px");
         if (ImGui::SmallButton("Pull HUD in (0.45)##sf"))
         { g_config.hud_size = 0.45f; changed = true; }
@@ -1308,7 +1309,7 @@ namespace
         if (g_activeCategory == Cat_Picture)
         {
         ImGui::Text("Render resolution (next game launch)");
-        changed |= ImGui::SliderFloat("Resolution scale", &g_config.resolution_scale,
+        changed |= vr_menu::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
         // Same even-rounding the launcher applies, so this is the exact render
         // size the next launch will ask MCC for.
@@ -1365,7 +1366,7 @@ namespace
         ImGui::TextDisabled("How the game image is scaled to your headset. The game usually\n"
                             "renders BELOW your per-eye headset resolution, so this upscales it.\n"
                             "Sharp keeps edges crisp; Linear is the old soft/shimmery look.");
-        changed |= ImGui::SliderFloat("Sharpening", &g_config.sharpness, 0.0f, 1.0f, "%.2f");
+        changed |= vr_menu::SliderFloat("Sharpening", &g_config.sharpness, 0.0f, 1.0f, "%.2f");
         ImGui::TextDisabled("RCAS-based 2x overdrive. 0 = off; 1 = twice the prior maximum.\n"
                             "It uses the same five taps/pass; lower it if the top rings or clips.");
         const char* aaItems[] = {
@@ -1378,13 +1379,13 @@ namespace
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Scene");
-        changed |= ImGui::SliderFloat("Game brightness", &g_config.game_brightness, 0.5f, 2.0f, "%.2f");
+        changed |= vr_menu::SliderFloat("Game brightness", &g_config.game_brightness, 0.5f, 2.0f, "%.2f");
         ImGui::TextDisabled("Brightens/darkens the whole game. 1.0 = the game's own brightness.\n"
                             "One setting for Halo 3, ODST and Reach - all three move together.");
         changed |= ImGui::Checkbox("Motion blur", &g_config.motion_blur);
         ImGui::TextDisabled("Off is the VR standard. In stereo the game's blur is fed the wrong\n"
                             "previous frame and smears bright edges into repeating echoes.");
-        changed |= ImGui::SliderFloat("Draw distance", &g_config.draw_distance,
+        changed |= vr_menu::SliderFloat("Draw distance", &g_config.draw_distance,
                                       kDrawDistanceMin, kDrawDistanceMax, "%.2f");
         ImGui::TextDisabled("1.00 = full stock draw distance. Lower brings the far plane in toward\n"
                             "you, culling distant terrain/objects (skybox goes first). Most levels\n"

@@ -545,7 +545,7 @@ try {
         }
         halo4_candidate = [ordered]@{
             id = 'H4-WORLD-CONTACT-STAGE9-RIGHT-GRIP-MELEE'
-            status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
+            status = 'USER_REQUESTED_WIP_CHECKPOINT_UNACCEPTED'
             behavior = 'accepted-stage6-world-contact-plus-opt-in-openxr-velocity-native-melee'
             head_tracking = $true
             six_dof = $true
@@ -719,7 +719,7 @@ try {
                 physical_melee = [ordered]@{
                     available = $true
                     default_enabled = $false
-                    threshold_range_metres_per_second = '0.30-5.00'
+                    threshold_range_metres_per_second = '0.30-10.00'
                     action = 'native-contact-or-separate-active-binding-gesture-see-melee-candidate-note'
                     velocity_policy = 'meaningful-native-openxr-preferred-bounded-pose-delta-fallback'
                 }
@@ -971,7 +971,7 @@ try {
             default_enabled = $false
             config_key = 'world_collision'
             physical_melee_config_key = 'physical_melee'
-            threshold_range_metres_per_second = '0.30-5.00'
+            threshold_range_metres_per_second = '0.30-10.00'
             default_threshold_metres_per_second = 5.0
             halo2_tag_data_slot_rva = '0x015E4B38'
             halo2_compression_count_offset = '0x14'
@@ -1092,15 +1092,25 @@ try {
             handedness_scope = 'primary-support-pose-trigger-grip-velocity-haptic-routing'
             anatomical_mesh_mirroring = 'unfinished'
             halo2_dual_controller_rays = $true
+            halo3_dual_controller_rays = $true
+            halo3_dual_controller_ray_scope = 'verified-local-owned-on-foot-pair-native-origin'
+            support_grip_dual_exclusion_halo2_halo3_odst = $true
+            menu_slider_last_displayed_digit_arrows = $true
+            physical_melee_maximum_metres_per_second = 10.0
+            world_contact_release_smoothing = 'unaccepted-10mm-120ms-bound'
+            physical_melee_non_biped_targets = 'native-damageability-unaccepted'
+            halo3_secondary_unarmed_melee_selection = 'implemented-unaccepted'
+            snap_turn_restoration = 'unfinished-no-change'
+            all_title_flat_mode_resolution = 'unconfirmed-halo4-capture-latch-unresolved'
             halo2_dual_aim_publication_max_age_ms = 100
             odst_secondary_bounds_and_contact = $true
             halo3_stale_camera_retirement_ms = 2000
             crosshair_trajectory_controls = $true
             visual_support_hand_offsets_change_aim = $false
             ordinary_campaign_dual_acquisition_odst_reach_halo4 = 'unfinished-not-enabled'
-            independent_secondary_firing_halo3_odst_reach_halo4 = 'unfinished'
+            independent_secondary_firing_odst_reach_halo4 = 'unfinished'
         }
-        note = 'UNTESTED continuation of accepted 4e01f28. Handedness role routing, H2 independent dual aim, ODST secondary contact, Crosshair trajectory controls and H3 stale-camera recovery. Anatomical mirroring, ordinary ODST/Reach/H4 campaign dual acquisition, remaining all-title independent secondary firing and unarmed/secondary melee damage selection are unfinished. See MELEE-CANDIDATE-NOTES.md. Both editions supported; package only.'
+        note = 'USER-REQUESTED WIP continuation of accepted 4e01f28. Includes handedness role routing, H2/H3 independent dual aim, H2/H3/ODST support-grip exclusion, slider precision arrows, melee/contact refinements and H3 camera recovery. No new headset acceptance. Anatomical handedness, ordinary ODST/Reach/H4 dual acquisition/direction, snap-turn restoration and all-title flat-mode resolution remain unfinished. See MELEE-CANDIDATE-NOTES.md for complete scope and risks. Both editions; package only.'
     }
 
     Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/MELEE-HANDEDNESS-CANDIDATE-2026-09-09.md') -Destination (Join-Path $packageDir 'MELEE-CANDIDATE-NOTES.md')

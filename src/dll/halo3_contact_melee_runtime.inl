@@ -29,6 +29,7 @@ struct Halo3ContactScope
     unsigned rays=0;
     contact_melee::Sweep sweep{};
     float direction[3]{};
+    int hand=1; // Controller role: support/secondary=0, main=1.
 };
 thread_local Halo3ContactScope g_halo3ContactScope;
 
@@ -45,7 +46,7 @@ const uint8_t* Halo3ContactTls()
     return slots ? static_cast<const uint8_t*>(slots[*g_engineTlsIndex]) : nullptr;
 }
 
-bool Halo3ContactBiped(uint32_t handle)
+bool Halo3ContactObject(uint32_t handle,bool requireBiped=false)
 {
     if(handle==UINT32_MAX || !(handle>>16)) return false;
     const auto* tls=Halo3ContactTls();
@@ -61,8 +62,13 @@ bool Halo3ContactBiped(uint32_t handle)
     if(!entries) return false;
     const auto* entry=entries+(handle&0xFFFF)*0x18;
     return *reinterpret_cast<const uint16_t*>(entry)==static_cast<uint16_t>(handle>>16) &&
-        entry[3]==0 && *reinterpret_cast<const void* const*>(entry+0x10);
+        entry[3]<32 && (!requireBiped || entry[3]==0) &&
+        *reinterpret_cast<const void* const*>(entry+0x10);
 }
+
+bool Halo3ContactBiped(uint32_t handle) { return Halo3ContactObject(handle,true); }
+
+#include "halo3_melee_selection.inl"
 
 bool Halo3RedirectContactVector(uintptr_t caller,uint64_t flags,int32_t mode,
     int32_t ignoredA,int32_t ignoredB,int32_t ignoredC,void* result,uint8_t& returned)
@@ -102,7 +108,7 @@ __declspec(noinline) void __fastcall Halo3ContactDamageDetour(void* event,uint32
         const uintptr_t caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
         const bool own=scope.active && caller==g_halo3Contact.base+0x35C102;
         if(!own || (bytes && *reinterpret_cast<const uint32_t*>(bytes+0x18)==scope.owner &&
-            target==scope.target && Halo3ContactBiped(target)))
+            target==scope.target && Halo3ContactObject(target)))
         {
             if(own)
             {
@@ -125,6 +131,7 @@ __declspec(noinline) void __fastcall Halo3ContactDamageDetour(void* event,uint32
 struct Halo3ContactBackend
 {
     uint32_t owner=UINT32_MAX;
+    int hand=1;
     bool Query(const contact_melee::Sweep& sweep,contact_melee::Hit& hit) noexcept
     {
         // Native collision initializes/uses fields through +63 (H3EK
@@ -140,11 +147,11 @@ struct Halo3ContactBackend
             !original(*g_halo3Contact.flags,1,start,vector,static_cast<int32_t>(owner),-1,-1,result) ||
             *reinterpret_cast<const uint32_t*>(result)!=4) return false;
         memcpy(&hit.unit,result+0x40,sizeof(hit.unit));
-        if(hit.unit==owner || !Halo3ContactBiped(hit.unit)) return false;
+        if(hit.unit==owner || !Halo3ContactObject(hit.unit)) return false;
         memcpy(&hit.fraction,result+4,sizeof(hit.fraction));
         memcpy(&hit.position,result+8,sizeof(hit.position));
         memcpy(&hit.normal,result+0x2C,sizeof(hit.normal));
-        hit.npc=true;
+        hit.object=true;
         if(!std::isfinite(hit.fraction) || hit.fraction<0 || hit.fraction>1 ||
             !contact_melee::Finite(hit.position) || !contact_melee::Finite(hit.normal)) return false;
         g_halo3Contact.contacts.fetch_add(1,std::memory_order_relaxed);
@@ -152,7 +159,7 @@ struct Halo3ContactBackend
     }
     bool Apply(uint32_t unit,const contact_melee::Hit& hit,const contact_melee::Sweep& sweep) noexcept
     {
-        if(unit!=owner || !Halo3ContactBiped(owner) || !Halo3ContactBiped(hit.unit)) return false;
+        if(unit!=owner || !Halo3ContactBiped(owner) || !Halo3ContactObject(hit.unit)) return false;
         const auto* tls=Halo3ContactTls();
         const auto* globals=tls ? *reinterpret_cast<const uint8_t* const*>(tls+0x48) : nullptr;
         if(!globals || (!globals[0] && !globals[1])) return false;
@@ -162,6 +169,7 @@ struct Halo3ContactBackend
         if(!std::isfinite(length) || length<=1e-6f) return false;
         g_halo3ContactScope={true,false,owner,hit.unit,0,sweep,
             {delta.x/length,delta.y/length,delta.z/length}};
+        g_halo3ContactScope.hand=hand;
         // 79 selects the first authored melee damage response in H3EK A5DE20
         // and retail 35A9A4. It does not request an animation or button action.
         __try { g_halo3Contact.melee(owner,0x79,mode,1.0f); }
@@ -196,8 +204,9 @@ void Halo3ContactTick(uint32_t unit)
                 { g_halo3Contact.hands[hand].Reset(); continue; }
                 Halo3ContactBackend backend{};
                 backend.owner=unit;
+                backend.hand=hand;
                 const auto result=g_halo3Contact.hands[hand].Process(packet.frame,
-                    std::clamp(g_config.physical_melee_swing_speed,0.3f,5.0f),backend);
+                    std::clamp(g_config.physical_melee_swing_speed, kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax),backend);
                 if(result==contact_melee::ContactResult::Applied)
                 {
                     g_halo3Contact.submitted[hand].fetch_add(1,std::memory_order_relaxed);
@@ -286,6 +295,7 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
     if(MH_EnableHook(updateTarget)!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: simulation hook enable failed; retained for cleanup"); return false; }
     g_halo3Contact.enabled.store(true,std::memory_order_release);
+    (void)InstallHalo3MeleeSelection(base,size);
     LOG("Halo 3 contact melee installed: physical hand/weapon contact, native exact-target damage; headset verification pending");
     return true;
 }
@@ -367,7 +377,9 @@ void Halo3PublishContactHand(int hand,const FpInterpolationContext& context,
 
 void ReportHalo3ContactMelee()
 {
+    ReportHalo3DualAim();
     if(!g_halo3Contact.updateTarget) return;
+    ReportHalo3MeleeSelection();
     LOG("Halo 3 contact melee: enabled=%d fault=%d queries=%llu contacts=%llu submissions(L/R)=%llu/%llu nativeRejected=%llu queueDrops=%llu predictedRequests=%llu",
         Halo3ContactMeleeReady()?1:0,g_halo3Contact.faulted.load()?1:0,
         g_halo3Contact.queries.exchange(0),g_halo3Contact.contacts.exchange(0),

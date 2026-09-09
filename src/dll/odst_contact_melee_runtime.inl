@@ -45,7 +45,7 @@ const uint8_t* OdstContactTls()
     return slots ? static_cast<const uint8_t*>(slots[*g_odstEngineTlsIndex]) : nullptr;
 }
 
-bool OdstContactBiped(uint32_t handle)
+bool OdstContactObject(uint32_t handle,bool requireBiped=false)
 {
     if(handle==UINT32_MAX || !(handle>>16)) return false;
     const auto* tls=OdstContactTls();
@@ -60,8 +60,11 @@ bool OdstContactBiped(uint32_t handle)
     if(!entries) return false;
     const auto* entry=entries+(handle&0xFFFF)*0x18;
     return *reinterpret_cast<const uint16_t*>(entry)==static_cast<uint16_t>(handle>>16) &&
-        entry[3]==0 && *reinterpret_cast<const void* const*>(entry+0x10);
+        entry[3]<32 && (!requireBiped || entry[3]==0) &&
+        *reinterpret_cast<const void* const*>(entry+0x10);
 }
+
+bool OdstContactBiped(uint32_t handle) { return OdstContactObject(handle,true); }
 
 bool OdstRedirectContactVector(uintptr_t caller,uint64_t flags,int32_t mode,
     int32_t ignoredA,int32_t ignoredB,int32_t ignoredC,void* result,uint8_t& returned)
@@ -101,7 +104,7 @@ __declspec(noinline) void __fastcall OdstContactDamageDetour(void* event,uint32_
         const uintptr_t caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
         const bool own=scope.active && caller==g_odstContact.base+0x3A0D04;
         if(!own || (bytes && *reinterpret_cast<const uint32_t*>(bytes+0x18)==scope.owner &&
-            target==scope.target && OdstContactBiped(target)))
+            target==scope.target && OdstContactObject(target)))
         {
             if(own)
             {
@@ -139,11 +142,11 @@ struct OdstContactBackend
             !original(*g_odstContact.flags,1,start,vector,static_cast<int32_t>(owner),-1,-1,result) ||
             *reinterpret_cast<const uint32_t*>(result)!=4) return false;
         memcpy(&hit.unit,result+0x40,sizeof(hit.unit));
-        if(hit.unit==owner || !OdstContactBiped(hit.unit)) return false;
+        if(hit.unit==owner || !OdstContactObject(hit.unit)) return false;
         memcpy(&hit.fraction,result+4,sizeof(hit.fraction));
         memcpy(&hit.position,result+8,sizeof(hit.position));
         memcpy(&hit.normal,result+0x2C,sizeof(hit.normal));
-        hit.npc=true;
+        hit.object=true;
         if(!std::isfinite(hit.fraction) || hit.fraction<0 || hit.fraction>1 ||
             !contact_melee::Finite(hit.position) || !contact_melee::Finite(hit.normal)) return false;
         g_odstContact.contacts.fetch_add(1,std::memory_order_relaxed);
@@ -151,7 +154,7 @@ struct OdstContactBackend
     }
     bool Apply(uint32_t unit,const contact_melee::Hit& hit,const contact_melee::Sweep& sweep) noexcept
     {
-        if(unit!=owner || !OdstContactBiped(owner) || !OdstContactBiped(hit.unit)) return false;
+        if(unit!=owner || !OdstContactBiped(owner) || !OdstContactObject(hit.unit)) return false;
         const auto* tls=OdstContactTls();
         const auto* globals=tls ? *reinterpret_cast<const uint8_t* const*>(tls+0x40) : nullptr;
         if(!globals || (!globals[0] && !globals[1])) return false;
@@ -196,7 +199,7 @@ void OdstContactTick(uint32_t unit)
                 OdstContactBackend backend{};
                 backend.owner=unit;
                 const auto result=g_odstContact.hands[hand].Process(packet.frame,
-                    std::clamp(g_config.physical_melee_swing_speed,0.3f,5.0f),backend);
+                    std::clamp(g_config.physical_melee_swing_speed, kPhysicalMeleeSpeedMin, kPhysicalMeleeSpeedMax),backend);
                 if(result==contact_melee::ContactResult::Applied)
                 {
                     g_odstContact.submitted[hand].fetch_add(1,std::memory_order_relaxed);

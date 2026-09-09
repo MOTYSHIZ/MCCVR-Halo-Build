@@ -1,4 +1,6 @@
 #include "../src/common/vr_interaction_refinement_logic.h"
+#include "../src/common/menu_slider_logic.h"
+#include "../src/common/halo3_melee_selection_logic.h"
 #include "../src/common/contact_melee_motion.h"
 #include "../src/dll/contact_melee_queue.h"
 #include <array>
@@ -27,6 +29,7 @@
 #include "level_load_gate_logic.h"
 #include "camera_recovery_logic.h"
 #include "weapon_hand_logic.h"
+#include "dual_weapon_aim_logic.h"
 #include "legacy_weapon_collision_catalog.h"
 #include "odst_bringup_logic.h"
 #include "sigscan.h"
@@ -13120,8 +13123,19 @@ int main()
         file << "physical_melee_swing_speed = 9.0\n";
     }
     ConfigLoad(primary.c_str());
-    Check(g_config.physical_melee_swing_speed == 5.0f,
-        "physical melee configuration exposes and clamps the five metre ceiling");
+    Check(g_config.physical_melee_swing_speed == 9.0f,
+        "physical melee accepts less-sensitive thresholds above five metres per second");
+    ConfigSave();
+    ConfigLoad(primary.c_str());
+    Check(g_config.physical_melee_swing_speed == 9.0f,
+        "less-sensitive melee threshold survives a save/load round trip");
+    {
+        std::ofstream file(primary);
+        file << "physical_melee_swing_speed = 11.0\n";
+    }
+    ConfigLoad(primary.c_str());
+    Check(g_config.physical_melee_swing_speed == 10.0f && Config{}.physical_melee_swing_speed == 5.0f,
+        "physical melee clamps at ten while retaining the default of five");
 
     {
         std::ofstream file(primary);
@@ -14133,8 +14147,14 @@ int main()
     contactSmoothing.Apply(1099,true,1.0f,cornerCorrection);
     Check(cornerCorrection[0]==0 && cornerCorrection[1]==0.01f,
         "a different contact direction discards the previous surface correction");
-    contactSmoothing.Apply(1132,false,1.0f,cornerCorrection);
-    Check(contactSmoothing.atMs==0,"leaving contact clears smoothing immediately");
+    float clearCorrection[3]{};
+    Check(contactSmoothing.Apply(1132,false,1.0f,clearCorrection) &&
+          clearCorrection[0]==0 && clearCorrection[1]>0 && clearCorrection[1]<0.01f,
+        "a clear query releases bounded presentation clearance without sideways drift");
+    clearCorrection[1]=0;
+    Check(!contactSmoothing.Apply(1220,false,1.0f,clearCorrection) &&
+          contactSmoothing.atMs==0,
+        "a clear surface cannot retain presentation clearance past 120 ms");
     // The same release step must decay by elapsed time, independently of the
     // render/query cadence and the title's world-units-per-metre conversion.
     for(int hz : {60,72,80,90,120,144,165,240})
@@ -14161,6 +14181,23 @@ int main()
             smoothing.Apply(1300,true,worldScale,correction);
             Check(std::fabs(correction[0]/worldScale-0.0005f)<1e-7f,
                 "a tracking or scheduling gap discards stale contact smoothing");
+
+            smoothing.Reset();
+            correction[0]=0.04f*worldScale;
+            smoothing.Apply(2000,true,worldScale,correction);
+            for(uint64_t sample=1;;++sample)
+            {
+                const uint64_t elapsed=std::min<uint64_t>(80,sample*1000/hz);
+                correction[0]=0;
+                Check(smoothing.Apply(2000+elapsed,false,worldScale,correction),
+                    "clear-query presentation release remains bounded and time-based");
+                if(elapsed==80) break;
+            }
+            Check(std::fabs(correction[0]/worldScale-0.01f*std::exp(-2.0f))<1e-6f,
+                "final contact release is cadence-invariant and caps its seed at one centimetre");
+            correction[0]=0;
+            Check(!smoothing.Apply(2081,false,worldScale*2,correction),
+                "world-scale changes cannot retain clearance measured in the old units");
         }
     const float degree=3.14159265358979323846f/180.0f;
     Check(std::fabs(std::atan(ExpandVisibilityTangent(std::tan(55*degree)))/degree-60)<0.001f &&
@@ -16827,6 +16864,65 @@ int main()
         "Halo 2 aim-assist view direction stays stock outside the scope and "
         "rejects a non-unit controller ray");
 
+    RecentSecondaryWeaponPresentation secondaryPresentation;
+    DualWeaponAimSnapshot dualSample{};
+    dualSample.generation = 3;
+    dualSample.unit = 0x12340001;
+    dualSample.weapons[0] = 0x56780001;
+    dualSample.weapons[1] = 0x9abc0002;
+    dualSample.trackingEpoch = 7;
+    dualSample.sampleMs = 1000;
+    dualSample.timeNs = 1000000000;
+    dualSample.positions[0][0] = 0.3f;
+    dualSample.positions[1][0] = -0.3f;
+    dualSample.directions[0][2] = 1;
+    dualSample.directions[1][0] = 1;
+    DualWeaponAimPublication dualPublication;
+    DualWeaponAimSnapshot dualRead{};
+    Check(!dualPublication.Read(dualRead) && dualPublication.Publish(dualSample) &&
+          dualPublication.Read(dualRead) && dualRead.weapons[1] == dualSample.weapons[1] &&
+          dualRead.positions[1][0] == -0.3f && dualRead.directions[1][0] == 1,
+          "dual ray publication preserves each weapon and its independent controller");
+    Check(DualWeaponAimFresh(dualRead, 3, dualSample.unit, 7, 1050, 950, 1050000000) &&
+          !DualWeaponAimFresh(dualRead, 4, dualSample.unit, 7, 1050, 950, 1050000000) &&
+          !DualWeaponAimFresh(dualRead, 3, 0x22340001, 7, 1050, 950, 1050000000) &&
+          !DualWeaponAimFresh(dualRead, 3, dualSample.unit, 8, 1050, 950, 1050000000) &&
+          !DualWeaponAimFresh(dualRead, 3, dualSample.unit, 7, 1101, 950, 1050000000) &&
+          !DualWeaponAimFresh(dualRead, 3, dualSample.unit, 7, 1050, 1001, 1050000000) &&
+          !DualWeaponAimFresh(dualRead, 3, dualSample.unit, 7, 1050, 950, 999999999),
+          "dual rays reject respawn salt, title or tracking changes, stale and replacement samples");
+    const float origin[3]{};
+    float firstRay[3]{}, secondRay[3]{};
+    Check(BuildIndependentWeaponDirection(origin, dualRead.positions[0], dualRead.directions[0], 10, firstRay) &&
+          BuildIndependentWeaponDirection(origin, dualRead.positions[1], dualRead.directions[1], 10, secondRay) &&
+          firstRay[2] > 0.99f && secondRay[0] > 0.99f && secondRay[2] == 0,
+          "separated dual controllers aim at separate targets from the native origin");
+    const float zeroDirection[3]{};
+    float refusedRay[3]{2, 3, 4};
+    Check(!BuildIndependentWeaponDirection(origin, origin, zeroDirection, 10, refusedRay) &&
+          !BuildIndependentWeaponDirection(origin, origin, firstRay, INFINITY, refusedRay) &&
+          refusedRay[0] == 2 && refusedRay[1] == 3 && refusedRay[2] == 4,
+          "invalid dual ray leaves the native direction untouched");
+    Check(!secondaryPresentation.Active(3, 1000), "no secondary presentation before publication");
+    secondaryPresentation.Publish(3, 1000);
+    Check(secondaryPresentation.Active(3, 1150) &&
+          !secondaryPresentation.Active(3, 1151) &&
+          !secondaryPresentation.Active(4, 1000) &&
+          !secondaryPresentation.Active(3, 999),
+          "dual-grab exclusion expires and rejects foreign generations and backwards time");
+    secondaryPresentation.Publish(4, UINT64_C(0xfffffff0));
+    Check(secondaryPresentation.Active(4, UINT64_C(0x100000010)),
+          "dual-grab exclusion survives the clock low-word wrap");
+    SupportGripAdmission supportGrip;
+    Check(!supportGrip.Observe(true, true, false) &&
+          !supportGrip.Observe(true, false, false) &&
+          supportGrip.Observe(false, false, false) &&
+          supportGrip.Observe(true, false, false),
+          "dropping a second weapon requires releasing grip before a new support grab");
+    Check(!supportGrip.Observe(true, false, true) &&
+          !supportGrip.Observe(true, false, false) &&
+          supportGrip.Observe(false, false, false),
+          "changing handedness consumes a held grip instead of acquiring a false grab");
     Check(PhysicalHandForWeaponSlot(0, false) == 1 &&
           PhysicalHandForWeaponSlot(1, false) == 0 &&
           PhysicalHandForWeaponSlot(0, true) == 0 &&
@@ -16856,6 +16952,38 @@ int main()
               !Halo2DualAimPublicationFresh(firing, 7, 3, 0),
             "dual aim rejects old title, recenter/handedness epoch, stale or missing tracking time");
     }
+
+    Check(MenuSliderStep("%.0f%%")==1.0 &&
+          std::fabs(MenuSliderStep("%.2f m/s")-0.01)<1e-12 &&
+          std::fabs(MenuSliderStep("%.3f")-0.001)<1e-12 &&
+          MenuSliderStep("%+.0f px")==1.0 && MenuSliderStep("%d")==1.0,
+        "menu arrows step the last displayed digit across integer, percent and fractional formats");
+    {
+        const Halo3MeleeResponse authored{0xff,11,12,13,14};
+        auto response=Halo3SelectPhysicalMeleeResponse(90,true,0xff,20,21,authored,false);
+        Check(response.material==63 && response.damage==11 && response.effect==12 &&
+            response.clashDamage==13 && response.clashEffect==14,
+            "H3 secondary melee preserves its own authored response and native material mask");
+        response=Halo3SelectPhysicalMeleeResponse(90,true,7,20,21,{},false);
+        Check(response.damage==20 && response.effect==21 && response.clashDamage==UINT32_MAX,
+            "H3 missing authored strike responses fall back to weapon defaults");
+        response=Halo3SelectPhysicalMeleeResponse(90,true,7,UINT32_MAX,21,{},false);
+        Check(response.damage==90 && response.effect==21,
+            "H3 missing weapon damage uses its unit's native fallback");
+        response=Halo3SelectPhysicalMeleeResponse(90,false,7,20,21,authored,true);
+        Check(response.material==3 && response.damage==90 && response.effect==UINT32_MAX &&
+            response.clashDamage==UINT32_MAX && response.clashEffect==UINT32_MAX,
+            "H3 bare hands cannot inherit the other weapon's effect or clash damage");
+        response=Halo3SelectPhysicalMeleeResponse(90,true,7,20,21,authored,true);
+        Check(response.damage==11 && response.effect==12 && response.clashDamage==UINT32_MAX &&
+            response.clashEffect==UINT32_MAX,
+            "H3 charged response preserves the native omission of clash responses");
+    }
+    Check(std::fabs(MenuSliderNudge(0.333333f,0,1,0.01,1)-0.34f)<1e-6f &&
+          std::fabs(MenuSliderNudge(-0.025f,-0.3f,0.3f,0.001,-1)+0.026f)<1e-6f &&
+          MenuSliderNudge(10,0.3f,10,0.01,1)==10 &&
+          MenuSliderNudge(0.3f,0.3f,10,0.01,-1)==0.3f,
+        "menu nudges round the shown value and preserve both slider endpoints");
 
     if (g_failures == 0)
         std::cout << "HaloMCCVR core tests passed\n";

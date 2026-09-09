@@ -1,5 +1,29 @@
 # Next candidate: melee, handedness, dual wield and transition recovery
 
+**Latest September 9 interruption:** user explicitly requested a WIP build ZIP
+and matching source due to usage limits. Package this checkpoint, list all
+limits, then wait. See ACTIVE-WORK-CHECKPOINT.md and the updated candidate notes.
+New H3 independent firing and H2/H3/ODST support-grip exclusion are implemented
+and locally tested, still headset-unaccepted. Anatomical left-hand meshes,
+ordinary ODST/Reach/H4 dual wield, snap-turn restoration and complete flat-mode
+recovery remain unfinished. This supersedes the packaging hold below only for
+this explicit WIP handoff; it does not advance the accepted pointer.
+
+**September 9 user delivery constraint:** continue implementation; do not run
+packaging or create another ZIP until left-hand support, all-title dual wield,
+physical melee and world-contact smoothing/refinement are implemented. The
+`11eb89e` test milestone was delivered before this instruction and remains
+unaccepted. Its partial scope must not become the next stopping point. Local
+edits, evidence analysis, builds/tests and commits remain authorized; no game
+installation, launch or GitHub publishing is authorized.
+
+Additional September 9 instructions: raise the physical-melee slider ceiling
+to 10 m/s, retaining default 5; investigate/fix exclusion of damageable world
+objects (Warthog, shield-generator examples); add arrows to both sides of every
+VR-menu slider. The user clarified each click means one unit of the last
+displayed digit (0.01 for two decimals, 0.001 for three, 1 for integer values).
+These join the full pending scope and do not authorize an intermediate ZIP.
+
 Accepted starting point: 4e01f28. See CURRENT-STATE.md for the exact artifact
 and the September 8 headset result, including the ODST Mythic Overhaul SMG
 left-hand contact exception. Preserve that result as the regression baseline.
@@ -112,8 +136,9 @@ after the grip-edge edit (`out/resume-handedness-final-build.txt` and
 `out/resume-handedness-reach-gate.txt`). The pinned H2 module identity, unique
 fire/helper entries and call edge pass the offline verifier in
 `out/dual-native-inspection-verified.txt`. HEAD descends from accepted `4e01f28`;
-the accepted pointer and game folders have not changed. Packaging is the next
-step for this test milestone; the full all-title scope remains unfinished.
+the accepted pointer and game folders have not changed. That milestone was
+packaged before the later September 9 instruction. Do not package again until
+the full requested scope is implemented, as required at the top of this file.
 Plain-language test/limitation notes: `MELEE-HANDEDNESS-CANDIDATE-2026-09-09.md`.
 
 Evidence work retained, not runtime implementation:
@@ -139,3 +164,38 @@ from the accepted report; exact final build/tests/gate, unique committed source,
 build ZIP and matching source ZIP. Preserve the multiplayer transition report,
 the original accepted melee behavior and all title/edition coverage. Delivery
 remains package-only, followed by the user's headset testing.
+
+## September 9 resumed audit after the slider instruction
+
+Recovered HEAD `11eb89e` and preserved all unfinished worktree edits. The branch
+descends from accepted `4e01f28`. No newer headset acceptance was recovered.
+
+- All menu sliders now use a common left/right arrow control. Each click steps
+  the last displayed digit; integer and displayed percentage values step by
+  one. Bounds, disabled controls, label identities and slider dragging remain
+  supported. The native ImGui input test exercises clicks, independent widget
+  identity, endpoints and dragging without launching MCC.
+- The melee threshold range is 0.30–10.00 m/s throughout configuration, UI,
+  gesture routing and all five native contact adapters. Default stays 5.00;
+  configuration tests cover a saved value of 9 and the upper clamp of 10.
+- Pending contact presentation edits extend release smoothing across clear
+  queries, bounded to 10 mm and 120 ms. Native collision, damage, pushes and
+  haptics continue to use actual contact. Tests exercise cadence and scale
+  changes. Runtime/headset improvement is not established.
+- Pending damage-target edits remove the explicit biped-only target filter.
+  The attacker remains a verified local biped; targets retain full-handle
+  validation. Native damageability and authored responses remain authoritative.
+  Review of constructor/consumer evidence is still in progress; a build does
+  not establish Warthog or shield-generator damage.
+
+Validation of the recovered worktree: cumulative Release build, both CTest
+targets and Reach consistency gate pass. Logs are
+`out/continuation-2026-09-09-build.txt` and
+`out/continuation-2026-09-09-reach-gate.txt`. These are development checks, not a
+candidate identity. No ZIP, installation, launch, publish or pointer advance.
+
+Continue native per-weapon firing/ownership, ordinary-campaign acquisition,
+anatomical handedness and melee response selection. Keep the original
+`CONTACT-PASS-REQUEST-CHECKLIST.md` as the older requirements ledger rather than
+silently treating its unresolved items as accepted. Do not mistake this audit
+for completion or another request to pause.

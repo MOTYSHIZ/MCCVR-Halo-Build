@@ -1790,9 +1790,9 @@ namespace
                     worker.accepted[sample][axis] = desired[sample][axis] +
                         (contact ? strongest[axis] : 0.0f);
             worker.publishedAtMs = targetAtMs;
-            worker.smoothing.Apply(now,contact,worldScale,strongest);
+            const bool visibleCorrection=worker.smoothing.Apply(now,contact,worldScale,strongest);
             Halo2PublishCollisionCorrection(
-                hand, generation, desired[0], strongest, contact);
+                hand, generation, desired[0], strongest, visibleCorrection);
             if (contact)
             {
                 g_halo2WorldCollision.contacts[hand].fetch_add(
@@ -2361,6 +2361,7 @@ namespace
                             __leave;
                         }
                         context.secondaryWeaponObject = secondaryObject;
+                        VR_ObserveSecondaryWeaponPresentation(GameTitle::Halo2, generation);
                         context.secondaryHandsRemap = reinterpret_cast<const int32_t*>(
                             secondaryData + kHalo2FirstPersonHandsRemapOffset);
                     }

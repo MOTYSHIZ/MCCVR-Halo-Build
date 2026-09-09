@@ -390,6 +390,9 @@ if(BUILD_TESTING)
         HALOMCCVR_HALO2_RENDER_PROBE=$<BOOL:${HALOMCCVR_HALO2_RENDER_PROBE}>
         HALOMCCVR_HALO2_ANNIVERSARY_STEREO=$<BOOL:${HALOMCCVR_HALO2_ANNIVERSARY_STEREO}>)
     add_test(NAME halomccvr_core_tests COMMAND halomccvr_core_tests)
+    add_executable(halomccvr_menu_slider_tests tests/menu_slider_tests.cpp)
+    target_link_libraries(halomccvr_menu_slider_tests PRIVATE imgui_lib)
+    add_test(NAME halomccvr_menu_slider_tests COMMAND halomccvr_menu_slider_tests)
 endif()
 
 # Stage an unaccepted local candidate only. Release-specific hashes and metadata
