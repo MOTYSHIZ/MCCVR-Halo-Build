@@ -25,6 +25,8 @@
 #include "hud_layout_logic.h"
 #include "input_logic.h"
 #include "level_load_gate_logic.h"
+#include "camera_recovery_logic.h"
+#include "weapon_hand_logic.h"
 #include "legacy_weapon_collision_catalog.h"
 #include "odst_bringup_logic.h"
 #include "sigscan.h"
@@ -680,6 +682,28 @@ int main()
         // Scenarios replay the preserved captures in
         // docs/ODST-LEVEL-LOAD-LOCKOUT.md.
         using Gate = LevelLoadGateLogic;
+
+        // Same-title sessions can stop the camera without changing module
+        // base/generation. A latched install gate must not strand that epoch.
+        Check(!CameraNeedsRecovery(2999, 1000, 1500, true),
+              "camera recovery preserves a recent heartbeat");
+        Check(CameraNeedsRecovery(3500, 1000, 1500, true),
+              "camera recovery retires stale same-generation hooks");
+        Check(CameraNeedsRecovery(3000, 1000, 0, true),
+              "camera recovery handles no first callback");
+        Check(!CameraNeedsRecovery(3500, 1000, 1500, false) &&
+              !CameraNeedsRecovery(500, 1000, 1500, true),
+              "camera recovery excludes uninstalled and backwards-time observations");
+        Check(!CameraNeedsRecovery(3500, 3400, 1500, true),
+              "a replacement install gets its own camera grace interval");
+        Gate recovered;
+        recovered.Observe(false);
+        recovered.Observe(true);
+        recovered.Reset();
+        for (int i = 0; i < 400; ++i) recovered.Observe(false);
+        Check(!recovered.IsOpen(), "recovery never installs on a frozen loading screen");
+        recovered.Observe(true);
+        Check(recovered.IsOpen(), "recovery accepts the new level camera tick");
 
         // The b70141d bounce, replayed: a Save & Quit leaves ~3 s of the
         // OUTGOING level's dying ticks running when observation begins. The
@@ -13001,7 +13025,7 @@ int main()
         "resolution_scale", "upscale_filter", "sharpness", "aa_mode",
         "rain", "atmospheric_fog",
         "hud_size", "hud_aspect", "hud_curvature",
-        "hud_vertical_offset", "motion_blur", "auto_vr", "two_handed_aim",
+        "hud_vertical_offset", "motion_blur", "auto_vr", "left_handed", "two_handed_aim",
         "two_hand_toggle", "left_hand_forward_m", "two_hand_zone_right_m",
         "left_grip_forward_m", "arm_ik", "floating_hands", "world_collision",
         "physical_melee", "gesture_melee", "physical_melee_swing_speed",
@@ -13056,6 +13080,7 @@ int main()
         file << "config_version = 5\n";
         file << "world_collision = 1\n";
         file << "physical_melee = 1\n";
+        file << "left_handed = 1\n";
         file << "physical_melee_swing_speed = 0.10\n";
     }
     ConfigLoad(primary.c_str());
@@ -13068,6 +13093,8 @@ int main()
     ConfigLoad(primary.c_str());
     Check(g_config.world_collision,
         "the shared world-collision option survives a save/load round trip");
+    Check(g_config.left_handed,
+        "left-handed main-weapon mode survives a save/load round trip");
     Check(g_config.physical_melee &&
               g_config.physical_melee_swing_speed == 0.3f,
         "physical-melee enable and swing threshold survive a save/load round trip");
@@ -16799,6 +16826,36 @@ int main()
               std::memcmp(selectedView, stockView, sizeof(stockView)) == 0,
         "Halo 2 aim-assist view direction stays stock outside the scope and "
         "rejects a non-unit controller ray");
+
+    Check(PhysicalHandForWeaponSlot(0, false) == 1 &&
+          PhysicalHandForWeaponSlot(1, false) == 0 &&
+          PhysicalHandForWeaponSlot(0, true) == 0 &&
+          PhysicalHandForWeaponSlot(1, true) == 1 &&
+          PhysicalHandForWeaponSlot(2, true) == -1,
+          "weapon role mapping preserves both physical hand identities");
+    Check(ResolveEquippedWeaponSlot(0x12340001, 0x12340001, 0x56780001, true, true) == 0 &&
+          ResolveEquippedWeaponSlot(0x56780001, 0x12340001, 0x56780001, true, true) == 1 &&
+          ResolveEquippedWeaponSlot(0x9abc0001, 0x12340001, 0x56780001, true, true) == -1 &&
+          ResolveEquippedWeaponSlot(0x56780001, 0x12340001, 0x56780001, true, false) == -1,
+          "dual firing rejects same-index stale salt and unavailable secondary slots");
+
+    {
+        Halo2ObserverPosePublication firing{};
+        firing.generation = 7;
+        firing.serial = 100;
+        firing.snapshot.valid = firing.snapshot.rightAimValid =
+            firing.snapshot.leftControllerValid = true;
+        firing.snapshot.trackingSpaceEpoch = 3;
+        firing.snapshot.predictedDisplayTimeNs = 1000000000;
+        Check(Halo2DualAimPublicationFresh(firing, 7, 3, 1011111111) &&
+              Halo2DualAimPublicationFresh(firing, 7, 3, 988888889),
+            "dual aim accepts adjacent-frame publication ordering without mixing poses");
+        Check(!Halo2DualAimPublicationFresh(firing, 8, 3, 1011111111) &&
+              !Halo2DualAimPublicationFresh(firing, 7, 4, 1011111111) &&
+              !Halo2DualAimPublicationFresh(firing, 7, 3, 1100000001) &&
+              !Halo2DualAimPublicationFresh(firing, 7, 3, 0),
+            "dual aim rejects old title, recenter/handedness epoch, stale or missing tracking time");
+    }
 
     if (g_failures == 0)
         std::cout << "HaloMCCVR core tests passed\n";

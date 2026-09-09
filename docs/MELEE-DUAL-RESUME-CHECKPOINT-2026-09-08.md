@@ -1,5 +1,10 @@
 # Resume checkpoint — paused at user's request, September 8
 
+**Historical checkpoint: the user subsequently resumed this work.** Current
+implementation, validation and remaining requirements are recorded in
+`MELEE-HANDEDNESS-DUAL-WIELD-2026-09-08.md`, including its September 9 section.
+Do not interpret the old pause below as a new instruction to stop.
+
 The user is running out of usage and explicitly asked to save a checkpoint and
 wait for their resume instruction. Do not continue implementation, build,
 package, publish, install or launch while paused. No background build or

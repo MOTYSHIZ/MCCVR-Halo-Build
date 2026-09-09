@@ -1,4 +1,5 @@
 #include "contact_melee_queue.h"
+#include "../common/camera_recovery_logic.h"
 #include "hook_quiescence.h"
 #include "../common/vr_interaction_refinement_logic.h"
 #include "../common/contact_melee_motion.h"
@@ -5977,7 +5978,8 @@ namespace
         if (!g_config.world_collision || !feature->installed.load(std::memory_order_acquire))
             return;
 
-        const bool secondary = title == GameTitle::Halo3 && context.slot == 1;
+        const bool secondary = (title == GameTitle::Halo3 ||
+            title == GameTitle::Halo3ODST) && context.slot == 1;
         if(!secondary && rightWristValid && rightCount)
         {
             float samples[kLegacyCollisionMaxSamples][3]{};
@@ -22676,9 +22678,9 @@ namespace
         if(!source || !boneMap ||
             !SafeReadBytes(boneMap,&mappedRoot,sizeof(mappedRoot)) ||
             mappedRoot<0 || mappedRoot>=64) return false;
-        // Halo 3's native interpolation slot owns the renderer source graph.
+        // H3 and ODST's proven native interpolation slots own their source graphs.
         // Do not let a secondary submission evict the primary weapon identity.
-        const int slot = title == GameTitle::Halo3 &&
+        const int slot = (title == GameTitle::Halo3 || title == GameTitle::Halo3ODST) &&
             g_fpInterpolationContexts[1].source == source &&
             g_fpInterpolationContexts[1].generation == generation &&
             g_fpInterpolationContexts[1].slot == 1 ? 1 : 0;
@@ -22703,7 +22705,8 @@ namespace
         shapeId=0;
         auto* feature=LegacyCollisionForTitle(title);
         if(!feature || !solved || !context.valid || context.slot<0 ||
-            context.slot>1 || (context.slot==1 && title!=GameTitle::Halo3))
+            context.slot>1 || (context.slot==1 && title!=GameTitle::Halo3 &&
+                title!=GameTitle::Halo3ODST))
             return false;
         const uint64_t observedAt=feature->weaponObservation[context.slot].atMs.load(
             std::memory_order_acquire);
@@ -40020,6 +40023,7 @@ namespace
         bool gameHooked = false;
         bool hookRefreshPending = false;
         uintptr_t hookedBase = 0;
+        uint64_t haloInstalledAtMs = 0;
         uint32_t haloAttemptedGeneration = 0;
         uint64_t nextInputRefreshMs = 0;
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
@@ -40394,7 +40398,12 @@ namespace
                 (haloAvailableForInstall || haloRuntimeRetained);
             const bool haloLevelRunning = activeTitle &&
                 activeTitle->title == GameTitle::Halo3 && activeLevelRunning;
-            const bool haloActive = haloTitleActive && haloLevelRunning;
+            const uint64_t lastHaloCamera =
+                g_halo3LastCamCopyMs.load(std::memory_order_acquire);
+            const bool haloCameraExpired = CameraNeedsRecovery(
+                pollNow, haloInstalledAtMs, lastHaloCamera, gameHooked);
+            const bool haloActive = haloTitleActive && haloLevelRunning &&
+                !haloCameraExpired;
             // Same title-exit re-arm as ODST above: stillness observed while
             // Halo 3 is not the active title must never satisfy the frozen
             // half of the NEXT level's proof.
@@ -40402,6 +40411,14 @@ namespace
                 g_halo3LevelLoadGate.Rearm();
             if (gameHooked && !haloActive)
             {
+                LOG("Halo 3 camera retirement: generation=%u observed=%u "
+                    "titleActive=%d levelRunning=%d cameraExpired=%d age=%llu ms; "
+                    "next install requires renewed level liveness",
+                    haloGeneration, observedHaloGeneration, haloTitleActive ? 1 : 0,
+                    haloLevelRunning ? 1 : 0, haloCameraExpired ? 1 : 0,
+                    static_cast<unsigned long long>(
+                        lastHaloCamera && pollNow >= lastHaloCamera
+                            ? pollNow - lastHaloCamera : 0));
                 PublishHalo3Lifecycle(true, false, true);
                 TitleAdapter_ClearHeartbeat(
                     GameTitle::Halo3, haloGeneration);
@@ -40700,6 +40717,7 @@ namespace
                     {
                         g_hooked = true;
                         gameHooked = true;
+                        haloInstalledAtMs = GetTickCount64();
                         hookRefreshPending = false;
                         hookedBase = base;
                     }

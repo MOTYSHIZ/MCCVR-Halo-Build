@@ -1,4 +1,4 @@
-# Next candidate: melee, handedness and all-title dual wield
+# Next candidate: melee, handedness, dual wield and transition recovery
 
 Accepted starting point: 4e01f28. See CURRENT-STATE.md for the exact artifact
 and the September 8 headset result, including the ODST Mythic Overhaul SMG
@@ -19,9 +19,9 @@ Optional failure must leave the working camera and other features running.
 
 ## Evidence and work in progress
 
-- H2 current helper Halo2WeaponAimHelperDetour always uses the primary reticle
-  for every local-unit firing call. Its local-unit guard is insufficient to
-  select the secondary ray. E-H2-37 already proves the native firing caller:
+- The old H2 Halo2WeaponAimHelperDetour is dormant; its target is not installed.
+  The live native unit-aim path supplies primary aim. E-H2-37 proves a native
+  firing boundary suitable for independently identifying the secondary:
   H2EK 49C960 -> 47DC20; retail 8E4940 -> 8F0F70. Inspect weapon ownership at
   this caller before adding independent direction selection.
 - Supplied ODST log has successful submissions from both hands, no contact
@@ -32,3 +32,110 @@ Optional failure must leave the working camera and other features running.
   while investigating them.
 
 This document records scope and observed code, not completion or new acceptance.
+
+## Multiplayer feedback and added scope (September 8)
+
+User resumed the paused work and reports true physical melee works well in
+multiplayer with a friend. Both supplied logs identify source 4e01f28 and Steam.
+Preserved under out/test-runs/4e01f28-multiplayer-feedback:
+
+- user.log (Downloads/HaloMCCVR (3).log), SHA-256
+  B4A393E49D143BF9F5F58DA72B739A051EA86FED90F714598D7A66A915B2C9AF;
+  SteamVR/OpenXR 2.17.8, Oculus-family, panel 120 Hz.
+- friend.log (Downloads/HaloMCCVR (4).log), SHA-256
+  EAB24EFB7CDDA8D2EF1C9203721F46C7215046F0BC2CC112BDBF93175C0A2134;
+  SteamVR/OpenXR in Meta compatibility mode 2.17.8, Oculus-family, panel 72 Hz.
+
+Additional requirements: recover VR after game/level/session transitions;
+put trajectory adjustment in Crosshair settings; keep visual gun positioning
+independent of reticle/bullet aim, including gun-stock calibration.
+
+At 10:35:34.999 the user loses stereo. No later camera installation, retirement
+or load-gate rearm is logged; loading/unsupported (later paused) alternates while
+old contact/collision telemetry remains enabled. The friend loses stereo at
+07:35:35.448, records a lost mapping and new load-gate observation, then gets a
+fresh camera hook and stereo at 07:37:43.679/07:37:44.701. This supports a stuck
+old hook epoch in the user's run; it does not prove the exact loader event.
+
+Source-confirmed recovery gap: PlayerViewLivenessGate::Observe returns true
+forever after opening, and the Halo 3 worker formerly required title/generation
+or gate closure to retire hooks. There was no camera-heartbeat timeout in that
+worker. A new 2-second stale/no-first-camera retirement path now resets the
+normal gate; it never authorizes timed installation. Core tests replay a frozen
+load followed by a real camera tick and exercise the recovery grace interval.
+Initial Release build and core tests passed; no new headset acceptance.
+
+Crosshair now exposes the existing independent aim pitch/yaw/roll settings,
+retaining their config keys for compatibility. Visual hand offsets no longer
+feed the two-handed aiming line. New left-handed pose/input/haptic routing is
+implemented but requires further presentation review and validation. Anatomical
+mesh mirroring is not established by role routing alone. Ordinary-campaign
+dual acquisition in ODST/Reach/H4 is still unfinished; do not advertise it.
+
+## September 9 continuation: reviewed source and exact remaining work
+
+The user resumed again and requires continuity through interruptions. This
+section supersedes the old paused checkpoint's implementation-status claims.
+The requested final scope above is unchanged; nothing is newly accepted.
+
+Implemented in the worktree:
+
+- H2's optional full-weapon firing scope identifies both equipped weapon roles
+  and supplies independent controller directions only while both owned weapons
+  are verified. The single-weapon native aim path remains the baseline.
+- Review caught a repeat of H2 C-H2-60's disproven frame-order constraint: the
+  new scope compared the immutable observer camera publication's serial with a
+  separately read latest VR sample. It now keeps the observer's camera and
+  controller together, uses the current sample only for matching tracking epoch
+  and a bounded 100 ms age, and rejects stale title/tracking generations.
+  Tests cover adjacent-frame ordering, stale time and tracking reset.
+- The H2 hook transaction creates both hooks before enabling either and attempts
+  immediate quiescent rollback on partial failure. Stock fallback stays local
+  to dual aim. The telemetry now correctly describes both independent rays.
+- ODST's previously documented slot-1 source graph now has its own authored
+  weapon-bound cache, world-contact publication and contact-melee shape. A
+  recent secondary palette owns the support-hand contact samples, preventing
+  alternating primary/secondary palettes from reseeding its swing each time.
+  This is not proof of the reported Mythic SMG miss's cause or its resolution.
+- Left-handed pose, trigger/grip, velocity and haptic routing is implemented;
+  physical sticks/buttons and the D-pad's selected physical hand stay physical.
+  A change invalidates contact/aim state. The two-hand latch now tracks grip
+  edges across invalidation so a held grip cannot become a new toggle on recovery.
+  Anatomical left-hand mesh presentation still needs title-by-title review.
+- Crosshair settings expose trajectory pitch/yaw/roll. Visual support-hand
+  offsets no longer affect the two-controller aim line or grab location.
+- H3 has worker-side stale-camera retirement with named logging and renewed
+  normal load-gate proof before reinstallation. It does not install on a timer.
+
+Validation completed: Release build, core tests and Reach consistency gate
+after the grip-edge edit (`out/resume-handedness-final-build.txt` and
+`out/resume-handedness-reach-gate.txt`). The pinned H2 module identity, unique
+fire/helper entries and call edge pass the offline verifier in
+`out/dual-native-inspection-verified.txt`. HEAD descends from accepted `4e01f28`;
+the accepted pointer and game folders have not changed. Packaging is the next
+step for this test milestone; the full all-title scope remains unfinished.
+Plain-language test/limitation notes: `MELEE-HANDEDNESS-CANDIDATE-2026-09-09.md`.
+
+Evidence work retained, not runtime implementation:
+
+- `out/dual-h4-eligibility-retail.txt` confirms the H4 kit `EA0CA0` predicate's
+  homolog at retail `610774`: the weapon/unit tag lookup, unit bit 23 at `1D4`,
+  and weapon bits 17/18 at `2A0` agree with the independently inspected H4 kit.
+- Reach kit `DEBC40` has its previously verified retail homolog `4BCDB4`
+  (`out/dual-reach-eligibility-retail.txt`), with Reach-specific fields.
+  These predicates alone do not prove acquisition, presentation and firing.
+- H3/ODST existing firing-data signatures are unique at retail `3524B0` and
+  `396B7C`. Both accept unit, origin, direction, marker, offset and two boolean
+  arguments; neither accepts the firing weapon. Therefore independent selection
+  needs a verified outer weapon scope, not a guessed extra argument.
+  Decompiles: `out/dual-{h3,odst}-firing-data-retail.txt`; caller matching is in
+  `out/dual-{h3,odst}-fire-match.txt`. The corresponding large kit barrel fire
+  decompiles were already saved as `out/dual-{h3,odst,reach,h4}-fire-kit.txt`.
+
+Still required before claiming the whole request complete: ordinary-campaign
+dual acquisition in ODST/Reach/H4; complete independent direction/presentation
+for H3/ODST/Reach/H4; anatomical handedness review; damage-selection limitations
+from the accepted report; exact final build/tests/gate, unique committed source,
+build ZIP and matching source ZIP. Preserve the multiplayer transition report,
+the original accepted melee behavior and all title/edition coverage. Delivery
+remains package-only, followed by the user's headset testing.

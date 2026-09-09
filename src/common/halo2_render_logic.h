@@ -1705,6 +1705,24 @@ inline bool Halo2ObserverControllerSnapshotUsable(
         publication.snapshot.leftControllerValid;
 }
 
+// A firing callback may consume the preceding observer sample. Use that
+// immutable camera/controller pair; the latest tracking sample only checks
+// its age and tracking-space identity, never supplies replacement pose data.
+inline bool Halo2DualAimPublicationFresh(
+    const Halo2ObserverPosePublication& publication, uint32_t generation,
+    uint64_t currentEpoch, int64_t currentTimeNs) noexcept
+{
+    const auto& snapshot = publication.snapshot;
+    if (!Halo2ObserverControllerSnapshotUsable(publication, generation) ||
+        !currentEpoch || snapshot.trackingSpaceEpoch != currentEpoch ||
+        snapshot.predictedDisplayTimeNs <= 0 || currentTimeNs <= 0)
+        return false;
+    const uint64_t sample = static_cast<uint64_t>(snapshot.predictedDisplayTimeNs);
+    const uint64_t current = static_cast<uint64_t>(currentTimeNs);
+    const uint64_t age = current >= sample ? current - sample : sample - current;
+    return age <= 100000000; // 100 ms; also bounds reverse publication ordering.
+}
+
 inline bool Halo2CameraBasisMatches(
     const Halo2CameraBasis& left, const Halo2CameraBasis& right) noexcept
 {

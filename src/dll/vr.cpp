@@ -655,6 +655,11 @@ namespace
     XrPosef g_rightAimPose{{0, 0, 0, 1}, {0, 0, 0}};
     bool g_rightAimPoseValid = false;
     PhysicalMeleeSpeedHistory g_meleeSpeedHistory[2]{};
+    // Title interfaces use right=primary, left=support/secondary roles.
+    std::atomic<bool> g_capturedLeftHanded{false};
+    XrPosef g_physicalControllerPose[2]{};
+    bool g_physicalControllerValid[2]{};
+    uint64_t g_physicalControllerAtMs = 0;
     XrVector3f g_rightAimLinearVelocity{};
     bool g_rightAimLinearVelocityValid = false;
     uint64_t g_rightAimLinearVelocityAtMs = 0;
@@ -7142,10 +7147,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // left-grip press while the left hand is inside the thin/long barrel zone
     // flips two-hand ON; the next left-grip press flips it OFF (anywhere). Hold
     // mode: the zone acquires the hold, which stays engaged until grip release.
-    // The OpenXR aim pose sits back at the wrist. Shift the left-hand sample to
-    // the palm so activation and the two-hand line are measured at the rendered
-    // support hand. The same configured correction is used by game.cpp's left
-    // arm target, keeping the visible wrist and the aiming point together.
+    // Physical controller points now own activation and aim independently of
+    // rendered hand seating. Keep the old offset helper available for explicit
+    // geometry calculations; current aiming inputs pass zero offsets.
     XrVector3f LeftHandPointWithOffsets(
         const XrPosef& lpose, float handForwardM, float gripForwardM)
     {
@@ -7162,9 +7166,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     XrVector3f LeftHandPoint(const XrPosef& lpose)
     {
-        return LeftHandPointWithOffsets(
-            lpose, g_config.left_hand_forward_m,
-            g_config.left_grip_forward_m);
+        // Grip acquisition uses the same physical point as the aiming line.
+        // Moving the rendered support hand cannot engage/disengage aim.
+        return lpose.position;
     }
 
     struct AimPoseInputs
@@ -7205,8 +7209,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         inputs.left = left;
         inputs.twoHandEnabled = g_config.two_handed_aim;
         inputs.twoHandLatched = g_twoHandLatched.load();
-        inputs.leftHandForwardM = g_config.left_hand_forward_m;
-        inputs.leftGripForwardM = g_config.left_grip_forward_m;
+        // Visual hand seating must not change the two-controller aiming line.
+        inputs.leftHandForwardM = 0.0f;
+        inputs.leftGripForwardM = 0.0f;
         inputs.gunYawDeg = g_config.gun_yaw_deg;
         inputs.gunPitchDeg = g_config.gun_pitch_deg;
         inputs.gunRollDeg = g_config.gun_roll_deg;
@@ -7354,6 +7359,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     void UpdateTwoHandLatch(bool rightValid, const XrPosef& rpose,
                             bool leftValid, const XrPosef& lpose, float gripL)
     {
+        // Track the physical grip edge even while tracking/handedness resets
+        // invalidate the poses. A held grip is not a new grab on recovery.
+        static bool prevGrip = false;
+        const bool gripHeld = gripL > 0.5f;
+        const bool rising = gripHeld && !prevGrip;
+        prevGrip = gripHeld;
         if (!g_config.two_handed_aim || !rightValid || !leftValid)
         { g_twoHandLatched.store(false); return; }
         const XrVector3f rfwd = Rotate(rpose.orientation, {0,0,-1});
@@ -7372,18 +7383,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             const float lateral = sqrtf(perp.x*perp.x+perp.y*perp.y+perp.z*perp.z);
             return along>0.08f && along<0.80f && lateral<0.09f;
         };
-        // Register the grab at the PALM point or at the RAW hand position —
-        // whichever touches the line. In a cross-body grip the forward palm
-        // shift overshoots the barrel (23:17 headset report: the click zone
-        // sat past the hand), so the raw sample must also count.
-        const bool inZone = inZoneAt(LeftHandPoint(lpose)) || inZoneAt(lpose.position);
-        const bool gripHeld = gripL > 0.5f;
+        const bool inZone = inZoneAt(LeftHandPoint(lpose));
 
         if (g_config.two_hand_toggle)
         {
-            static bool prevGrip=false;
-            const bool rising = gripHeld && !prevGrip;
-            prevGrip = gripHeld;
             if (rising)
             {
                 if (g_twoHandLatched.load()) g_twoHandLatched.store(false);      // toggle off
@@ -7493,7 +7496,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const float amplitude[2]{
             MergeHapticAmplitude(gameAmplitude, contactAmplitude[0]) * intensity,
             MergeHapticAmplitude(gameAmplitude, contactAmplitude[1]) * intensity};
-        const XrPath paths[2]{g_leftHandPath, g_rightHandPath};
+        const bool leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
+        const XrPath paths[2]{leftHanded ? g_rightHandPath : g_leftHandPath,
+                              leftHanded ? g_leftHandPath : g_rightHandPath};
         for (int hand = 0; hand < 2; ++hand)
         {
             XrHapticActionInfo info{XR_TYPE_HAPTIC_ACTION_INFO};
@@ -7620,7 +7625,41 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             selectedLeftVelocity,selectedLeftVelocityValid,
             leftUsedPoseDerived);
 
+        const bool leftHanded = g_config.left_handed;
+        const bool handChanged = leftHanded !=
+            g_capturedLeftHanded.load(std::memory_order_acquire);
+        if (handChanged)
+        {
+            StopControllerHaptics();
+            LOG("Weapon handedness: physical %s hand is primary; physical %s hand is support/secondary",
+                leftHanded ? "left" : "right", leftHanded ? "right" : "left");
+            g_contactSpaceEpoch.fetch_add(1, std::memory_order_acq_rel);
+            g_twoHandLatched.store(false, std::memory_order_release);
+            g_contactHaptics[0].store(0.0f, std::memory_order_release);
+            g_contactHaptics[1].store(0.0f, std::memory_order_release);
+        }
         EnterCriticalSection(&g_headCs);
+        g_physicalControllerPose[0] = leftLocation.pose;
+        g_physicalControllerPose[1] = location.pose;
+        g_physicalControllerValid[0] = leftValid;
+        g_physicalControllerValid[1] = valid;
+        g_physicalControllerAtMs = GetTickCount64();
+        if (leftHanded)
+        {
+            std::swap(location.pose, leftLocation.pose);
+            std::swap(valid, leftValid);
+            std::swap(selectedRightVelocity, selectedLeftVelocity);
+            std::swap(selectedRightVelocityValid, selectedLeftVelocityValid);
+        }
+        g_capturedLeftHanded.store(leftHanded, std::memory_order_release);
+        if (handChanged)
+        {
+            // Prevent a toggle from appearing as a swing between controllers.
+            valid = leftValid = false;
+            selectedRightVelocityValid = selectedLeftVelocityValid = false;
+            g_meleeSpeedHistory[0] = {};
+            g_meleeSpeedHistory[1] = {};
+        }
         g_rightAimPoseValid = valid;
         if (valid)
             g_rightAimPose = location.pose;
@@ -7666,7 +7705,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         static bool logged = false;
         if (valid && !logged)
         {
-            LOG("M3: right-controller tracking active pose=(%.3f,%.3f,%.3f)",
+            LOG("M3: main-weapon controller tracking active pose=(%.3f,%.3f,%.3f)",
                 location.pose.position.x, location.pose.position.y, location.pose.position.z);
             logged = true;
         }
@@ -7703,6 +7742,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         getF(g_actTrigR, pad.trigR);
         getF(g_actGripL, pad.gripL);
         getF(g_actGripR, pad.gripR);
+        if (leftHanded)
+        {
+            std::swap(pad.trigL, pad.trigR);
+            std::swap(pad.gripL, pad.gripR);
+        }
         getB(g_actA, pad.a);
         getB(g_actB, pad.b);
         getB(g_actX, pad.x);
@@ -14595,6 +14639,27 @@ void VR_PulseContactHaptics(bool left, float amplitude)
         current, v, std::memory_order_release, std::memory_order_relaxed))
     {
     }
+}
+
+bool VR_GetPhysicalControllerPose(int hand, float outQuat[4], float outPos[3])
+{
+    if (!g_headCsInit || hand < 0 || hand > 1 || !outQuat || !outPos)
+        return false;
+    EnterCriticalSection(&g_headCs);
+    const uint64_t now = GetTickCount64();
+    const bool valid = g_physicalControllerValid[hand] &&
+        g_physicalControllerAtMs && now >= g_physicalControllerAtMs &&
+        now - g_physicalControllerAtMs <= 250;
+    if (valid)
+    {
+        const auto& pose = g_physicalControllerPose[hand];
+        outQuat[0] = pose.orientation.x; outQuat[1] = pose.orientation.y;
+        outQuat[2] = pose.orientation.z; outQuat[3] = pose.orientation.w;
+        outPos[0] = pose.position.x; outPos[1] = pose.position.y;
+        outPos[2] = pose.position.z;
+    }
+    LeaveCriticalSection(&g_headCs);
+    return valid;
 }
 
 bool VR_GetRightControllerPose(float outQuat[4], float outPos[3])

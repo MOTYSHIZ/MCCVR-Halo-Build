@@ -619,6 +619,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.halo4_helmet = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "left_handed"))
+        {
+            g_config.left_handed = atoi(val) != 0;
+            continue;
+        }
         // C-H2-85: handled by table, not by the else-if chain below - that
         // chain is at MSVC's block nesting limit and cannot take more arms.
         {
@@ -1674,6 +1679,9 @@ void ConfigSave()
     fprintf(f, "# left grip to steady aim along the two-hand line. 1 = on.\n");
     fprintf(f, "# (default %d)\n", d.two_handed_aim ? 1 : 0);
     fprintf(f, "two_handed_aim = %d\n\n", g_config.two_handed_aim ? 1 : 0);
+    fprintf(f, "# Main weapon, aim and trigger on the physical left controller.\n");
+    fprintf(f, "# Movement, turning and face buttons keep their physical bindings.\n");
+    fprintf(f, "left_handed = %d\n\n", g_config.left_handed ? 1 : 0);
     fprintf(f, "# Engage style: 1 = toggle (click grip on/off), 0 = hold.\n");
     fprintf(f, "# (default %d)\n", d.two_hand_toggle ? 1 : 0);
     fprintf(f, "two_hand_toggle = %d\n\n", g_config.two_hand_toggle ? 1 : 0);

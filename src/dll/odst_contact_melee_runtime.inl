@@ -299,6 +299,12 @@ void OdstPublishContactHand(int hand,const FpInterpolationContext& context,
         unit==-1 || !points || !solved || count<=0 || count>64 ||
         generation!=g_odstContact.generation || !g_baseCamValid.load()) return;
     const uint64_t now=GetTickCount64();
+    // ODST-WEAPON-IK-EVIDENCE.md proves slot 1 is its secondary palette.
+    // Give that palette stable ownership of support-hand contact samples;
+    // alternating primary/secondary skeletons otherwise reseed every swing.
+    if(context.slot==1) g_odstContact.secondaryAtMs.store(now,std::memory_order_release);
+    const uint64_t secondary=g_odstContact.secondaryAtMs.load(std::memory_order_acquire);
+    if(hand==0 && context.slot==0 && secondary && now>=secondary && now-secondary<=100) return;
     VrContactTrackingSnapshot tracking{};
     if(!VR_GetContactTrackingSnapshot(tracking)) return;
     ContactMeleePacket packet{};
@@ -341,7 +347,7 @@ void OdstPublishContactHand(int hand,const FpInterpolationContext& context,
     frame.shape=(mask^(uint64_t(context.count)<<48)^uint64_t(context.slot))*1099511628211ull;
     float world[contact_melee::kMaxPoints][3]{};
     memcpy(world,points,sizeof(float)*3*count);
-    if(hand==1 && context.slot==0)
+    if((hand==1 && context.slot==0) || (hand==0 && context.slot==1))
     {
         uint64_t weaponShape=0;
         if(LegacyBuildMappedWeaponBounds(GameTitle::Halo3ODST,context,root,solved,world+count,weaponShape))

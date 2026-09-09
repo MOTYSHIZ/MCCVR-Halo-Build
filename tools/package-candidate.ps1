@@ -1084,10 +1084,26 @@ try {
                 sha256 = $configHash
             }
         }
-        note = 'UNTESTED current-work snapshot on accepted ad7fbf5, delivered at user request. Experimental native contact and active-binding gesture melee; unarmed and secondary-weapon damage selection remain unfinished. Includes preserved contact/H2/visibility/alignment refinements. See MELEE-CANDIDATE-NOTES.md for scope and limits. Both editions supported; package only.'
+        handedness_and_dual_aim_candidate = [ordered]@{
+            accepted_baseline = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
+            status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
+            left_handed_config_key = 'left_handed'
+            left_handed_default = $false
+            handedness_scope = 'primary-support-pose-trigger-grip-velocity-haptic-routing'
+            anatomical_mesh_mirroring = 'unfinished'
+            halo2_dual_controller_rays = $true
+            halo2_dual_aim_publication_max_age_ms = 100
+            odst_secondary_bounds_and_contact = $true
+            halo3_stale_camera_retirement_ms = 2000
+            crosshair_trajectory_controls = $true
+            visual_support_hand_offsets_change_aim = $false
+            ordinary_campaign_dual_acquisition_odst_reach_halo4 = 'unfinished-not-enabled'
+            independent_secondary_firing_halo3_odst_reach_halo4 = 'unfinished'
+        }
+        note = 'UNTESTED continuation of accepted 4e01f28. Handedness role routing, H2 independent dual aim, ODST secondary contact, Crosshair trajectory controls and H3 stale-camera recovery. Anatomical mirroring, ordinary ODST/Reach/H4 campaign dual acquisition, remaining all-title independent secondary firing and unarmed/secondary melee damage selection are unfinished. See MELEE-CANDIDATE-NOTES.md. Both editions supported; package only.'
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/MELEE-CANDIDATE-2026-09-07.md') -Destination (Join-Path $packageDir 'MELEE-CANDIDATE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/MELEE-HANDEDNESS-CANDIDATE-2026-09-09.md') -Destination (Join-Path $packageDir 'MELEE-CANDIDATE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

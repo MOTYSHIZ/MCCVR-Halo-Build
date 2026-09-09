@@ -1,4 +1,5 @@
 #include "../common/vr_interaction_refinement_logic.h"
+#include "../common/weapon_hand_logic.h"
 #include "../common/halo2_contact_melee_logic.h"
 #include "contact_melee_queue.h"
 #include "hook_quiescence.h"
@@ -3731,6 +3732,7 @@ namespace
     }
 
     #include "halo2_contact_melee_runtime.inl"
+    #include "halo2_dual_wield_runtime.inl"
 
     bool InstallHalo2WorldCollision(
         uintptr_t base, size_t size, uint32_t generation) noexcept
@@ -3992,6 +3994,8 @@ namespace
             LOG("Halo 2 contact melee cleanup pending; retaining dependent collision hooks");
             return false;
         }
+        if (!RemoveHalo2DualAim())
+            return false;
         if (!RemoveHalo2WorldCollision())
         {
             LOG("Halo 2 world collision cleanup pending; camera teardown "
@@ -5155,6 +5159,7 @@ namespace
         // H2EK-native probes only from a stock collision-call engine context.
         (void)InstallHalo2WorldCollision(base, size, generation);
         (void)InstallHalo2ContactMelee(base, size, generation);
+        (void)InstallHalo2DualAim(base, size);
 
         // Optional feature transaction: refusal here leaves the proven camera,
         // stereo, input and hand paths installed and loudly retains stock
@@ -5192,6 +5197,10 @@ namespace
             return;
         g_lastReportMs = now;
         ReportHalo2ContactMelee();
+        LOG("Halo 2 dual aim: enabled=%d fault=%d primaryRays=%llu secondaryRays=%llu refused=%llu",
+            g_halo2Dual.enabled.load()?1:0, g_halo2Dual.faulted.load()?1:0,
+            g_halo2Dual.primaryRays.exchange(0),
+            g_halo2Dual.secondaryRays.exchange(0), g_halo2Dual.refused.exchange(0));
         const uint64_t applied = g_appliedPoses.load(std::memory_order_relaxed);
         // Report even when nothing is being applied. A silent zero is exactly
         // the failure this telemetry exists to expose: it distinguishes "the

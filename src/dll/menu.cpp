@@ -1055,15 +1055,6 @@ namespace
         ImGui::TextDisabled("Gun-stock calibration on the weapon's post-rotation right/up axes.");
 
         ImGui::TextDisabled("All supported VR titles; visual only, shots/reticle remain on controller aim.");
-        if (ImGui::TreeNode("Advanced controller aim calibration"))
-        {
-            ImGui::TextDisabled("These settings rotate the aiming direction and crosshair together.\n"
-                                "Use Visual gun alignment above to correct the drawn barrel instead.");
-            changed |= ImGui::SliderFloat("Aim pitch (deg)", &g_config.gun_pitch_deg, -180.0f, 180.0f, "%.1f");
-            changed |= ImGui::SliderFloat("Aim yaw (deg)", &g_config.gun_yaw_deg, -180.0f, 180.0f, "%.1f");
-            changed |= ImGui::SliderFloat("Aim roll (deg)", &g_config.gun_roll_deg, -180.0f, 180.0f, "%.1f");
-            ImGui::TreePop();
-        }
         ImGui::Spacing();
         ImGui::Text("Halo 2 Classic gun alignment");
         changed |= ImGui::SliderFloat(
@@ -1086,6 +1077,9 @@ namespace
         changed |= ImGui::Checkbox("Two-handed aiming", &g_config.two_handed_aim);
         ImGui::SameLine();
         ImGui::TextDisabled(VR_IsTwoHandAiming() ? "[engaged]" : "[one-handed]");
+        changed |= ImGui::Checkbox("Left-handed main weapon", &g_config.left_handed);
+        ImGui::TextDisabled("Main weapon, aiming and trigger follow your left hand.\n"
+                            "Your right hand supports the weapon or holds the second gun.");
         if (g_config.two_handed_aim)
         {
             ImGui::Indent();
@@ -1097,7 +1091,7 @@ namespace
             changed |= ImGui::SliderFloat("Left hand forward offset (m)",
                                           &g_config.left_hand_forward_m,
                                           -0.15f, 0.30f, "%.3f");
-            ImGui::TextDisabled("Moves the visible support hand and the two-hand aim point together.");
+            ImGui::TextDisabled("Moves the visible support hand; the aiming line stays on the controllers.");
             changed |= ImGui::SliderFloat("Grab zone side offset (m)",
                                           &g_config.two_hand_zone_right_m,
                                           -0.10f, 0.10f, "%.3f");
@@ -1114,6 +1108,23 @@ namespace
 
         if (g_activeCategory == Cat_Crosshair)
         {
+        ImGui::Text("Crosshair and bullet direction");
+        changed |= ImGui::SliderFloat("Crosshair vertical angle (deg)",
+            &g_config.gun_pitch_deg, -180.0f, 180.0f, "%.1f");
+        changed |= ImGui::SliderFloat("Crosshair horizontal angle (deg)",
+            &g_config.gun_yaw_deg, -180.0f, 180.0f, "%.1f");
+        changed |= ImGui::SliderFloat("Aim roll (deg)",
+            &g_config.gun_roll_deg, -180.0f, 180.0f, "%.1f");
+        if (ImGui::SmallButton("Reset crosshair direction"))
+        {
+            g_config.gun_pitch_deg = 0.0f;
+            g_config.gun_yaw_deg = 0.0f;
+            g_config.gun_roll_deg = 0.0f;
+            changed = true;
+        }
+        ImGui::TextDisabled("Adjusts the aiming ray used by shots and the reticle, even when hidden.\n"
+                            "Visual gun alignment and gun-stock offsets are in Weapon & Aim.");
+        ImGui::Spacing();
         ImGui::Text("Authored weapon crosshair (stereo)");
         changed |= ImGui::Checkbox("Show a crosshair where the weapon shoots", &g_config.crosshair);
         if (g_config.crosshair)

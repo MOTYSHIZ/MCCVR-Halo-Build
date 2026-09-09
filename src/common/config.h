@@ -774,6 +774,10 @@ struct Config
     // drop back to the flat menu screen when you leave — no F2/F11 needed.
     bool auto_vr = true;
 
+    // Main weapon/aim/trigger use the physical left controller. Movement,
+    // turning and face buttons keep their existing physical bindings.
+    bool left_handed = false;
+
     // Two-handed weapon aiming: when you bring your left hand up to the gun
     // (support-hand grip), aim along the line from the right hand to the left
     // hand instead of the right wrist alone — steadier, and the barrel points

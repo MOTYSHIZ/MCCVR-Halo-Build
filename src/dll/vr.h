@@ -667,6 +667,8 @@ bool VR_GetHeadPose(float outQuat[4], float outPos[3]);
 // Latest right-controller aim pose in the same OpenXR local space as the head.
 // This is tracking only; weapon/projectile application is performed by M3 game hooks.
 bool VR_GetRightControllerPose(float outQuat[4], float outPos[3]);
+// Physical identity, independent of the primary/support weapon role mapping.
+bool VR_GetPhysicalControllerPose(int hand, float outQuat[4], float outPos[3]);
 // Left controller pose (used by the D-pad gesture; false until tracked).
 bool VR_GetLeftControllerPose(float outQuat[4], float outPos[3]);
 // Runtime-reported tracking-space linear velocity in metres per second.
