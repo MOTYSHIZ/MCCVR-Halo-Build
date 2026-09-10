@@ -302,7 +302,8 @@ try {
         $d3dSource -notmatch 'Halo2NativeHud_GetRasterLayout' -or
         $halo2StereoSource -notmatch
             'VR_PrepareAuthoredReticleResources' -or
-        $halo2StereoSource -match '&NativeHudAnchorBasisDetour' -or
+        # A retirement/quiescence reference is not hook installation.
+        $halo2StereoSource -match 'MH_CreateHook\s*\([^;]*&NativeHudAnchorBasisDetour' -or
         $halo2StereoSource -notmatch
             'Halo2NativeHud_DrawPlayer\s*\(' -or
         $coreTestsSource -notmatch

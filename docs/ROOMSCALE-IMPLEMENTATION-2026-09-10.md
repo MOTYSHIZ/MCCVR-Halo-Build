@@ -78,3 +78,10 @@ Halo 3 regression and both editions as available. Native analog response, camera
 bob, stepping, walls, physical turns, simultaneous stick use, death/respawn,
 vehicle/turret and cinematic transitions, controller aiming and hand/melee
 coherence remain runtime questions. CURRENT-STATE.md is not advanced.
+
+Packaging gate correction: C-H2-77 formerly rejected ANY address reference to the
+dormant NativeHudAnchorBasisDetour. The preserved lifecycle work references it
+only in the retirement/quiescence range list; no installation exists. The gate
+now rejects passing that detour to MH_CreateHook, retaining the original rejected
+hook prohibition while allowing safe teardown bookkeeping. No HUD behavior was
+changed to satisfy the gate.
