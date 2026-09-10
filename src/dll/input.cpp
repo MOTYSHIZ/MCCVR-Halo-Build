@@ -5,6 +5,7 @@
 #include <cstring>
 #include <MinHook.h>
 #include "game.h"
+#include "roomscale.h"
 #include "vr.h"
 #include "menu.h"
 #include "title_adapter.h"
@@ -115,7 +116,7 @@ namespace
         VrPadState pad;
         VR_GetPadState(pad);
         if (!pad.valid)
-            return;
+        { Roomscale_Input(false, 0, 0); return; }
 
         const bool sharedGameplayInput =
             Game_AllowsSharedGameplayFeatures();
@@ -149,6 +150,7 @@ namespace
         if (!scopeAvailable) VR_SetScopeActive(false);
         if (Menu_IsOpen())
         {
+            Roomscale_Input(false, 0, 0);
             state->Gamepad = {};
             return;
         }
@@ -268,6 +270,15 @@ namespace
             }
         }
 
+        const bool physicalMove = std::abs(int(state->Gamepad.sThumbLX)) > 7849 ||
+            std::abs(int(state->Gamepad.sThumbLY)) > 7849;
+        Roomscale_Input(sharedGameplayInput && !dpadMode && !physicalMove &&
+            TitleAdapter_GetRuntimeMode() == RuntimeMode::Gameplay &&
+            Game_IsHeadTracking() && Game_IsPositionalTracking() &&
+            VR_IsStereoEnabled() && !VR_IsPausePresentation() &&
+            !VR_IsPausePresentationTarget() && !VR_IsCutsceneTheaterActive(),
+            pad.moveX, pad.moveY);
+
         if (dpadMode)
         {
             if (pad.moveY > 0.5f) btn |= XINPUT_GAMEPAD_DPAD_UP;
@@ -331,8 +342,10 @@ namespace
             // still move. This path runs only while the game is actually using
             // the stick to move the character.
             float mx = pad.moveX, my = pad.moveY;
+            const bool roomscale = Roomscale_Move(mx, my);
             Game_MapMoveStick(mx, my);
-            if (mx * mx + my * my > 0.02f)
+            if ((roomscale && mx * mx + my * my > 1e-6f) ||
+                mx * mx + my * my > 0.02f)
             {
                 state->Gamepad.sThumbLX = ToRawStick(mx);
                 state->Gamepad.sThumbLY = ToRawStick(my);
@@ -374,10 +387,12 @@ namespace
         }
         else if (Game_Halo2OwnsLookPitch())
         {
-            // Halo 2 (C-H2-23): the headset owns pitch, the engine keeps yaw.
-            // Horizontal turns the body as stock; the vertical axis is the
-            // closed loop that keeps the engine's aim pitch on the view.
-            if (fabsf(pad.turnX) > 0.15f)
+            // Snap mode owns RX until the native body reaches its discrete
+            // target. Smooth mode retains the accepted continuous native turn.
+            float snapRx=0.0f;
+            if (Game_ComputeHalo2SnapStick(snapRx))
+                state->Gamepad.sThumbRX=ToRawStick(snapRx);
+            else if (fabsf(pad.turnX) > 0.15f)
                 state->Gamepad.sThumbRX = ToRawStick(pad.turnX);
             float servoRy = 0.0f;
             state->Gamepad.sThumbRY =

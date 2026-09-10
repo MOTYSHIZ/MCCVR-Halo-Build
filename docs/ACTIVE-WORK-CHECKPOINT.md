@@ -1,4 +1,127 @@
+# Active MCCVR work checkpoint - September 10, 2026
+
+## Current roomscale/package handoff (supersedes every older stop/hold below)
+
+User resumed with: "get roomscale working on all games and package an updated
+build with updated install instructions and details within it". During this chat
+user chose **Preserve controller aiming for this package** when told H3/H4 native
+body yaw follows gun aim. Thus horizontal roomscale body movement and head-relative
+walking are this package's scope; independent head-following body yaw is deferred,
+not completed. User then said continue/forget nothing.
+
+Implementation: src/common/roomscale_logic.h and src/dll/roomscale.{h,cpp}, config
+roomscale_movement (default off), F1 Controls, native XInput walking and all five
+title camera integrations (both H2 renderers). Native travel consumes horizontal
+tracking reference only; no new native hook, teleport, velocity or guessed field
+write. Positive native on-foot admission, manual-stick priority, 100 ms command
+expiry, generation/input-epoch checks and tracking-jump resets. See
+ROOMSCALE-IMPLEMENTATION-2026-09-10.md and ROOMSCALE-CANDIDATE-2026-09-10.md.
+
+Preserved cumulative local anatomical handedness, equipped-model bounds/melee,
+snap turning, slider arrows, recovery/lifecycle and vehicle guards. H3 dual firing
+remains disabled by 9569690. Prior worktree backup, including the half-written
+roomscale helpers recovered at chat start: out/checkpoints/20260910-roomscale-resume-161058.
+
+Release build, 3 CTest suites, Reach consistency and pinned legacy/H4 weapon-bound
+verifiers pass locally; packaging repeats build/tests at the committed identity.
+Package command now writes build ZIP, matching git source ZIP and SHA256 sidecar.
+Run tools/package-candidate.ps1 WITHOUT -Install. Updated MANUAL-README.txt says
+KEEP saved config and accurately describes titles, recovery and unresolved work.
+Do not ship the stale September 9 melee notes as current candidate instructions.
+
+Delivery: attach BOTH ZIPs in chat, then WAIT for user testing/instructions.
+No install/game-folder writes, launch, PR or publishing. Do not advance
+CURRENT-STATE.md; accepted source remains 4e01f28. No headset result for the new
+roomscale/snap/handedness/bounds work. Exact package commit/hashes are in its
+manifest/ZIP filenames under out/candidates; the latest roomscale package is the
+handoff, not an accepted pointer. Further refinements remain in the standing list.
+
+## Historical checkpoint entries (preserved for continuity)
+
 # Active MCCVR work checkpoint — September 9, 2026
+
+## Latest continuation instruction (supersedes the historical WIP hold below)
+
+LATEST STOP/HANDOFF: user asked to finish snap turning, resend the full goals
+list with completed items marked, THEN WAIT for their instruction before the
+next task (roomscale movement). Do not start roomscale automatically. No ZIPs
+requested. Weapon-bounds/melee coverage and snap-turn implementation passes
+are complete locally. Read SNAP-TURN-STATUS-2026-09-10.md: H2's missing snap
+path was added for both renderers; H3/ODST/Reach/H4 handlers and handoff guards
+audited. Release/3 CTest pass; headset validation remains pending. Full status
+ledger is in CONTINUATION-REFINEMENT-LIST.md. Preserve all uncommitted WIP.
+
+Latest September 10 steering: finish the current weapon-bounds AND physical-melee
+work, then verify/fix snap turning across ALL supported titles, report its actual
+status, then implement an optional true roomscale tracking toggle. The requested
+behavior is physical movement moving the character body and head turning making
+the body follow. User confirmed: follow physical position AND head direction, including movement heading. This
+inserts snap turning and roomscale ahead of the retained vehicle implementation
+queue. Packaging remains on hold. This instruction preceded the completed local
+snap-turn pass documented above; runtime acceptance is still pending.
+
+Current weapon/melee progress: H3/ODST/Reach/H4 runtime equipped-model bounds
+implemented and locally validated, including per-layout weapon-only melee
+regression with stationary hand samples. Read RUNTIME-WEAPON-BOUNDS-2026-09-10.md
+for native proof and explicit limits. H2 retains its live-verified reader.
+Coverage implementation pass complete; headset results and the broader melee
+refinement list remain pending. Snap-turn implementation also completed locally;
+wait for user instruction before roomscale, per the newer stop above.
+
+Latest steering also confirms BOTH weapon bounds and physical melee fixes are
+in scope. Finish that work, then verify/report whether H2 vehicle controls use
+the other titles' control method. A minor third-party H2 reticle-after-tank-exit
+report is stored in docs/bug-reports/halo2-tank-exit-reticle.md and its image;
+defer investigation. Do not confuse that report with the active vehicle audit.
+
+LATEST user steering: Halo 4 damage black-screen/fade is DEFERRED. Disregard
+that investigation until the user explicitly asks to resume it. Retain the
+report only; do not spend implementation or research time on it. Physical melee
+and automatic equipped-weapon contact remain the current active section.
+
+September 10 latest completed section: all-title anatomical left-hand local
+implementation and validation complete. See LEFT-HAND-IMPLEMENTATION-2026-09-10.md
+for exact scope, tests and headset caveats. Release build, all three tests and
+Reach gate pass. User informed of completion with headset validation pending.
+Current section: automatic equipped-model weapon contact and physical melee.
+The supplied H4 log is preserved under
+out/test-runs/d77c9dd-20260910-weapon-contact-damage/user.log. Its frequent
+hand-only fallbacks warrant model-bound/identity investigation. Do not claim
+universal weapon collision or the damage blackout is fixed yet.
+
+LATEST September 10 log/priority steering: finish all left-hand work, then
+automatic equipped-model weapon contact/true physical melee (including modded
+weapons), then H2 vehicle controls before first-person vehicles. Keep optional
+dual trajectory and all other retained tasks afterward. New black-screen/fade
+on damage (Promethean Knight melee example) is unresolved, not a proven effect
+diagnosis. Supplied attachment 4ab61705-1189-4ecf-9a41-9bebeec16a0c/pasted-text.txt
+identifies d77c9dd; verify identity rather than assuming the user's description
+of the latest GitHub build means current worktree behavior.
+
+September 10 steering: item 10 (slider precision arrows) is implemented and
+explicitly removed from pending work; preserve it. User also explicitly requires
+the manual VR force-injection/recovery button for failures to enter VR. Existing
+F1 and launcher controls currently request H3 recovery only; retain that scope
+limitation until additional title recovery is implemented and validated.
+
+The user approved and requested persistent storage of the full 16-item list in
+CONTINUATION-REFINEMENT-LIST.md. On every future "continue", use that list and
+this checkpoint. Current task: verify existing stability/recovery work, report
+its limits, then finalize anatomical left-handed support across all five titles
+(H2 Classic/Anniversary), followed by optional independent dual trajectory.
+Local implementation/builds/tests authorized; no packaging requested now.
+
+Recovered HEAD is 9569690, which disables the d77c9dd H3 dual-fire experiment
+after headset failure. The older "H3 implementation pending acceptance" text
+below predates that failure. Accepted pointer remains 4e01f28. Preserve existing
+uncommitted recovery/lifecycle, vehicle guard, H2, launcher/menu and test edits.
+Current recovery implementation is being audited; do not assert all-title or
+headset-confirmed recovery. The older September 9 WIP handoff is historical.
+
+September 10 verification: recovered cumulative Release build, all three CTest
+targets (including synthetic hook retirement/recovery-event tests), and Reach
+gate pass. See RECOVERY-STATUS-2026-09-10.md for exact covered behavior and limits.
+Proceeding with anatomical handedness, starting with both H2 renderer packets.
 
 **User-requested WIP packaging checkpoint.** The user interrupted further
 development due to usage limits and asked to wrap up/package. After delivering

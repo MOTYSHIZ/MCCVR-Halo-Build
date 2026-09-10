@@ -141,6 +141,8 @@ struct Halo2VrEyeSnapshot
 
 struct Halo2VrRenderSnapshot
 {
+    bool turnPadValid = false;
+    float turnX = 0.0f;
     uint64_t preparedSerial = 0;
     int64_t predictedDisplayTimeNs = 0;
     uint64_t trackingSpaceEpoch = 0;
@@ -161,6 +163,7 @@ struct Halo2VrRenderSnapshot
     float rightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float rightAimPosition[3]{};
     bool twoHandAimActive = false;
+    bool leftHanded = false; // captured with these role-routed controller poses
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
@@ -386,6 +389,7 @@ struct Halo4VrRenderSnapshot
     // the accepted two-hand support solve. Consumers must not resample the
     // asynchronous global latch after publication.
     bool twoHandAimActive = false;
+    bool leftHanded = false;
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
@@ -778,6 +782,7 @@ struct ReachVrRenderSnapshot
     // True only when this exact prepared frame used the support-hand weapon
     // line. Reach's palette path must not resample the asynchronous global.
     bool twoHandAimActive = false;
+    bool leftHanded = false;
     float rightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float rightAimPosition[3]{};
     // Raw tracked left-controller pose for title-specific support-hand work.
@@ -807,6 +812,9 @@ struct VrContactTrackingSnapshot
     uint64_t serial=0,referenceEpoch=0;
     int64_t timeNs=0;
     bool twoHandAimActive=false;
+    bool leftHanded=false;
+    bool primaryAimValid=false;
+    float primaryAimOrientation[4]{0,0,0,1};
 };
 bool VR_GetContactTrackingSnapshot(VrContactTrackingSnapshot& snapshot);
 
@@ -837,3 +845,6 @@ struct VrStatus
     float fps;
 };
 void VR_GetStatus(VrStatus& out);
+
+// Lock-free physical tracking/focus freshness for optional native walking.
+bool VR_RoomscaleTrackingFresh() noexcept;

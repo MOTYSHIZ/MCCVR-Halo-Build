@@ -619,6 +619,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.halo4_helmet = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "roomscale_movement"))
+        {
+            g_config.roomscale_movement = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "left_handed"))
         {
             g_config.left_handed = atoi(val) != 0;
@@ -1195,6 +1200,9 @@ void ConfigSave()
     fprintf(f, "# VR turning with the right controller stick: 0 = snap, 1 = smooth.\n");
     fprintf(f, "# (default %d)\n", d.turn_smooth ? 1 : 0);
     fprintf(f, "turn_smooth = %d\n\n", g_config.turn_smooth ? 1 : 0);
+    fprintf(f, "# Physical horizontal movement drives native walking while on foot.\n");
+    fprintf(f, "# Default off. Controller aiming is preserved; walking stays head-relative.\n");
+    fprintf(f, "roomscale_movement = %d\n\n", g_config.roomscale_movement ? 1 : 0);
     fprintf(f, "# Degrees per snap turn.\n");
     fprintf(f, "# (default %.0f, range 5 to 90)\n", d.turn_snap_deg);
     fprintf(f, "turn_snap_deg = %.0f\n\n", g_config.turn_snap_deg);

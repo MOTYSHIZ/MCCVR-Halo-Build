@@ -1,4 +1,5 @@
 #pragma once
+bool Halo2Observer6Dof_OnFootFresh() noexcept;
 
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,7 @@ bool Halo2Observer6Dof_Poll(
 
 bool Halo2Observer6Dof_Installed() noexcept;
 bool Halo2Observer6Dof_Armed() noexcept;
+void Halo2Observer6Dof_SnapTurnSettled(uint32_t generation, float targetYaw) noexcept;
 // C-H2-43: independently installed firing-only direction hook. False keeps
 // controller weapon placement dormant; it never controls camera admission.
 bool Halo2Observer6Dof_DirectWeaponAimArmed() noexcept;

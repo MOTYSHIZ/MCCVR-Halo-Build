@@ -5,6 +5,9 @@
 #include "../common/halo3_vehicle_logic.h"
 #include "../common/runtime_types.h"
 
+// Camera-thread admission, using each title's existing native on-foot evidence.
+bool Game_RoomscaleCameraAllowed(GameTitle title);
+
 // Monotonic counters written by render/palette hooks and sampled at OpenXR
 // frame boundaries. Hooks only touch relaxed atomics; formatting and file I/O
 // stay on the existing 50 ms title worker.
@@ -24,6 +27,8 @@ struct GameFramePerfCounters
 };
 
 void Game_ReadFramePerfCounters(GameFramePerfCounters& out);
+void Game_RequestManualVrRecovery();
+const char* Game_ManualVrRecoveryStatus();
 
 // The Halo 3 engine (halo3.dll) loads only once you enter a level. This module
 // waits for it, then (M1) drives the in-game camera from the headset. Runs on
@@ -128,6 +133,7 @@ bool Game_ComputeAimStick(float& outRx, float& outRy);
 // C-H2-41. True only while Halo 2's controller-owned aim/weapon feature is
 // requested; tracking loss still makes each call fail open independently.
 bool Game_Halo2ControllerAimActive();
+bool Game_ComputeHalo2SnapStick(float& outRx);
 // C-H2-89 optional feature transaction. The official H2EK boolean is resolved
 // by name and set only while the Halo 2 VR core owns gameplay. Failure leaves
 // aim assist stock without affecting camera/stereo; teardown restores the

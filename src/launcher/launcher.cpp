@@ -7,6 +7,10 @@
 #include <cstdarg>
 #include <cmath>
 #include <algorithm>
+#include <commctrl.h>
+#include "../common/manual_vr_recovery.h"
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"")
 // Constants only (native raster size and the resolution_scale limits) so the
 // launcher and the DLL's config clamp can never disagree. The launcher does
 // not link config.cpp; it reads the one line it needs itself.
@@ -133,6 +137,63 @@ static DWORD FindProcessId(const wchar_t* exeName)
 static bool ProcessRunning(const wchar_t* exeName)
 {
     return FindProcessId(exeName) != 0;
+}
+
+static int OfferManualVrRecovery(DWORD pid, const std::wstring& expectedExe)
+{
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    wchar_t imagePath[32768]{};
+    DWORD imageLength = static_cast<DWORD>(std::size(imagePath));
+    const bool sameInstall = process &&
+        QueryFullProcessImageNameW(process, 0, imagePath, &imageLength) &&
+        _wcsicmp(imagePath, expectedExe.c_str()) == 0;
+    if (process) CloseHandle(process);
+    if (!sameInstall)
+    {
+        ErrorBox(L"MCC is running from another installation. Use that installation's VR launcher to recover it.");
+        return 1;
+    }
+    constexpr int recoverButton = 100;
+    const TASKDIALOG_BUTTON buttons[]{
+        {recoverButton, L"Force injection / recover VR"}};
+    TASKDIALOGCONFIG dialog{sizeof(dialog)};
+    dialog.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_SIZE_TO_CONTENT;
+    dialog.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+    dialog.pszWindowTitle = L"Halo MCC VR launcher";
+    dialog.pszMainInstruction = L"MCC is already running";
+    dialog.pszContent = L"Retry Halo 3 VR camera setup in the running game.\n"
+        L"The level must finish loading before stereo can resume.\n"
+        L"Check F1 > Status in the headset for the result.";
+    dialog.cButtons = static_cast<UINT>(std::size(buttons));
+    dialog.pButtons = buttons;
+    dialog.nDefaultButton = IDCANCEL;
+    int selected = IDCANCEL;
+    const HRESULT result = TaskDialogIndirect(&dialog, &selected, nullptr, nullptr);
+    if (FAILED(result))
+    {
+        ErrorBox(L"Could not display the recovery button. Use F1 > Status > Force injection / recover VR.");
+        return 1;
+    }
+    if (selected != recoverButton) return 0;
+    wchar_t eventName[96]{};
+    ManualVrRecoveryEventName(eventName, pid);
+    HANDLE event = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName);
+    if (!event)
+    {
+        ErrorBox(L"This running game does not expose VR recovery.\n\n"
+            L"Close MCC, update both the VR DLL and launcher, then start MCC through the VR launcher.\n"
+            L"An older or unloaded mod cannot receive this request.");
+        return 1;
+    }
+    const bool signaled = SetEvent(event) != FALSE;
+    CloseHandle(event);
+    LauncherLog("manual VR recovery for pid %lu: %s", pid, signaled ? "requested" : "signal failed");
+    if (!signaled)
+    {
+        ErrorBox(L"Could not request VR recovery. Use the F1 Status button in the game.");
+        return 1;
+    }
+    return 0;
 }
 
 // Poll for a process by name. Used only on the Store path, where the game is
@@ -371,14 +432,17 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
                  L"(This Steam copy of the game needs Steam to verify ownership.)");
         return 1;
     }
-    // Either edition's process blocks the other: MCC allows one instance, and
-    // an already-running copy is not the one we injected into.
-    if (ProcessRunning(kSteamExeName) || ProcessRunning(kStoreExeName))
+    // The running mod handles recovery on its title worker. Never inject a
+    // second copy or start a competing MCC process for this action.
+    const DWORD runningSteam = FindProcessId(kSteamExeName);
+    const DWORD runningStore = FindProcessId(kStoreExeName);
+    if (runningSteam && runningStore)
     {
-        ErrorBox(L"Halo: The Master Chief Collection is already running.\n\n"
-                 L"Close it first, then run this launcher again.");
+        ErrorBox(L"Both MCC editions are running. Close one before requesting VR recovery.");
         return 1;
     }
+    if (runningSteam || runningStore)
+        return OfferManualVrRecovery(runningSteam ? runningSteam : runningStore, gameExe);
 
     STARTUPINFOW si{sizeof(si)};
     PROCESS_INFORMATION pi{};

@@ -189,7 +189,7 @@ bool RemoveHalo3DualAim()
     {
         if (!*target) continue;
         any = true;
-        const auto status = MH_DisableHook(*target);
+        const auto status = MCCVR_DisableHookForRetirement(*target);
         if (status != MH_OK && status != MH_ERROR_DISABLED)
         { LOG("Halo 3 dual aim CleanupRequired: disable failed"); return false; }
     }

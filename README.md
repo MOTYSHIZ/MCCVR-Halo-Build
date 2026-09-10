@@ -1,3 +1,28 @@
+# Current development candidate - September 10, 2026
+
+This source supports **H2 Classic/Anniversary, H3, ODST, Reach and H4**, on Steam
+and Microsoft Store. The current roomscale candidate awaits headset testing;
+`4e01f28` remains the accepted baseline. Halo CE VR is not implemented.
+
+Use [current installation/update instructions](installer/MANUAL-README.txt),
+[roomscale candidate notes](docs/ROOMSCALE-CANDIDATE-2026-09-10.md) and
+[build instructions](BUILDING.md). **Keep your existing config when updating.**
+Roomscale body movement is optional in F1 > Controls and defaults off. Controller
+aiming is preserved; independent head-following body yaw is deferred for this
+package. H3's failed dual-fire experiment stays disabled. Recovery is H3-only.
+
+[Current checkpoint](docs/ACTIVE-WORK-CHECKPOINT.md) and
+[standing work list](docs/CONTINUATION-REFINEMENT-LIST.md) distinguish implemented,
+accepted and pending work. The candidate manifest supplies exact build identity.
+
+---
+
+## Historical public release 0.3.3 documentation
+
+The material below describes that older public release, not the current
+candidate. In particular, its three-title coverage, "Halo 4 up next" and config
+replacement advice are superseded by the current instructions linked above.
+
 ### REACH/3/ODST Now Playable in VR 
 ### First-person vehicles are here — in all three games.
 

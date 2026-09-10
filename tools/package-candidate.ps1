@@ -467,7 +467,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'physical-and-gesture-melee-test',
+        'roomscale-movement-test',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1089,19 +1089,19 @@ try {
             status = 'READY_FOR_HEADSET_TEST_UNACCEPTED'
             left_handed_config_key = 'left_handed'
             left_handed_default = $false
-            handedness_scope = 'primary-support-pose-trigger-grip-velocity-haptic-routing'
-            anatomical_mesh_mirroring = 'unfinished'
+            handedness_scope = 'anatomical-presentation-and-primary-support-pose-trigger-grip-velocity-haptic-routing'
+            anatomical_mesh_mirroring = 'implemented-unaccepted-title-specific-anatomical-routing'
             halo2_dual_controller_rays = $true
-            halo3_dual_controller_rays = $true
-            halo3_dual_controller_ray_scope = 'verified-local-owned-on-foot-pair-native-origin'
+            halo3_dual_controller_rays = $false
+            halo3_dual_controller_ray_scope = 'disabled-after-d77c9dd-headset-failure'
             support_grip_dual_exclusion_halo2_halo3_odst = $true
             menu_slider_last_displayed_digit_arrows = $true
             physical_melee_maximum_metres_per_second = 10.0
             world_contact_release_smoothing = 'unaccepted-10mm-120ms-bound'
             physical_melee_non_biped_targets = 'native-damageability-unaccepted'
             halo3_secondary_unarmed_melee_selection = 'implemented-unaccepted'
-            snap_turn_restoration = 'unfinished-no-change'
-            all_title_flat_mode_resolution = 'unconfirmed-halo4-capture-latch-unresolved'
+            snap_turn_restoration = 'implemented-all-supported-titles-headset-validation-pending'
+            all_title_flat_mode_resolution = 'unconfirmed-manual-recovery-h3-only'
             halo2_dual_aim_publication_max_age_ms = 100
             odst_secondary_bounds_and_contact = $true
             halo3_stale_camera_retirement_ms = 2000
@@ -1110,10 +1110,29 @@ try {
             ordinary_campaign_dual_acquisition_odst_reach_halo4 = 'unfinished-not-enabled'
             independent_secondary_firing_odst_reach_halo4 = 'unfinished'
         }
-        note = 'USER-REQUESTED WIP continuation of accepted 4e01f28. Includes handedness role routing, H2/H3 independent dual aim, H2/H3/ODST support-grip exclusion, slider precision arrows, melee/contact refinements and H3 camera recovery. No new headset acceptance. Anatomical handedness, ordinary ODST/Reach/H4 dual acquisition/direction, snap-turn restoration and all-title flat-mode resolution remain unfinished. See MELEE-CANDIDATE-NOTES.md for complete scope and risks. Both editions; package only.'
+        roomscale_candidate = [ordered]@{
+            config_key = 'roomscale_movement'
+            default_enabled = $false
+            implementation = 'native-walking-with-observed-horizontal-camera-reference-consumption'
+            title_coverage = 'H2-Classic-Anniversary-H3-ODST-Reach-H4'
+            head_relative_walking = $true
+            controller_aim_preserved = $true
+            independent_head_following_body_yaw = 'deferred-by-user-for-this-package'
+            camera_and_input_freshness_ms = 100
+            movement_deadband_metres = 0.02
+            headset_accepted = $false
+            halo2_cinematic_gate = 'fresh-first-person-packets-and-native-on-foot-sample-no-cinematic-publisher'
+            halo4_on_foot_proof = 'existing-H4EK-contact-binding-unparented-local-biped'
+        }
+        current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
+        current_notes = 'CANDIDATE-NOTES.md'
+        historical_metadata_notice = 'Older stage/profile IDs above describe inherited bindings, not this candidate name or new headset acceptance. Current scope and limits are in CANDIDATE-NOTES.md and roomscale_candidate.'
+        halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
+        note = 'Roomscale movement candidate with preserved local handedness, runtime weapon bounds, melee, snap-turn, slider and lifecycle work. Controller aiming preserved by user choice; independent head-following body yaw deferred. H3 dual firing remains disabled. Keep existing config. Both editions; package only; no new headset acceptance.'
+
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/MELEE-HANDEDNESS-CANDIDATE-2026-09-09.md') -Destination (Join-Path $packageDir 'MELEE-CANDIDATE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/ROOMSCALE-CANDIDATE-2026-09-10.md') -Destination (Join-Path $packageDir 'CANDIDATE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6
@@ -1121,6 +1140,22 @@ try {
         $manifestPath,
         $json + [Environment]::NewLine,
         [Text.UTF8Encoding]::new($false))
+
+    $buildZip = Join-Path $candidateRoot ("HaloMCCVR-$packageId-Build.zip")
+    $sourceZip = Join-Path $candidateRoot ("HaloMCCVR-$packageId-Source.zip")
+    Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $buildZip
+    Invoke-Tool { & git -C $repoRoot archive --format=zip --prefix=Halo-MCC-VR/ `
+        "--output=$sourceZip" $commit }
+    if ($LASTEXITCODE -ne 0) { throw 'Matching source archive failed.' }
+    $hashLines = @("Source commit: $commit")
+    foreach ($archive in @($buildZip, $sourceZip)) {
+        $hashLines += (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash +
+            '  ' + [IO.Path]::GetFileName($archive)
+    }
+    [IO.File]::WriteAllLines((Join-Path $candidateRoot ("HaloMCCVR-$packageId-SHA256.txt")),
+        $hashLines, [Text.UTF8Encoding]::new($false))
+    Write-Host "Build ZIP:  $buildZip"
+    Write-Host "Source ZIP: $sourceZip"
 
     Write-Host "Created untested candidate: $packageDir"
     Write-Host "Source:   $commit"

@@ -1,179 +1,98 @@
-HALO MCC VR - MANUAL SETUP
-===========================
+HALO MCC VR - ROOMSCALE CANDIDATE - 10 SEPTEMBER 2026
+====================================================
 
-Supports Halo 3, Halo 3: ODST and Halo: Reach. Reach is new in 0.3.0.
-0.3.1 adds Microsoft Store / Xbox app (Game Pass) support, fixes double vision
-on ALVR, adds a room-fixed cutscene theatre to all three games, fixes Reach's
-black-world bug on the sniper rifle, gives Reach native vehicle controls, adds
-an L3+R3 VR-space recenter/menu chord and a Y+B pause chord (ODST/Reach), and
-rebuilds the F1 menu into a sidebar layout.
-0.3.2 adds first-person vehicles to Halo 3.
-0.3.3 extends first-person vehicles to ODST and Reach, so all three games are
-covered, and adds the brightness slider to ODST and Reach.
+This test candidate includes Halo 2 Classic and Anniversary, Halo 3, Halo 3:
+ODST, Halo: Reach and Halo 4. Both Steam and Microsoft Store / Xbox app / Game
+Pass editions use the same DLL and launcher. Halo CE VR is not implemented.
 
+Read CANDIDATE-NOTES.md for what changed and what still needs headset testing.
+CANDIDATE-MANIFEST.json identifies the exact source and SHA-256 file hashes.
+This is an unaccepted test build, not a new accepted public release.
 
-READ THIS FIRST: YOU MUST ADJUST EACH SEAT YOURSELF
----------------------------------------------------
-First-person vehicles ship with a starting camera position for every seat, but
-that is a starting point, NOT a finished setting. Everybody's height, play
-space and headset sit differently, so a seat that looks right for one player
-will be too low, too far forward or too far back for another.
+INSTALL OR UPDATE
+-----------------
+1. Fully close MCC. Keep a backup of your previous mod DLL, launcher and config.
+2. Locate the MCC installation:
+   Steam: Manage > Browse local files.
+   Xbox app: Manage > Files > Browse, then open Content if necessary.
+   Use the folder containing MCC\Binaries\Win64. Do not rename game executables.
+3. Create or open Halo_MCC_VR inside that folder.
+4. Copy HaloMCCVR.dll and HaloMCCVRLauncher.exe into Halo_MCC_VR.
+   NEW INSTALL: also copy the supplied halomccvr.cfg.
+   UPDATE: KEEP your existing halomccvr.cfg to preserve controls, alignment,
+   seat settings and other preferences. Missing keys use current defaults.
+   Roomscale is OFF until enabled. The included config is generated from this
+   exact source; it is not an older, separately tuned configuration.
+5. Keep one active mod DLL/launcher pair. If updating a very old install, move
+   obsolete halo3xr.dll / halo3xr_launcher.exe into your backup outside the game
+   folder. Do not inject both versions.
+6. Start your headset connection and its OpenXR runtime. SteamVR is the runtime
+   used in the preserved user tests; make sure your chosen runtime is active.
+   Steam edition: have Steam running. Store edition: sign into the Xbox app.
+7. Run the included HaloMCCVRLauncher.exe from Halo_MCC_VR. It detects the edition
+   and launches the anti-cheat-disabled game. For Store, let the launcher start
+   MCC through package activation; do not prelaunch it or rename its executable.
 
-Adjust each seat yourself, once, and it is remembered:
+If you alternate editions, repeat the copy into EACH edition's Halo_MCC_VR
+folder. Each installation keeps its own config; copy your preferences between
+those folders manually if you want them identical. Extracting this ZIP does
+not install anything automatically. Never use the mod in anti-cheat-enabled
+matchmaking.
 
-   1. Get into the seat you want to fix - driver, passenger, gunner or turret.
-   2. Press F1 and open the "Vehicles" category.
-   3. Move these three sliders until the seat feels right:
+ROOMSCALE
+---------
+F1 > Controls > Roomscale body movement (or roomscale_movement = 1 in the config).
+Head tracking and positional tracking must be enabled. Recenter with F3 after
+standing comfortably. Start in an open, level area with the movement stick idle.
 
-         Seat forward (m)
-         Seat height (m)
-         Seat left / right (m)
+Horizontal physical steps request normal character walking. Native movement
+handles walls, ground and steps; as the body moves, the tracked camera offset is
+consumed so the same step is not added twice. This is a follow controller, so
+body catch-up depends on the game's native movement and current settings.
+Vertical head motion remains tracked crouching/leaning; it does not issue a jump.
+The movement stick takes priority. Pause, VR menu, D-pad gesture, unavailable
+on-foot evidence and stale tracking/input suspend body following. Turning the
+option off restores the previous tracked-lean behavior.
 
-   4. Get out. It saves to halomccvr.cfg by itself.
+Controller gun aiming is preserved by request. Walking stays head-relative.
+Independent native-body rotation that always follows head direction is DEFERRED;
+this candidate does not claim to separate body yaw from gun aim in every game.
+Roomscale has not yet been headset-accepted in any title. It does not guarantee
+that your camera can never lean through a wall. See the notes for test steps.
 
-While you are sitting in a seat, those sliders adjust THAT SEAT ONLY. A
-vehicle's driver, its passengers and its gunner each remember their own
-position, in each game, so do the ones you actually use and ignore the rest.
+CONTROLS AND SETTINGS
+---------------------
+F1: VR settings. F3: recenter. Both stick clicks (L3+R3): recenter and toggle F1.
+F1 > Controls selects smooth or snap turning and its speed/angle.
+Left-handed main weapon, world contact, physical melee and gesture melee have
+separate options. New installs leave optional experimental features off unless
+the generated config says otherwise. Existing saved values are preserved.
+Slider arrows step the last displayed digit. F1 saves edited preferences.
 
-While you are ON FOOT the same sliders set the shared starting point that every
-seat you have not adjusted follows - useful for a quick global height nudge,
-but be aware it moves all three games at once. If you push it somewhere bad, a
-"Reset the universal trim" button appears under the sliders and puts it back.
+First-person vehicle placement is implemented in H3, ODST and Reach. While in
+a seat, F1 > Vehicles adjusts that seat's forward/height/lateral offset. H2/H4
+first-person vehicle parity is still pending. Reach swaps LT and X on foot and
+restores native actions in vehicles.
 
-On Reach the left trigger and X are swapped compared to Halo 3 and ODST, so
-grenades sit on X.
+DIAGNOSIS AND RECOVERY
+---------------------
+Keep HaloMCCVR.log and HaloMCCVRLauncher.log from Halo_MCC_VR. The game log names
+source identity, edition, OpenXR runtime and headset information. Report title,
+mission, H2 renderer when applicable, headset model, refresh rate and symptoms.
+Include the manifest so the build is unambiguous; the log alone is not a DLL hash.
 
-Works with both the Steam copy of MCC and the Microsoft Store / Xbox app
-(Game Pass) copy. You do NOT need to rename anything - if you renamed
-MCCWinStore-Win64-Shipping.exe to make an older build work, rename it back.
+F1 > Status and the launcher offer Force injection / recover VR. With an already
+loaded current DLL, this requests H3 camera recovery. It is NOT all-title recovery
+and does not recreate a lost OpenXR session. Restart MCC if recovery does not
+help; do not inject duplicate DLLs. Transition/flat-mode recovery is not fully
+headset-confirmed. H4 damage black-screen/fade investigation remains deferred.
 
-There is no installer, uninstaller, deploy, or restore script.
+A temporary Store loading stall has been observed; duration varies. A frozen
+frame alone does not diagnose its cause. Half-refresh app cadence can indicate
+missed runtime frame deadlines; compare the log's panel/app cadence and try a
+lower VR resolution. Resolution changes marked next-launch require a restart.
 
-INSTALL
--------
-1. Open the main game folder.
-
-   Steam:            right-click Halo: The Master Chief Collection and choose
-                     Manage > Browse local files.
-   Microsoft Store:  in the Xbox app, click the "..." next to Halo: MCC and
-                     choose Manage > Files > Browse... Then open the Content
-                     folder inside it.
-
-   The correct folder is the one that contains the MCC folder. On the
-   Microsoft Store that is the Content folder, next to MicrosoftGame.config.
-
-2. In that folder, create a folder named exactly:
-
-   Halo_MCC_VR
-
-3. Copy these three release files into it:
-
-   HaloMCCVR.dll
-   HaloMCCVRLauncher.exe
-   halomccvr.cfg
-
-4. Make SteamVR the default OpenXR runtime, then run HaloMCCVRLauncher.exe.
-
-If you are upgrading from an older build, remove the obsolete halo3xr.dll and
-halo3xr_launcher.exe after copying the new files. Do not run the old launcher;
-the new launcher refuses duplicate injection under either DLL name.
-
-   Steam:            start Steam and SteamVR first.
-   Microsoft Store:  start SteamVR, and be signed in to the Xbox app. Steam
-                     itself does not have to be running.
-
-   On the Microsoft Store the launcher starts the game for you through the
-   Xbox app - do NOT start Halo: MCC first. The game takes a few seconds
-   longer to appear than on Steam; that is normal, just wait.
-
-The final path must be one of:
-
-   Halo The Master Chief Collection\Halo_MCC_VR\HaloMCCVRLauncher.exe
-   ...\Halo- The Master Chief Collection\Content\Halo_MCC_VR\HaloMCCVRLauncher.exe
-
-Do not put the files loose in the main MCC folder. Launch only through the
-included launcher and never use the mod in anti-cheat-enabled matchmaking.
-
-The launcher writes the edition it detected into HaloMCCVRLauncher.log, so if it
-ever picks the wrong one that line tells you.
-
-GAME PASS: THE 9-SECOND FREEZE ON THE FIRST LOADING SCREEN
-----------------------------------------------------------
-On the Microsoft Store / Xbox app edition only, MCC's loading screen locks up
-for about nine seconds shortly after launch. In the headset it looks like a
-crash: the picture freezes, and since your headset keeps re-projecting the last
-frame it was handed, you can still look around a completely still image.
-
-It is NOT a crash and it is NOT the mod - it is MCC's own game loop stopping.
-Measured back to back on one PC: the Store edition stalls 9.0 seconds every
-launch, the Steam edition stalls zero times. Anti-cheat and encrypted game
-content were both tested and ruled out.
-
-Just wait. It clears by itself and the game runs normally afterwards.
-HaloMCCVR.log records it as a STALL line naming how long the game was gone.
-
-Frame rate on Game Pass is NOT worse than Steam - both settle at the same
-ceiling. If yours feels halved, that is your VR runtime's motion smoothing /
-ASW pacing the game at half your headset's refresh because it cannot hold the
-full rate. The log prints "app cadence" next to "panel" so you can see it.
-Turn motion smoothing off, or lower resolution_scale.
-
-UPDATE - REPLACE YOUR CONFIG
-----------------------------
-Close MCC completely, then replace ALL THREE files: HaloMCCVR.dll,
-HaloMCCVRLauncher.exe AND halomccvr.cfg.
-
-Replace the config. Do not keep your old one. This is different from previous
-updates, which told you to keep it.
-
-0.3.0 and later add settings that older config files do not contain, and there
-is no migration step: any setting your old file is missing silently falls back to a
-built-in default instead of the shipped value. The most visible casualty is
-fit_desktop_window, whose built-in default is off while the shipped config turns
-it on - keeping an old config can therefore cap your headset frame rate.
-Sharpening, HUD and weapon-alignment values regress the same way. 0.3.1 adds new
-menu and cutscene-theatre settings that older config files do not have at all,
-and 0.3.3 adds the whole first-person vehicle block, including the per-seat
-positions for every ODST and Reach seat.
-
-If you want your own tuning back, copy your old halomccvr.cfg somewhere safe
-first, install the new one, then re-apply your preferences through F1.
-
-SETTINGS
---------
-halomccvr.cfg ships in the ZIP as a tuned configuration, not bare defaults.
-Every value has a description, default, and allowed range. Edit it with MCC
-closed or use the in-game F1 menu.
-
-If the file is missing the game regenerates it, but a regenerated file contains
-bare built-in defaults rather than the shipped tuning - so keep a copy of the
-shipped one.
-
-Required MCC settings:
-
-   Video Max Frame Rate:            120
-   Video V-Sync:                    Off
-   Halo 3 Field of View:            120
-   ODST Look Sensitivity:           Maximum
-   ODST Look Acceleration:          Off
-   MCC FSR:                         Off
-
-VERIFY
-------
-For a published release, compare the DLL, launcher, and ZIP hashes with the
-official GitHub release page. For a local build, use CANDIDATE-MANIFEST.json in
-that unique package. A local candidate is not headset-accepted merely because
-it was built from accepted source.
-
-If two PCs behave differently, first compare their installed hashes and
-halomccvr.cfg files, confirm SteamVR is the default OpenXR runtime on both, and
-fully close every MCC process before relaunching.
-
-Windows security software may warn on unsigned injection-based VR mods. Download
-only from the official GitHub release, verify the hashes, and allow only the DLL
-and launcher rather than disabling security software globally.
-
-REMOVE
-------
-Close MCC completely, then delete only the dedicated Halo_MCC_VR folder you
-created. Never delete the main Halo The Master Chief Collection folder.
+TO REMOVE
+---------
+With MCC closed, move or remove only the dedicated Halo_MCC_VR folder and its
+shortcut. The mod does not require replacing original game files.

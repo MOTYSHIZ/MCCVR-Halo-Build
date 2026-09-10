@@ -109,7 +109,7 @@ bool RemoveHalo3MeleeSelection()
     auto& feature=g_halo3MeleeSelection;
     feature.enabled.store(false,std::memory_order_release);
     if(!feature.target) return true;
-    const auto disabled=MH_DisableHook(feature.target);
+    const auto disabled=MCCVR_DisableHookForRetirement(feature.target);
     if(disabled!=MH_OK && disabled!=MH_ERROR_DISABLED)
     { LOG("Halo 3 melee selection CleanupRequired: disable failed"); return false; }
     const void* functions[]{reinterpret_cast<const void*>(&Halo3MeleeSelectionDetour)};

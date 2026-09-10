@@ -1117,6 +1117,41 @@ inline bool Halo4BuildFloatingRigidSupportTarget(
                rightDeltaWorld, stockLeftWorld, desiredLeftWorld);
 }
 
+// Keep each anatomical wrist's own title-native mount orientation while
+// transferring it to the other controller role. Only proper rotations are
+// composed; the actual left/right meshes and their finger animation remain.
+// The separately saved primary weapon delta must not follow the right mesh.
+inline bool Halo4RouteLeftHandedWristTargets(
+    const Halo4FloatingTransform& primaryCarrier,
+    const Halo4FloatingTransform& supportCarrier,
+    Halo4FloatingTransform& anatomicalRight,
+    Halo4FloatingTransform& anatomicalLeft) noexcept
+{
+    Halo4FloatingTransform carriers[2]{supportCarrier, primaryCarrier};
+    const Halo4FloatingTransform wrists[2]{anatomicalLeft, anatomicalRight};
+    Halo4FloatingTransform desired[2]{};
+    for (auto& carrier : carriers)
+    {
+        if (!Halo4FloatingTransformValid(carrier)) return false;
+        carrier.scale = 1.0f;
+        for (float& value : carrier.translation) value = 0.0f;
+    }
+    for (int hand = 0; hand < 2; ++hand)
+    {
+        Halo4FloatingTransform rotationDelta{};
+        if (!Halo4BuildFloatingWorldDelta(carriers[1 - hand], carriers[hand], rotationDelta) ||
+            !Halo4ComposeFloatingTransforms(rotationDelta, wrists[hand], desired[hand]))
+            return false;
+        for (int axis = 0; axis < 3; ++axis)
+            desired[hand].translation[axis] = wrists[1 - hand].translation[axis];
+        desired[hand].scale = wrists[1 - hand].scale;
+        if (!Halo4FloatingTransformValid(desired[hand])) return false;
+    }
+    anatomicalLeft = desired[0];
+    anatomicalRight = desired[1];
+    return true;
+}
+
 // A tracked wrist is normally a fraction of one Halo world unit from the
 // stock first-person wrist. Ten physical metres (with a two-world-unit floor)
 // is intentionally far outside normal play, but still rejects the hundreds-of-

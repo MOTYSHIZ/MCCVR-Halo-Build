@@ -170,6 +170,13 @@ FetchContent_Declare(imgui
 
 FetchContent_MakeAvailable(openxr minhook imgui)
 
+# Keep upstream pinned and untouched on disk. The local translation unit adds
+# a no-write retirement path for title DLLs MCC has already unmapped.
+get_target_property(mccvr_minhook_sources minhook SOURCES)
+list(FILTER mccvr_minhook_sources EXCLUDE REGEX "(^|/)hook\\.c$")
+set_property(TARGET minhook PROPERTY SOURCES ${mccvr_minhook_sources}
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/common/minhook_lifecycle.c")
+
 # Generate, validate, and embed the pinned official SMAA shaders. Bytecode is
 # compiled at configure time so selecting SMAA cannot invoke the HLSL optimizer
 # on the VR render thread. The installed mod has no loose shader dependency.
@@ -262,6 +269,7 @@ add_library(halo3xr SHARED
     src/dll/game.cpp
     src/dll/ik.cpp
     src/dll/input.cpp
+    src/dll/roomscale.cpp
     src/dll/title_adapter.cpp
     src/dll/title_reentry_probe.cpp
     src/dll/reach_adapter.cpp
@@ -344,6 +352,9 @@ set_target_properties(reach_runtime_observer PROPERTIES
     OUTPUT_NAME "reach-runtime-observer")
 
 if(BUILD_TESTING)
+    add_executable(halomccvr_hook_lifecycle_tests tests/minhook_lifecycle_tests.cpp)
+    target_link_libraries(halomccvr_hook_lifecycle_tests PRIVATE minhook)
+    add_test(NAME halomccvr_hook_lifecycle_tests COMMAND halomccvr_hook_lifecycle_tests)
     # Packaging runs this tiny program against a nonexistent path to generate
     # the current source tree's exact default config. It is intentionally not
     # installed by CMake: package-candidate stages and hashes its output while

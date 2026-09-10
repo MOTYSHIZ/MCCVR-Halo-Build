@@ -1,5 +1,10 @@
+#include "../src/common/roomscale_logic.h"
 #include "../src/common/vr_interaction_refinement_logic.h"
 #include "../src/common/menu_slider_logic.h"
+#include "../src/common/anatomical_palette_logic.h"
+#include "../src/common/halo4_runtime_weapon_bounds.h"
+#include "../src/common/legacy_runtime_weapon_bounds.h"
+#include "../src/common/halo2_snap_turn_logic.h"
 #include "../src/common/halo3_melee_selection_logic.h"
 #include "../src/common/contact_melee_motion.h"
 #include "../src/dll/contact_melee_queue.h"
@@ -192,6 +197,65 @@ namespace
 
 int main()
 {
+    {
+        for (float eyeOffset : {-0.032f, 0.032f})
+        {
+            Halo4FloatingTransform palette[80]{};
+            Halo4FloatingTransform root{}, primary{}, support{};
+            root.translation[0] = eyeOffset;
+            primary.translation[0] = 2; support.translation[0] = -2;
+            support.rotation[0] = support.rotation[4] = -1;
+            palette[1].translation[0] = 2 - eyeOffset;
+            palette[2].translation[0] = -2 - eyeOffset;
+            palette[3].translation[0] = 2.1f - eyeOffset;
+            palette[4].translation[0] = -2.1f - eyeOffset;
+            palette[65].translation[0] = 7;
+            const auto weaponBefore = palette[65];
+            Check(RouteLeftHandedFloatingPalette(palette, 70,
+                      1, (1ull << 1) | (1ull << 3), 2, (1ull << 2) | (1ull << 4),
+                      root, primary, support),
+                "Anatomical palette routing supports a source bank with appended weapon records beyond bit 63");
+            Check(std::fabs(palette[1].translation[0] + eyeOffset + 2) < 1.0e-5f &&
+                  std::fabs(palette[2].translation[0] + eyeOffset - 2) < 1.0e-5f &&
+                  std::memcmp(&weaponBefore, &palette[65], sizeof(weaponBefore)) == 0,
+                "Anatomical wrists have identical world ownership in both eyes and appended weapon records stay untouched");
+            palette[4].translation[0] = std::numeric_limits<float>::quiet_NaN();
+            Halo4FloatingTransform before[80];
+            std::memcpy(before, palette, sizeof(palette));
+            Check(!RouteLeftHandedFloatingPalette(palette, 70,
+                      1, (1ull << 1) | (1ull << 3), 2, (1ull << 2) | (1ull << 4),
+                      root, primary, support) &&
+                  std::memcmp(before, palette, sizeof(palette)) == 0,
+                "An invalid final finger leaves the complete anatomical palette unmodified");
+            Check(!RouteLeftHandedFloatingPalette(palette, 70, 1, 6, 2, 6, root, primary, support),
+                "Anatomical routing rejects overlapping source hand masks");
+        }
+    }
+
+    {
+        Halo4FloatingTransform primary{}, support{}, right{}, left{};
+        primary.translation[0] = 2;
+        support.translation[0] = -2;
+        support.rotation[0] = support.rotation[4] = -1;
+        right.translation[0] = 2; right.scale = 1.5f;
+        left.translation[0] = -2; left.scale = 0.5f;
+        const auto beforeRight = right, beforeLeft = left;
+        Check(Halo4RouteLeftHandedWristTargets(primary, support, right, left) &&
+              right.translation[0] == -2 && left.translation[0] == 2 &&
+              right.scale == 0.5f && left.scale == 1.5f &&
+              right.rotation[0] == -1 && left.rotation[0] == -1,
+            "H4 anatomical wrist routing keeps role grips/scales and each hand's carrier-relative orientation");
+        Check(Halo4RouteLeftHandedWristTargets(support, primary, right, left) &&
+              std::memcmp(&right, &beforeRight, sizeof(right)) == 0 &&
+              std::memcmp(&left, &beforeLeft, sizeof(left)) == 0,
+            "Anatomical wrist routing is reversible and introduces no reflected bases");
+        support.rotation[0] = std::numeric_limits<float>::quiet_NaN();
+        Check(!Halo4RouteLeftHandedWristTargets(primary, support, right, left) &&
+              std::memcmp(&right, &beforeRight, sizeof(right)) == 0 &&
+              std::memcmp(&left, &beforeLeft, sizeof(left)) == 0,
+            "Invalid anatomical carrier leaves both wrist targets unchanged");
+    }
+
     {
         using namespace contact_melee;
         bool mapping=true, timing=true, actorExcluded=true, reset=true;
@@ -471,6 +535,79 @@ int main()
             "rigid controller rotation qualifies a long weapon tip without wrist translation");
         const float badQ[4]={0,0,0,0};
         Check(!frame.controllerPose.SetPose(badQ,p),"zero controller quaternion is rejected");
+    }
+    for (int engine=0;engine<4;++engine)
+    {
+        using namespace contact_melee;
+        struct WeaponOnlyTarget
+        {
+            unsigned applied=0,point=0;
+            bool Query(const Sweep& sweep,Hit& hit) noexcept
+            {
+                // Target is beyond the wrist and only the rotating barrel
+                // crosses it. No hand-point contact can satisfy this scene.
+                const float dy=sweep.end.y-sweep.start.y;
+                if (dy<=0 || sweep.start.y>0.04f || sweep.end.y<0.04f) return false;
+                const float t=(0.04f-sweep.start.y)/dy;
+                const float x=sweep.start.x+t*(sweep.end.x-sweep.start.x);
+                if (x<0.5f) return false;
+                hit={0xCAFE0002,{x,0.04f,0},{0,-1,0},t,true};
+                return true;
+            }
+            bool Apply(uint32_t owner,const Hit& hit,const Sweep& sweep) noexcept
+            {
+                if (owner!=0x12340001 || hit.unit!=0xCAFE0002) return false;
+                ++applied; point=sweep.pointIndex; return true;
+            }
+        } target;
+        Halo4WeaponCollisionBounds bounds{0x1A04081Cu,{-0.2f,-0.01f,-0.01f},{0.8f,0.01f,0.01f}};
+        if (engine)
+        {
+            const auto layout=engine==1 ? LegacyBoundsLayout::Halo3 :
+                engine==2 ? LegacyBoundsLayout::Odst : LegacyBoundsLayout::Reach;
+            uint8_t record[52]{}; record[0]=1;
+            for (int axis=0;axis<3;++axis)
+            {
+                memcpy(record+4+axis*8,&bounds.minimum[axis],sizeof(float));
+                memcpy(record+8+axis*8,&bounds.maximum[axis],sizeof(float));
+            }
+            Check(LegacyDecodeCompressionBounds(layout,
+                    std::span(record,LegacyCompressionRecordBytes(layout)),bounds),
+                "each legacy engine decodes an unfamiliar weapon for physical melee");
+            bounds.runtimeImportChecksum=0xDEADBEEFu;
+        }
+        const auto shape=[&]() { return engine ? LegacyRuntimeWeaponShapeId(42,37,bounds) :
+            uint64_t(Halo4RuntimeWeaponShapeId(42,bounds)); };
+        const float basis[]{1.f,0.f,0.f,0.f,1.f,0.f,0.f,0.f,1.f};
+        const float zero[3]{};
+        float points[kHalo4WeaponCollisionBoundsSampleCount][3]{};
+        Check(Halo4BuildWeaponCollisionBoundsSamples(bounds,1,basis,zero,zero,zero,
+                  points,kHalo4WeaponCollisionBoundsSampleCount)==14,
+            "unknown weapon contributes the same bounds to world contact and melee");
+        Frame frame{};
+        frame.referenceEpoch=1; frame.unit=0x12340001;
+        frame.shape=shape();
+        frame.serial=1; frame.timeNs=1'000'000'000;
+        frame.count=7+14; frame.rigidMotion=true;
+        for (unsigned i=0;i<14;++i) frame.points[7+i]={points[i][0],points[i][1],points[i][2]};
+        Hand hand;
+        hand.Process(frame,5,target);
+        const float angle=0.12f;
+        const float rotation[]{0.f,0.f,std::sin(angle/2),std::cos(angle/2)};
+        frame.controllerPose.SetPose(rotation,zero);
+        for (unsigned i=0;i<14;++i)
+            frame.points[7+i]=frame.controllerPose.World({points[i][0],points[i][1],points[i][2]});
+        ++frame.serial; frame.timeNs+=10'000'000;
+        Check(hand.Process(frame,5,target)==ContactResult::Applied &&
+              target.applied==1 && target.point>=7,
+            "rotating unknown weapon deals physical contact damage with stationary hand samples");
+        Check(hand.Process(frame,5,target)==ContactResult::NoStrike && target.applied==1,
+            "second eye does not repeat weapon-only melee damage");
+        bounds.maximum[0]=1.0f;
+        frame.shape=shape();
+        ++frame.serial; frame.timeNs+=10'000'000;
+        Check(hand.Process(frame,5,target)==ContactResult::NoStrike && target.applied==1,
+            "weapon geometry change reseeds melee without manufacturing an impact");
     }
     // Analytic trajectories: a 6 m/s fist crosses a thin target even when no
     // sampled endpoint is inside it. Test physical rates and engine scales.
@@ -8579,6 +8716,80 @@ int main()
                     Check(!ownDual(invalidBinding) && !dualResult.applied,
                         "H2 dual ownership rejects secondary remaps that steal primary right-hand bones");
                 }
+                // Anatomical routing is a presentation transaction: both real
+                // meshes change role while both gun packets remain exact.
+                for (bool twoHand : {false, true})
+                for (auto rig : {Halo2FirstPersonRigKind::MasterChief,
+                                 Halo2FirstPersonRigKind::Elite})
+                {
+                    auto binding = packetBinding;
+                    binding.rigKind = rig;
+                    float baselineHands[kPacketNodes * kHalo2FirstPersonNodeFloats]{};
+                    float leftHands[kPacketNodes * kHalo2FirstPersonNodeFloats]{};
+                    float baselineGun[kHalo2FirstPersonNodeFloats]{};
+                    float leftGun[kHalo2FirstPersonNodeFloats]{};
+                    std::memcpy(baselineHands, hands, sizeof(hands));
+                    std::memcpy(leftHands, hands, sizeof(hands));
+                    std::memcpy(baselineGun, gun, sizeof(gun));
+                    std::memcpy(leftGun, gun, sizeof(gun));
+                    Halo2FinalPacketOwnershipResult baselineResult{}, leftResult{};
+                    Check(Halo2OwnFinalFirstPersonPackets(baselineHands, kPacketNodes,
+                              remap, binding, baselineGun, 1, authoredRoot, right, left,
+                              twoHand, 2.0f, 0.5f, 2.0f, baselineResult) &&
+                          Halo2OwnFinalFirstPersonPackets(leftHands, kPacketNodes,
+                              remap, binding, leftGun, 1, authoredRoot, right, left,
+                              twoHand, 2.0f, 0.5f, 2.0f, leftResult, true),
+                        "H2 anatomical routing supports Chief/Elite and free/support grip");
+                    Check(std::memcmp(leftGun, baselineGun, sizeof(leftGun)) == 0,
+                        "H2 anatomical routing never changes primary gun placement");
+                    for (int axis = 0; axis < 3; ++axis)
+                    {
+                        Check(nearlyEqual(leftHands[13 + 10 + axis], baselineHands[26 + 10 + axis]) &&
+                              nearlyEqual(leftHands[26 + 10 + axis], baselineHands[13 + 10 + axis]),
+                            "H2 actual left wrist owns primary grip and actual right wrist owns support grip");
+                    }
+                    Check(nearlyEqual(leftHands[13], baselineHands[26]) &&
+                          nearlyEqual(leftHands[26], baselineHands[13]),
+                        "H2 size controls remain assigned to weapon roles after anatomical routing");
+                    const int32_t invalidRemap[kPacketNodes]{0, 1, 2, 1};
+                    float before[kPacketNodes * kHalo2FirstPersonNodeFloats]{};
+                    std::memcpy(before, leftHands, sizeof(before));
+                    Check(!Halo2RouteLeftHandedPacketHands(leftHands, kPacketNodes,
+                              invalidRemap, binding, invalidRemap, binding, right, left) &&
+                          std::memcmp(before, leftHands, sizeof(before)) == 0,
+                        "H2 duplicate anatomical wrist rejects without partial palette mutation");
+                }
+                {
+                    float nativeHands[kPacketNodes * kHalo2FirstPersonNodeFloats]{};
+                    float handedHands[kPacketNodes * kHalo2FirstPersonNodeFloats]{};
+                    float primary[13]{}, secondary[13]{}, handedPrimary[13]{}, handedSecondary[13]{};
+                    const int32_t secondaryMap[kPacketNodes]{-1, 1, -1, 3};
+                    std::memcpy(nativeHands, hands, sizeof(hands));
+                    std::memcpy(handedHands, hands, sizeof(hands));
+                    identityNode(primary, 4.0f); identityNode(secondary, -4.0f);
+                    std::memcpy(handedPrimary, primary, sizeof(primary));
+                    std::memcpy(handedSecondary, secondary, sizeof(secondary));
+                    Halo2CameraBasis secondaryCarrier = left;
+                    secondaryCarrier.forward[1] = -1.0f;
+                    Halo2FinalPacketOwnershipResult a{}, b{};
+                    Check(Halo2OwnDualFirstPersonPackets(nativeHands, kPacketNodes, remap,
+                              packetBinding, primary, 1, secondaryMap, packetBinding,
+                              secondary, 1, authoredRoot, right, secondaryCarrier, 2, 0.5f, 1, a) &&
+                          Halo2OwnDualFirstPersonPackets(handedHands, kPacketNodes, remap,
+                              packetBinding, handedPrimary, 1, secondaryMap, packetBinding,
+                              handedSecondary, 1, authoredRoot, right, secondaryCarrier, 2, 0.5f, 1, b, true),
+                        "H2 left-handed dual presentation accepts partial secondary hand remaps");
+                    Check(std::memcmp(primary, handedPrimary, sizeof(primary)) == 0 &&
+                          std::memcmp(secondary, handedSecondary, sizeof(secondary)) == 0 &&
+                          nearlyEqual(handedHands[23], nativeHands[36]) &&
+                          nearlyEqual(handedHands[36], nativeHands[23]),
+                        "H2 independent guns stay exact while anatomical hands follow their owners");
+                    const float dx = handedHands[49] - handedHands[23];
+                    const float dy = handedHands[50] - handedHands[24];
+                    const float dz = handedHands[51] - handedHands[25];
+                    Check(nearlyEqual(std::sqrt(dx*dx + dy*dy + dz*dz), 2.0f),
+                        "H2 anatomical finger subtree retains shape at its destination role scale");
+                }
                 const bool ownedPackets = Halo2OwnFinalFirstPersonPackets(
                     hands, kPacketNodes, remap, packetBinding, gun, 1,
                     authoredRoot, right, left, false, 2.0f, 0.5f, 1.0f,
@@ -13070,6 +13281,7 @@ int main()
               g_config.cutscene_theater_width_m == 6.0f &&
               g_config.cutscene_theater_distance_m == 4.0f,
         "legacy configs inherit the enabled cutscene-theatre defaults");
+    Check(!g_config.roomscale_movement, "legacy config leaves roomscale off");
     Check(!g_config.world_collision,
         "legacy configs inherit the opt-in world-collision default");
     Check(!g_config.physical_melee && !g_config.gesture_melee &&
@@ -13084,6 +13296,7 @@ int main()
         file << "world_collision = 1\n";
         file << "physical_melee = 1\n";
         file << "left_handed = 1\n";
+        file << "roomscale_movement = 1\n";
         file << "physical_melee_swing_speed = 0.10\n";
     }
     ConfigLoad(primary.c_str());
@@ -13096,6 +13309,7 @@ int main()
     ConfigLoad(primary.c_str());
     Check(g_config.world_collision,
         "the shared world-collision option survives a save/load round trip");
+    Check(g_config.roomscale_movement, "roomscale survives config save/load");
     Check(g_config.left_handed,
         "left-handed main-weapon mode survives a save/load round trip");
     Check(g_config.physical_melee &&
@@ -14266,6 +14480,92 @@ int main()
     Check(Halo2CollisionTagBaseSlot(0x180000000ull, 0x2A38000, 0x79EEA0,
               h2TagGetter) == 0,
         "H2 collision tag-data decoder rejects a changed native instruction");
+    // Live-model decoding must work without a catalog checksum and distinguish
+    // changed model geometry even if an import checksum was reused by a mod.
+    {
+        std::array<uint8_t,kHalo4RuntimeCompressionRecordBytes> record{};
+        const auto writeFloat=[&](size_t offset,float value)
+        { memcpy(record.data()+offset,&value,sizeof(value)); };
+        record[0]=1;
+        writeFloat(4,-0.2f); writeFloat(8,0.8f);
+        writeFloat(12,-0.1f); writeFloat(16,0.1f);
+        writeFloat(20,-0.3f); writeFloat(24,0.2f);
+        Halo4WeaponCollisionBounds decoded{};
+        Check(Halo4DecodeRuntimeCompressionBounds(record,decoded) &&
+              decoded.minimum[0]==-0.2f && decoded.maximum[2]==0.2f,
+            "H4 live custom weapon bounds decode without a stock checksum");
+        decoded.runtimeImportChecksum=0x1A04081Cu; // absent in reported build's catalog
+        const auto identity=Halo4RuntimeWeaponShapeId(42,decoded);
+        Check(identity!=Halo4RuntimeWeaponShapeId(43,decoded),
+            "H4 equipped tag changes reseed collision even for identical bounds");
+        decoded.maximum[0]+=0.1f;
+        Check(identity!=Halo4RuntimeWeaponShapeId(42,decoded),
+            "H4 edited model bounds reseed collision with a reused import checksum");
+        const auto before=decoded;
+        writeFloat(16,NAN);
+        Check(!Halo4DecodeRuntimeCompressionBounds(record,decoded) &&
+              memcmp(&before,&decoded,sizeof(decoded))==0,
+            "H4 malformed live bounds refuse atomically");
+        Check(!Halo4DecodeRuntimeCompressionBounds(
+                  std::span<const uint8_t>(record.data(),record.size()-1),decoded),
+            "H4 live compression requires a complete record");
+        record.fill(0); record[0]=5;
+        writeFloat(4,1.0f); writeFloat(8,0.2f); writeFloat(12,0.5f);
+        writeFloat(20,-0.2f); writeFloat(24,-0.1f); writeFloat(28,-0.3f);
+        Check(Halo4DecodeRuntimeCompressionBounds(record,decoded) &&
+              std::fabs(decoded.maximum[0]-0.8f)<1e-6f &&
+              std::fabs(decoded.maximum[2]-0.2f)<1e-6f,
+            "H4 optimized compression uses extent and minimum XYZ union");
+        writeFloat(4,-1.0f);
+        Check(!Halo4DecodeRuntimeCompressionBounds(record,decoded),
+            "H4 optimized compression rejects negative extent");
+        record.fill(0); record[0]=1;
+        Check(!Halo4DecodeRuntimeCompressionBounds(record,decoded),
+            "H4 zero-volume placeholder is not a weapon collision shape");
+        record[0]=0;
+        Check(!Halo4DecodeRuntimeCompressionBounds(record,decoded),
+            "H4 uncompressed placeholder does not supply invented bounds");
+    }
+    {
+        for (auto layout:{LegacyBoundsLayout::Halo3,LegacyBoundsLayout::Odst,LegacyBoundsLayout::Reach})
+        {
+            uint8_t record[52]{}; record[0]=1;
+            const size_t bytes=LegacyCompressionRecordBytes(layout);
+            const float minimum[3]{-0.3f,-0.02f,-0.04f}, maximum[3]{0.8f,0.02f,0.05f};
+            for (int axis=0;axis<3;++axis)
+            { memcpy(record+4+axis*8,&minimum[axis],4); memcpy(record+8+axis*8,&maximum[axis],4); }
+            Halo4WeaponCollisionBounds bounds{};
+            Check(LegacyDecodeCompressionBounds(layout,std::span(record,bytes),bounds) &&
+                bounds.minimum[0]==minimum[0] && bounds.maximum[2]==maximum[2],
+                "independently sized legacy records retain authored bounds");
+            const auto before=bounds;
+            const float invalid=NAN;
+            memcpy(record+0x10,&invalid,4);
+            Check(!LegacyDecodeCompressionBounds(layout,std::span(record,bytes),bounds) &&
+                !memcmp(&bounds,&before,sizeof(bounds)),"invalid legacy data refuses atomically");
+            Check(!LegacyDecodeCompressionBounds(layout,std::span(record,bytes-1),bounds),
+                "truncated legacy compression cannot publish a weapon");
+            const auto shape=LegacyRuntimeWeaponShapeId(42,37,before);
+            Check(shape!=LegacyRuntimeWeaponShapeId(43,37,before) &&
+                shape!=LegacyRuntimeWeaponShapeId(42,38,before),
+                "tag reuse and mapped-root changes reseed legacy melee");
+        }
+        int32_t body[37]; for (int i=0;i<37;++i) body[i]=i;
+        Check(LegacyBodyPrefixFromRemap(body,42,41,10,26)==37,
+            "complete native body remap establishes appended-weapon boundary");
+        const int32_t weapon[]{37,38,-1,40}, arm[]{10,11}, camera[]{37,41};
+        Check(LegacyRemapIsAppendedWeapon(weapon,37,41,42) &&
+            !LegacyRemapIsAppendedWeapon(body,37,41,42) &&
+            !LegacyRemapIsAppendedWeapon(arm,37,41,42) &&
+            !LegacyRemapIsAppendedWeapon(camera,37,41,42),
+            "unfamiliar held graph accepts optional nodes while excluding body and camera");
+        body[36]=35;
+        Check(LegacyBodyPrefixFromRemap(body,42,41,10,26)<0,
+            "incomplete body remap cannot authorize arbitrary model bounds");
+        Check(!LegacyRemapIsAppendedWeapon(weapon,36,41,42) &&
+            !LegacyRemapIsAppendedWeapon(weapon,37,64,65),
+            "changed layout and oversized source stay within established contact guards");
+    }
     if (assaultRifleBounds)
     {
         const float identityBasis[9]{
@@ -16116,6 +16416,72 @@ int main()
                 Halo3VrTurnOwnsStick(false, true) &&
                 !Halo3VrTurnOwnsStick(true, false) &&
                 Halo3VrTurnOwnsStick(true, true);
+            {
+                Halo2SnapTurnState turn;
+                Check(turn.Update(1,1,0,true,true,true,0.9f,30) && turn.pending &&
+                    std::fabs(turn.targetYaw+0.5235988f)<1e-5f,
+                    "H2 right snap chooses exactly one configured clockwise target");
+                Check(!turn.Update(1,1,0,true,true,true,-0.9f,30) &&
+                    !turn.Update(1,2,0,true,true,true,0.9f,30),
+                    "H2 duplicate observer/eye calls and a held stick cannot repeat a snap");
+                turn.Update(1,3,0,true,true,true,0,30);
+                Check(turn.Update(1,4,0,true,true,true,-0.9f,30) &&
+                    std::fabs(turn.targetYaw)<1e-5f,
+                    "H2 opposite deliberate snap reverses the pending target");
+                turn.Update(2,5,3.10f,false,true,true,0.9f,45);
+                Check(!turn.Update(2,6,3.10f,true,true,true,0.9f,45),
+                    "vehicle/menu stick takeover cannot manufacture a snap");
+                turn.Update(2,7,3.10f,true,true,true,0,45);
+                Check(turn.Update(2,8,3.10f,true,true,true,-0.9f,45) &&
+                    turn.targetYaw<0,
+                    "H2 snap target wraps through pi without a full revolution");
+                turn.Update(3,9,0,true,false,true,0,30);
+                Check(!turn.Update(3,10,0,true,false,true,0.9f,30) && !turn.pending,
+                    "H2 smooth mode keeps its native turning path");
+                turn.Update(3,11,0,true,true,false,0,30);
+                Check(!turn.Update(3,12,0,true,true,true,0.9f,30),
+                    "tracking return while deflected waits for a centered stick");
+            }
+            for (float engineYaw:{0.f,-0.2f,-0.5235988f})
+            {
+                Halo2CameraBasis stock{};
+                stock.forward[0]=std::cos(engineYaw); stock.forward[1]=std::sin(engineYaw);
+                stock.up[2]=1;
+                Halo2TrackedHeadInput head{};
+                head.worldScale=1;
+                const float identity[4]{0,0,0,1}, zero[3]{};
+                const float offset=-0.5235988f-engineYaw;
+                Check(Halo2SnapReference(identity,offset,head.referenceOrientation),
+                    "H2 snap reference remains a normalized tracking transform");
+                Halo2CameraBasis view{}, gun{};
+                Check(Halo2BuildTrackedCenterCamera(stock,head,view) &&
+                    Halo2BuildStableControllerCarrier(stock,head.referenceOrientation,
+                        zero,identity,zero,1,0,gun) &&
+                    std::fabs(std::atan2(view.forward[1],view.forward[0])+0.5235988f)<1e-5f &&
+                    std::fabs(view.forward[0]-gun.forward[0])<1e-5f &&
+                    std::fabs(view.forward[1]-gun.forward[1])<1e-5f,
+                    "H2 view and gun stay at the snapped heading while native body yaw converges");
+            }
+            for (int hz:{60,90,120,144}) for (float mapping:{-1.f,1.f})
+            {
+                Halo4PitchServo servo;
+                float engine=3.10f;
+                const float target=Halo2SnapTurnState::Wrap(engine+0.5235988f);
+                bool parked=false;
+                for (int frame=0;frame<hz*4;++frame)
+                {
+                    const float continuous=servo.haveLastEnginePitch ? servo.lastEnginePitch+
+                        Halo2SnapTurnState::Wrap(engine-servo.lastEnginePitch):engine;
+                    const float error=Halo2SnapTurnState::Wrap(target-engine);
+                    const float command=Halo4PitchServoStep(servo,continuous,continuous+error,
+                        kHalo4PitchServoGain);
+                    if (command==0 && servo.axis.resting)
+                    { parked=std::fabs(error)<0.04f; break; }
+                    const float raw=std::copysign(std::max(std::fabs(command),0.275f),command);
+                    engine=Halo2SnapTurnState::Wrap(engine+mapping*raw*3.14159265f/hz);
+                }
+                Check(parked,"H2 native snap convergence parks across rates, inverted axes and yaw seam");
+            }
             bool snapLatched = false;
             const bool heldTakeoverSafe =
                 !Halo3ConsumeSnapTurn(false, 0.9f, snapLatched) &&
@@ -16984,6 +17350,63 @@ int main()
           MenuSliderNudge(10,0.3f,10,0.01,1)==10 &&
           MenuSliderNudge(0.3f,0.3f,10,0.01,-1)==0.3f,
         "menu nudges round the shown value and preserve both slider endpoints");
+
+    // Roomscale uses observed native travel, never teleports the body or
+    // consumes a requested step before the engine has actually moved.
+    for (float scale : {0.1f, 0.328084f, 1.0f})
+    for (float yaw : {0.0f, 1.57079632679f, -1.57079632679f})
+    {
+        RoomscaleFollow follow;
+        float body[3]{}, head[3]{0,1.7f,0}, reference[3]{0,1.7f,0};
+        const float wx=std::cos(yaw),wy=std::sin(yaw);
+        float mx=0,my=0;
+        Check(follow.Update(7,100,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my) &&
+            mx==0 && my==0, "roomscale starts without an unsolicited walk");
+        head[2]=-0.2f;
+        follow.Update(7,111,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(my>0 && std::fabs(mx)<1e-6f && reference[2]==0,
+            "physical forward requests native movement without consuming blocked travel");
+        follow.Update(7,122,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(reference[2]==0 && my>0, "wall obstruction cannot falsely move tracking origin");
+        body[0]=wx*0.1f*scale; body[1]=wy*0.1f*scale;
+        follow.Update(7,133,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(std::fabs(reference[2]+0.1f)<1e-5f && std::fabs(reference[1]-1.7f)<1e-5f,
+            "native body travel consumes horizontal tracked lean once at every tested scale and heading");
+        const float viewedForward=(body[0]*wx+body[1]*wy)/scale-(head[2]-reference[2]);
+        Check(std::fabs(viewedForward-0.2f)<1e-5f,
+            "body plus remaining lean equals the physical step, without double camera movement");
+        head[0]=0.15f;
+        follow.Update(7,144,true,true,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        follow.Update(7,155,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0, "manual locomotion cancels roomscale debt instead of walking after release");
+        head[0]+=0.1f;
+        follow.Update(7,166,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx>0 && std::fabs(my)<1e-5f, "physical right step produces head-relative right input");
+        const float before=reference[0];
+        body[0]+=10*scale;
+        follow.Update(7,177,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0 && reference[0]==before, "teleport rebases demand without consuming false travel");
+        head[0]+=2;
+        follow.Update(7,188,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0, "tracking jump cannot become a long unattended walk");
+        head[0]+=0.1f;
+        follow.Update(8,199,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0, "new title generation cancels pending movement");
+        head[0]+=0.1f;
+        follow.Update(8,210,false,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0 && !follow.seeded, "disabled roomscale leaves existing tracking reference alone");
+        follow.Update(8,221,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        head[0]+=0.1f;
+        follow.Update(8,600,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0, "stale camera resumes without replaying physical movement");
+        reference[0]=head[0]; reference[2]=head[2];
+        follow.Update(8,611,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my);
+        Check(mx==0 && my==0, "manual recenter cancels prior roomscale demand");
+        head[0]=std::numeric_limits<float>::quiet_NaN();
+        Check(!follow.Update(8,622,true,false,body,head,reference,0,-1,wx,wy,scale,mx,my) && mx==0 && my==0,
+            "nonfinite tracking cannot produce locomotion");
+    }
+    Check(!Config{}.roomscale_movement, "roomscale is opt-in for existing and new configurations");
 
     if (g_failures == 0)
         std::cout << "HaloMCCVR core tests passed\n";

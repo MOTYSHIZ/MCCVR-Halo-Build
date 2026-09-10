@@ -411,6 +411,7 @@ struct Config
     bool show_welcome = true;
 
     // M3 VR controller turning (right Sense stick).
+    bool roomscale_movement = false; // physical horizontal steps drive native walking
     bool turn_smooth = true;           // false = snap turn, true = smooth turn
     float turn_snap_deg = 30.0f;       // degrees per snap
     float turn_smooth_deg_s = 120.0f;  // smooth turn speed, degrees/second

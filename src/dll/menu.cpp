@@ -588,6 +588,9 @@ namespace
                     headTrackingApplied ? "ON" : "OFF",
                     VR_IsStereoEnabled() ? "ON" : "OFF",
                     VR_IsPausePresentation() ? "head-locked 2D" : "immersive 3D");
+        if (ImGui::Button("Force injection / recover VR"))
+            Game_RequestManualVrRecovery();
+        ImGui::TextWrapped("%s", Game_ManualVrRecoveryStatus());
         ImGui::Separator();
         ImGui::Spacing();
         ImGui::TextDisabled("L3+R3 recenters and closes this menu; F1 only closes it.");
@@ -717,6 +720,11 @@ namespace
 
         if (g_activeCategory == Cat_Controls)
         {
+        changed |= ImGui::Checkbox("Roomscale body movement", &g_config.roomscale_movement);
+        ImGui::TextDisabled("Physical steps move your character while on foot. Walking follows your head.\n"
+            "Controller aiming is preserved. Enable head tracking and positional tracking.\n"
+            "The movement stick takes priority. Recenter with F3 when needed.");
+        ImGui::Spacing();
         ImGui::Text("VR turning (right controller stick)");
         if (ImGui::RadioButton("Snap turn", !g_config.turn_smooth))
         {

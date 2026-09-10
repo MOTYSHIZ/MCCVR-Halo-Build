@@ -654,6 +654,7 @@ namespace
     bool g_headCsInit = false;
     XrPosef g_headPose{{0, 0, 0, 1}, {0, 0, 0}};
     bool g_headPoseValid = false;
+    std::atomic<uint64_t> g_roomscaleHeadSampleMs{0};
     XrPosef g_rightAimPose{{0, 0, 0, 1}, {0, 0, 0}};
     bool g_rightAimPoseValid = false;
     PhysicalMeleeSpeedHistory g_meleeSpeedHistory[2]{};
@@ -5961,13 +5962,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     {
         XrSpaceLocation loc{XR_TYPE_SPACE_LOCATION};
         if (XR_FAILED(xrLocateSpace(g_viewSpace, g_localSpace, time, &loc)))
-            return false;
+        { g_roomscaleHeadSampleMs.store(0, std::memory_order_release); return false; }
         constexpr XrSpaceLocationFlags need =
             XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
         if ((loc.locationFlags & need) != need)
-            return false;
+        { g_roomscaleHeadSampleMs.store(0, std::memory_order_release); return false; }
         if (!NormalizeTrackedPose(loc.pose))
-            return false;
+        { g_roomscaleHeadSampleMs.store(0, std::memory_order_release); return false; }
         EnterCriticalSection(&g_headCs);
         // Filter exactly once per OpenXR frame. CamCopyHook can run several
         // times inside that frame, so smoothing there would compound and vary
@@ -5978,6 +5979,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             : loc.pose;
         g_headPoseValid = true;
         LeaveCriticalSection(&g_headCs);
+
+        constexpr XrSpaceLocationFlags physicalTracking =
+            XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
+        g_roomscaleHeadSampleMs.store(
+            (loc.locationFlags & physicalTracking) == physicalTracking ? GetTickCount64() : 0,
+            std::memory_order_release);
 
         // Runtime proof for headset logs: successful pose sampling must equal
         // the OpenXR/game presentation rate. Camera-copy transforms are logged
@@ -8249,6 +8256,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const AimPoseResult aim=ComputeAimPose(CurrentAimPoseInputs(
             rightFresh,g_rightAimPose,leftFresh,g_leftAimPose));
         next.twoHandAimActive=aim.valid && aim.twoHandActive;
+        next.leftHanded=g_capturedLeftHanded.load(std::memory_order_acquire);
+        next.primaryAimValid=aim.valid;
+        if (aim.valid)
+        {
+            const float q[]{aim.pose.orientation.x, aim.pose.orientation.y,
+                            aim.pose.orientation.z, aim.pose.orientation.w};
+            memcpy(next.primaryAimOrientation, q, sizeof(q));
+        }
         auto physicalInputs=CurrentAimPoseInputs(rightFresh,g_rightAimPose,leftFresh,g_leftAimPose);
         physicalInputs.twoHandEnabled=false;
         const AimPoseResult physical=ComputeAimPose(physicalInputs);
@@ -8282,6 +8297,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             return false;
 
         ReachVrRenderSnapshot next{};
+        next.leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
         next.preparedSerial = preparedSerial;
         auto physicalInputs=CurrentAimPoseInputs(padFresh && g_rightAimPoseValid,
             g_rightAimPose,padFresh && g_leftAimPoseValid,g_leftAimPose);
@@ -8402,6 +8418,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             return false;
 
         Halo2VrRenderSnapshot next{};
+        next.turnPadValid = padFresh && g_padState.valid;
+        next.turnX = next.turnPadValid ? g_padState.turnX : 0.0f;
+        next.leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
         next.preparedSerial = preparedSerial;
         next.predictedDisplayTimeNs = g_preparedFrame.state.predictedDisplayTime;
         const int64_t pendingSpaceChange = g_contactSpaceChangeAtNs.load(std::memory_order_acquire);
@@ -8533,6 +8552,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             return false;
 
         Halo4VrRenderSnapshot next{};
+        next.leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
         next.preparedSerial = preparedSerial;
         for (int eye = 0; eye < 2; ++eye)
         {
@@ -15349,4 +15369,12 @@ bool VR_GetGameRenderAspect(float& outAspect)
 void VR_GetStatus(VrStatus& out)
 {
     out = g_status;
+}
+
+bool VR_RoomscaleTrackingFresh() noexcept
+{
+    const auto at=g_roomscaleHeadSampleMs.load(std::memory_order_acquire);
+    const auto now=GetTickCount64();
+    return at && now>=at && now-at<=100 &&
+        g_sessionStateShared.load(std::memory_order_acquire)==XR_SESSION_STATE_FOCUSED;
 }

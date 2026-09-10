@@ -1,4 +1,6 @@
 #include "halo2_stereo_core.h"
+#include "hook_quiescence.h"
+#include "../common/minhook_lifecycle.h"
 
 #include <windows.h>
 
@@ -3759,10 +3761,10 @@ namespace
         g_nativeHudArmed.store(false, std::memory_order_release);
         g_nativeHudTeardown.store(true, std::memory_order_release);
         const MH_STATUS drawDisabled = g_nativeChudTarget
-            ? MH_DisableHook(g_nativeChudTarget)
+            ? MCCVR_DisableHookForRetirement(g_nativeChudTarget)
             : MH_ERROR_NOT_CREATED;
         const MH_STATUS anchorDisabled = g_nativeHudAnchorTarget
-            ? MH_DisableHook(g_nativeHudAnchorTarget)
+            ? MCCVR_DisableHookForRetirement(g_nativeHudAnchorTarget)
             : MH_ERROR_NOT_CREATED;
         if (!DisableStatusIsSafe(drawDisabled) ||
             !DisableStatusIsSafe(anchorDisabled))
@@ -3783,6 +3785,18 @@ namespace
             return false;
         }
 
+        if (g_nativeChudTarget || g_nativeHudAnchorTarget)
+        {
+            const void* functions[]{reinterpret_cast<const void*>(&NativeChudDrawDetour),
+                reinterpret_cast<const void*>(&NativeHudAnchorBasisDetour)};
+            const void* originals[]{reinterpret_cast<const void*>(g_nativeChudOriginal.load()),
+                reinterpret_cast<const void*>(g_nativeHudAnchorOriginal.load())};
+            if (!WaitForNativeDetourQuiescence(functions, originals, 2, g_nativeHudActiveCallbacks))
+            {
+                LOG("Halo 2 native HUD cleanup: ingress still busy; retained");
+                return false;
+            }
+        }
         bool removed = true;
         if (g_nativeHudAnchorTarget)
         {

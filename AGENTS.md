@@ -4,6 +4,8 @@
 
 Resume continuity: read `docs/ACTIVE-WORK-CHECKPOINT.md` for the latest user
 priority, packaging hold/WIP exception, preserved work and unresolved items.
+Read `docs/CONTINUATION-REFINEMENT-LIST.md` for the user-approved standing scope
+whenever the user says "continue", including in a new chat.
 
 Deliver the build ZIP and matching source ZIP in Codex chat, then wait for the
 user's testing and instructions. Run `tools/package-candidate.ps1` without

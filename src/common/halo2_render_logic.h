@@ -1669,6 +1669,7 @@ struct Halo2ObserverPoseSnapshot
     float rightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float rightAimPosition[3]{};
     bool twoHandAimActive = false;
+    bool leftHanded = false;
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
@@ -1678,6 +1679,8 @@ struct Halo2ObserverPoseSnapshot
 
 struct Halo2ObserverPosePublication
 {
+    bool snapTurnPending = false;
+    float snapTurnTargetYaw = 0.0f;
     uint32_t generation = 0;
     uint64_t serial = 0;
     // E-H2-23 (C-H2-32): one number per ring WRITE. Several ring entries can
@@ -4350,6 +4353,97 @@ inline bool Halo2OwnVisibleFirstPersonGun(
     return true;
 }
 
+// E-H2-40/45 provide the anatomical subtrees and destination remaps. Carriers
+// already represent weapon roles. Keep the real meshes and their own local
+// hand orientations, but seat each wrist at the opposite role's solved grip.
+// Guns are separate packets and never enter this anatomical transaction.
+inline bool Halo2RouteLeftHandedPacketHands(
+    float* hands, uint32_t count, const int32_t* primaryRemap,
+    const Halo2FirstPersonArmBinding& primaryBinding,
+    const int32_t* secondaryRemap,
+    const Halo2FirstPersonArmBinding& secondaryBinding,
+    const Halo2CameraBasis& primaryCarrier,
+    const Halo2CameraBasis& supportCarrier) noexcept
+{
+    if (!hands || !primaryRemap || !secondaryRemap || !count || count > 64 ||
+        !primaryBinding.valid || !secondaryBinding.valid ||
+        !primaryBinding.count || !secondaryBinding.count ||
+        primaryBinding.count > 64 || secondaryBinding.count > 64 ||
+        primaryBinding.rigKind != secondaryBinding.rigKind) return false;
+    int wrist[2]{-1, -1};
+    uint64_t mask[2]{};
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        const int r = primaryRemap[i], l = secondaryRemap[i];
+        if (r < -1 || r >= int(primaryBinding.count) ||
+            l < -1 || l >= int(secondaryBinding.count)) return false;
+        const bool right = r >= 0 && (primaryBinding.rightSubtree & (uint64_t{1} << r));
+        const bool left = l >= 0 && (secondaryBinding.leftSubtree & (uint64_t{1} << l));
+        if (right && left) return false;
+        if (right) mask[1] |= uint64_t{1} << i;
+        if (left) mask[0] |= uint64_t{1} << i;
+        if (r == primaryBinding.rightWrist)
+        {
+            if (wrist[1] >= 0) return false;
+            wrist[1] = int(i);
+        }
+        if (l == secondaryBinding.leftWrist)
+        {
+            if (wrist[0] >= 0) return false;
+            wrist[0] = int(i);
+        }
+    }
+    if (wrist[0] < 0 || wrist[1] < 0 ||
+        !(mask[0] & (uint64_t{1} << wrist[0])) ||
+        !(mask[1] & (uint64_t{1} << wrist[1]))) return false;
+    Halo2FirstPersonTransform carrier[2]{}, stock[2]{}, desired[2]{}, delta[2]{};
+    if (!Halo2BuildControllerHandMountBasis(primaryCarrier, carrier[1].rotation) ||
+        !Halo2BuildControllerHandMountBasis(supportCarrier, carrier[0].rotation))
+        return false;
+    for (int hand = 0; hand < 2; ++hand)
+        if (!Halo2ReadFirstPersonTransform(
+                hands + wrist[hand] * kHalo2FirstPersonNodeFloats, stock[hand]))
+            return false;
+    for (int hand = 0; hand < 2; ++hand)
+    {
+        Halo2FirstPersonTransform carrierDelta{};
+        if (!Halo2BuildFirstPersonWorldDelta(carrier[1 - hand], carrier[hand], carrierDelta) ||
+            !Halo2ComposeFirstPersonTransforms(carrierDelta, stock[hand], desired[hand]))
+            return false;
+        std::memcpy(desired[hand].translation, stock[1 - hand].translation, sizeof(float) * 3);
+        desired[hand].scale = stock[1 - hand].scale;
+        if (!Halo2BuildFirstPersonWorldDelta(desired[hand], stock[hand], delta[hand]))
+            return false;
+    }
+    float staged[kHalo2FirstPersonPaletteCapacity * kHalo2FirstPersonNodeFloats]{};
+    std::memcpy(staged, hands, count * kHalo2FirstPersonNodeStride);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        const uint64_t bit = uint64_t{1} << i;
+        const int hand = (mask[0] & bit) ? 0 : (mask[1] & bit) ? 1 : -1;
+        if (hand >= 0)
+        {
+            Halo2FirstPersonTransform node{}, moved{};
+            if (!Halo2ReadFirstPersonTransform(hands + i * kHalo2FirstPersonNodeFloats, node) ||
+                !Halo2ComposeFirstPersonTransforms(delta[hand], node, moved)) return false;
+            Halo2WriteFirstPersonTransform(moved, staged + i * kHalo2FirstPersonNodeFloats);
+        }
+        else if (primaryBinding.rigKind == Halo2FirstPersonRigKind::Elite)
+        {
+            const int source = primaryRemap[i];
+            const uint64_t sourceBit = source >= 0 ? uint64_t{1} << source : 0;
+            if (sourceBit & primaryBinding.armAncestors)
+            {
+                auto hidden = desired[(sourceBit & primaryBinding.leftArmAncestors) ? 0 : 1];
+                hidden.scale *= 0.0001f;
+                Halo2WriteFirstPersonTransform(hidden, staged + i * kHalo2FirstPersonNodeFloats);
+            }
+        }
+    }
+    std::memcpy(hands, staged, count * kHalo2FirstPersonNodeStride);
+    return true;
+}
+
 // E-H2-45: transform the already root-composed render packets, using the
 // engine-authored hands remap to carry the animation graph's invariant hand
 // flags into destination-model node indices. This is deliberately independent
@@ -4362,7 +4456,7 @@ inline bool Halo2OwnFinalFirstPersonPackets(
     const Halo2CameraBasis& rightCarrier,
     const Halo2CameraBasis& leftCarrier, bool twoHandAimActive,
     float rightScale, float leftScale, float worldScale,
-    Halo2FinalPacketOwnershipResult& out) noexcept
+    Halo2FinalPacketOwnershipResult& out, bool leftHanded = false) noexcept
 {
     out = Halo2FinalPacketOwnershipResult{};
     if (!handsMatrices || !handsRemap || !binding.valid ||
@@ -4611,6 +4705,12 @@ inline bool Halo2OwnFinalFirstPersonPackets(
     }
     out.applied = out.rightNodes && out.leftNodes && out.gunNodes;
     if (!out.applied) return false;
+    if (leftHanded && !Halo2RouteLeftHandedPacketHands(stagedHands, handsCount,
+            handsRemap, binding, handsRemap, binding, rightCarrier, leftCarrier))
+    {
+        out.applied = false;
+        return false;
+    }
     std::memcpy(handsMatrices, stagedHands,
                 static_cast<size_t>(handsCount) * kHalo2FirstPersonNodeStride);
     std::memcpy(gunMatrices, stagedGun,
@@ -4633,7 +4733,7 @@ inline bool Halo2OwnDualFirstPersonPackets(
     const Halo2CameraBasis& authoredRoot,
     const Halo2CameraBasis& rightCarrier, const Halo2CameraBasis& leftCarrier,
     float rightScale, float leftScale, float worldScale,
-    Halo2FinalPacketOwnershipResult& out) noexcept
+    Halo2FinalPacketOwnershipResult& out, bool leftHanded = false) noexcept
 {
     out={};
     if(!hands || !primaryRemap || !primaryGun || !secondaryRemap || !secondaryGun ||
@@ -4723,6 +4823,9 @@ inline bool Halo2OwnDualFirstPersonPackets(
     }
     result.leftWristDeltaWorld=std::sqrt(distanceSquared);
     result.gunNodes+=secondaryCount;
+    if (leftHanded && !Halo2RouteLeftHandedPacketHands(stagedHands, handsCount,
+            primaryRemap, primaryBinding, secondaryRemap, secondaryBinding,
+            rightCarrier, leftCarrier)) return false;
     std::memcpy(hands,stagedHands,handsBytes);
     std::memcpy(primaryGun,stagedPrimary,primaryBytes);
     std::memcpy(secondaryGun,stagedSecondary,secondaryBytes);
