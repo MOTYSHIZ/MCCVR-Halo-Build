@@ -15073,7 +15073,10 @@ namespace
                 kHalo3CollisionVectorSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
         (void)InstallHalo3ContactMelee(base,size,runtimeGeneration);
-        (void)InstallHalo3DualAim(base,size,runtimeGeneration);
+        // d77c9dd headset: independent shots were not observed. Keep the
+        // failed experimental firing hooks dormant until the dual-aim pass.
+        if constexpr (false)
+            (void)InstallHalo3DualAim(base,size,runtimeGeneration);
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
         uintptr_t prepareHit = sig::Find(base, size, kPrepareViewSig);
