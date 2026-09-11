@@ -1,5 +1,7 @@
 # MCCVR Halo Build
 
+_**OpenXR Toolkit may cause issues. Uninstall before using to avoid performance hiccups.**_
+
 An independently maintained continuation of [Halo-MCC-VR by pancreations](https://github.com/pancreations/Halo-MCC-VR), maintained here by **moistman42069**. Future releases and bug reports for this continuation live in this repository. Original contributor credit, history and the MIT license are preserved.
 
 ## Latest release: Left-Hand Refinements and Experimental Roomscale (cfb22ed)
