@@ -1669,7 +1669,7 @@ struct Halo2ObserverPoseSnapshot
     float rightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float rightAimPosition[3]{};
     bool twoHandAimActive = false;
-    bool leftHanded = false;
+    bool handAlignment = false;
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
@@ -4456,7 +4456,7 @@ inline bool Halo2OwnFinalFirstPersonPackets(
     const Halo2CameraBasis& rightCarrier,
     const Halo2CameraBasis& leftCarrier, bool twoHandAimActive,
     float rightScale, float leftScale, float worldScale,
-    Halo2FinalPacketOwnershipResult& out, bool leftHanded = false) noexcept
+    Halo2FinalPacketOwnershipResult& out, bool handAlignment = false) noexcept
 {
     out = Halo2FinalPacketOwnershipResult{};
     if (!handsMatrices || !handsRemap || !binding.valid ||
@@ -4705,7 +4705,7 @@ inline bool Halo2OwnFinalFirstPersonPackets(
     }
     out.applied = out.rightNodes && out.leftNodes && out.gunNodes;
     if (!out.applied) return false;
-    if (leftHanded && !Halo2RouteLeftHandedPacketHands(stagedHands, handsCount,
+    if (handAlignment && !Halo2RouteLeftHandedPacketHands(stagedHands, handsCount,
             handsRemap, binding, handsRemap, binding, rightCarrier, leftCarrier))
     {
         out.applied = false;
@@ -4733,7 +4733,7 @@ inline bool Halo2OwnDualFirstPersonPackets(
     const Halo2CameraBasis& authoredRoot,
     const Halo2CameraBasis& rightCarrier, const Halo2CameraBasis& leftCarrier,
     float rightScale, float leftScale, float worldScale,
-    Halo2FinalPacketOwnershipResult& out, bool leftHanded = false) noexcept
+    Halo2FinalPacketOwnershipResult& out, bool handAlignment = false) noexcept
 {
     out={};
     if(!hands || !primaryRemap || !primaryGun || !secondaryRemap || !secondaryGun ||
@@ -4823,7 +4823,7 @@ inline bool Halo2OwnDualFirstPersonPackets(
     }
     result.leftWristDeltaWorld=std::sqrt(distanceSquared);
     result.gunNodes+=secondaryCount;
-    if (leftHanded && !Halo2RouteLeftHandedPacketHands(stagedHands, handsCount,
+    if (handAlignment && !Halo2RouteLeftHandedPacketHands(stagedHands, handsCount,
             primaryRemap, primaryBinding, secondaryRemap, secondaryBinding,
             rightCarrier, leftCarrier)) return false;
     std::memcpy(hands,stagedHands,handsBytes);

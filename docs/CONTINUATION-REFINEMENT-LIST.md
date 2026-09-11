@@ -1,3 +1,28 @@
+# Latest priority - recovered September 10 headset feedback
+
+The roomscale package 644148a was tested: user reports improved collision/melee,
+bad left-hand misalignment and roomscale body movement doing nothing, including H3.
+Preserve collision/melee improvements and pause that work. Restore left-handed
+presentation from the latest user GitHub release (MCCVR-d77c9dd) as default;
+gate newer anatomical correction behind default-off Fix Hand Alignment
+(Experimental), available only with left-handed mode enabled. Improve experimental
+alignment if evidence permits, without blocking the stable fallback. Then diagnose
+and fix real physical movement moving the native body across supported titles,
+without drift, duplicate movement, height errors or breaking sticks/controller aim.
+Read ROOMSCALE-LEFT-HAND-REFINEMENT-REQUEST-2026-09-10.md for the full recovered
+user message and packaging requirements. After implementation/checks, deliver a
+clean user-facing build ZIP plus matching source ZIP with accurate fresh/update
+installation instructions. No install, game writes, launch, PR or publishing.
+The older immediate-delivery handoff below is superseded.
+
+Resume: clean HEAD 644148a; previous chat only investigated after receiving feedback.
+Downloaded reference: out/release-reference/moistman42069/ (release metadata and
+source ZIP). Log: out/test-runs/644148a-roomscale-left-hand-feedback/user.log
+SHA256: 8E1FF4F9567BDCC62F669E04EE7C511AA51364D036270841C5BB682C28FFE75A.
+Steam / SteamVR OpenXR 2.17.9 / Oculus-family headset, panel 120 Hz. Exact headset
+model not identified by this log. Accepted pointer stays 4e01f28: no cumulative
+acceptance of this failed roomscale/alignment package.
+
 # Latest scope override - September 10 roomscale handoff
 
 The user requested roomscale plus updated build/source ZIPs and instructions.

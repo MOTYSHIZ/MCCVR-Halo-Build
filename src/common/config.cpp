@@ -624,6 +624,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.roomscale_movement = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "experimental_hand_alignment"))
+        {
+            g_config.experimental_hand_alignment = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "left_handed"))
         {
             g_config.left_handed = atoi(val) != 0;
@@ -1690,6 +1695,9 @@ void ConfigSave()
     fprintf(f, "# Main weapon, aim and trigger on the physical left controller.\n");
     fprintf(f, "# Movement, turning and face buttons keep their physical bindings.\n");
     fprintf(f, "left_handed = %d\n\n", g_config.left_handed ? 1 : 0);
+    fprintf(f, "# Experimental anatomical hand alignment; only active with left_handed.\n");
+    fprintf(f, "# Default off preserves the released hand positioning.\n");
+    fprintf(f, "experimental_hand_alignment = %d\n\n", g_config.experimental_hand_alignment ? 1 : 0);
     fprintf(f, "# Engage style: 1 = toggle (click grip on/off), 0 = hold.\n");
     fprintf(f, "# (default %d)\n", d.two_hand_toggle ? 1 : 0);
     fprintf(f, "two_hand_toggle = %d\n\n", g_config.two_hand_toggle ? 1 : 0);

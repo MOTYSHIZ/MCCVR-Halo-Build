@@ -8257,6 +8257,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             rightFresh,g_rightAimPose,leftFresh,g_leftAimPose));
         next.twoHandAimActive=aim.valid && aim.twoHandActive;
         next.leftHanded=g_capturedLeftHanded.load(std::memory_order_acquire);
+        next.handAlignment = next.leftHanded && g_config.experimental_hand_alignment;
         next.primaryAimValid=aim.valid;
         if (aim.valid)
         {
@@ -8298,6 +8299,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
         ReachVrRenderSnapshot next{};
         next.leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
+        next.handAlignment = next.leftHanded && g_config.experimental_hand_alignment;
         next.preparedSerial = preparedSerial;
         auto physicalInputs=CurrentAimPoseInputs(padFresh && g_rightAimPoseValid,
             g_rightAimPose,padFresh && g_leftAimPoseValid,g_leftAimPose);
@@ -8421,6 +8423,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         next.turnPadValid = padFresh && g_padState.valid;
         next.turnX = next.turnPadValid ? g_padState.turnX : 0.0f;
         next.leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
+        next.handAlignment = next.leftHanded && g_config.experimental_hand_alignment;
         next.preparedSerial = preparedSerial;
         next.predictedDisplayTimeNs = g_preparedFrame.state.predictedDisplayTime;
         const int64_t pendingSpaceChange = g_contactSpaceChangeAtNs.load(std::memory_order_acquire);
@@ -8553,6 +8556,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
         Halo4VrRenderSnapshot next{};
         next.leftHanded = g_capturedLeftHanded.load(std::memory_order_acquire);
+        next.handAlignment = next.leftHanded && g_config.experimental_hand_alignment;
         next.preparedSerial = preparedSerial;
         for (int eye = 0; eye < 2; ++eye)
         {

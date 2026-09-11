@@ -358,7 +358,7 @@ namespace
         float rightCollisionCorrection[3]{};
         float leftCollisionCorrection[3]{};
         bool twoHandAimActive = false;
-        bool leftHanded = false;
+        bool handAlignment = false;
         contact_melee::Frame contactFrames[2]{};
         float rightScale = 1.0f;
         float leftScale = 1.0f;
@@ -654,7 +654,7 @@ namespace
         std::memcpy(snapshot.rightAimPosition, sample.rightAimPosition,
                     sizeof(snapshot.rightAimPosition));
         snapshot.twoHandAimActive = sample.twoHandAimActive;
-        snapshot.leftHanded = sample.leftHanded;
+        snapshot.handAlignment = sample.handAlignment;
         snapshot.independentRightAimValid = sample.independentRightAimValid;
         std::memcpy(snapshot.independentRightAimOrientation,
             sample.independentRightAimOrientation, sizeof(snapshot.independentRightAimOrientation));
@@ -1541,7 +1541,7 @@ namespace
                 return;
             // Buffers and haptics use weapon roles, whereas the remaps name
             // actual anatomy. The primary gun below always stays in role 1.
-            const bool primaryHand = context.leftHanded ? left : right;
+            const bool primaryHand = context.handAlignment ? left : right;
             float* output = primaryHand ? rightPoints[rightCount++]
                                         : leftPoints[leftCount++];
             const float* correction = primaryHand
@@ -2099,14 +2099,14 @@ namespace
                             context.gunCount, context.secondaryHandsRemap,
                             context.secondaryBinding, matrices, context.secondaryGunCount,
                             context.renderCamera, context.rightCarrier, context.leftCarrier,
-                            context.rightScale, context.leftScale, context.worldScale, result, context.leftHanded)
+                            context.rightScale, context.leftScale, context.worldScale, result, context.handAlignment)
                         : Halo2OwnFinalFirstPersonPackets(
                             context.handsMatrices, context.handsCount,
                             context.handsRemap, context.binding, primaryMatrices,
                             context.gunCount, context.renderCamera,
                             context.rightCarrier, context.leftCarrier,
                             context.twoHandAimActive, context.rightScale,
-                            context.leftScale, context.worldScale, result, context.leftHanded);
+                            context.leftScale, context.worldScale, result, context.handAlignment);
                     if (owned)
                     {
                         Halo2PublishFinalPacketCollisionVolumes(
@@ -2460,7 +2460,7 @@ namespace
                         context.leftCollisionCorrection);
                     context.rightCarrier = rightCarrier;
                     context.leftCarrier = leftCarrier;
-                    context.leftHanded = publication.snapshot.leftHanded;
+                    context.handAlignment = publication.snapshot.handAlignment;
                     context.twoHandAimActive =
                         !independentPrimary && publication.snapshot.twoHandAimActive;
                     context.rightScale =
@@ -2651,14 +2651,14 @@ namespace
                         candidate.secondaryGunCount, candidate.renderCamera,
                         candidate.rightCarrier, candidate.leftCarrier,
                         candidate.rightScale, candidate.leftScale,
-                        candidate.worldScale, packetResult, candidate.leftHanded)
+                        candidate.worldScale, packetResult, candidate.handAlignment)
                     : Halo2OwnFinalFirstPersonPackets(
                         handsMatrices, candidate.handsCount,
                         candidate.handsRemap, candidate.binding, gunMatrices,
                         candidate.gunCount, candidate.renderCamera,
                         candidate.rightCarrier, candidate.leftCarrier,
                         candidate.twoHandAimActive, candidate.rightScale,
-                        candidate.leftScale, candidate.worldScale, packetResult, candidate.leftHanded));
+                        candidate.leftScale, candidate.worldScale, packetResult, candidate.handAlignment));
                 if (packetsOwned)
                 {
                     Halo2PublishFinalPacketCollisionVolumes(

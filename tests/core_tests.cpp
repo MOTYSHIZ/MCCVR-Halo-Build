@@ -13282,6 +13282,7 @@ int main()
               g_config.cutscene_theater_distance_m == 4.0f,
         "legacy configs inherit the enabled cutscene-theatre defaults");
     Check(!g_config.roomscale_movement, "legacy config leaves roomscale off");
+    Check(!g_config.experimental_hand_alignment, "legacy config preserves released hand positioning");
     Check(!g_config.world_collision,
         "legacy configs inherit the opt-in world-collision default");
     Check(!g_config.physical_melee && !g_config.gesture_melee &&
@@ -13312,6 +13313,14 @@ int main()
     Check(g_config.roomscale_movement, "roomscale survives config save/load");
     Check(g_config.left_handed,
         "left-handed main-weapon mode survives a save/load round trip");
+    Check(!g_config.experimental_hand_alignment,
+        "left-handed updates keep released positioning until explicitly opted in");
+    g_config.experimental_hand_alignment = true;
+    ConfigSave();
+    ConfigLoad(primary.c_str());
+    Check(g_config.experimental_hand_alignment && g_config.left_handed &&
+        g_config.world_collision && g_config.physical_melee,
+        "experimental hand alignment persists without replacing handedness or collision/melee options");
     Check(g_config.physical_melee &&
               g_config.physical_melee_swing_speed == 0.3f,
         "physical-melee enable and swing threshold survive a save/load round trip");

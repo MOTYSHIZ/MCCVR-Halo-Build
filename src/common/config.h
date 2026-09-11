@@ -781,6 +781,8 @@ struct Config
     // Main weapon/aim/trigger use the physical left controller. Movement,
     // turning and face buttons keep their existing physical bindings.
     bool left_handed = false;
+    // Preserve released controller-role positioning unless explicitly opted in.
+    bool experimental_hand_alignment = false;
 
     // Two-handed weapon aiming: when you bring your left hand up to the gun
     // (support-hand grip), aim along the line from the right hand to the left

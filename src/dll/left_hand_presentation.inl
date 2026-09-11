@@ -22,7 +22,7 @@ bool LegacyRouteLeftHandedPalette(GameTitle title, uint16_t tag, const int32_t* 
 {
     auto& scope = g_fpStereoSolveScope;
     const auto& tracking = scope.anatomicalTracking;
-    if (!scope.armed || !tracking.serial || !tracking.leftHanded ||
+    if (!scope.armed || !tracking.serial || !tracking.handAlignment ||
         !tracking.primaryAimValid || !tracking.hands[0].valid ||
         !context.valid || context.slot < 0 || context.slot > 1 ||
         context.count <= 0 || context.count > 64 || !boneMap ||

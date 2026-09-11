@@ -1150,7 +1150,7 @@ namespace
         // Reach supplies this from the same immutable prepared-frame snapshot
         // as both controller targets. H3/ODST use VR_IsTwoHandAiming() instead.
         bool twoHandAimActive = false;
-        bool leftHanded = false;
+        bool handAlignment = false;
         // Same-frame physical tracking reference for native contact melee.
         contact_melee::TrackingToWorld contactSpace[2]{};
         contact_melee::TrackingToWorld contactController[2]{};
@@ -6087,7 +6087,7 @@ namespace
                 tag,context,*root,source,selectedSource);
         FpInterpolationContext contactContext = context;
         if (reconstructed && root && selectedSource == g_fpPaletteScratch &&
-            g_fpStereoSolveScope.anatomicalTracking.leftHanded)
+            g_fpStereoSolveScope.anatomicalTracking.handAlignment)
         {
             const bool routed = LegacyRouteLeftHandedPalette(GameTitle::Halo3, tag,
                 boneMap, *root, context, contactContext);
@@ -13003,7 +13003,7 @@ namespace
         }
         FpInterpolationContext contactContext = context;
         if (reconstructed && root && selectedSource == g_fpPaletteScratch &&
-            g_fpStereoSolveScope.anatomicalTracking.leftHanded)
+            g_fpStereoSolveScope.anatomicalTracking.handAlignment)
         {
             const bool routed = LegacyRouteLeftHandedPalette(GameTitle::Halo3ODST, tag,
                 boneMap, *root, context, contactContext);
@@ -24392,7 +24392,7 @@ namespace
                         targets);
                 }
                 bool anatomicalLeftHanded = false;
-                if (reconstructed && leftHandBound && targets.leftHanded)
+                if (reconstructed && leftHandBound && targets.handAlignment)
                 {
                     anatomicalLeftHanded = ReachRouteLeftHandedPalette(fp, *root, context.targets);
                     (anatomicalLeftHanded ? g_reachAnatomicalApplications : g_reachAnatomicalRefusals)
@@ -26566,7 +26566,7 @@ namespace
         // frame use the previous seat's hand origin even though headCenter
         // already used the new one.
         candidate.fpTargets={};
-        candidate.fpTargets.leftHanded=tracking.leftHanded;
+        candidate.fpTargets.handAlignment=tracking.handAlignment;
         candidate.fpTargets.centerRootValid=ReachBuildCenterFpRoot(
             candidate.headCenter,
             candidate.vehicleViewApplied
@@ -32467,7 +32467,7 @@ namespace
         float gunPitchDeg = 0.0f;
         float gunRollDeg = 0.0f;
         bool twoHandAimActive = false;
-        bool leftHanded = false;
+        bool handAlignment = false;
         Halo4FloatingTransform rightTargetWorld{};
         Halo4FloatingTransform leftTargetWorld{};
         // Collision publication is rebuilt from authored model-node extents.
@@ -33691,7 +33691,7 @@ namespace
             !solved || !g_halo4FloatingPair.targetsValid ||
             !g_halo4FloatingPair.generation)
             return;
-        const bool swapped = g_halo4FloatingPair.leftHanded;
+        const bool swapped = g_halo4FloatingPair.handAlignment;
         const int primaryWrist = swapped ? kHalo4LeftHandNode : kHalo4RightHandNode;
         const uint32_t rightCount = swapped
             ? Halo4BuildAuthoredCollisionExtrema(solved, kHalo4LeftHandSubtree,
@@ -35174,7 +35174,7 @@ namespace
     {
         g_halo4FloatingPair=Halo4FloatingPair{};
         g_halo4FloatingPair.active=true;
-        g_halo4FloatingPair.leftHanded=g_halo4RigTracking.leftHanded;
+        g_halo4FloatingPair.handAlignment=g_halo4RigTracking.handAlignment;
         g_halo4FloatingPair.epoch=
             g_halo4Camera.floatingHandsEpoch.load(std::memory_order_acquire);
         g_halo4FloatingPair.generation=
@@ -35475,7 +35475,7 @@ namespace
         Halo4FloatingTransform primaryWeaponDelta{};
         if (!Halo4BuildFloatingWorldDelta(desiredRight, stockRight, primaryWeaponDelta))
             return Halo4VrikStage::RightPoseFailed;
-        if (g_halo4FloatingPair.leftHanded &&
+        if (g_halo4FloatingPair.handAlignment &&
             !Halo4RouteLeftHandedWristTargets(g_halo4FloatingPair.rightTargetWorld,
                 g_halo4FloatingPair.leftTargetWorld, desiredRight, desiredLeft))
             return Halo4VrikStage::LeftPoseFailed;
@@ -35556,7 +35556,7 @@ namespace
         staged.epoch=g_halo4FloatingPair.epoch;
         staged.generation=g_halo4FloatingPair.generation;
         staged.preparedSerial=g_halo4FloatingPair.preparedSerial;
-        staged.rightHandDeltaWorld=g_halo4FloatingPair.leftHanded
+        staged.rightHandDeltaWorld=g_halo4FloatingPair.handAlignment
             ? primaryWeaponDelta : rightDeltaWorld;
         staged.expectedHeldSource=heldSource;
         Halo4PublishAuthoredHandCollisionVolumes(solved, objectIndex);

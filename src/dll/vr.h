@@ -163,6 +163,7 @@ struct Halo2VrRenderSnapshot
     float rightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float rightAimPosition[3]{};
     bool twoHandAimActive = false;
+    bool handAlignment = false; // experimental presentation, frozen with this frame
     bool leftHanded = false; // captured with these role-routed controller poses
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
@@ -389,6 +390,7 @@ struct Halo4VrRenderSnapshot
     // the accepted two-hand support solve. Consumers must not resample the
     // asynchronous global latch after publication.
     bool twoHandAimActive = false;
+    bool handAlignment = false; // experimental presentation, frozen with this frame
     bool leftHanded = false;
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
@@ -782,6 +784,7 @@ struct ReachVrRenderSnapshot
     // True only when this exact prepared frame used the support-hand weapon
     // line. Reach's palette path must not resample the asynchronous global.
     bool twoHandAimActive = false;
+    bool handAlignment = false; // experimental presentation, frozen with this frame
     bool leftHanded = false;
     float rightAimOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float rightAimPosition[3]{};
@@ -812,6 +815,7 @@ struct VrContactTrackingSnapshot
     uint64_t serial=0,referenceEpoch=0;
     int64_t timeNs=0;
     bool twoHandAimActive=false;
+    bool handAlignment=false;
     bool leftHanded=false;
     bool primaryAimValid=false;
     float primaryAimOrientation[4]{0,0,0,1};

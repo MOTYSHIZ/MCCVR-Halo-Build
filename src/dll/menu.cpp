@@ -1087,6 +1087,15 @@ namespace
         ImGui::SameLine();
         ImGui::TextDisabled(VR_IsTwoHandAiming() ? "[engaged]" : "[one-handed]");
         changed |= ImGui::Checkbox("Left-handed main weapon", &g_config.left_handed);
+        if (g_config.left_handed)
+        {
+            ImGui::Indent();
+            changed |= ImGui::Checkbox("Fix Hand Alignment (Experimental)",
+                &g_config.experimental_hand_alignment);
+            ImGui::TextDisabled("Off: released hand positioning. On: experimental hand/arm correction.\n"
+                                "Leave off if hands become misaligned.");
+            ImGui::Unindent();
+        }
         ImGui::TextDisabled("Main weapon, aiming and trigger follow your left hand.\n"
                             "Your right hand supports the weapon or holds the second gun.");
         if (g_config.two_handed_aim)
