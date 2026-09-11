@@ -352,7 +352,7 @@ python tools/build_stage3x_h4_full_restore.py \
   built/Stage3V-HaloMCCVR.dll HaloMCCVR.dll
 ```
 
-The builder keeps the 12-section Q-R1/Stage3V PE layout and `SizeOfImage=0x2F4000`; helper code is placed in the previously zero tail of the existing final `.s3qd` image page. See `STAGE3X-H4-FULL-RESTORE-NOTES.md` and `STAGE3X-STATIC-AUDIT.txt`.
+The builder keeps the 12-section Q-R1/Stage3V PE layout and `SizeOfImage=0x2F4000`; helper code is placed in the previously zero tail of the existing final `.s3qd` image page. See `docs/archive/development-stages/STAGE3X-H4-FULL-RESTORE-NOTES.md` and `docs/archive/development-stages/STAGE3X-STATIC-AUDIT.txt`.
 
 ## Reproduce Stage 3AD — Halo 4 Promethean/non-particle first-person hide
 
@@ -393,7 +393,7 @@ Expected Stage 3AE output SHA-256:
 The pass restores exact camera-mode-1 admission in the retained Stage3X local
 effect wrapper and replaces its blanket negative-designator rejection with the
 small non-primary-location gate documented in
-`STAGE3AE-H4-SUPPRESSOR-ATTACHMENT-HIDE-NOTES.md`.
+`docs/archive/development-stages/STAGE3AE-H4-SUPPRESSOR-ATTACHMENT-HIDE-NOTES.md`.
 
 ## Reproduce Stage 3AG active-edge upstream hide candidate
 

@@ -451,7 +451,7 @@
 > this build the baseline. Every future candidate continues THIS build.
 > GitHub `master` (github.com/pancreations/Halo-MCC-VR) mirrors this
 > folder at this state; pull requests are to be based on it. Manifest:
-> `CH452-CANDIDATE-MANIFEST.json` at the repository root (copy of
+> `docs/archive/development-stages/CH452-CANDIDATE-MANIFEST.json` (copy of
 > `out/candidates/CH452-halo4-heartbeat-retire/`). Still open on top of
 > it: Halo 2 Classic barrel-on-crosshair (read the C-H2-87 barrel meter
 > line from the next Halo 2 session first).**
