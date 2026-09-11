@@ -2,6 +2,17 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include "runtime_types.h"
+
+// Roomscale has its own positive native on-foot camera proof. The historical
+// shared-feature gate is H3-only and is not this feature's admission policy.
+inline bool RoomscaleGameplayEligible(GameTitle title, RuntimeMode mode) noexcept
+{
+    return mode == RuntimeMode::Gameplay &&
+        (title == GameTitle::Halo2 || title == GameTitle::Halo3 ||
+         title == GameTitle::Halo3ODST || title == GameTitle::HaloReach ||
+         title == GameTitle::Halo4);
+}
 
 // Native locomotion owns collision, steps, ground support and networking.
 // Consume only observed motion toward our request from the tracking reference:

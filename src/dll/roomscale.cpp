@@ -9,8 +9,8 @@
 #include <bit>
 
 namespace {
-// 644148a failed headset body-follow test; retain code, disable before refining.
-constexpr bool kEnableRoomscaleBodyFollow = false;
+// Re-enabled after title admission and nested XInput cancellation fixes.
+constexpr bool kEnableRoomscaleBodyFollow = true;
 std::atomic<uint64_t> inputAt{0}, commandAt{0}, command{0};
 std::atomic<bool> inputAllowed{false}, manualMove{false};
 std::atomic<uint32_t> inputEpoch{1}, commandEpoch{0}, commandGeneration{0};
@@ -18,6 +18,8 @@ std::atomic<int> commandTitle{0};
 std::atomic<uint32_t> version{0};
 std::atomic_flag publishing = ATOMIC_FLAG_INIT;
 std::atomic<uint64_t> admitted{0}, refused{0}, consumed{0};
+std::atomic<uint64_t> nativeBlocked{0}, trackingBlocked{0}, inputBlocked{0};
+std::atomic<uint64_t> manualSamples{0}, demandSamples{0}, travelMm{0};
 }
 
 void Roomscale_Input(bool allowed,float x,float y) noexcept
@@ -70,16 +72,32 @@ void Roomscale_Camera(GameTitle title,bool allowed,const float body[3],
     { state={}; prior=title; priorInputEpoch=epoch; }
     const auto now=GetTickCount64(),at=inputAt.load(std::memory_order_acquire);
     const auto generation=TitleAdapter_GetGeneration(title);
-    const bool active=kEnableRoomscaleBodyFollow && allowed && g_config.roomscale_movement && VR_RoomscaleTrackingFresh() && at && now>=at &&
-        now-at<=100 && inputAllowed.load(std::memory_order_acquire) &&
-        title==TitleAdapter_GetActiveTitle();
+    const bool tracking = VR_RoomscaleTrackingFresh();
+    const bool input = at && now>=at && now-at<=100 && inputAllowed.load(std::memory_order_acquire);
+    const bool active=kEnableRoomscaleBodyFollow && allowed && g_config.roomscale_movement &&
+        tracking && input && title==TitleAdapter_GetActiveTitle();
+    if (g_config.roomscale_movement)
+    {
+        if (!allowed) nativeBlocked.fetch_add(1, std::memory_order_relaxed);
+        if (!tracking) trackingBlocked.fetch_add(1, std::memory_order_relaxed);
+        if (!input) inputBlocked.fetch_add(1, std::memory_order_relaxed);
+    }
     const float hx=-2*(q[3]*q[1]+q[0]*q[2]);
     const float hz=-(1-2*(q[0]*q[0]+q[1]*q[1]));
     float x=0,y=0;
-    const bool valid=state.Update(generation,now,active,manualMove.load(),
+    const float oldRefX=reference[0], oldRefZ=reference[2];
+    const bool manual=manualMove.load(std::memory_order_acquire);
+    const bool valid=state.Update(generation,now,active,manual,
         body,head,reference,hx,hz,forward[0],forward[1],scale,x,y);
     if (g_config.roomscale_movement)
+    {
         (valid ? admitted : refused).fetch_add(1,std::memory_order_relaxed);
+        if (valid && manual) manualSamples.fetch_add(1,std::memory_order_relaxed);
+        if (valid && (x!=0 || y!=0)) demandSamples.fetch_add(1,std::memory_order_relaxed);
+        const float distance=std::hypot(reference[0]-oldRefX,reference[2]-oldRefZ);
+        if (valid && std::isfinite(distance) && distance<=0.4f)
+            travelMm.fetch_add(uint64_t(distance*1000.0f+0.5f),std::memory_order_relaxed);
+    }
     version.fetch_add(1,std::memory_order_acq_rel);
     command.store(uint64_t(std::bit_cast<uint32_t>(x))|
         (uint64_t(std::bit_cast<uint32_t>(y))<<32),std::memory_order_relaxed);
@@ -107,10 +125,15 @@ void Roomscale_Report() noexcept
     if (now-last<2000) return;
     last=now;
     const auto good=admitted.exchange(0),bad=refused.exchange(0),moves=consumed.exchange(0);
+    const auto native=nativeBlocked.exchange(0), tracking=trackingBlocked.exchange(0), input=inputBlocked.exchange(0);
+    const auto manual=manualSamples.exchange(0), demand=demandSamples.exchange(0), travel=travelMm.exchange(0);
     if (enabled)
-        LOG("Roomscale: title=%u admitted=%llu unavailable=%llu movement polls=%llu; %s",
+        LOG("Roomscale: title=%u admitted=%llu unavailable=%llu movement polls=%llu; "
+            "blocked native=%llu tracking=%llu input=%llu manual=%llu demand=%llu consumed-mm=%llu; %s",
             unsigned(TitleAdapter_GetActiveTitle()), (unsigned long long)good,
             (unsigned long long)bad,(unsigned long long)moves,
+            (unsigned long long)native,(unsigned long long)tracking,(unsigned long long)input,
+            (unsigned long long)manual,(unsigned long long)demand,(unsigned long long)travel,
             good ? "native body follow available" :
             "StockFallback: awaiting fresh on-foot camera, tracking and gameplay input; VR stays active");
 }

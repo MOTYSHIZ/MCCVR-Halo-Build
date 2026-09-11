@@ -15,13 +15,31 @@ clean user-facing build ZIP plus matching source ZIP with accurate fresh/update
 installation instructions. No install, game writes, launch, PR or publishing.
 The older immediate-delivery handoff below is superseded.
 
-Resume: clean HEAD 644148a; previous chat only investigated after receiving feedback.
+Recovered starting point was clean HEAD 644148a; the previous chat only investigated
+after receiving feedback. The refinement implementation is recorded below.
 Downloaded reference: out/release-reference/moistman42069/ (release metadata and
 source ZIP). Log: out/test-runs/644148a-roomscale-left-hand-feedback/user.log
 SHA256: 8E1FF4F9567BDCC62F669E04EE7C511AA51364D036270841C5BB682C28FFE75A.
 Steam / SteamVR OpenXR 2.17.9 / Oculus-family headset, panel 120 Hz. Exact headset
 model not identified by this log. Accepted pointer stays 4e01f28: no cumulative
 acceptance of this failed roomscale/alignment package.
+
+## Refinement implementation/package resume point
+
+Latest recovered request above is now implemented locally. Left-hand default
+restoration and experimental toggle: d5bed1e; failed roomscale disabled first
+in f868203. Corrected roomscale has all-title admission and one VR input merge
+per nested native XInput poll. See LEFT-HAND-REFINEMENT-2026-09-10.md and
+ROOMSCALE-REFINEMENT-2026-09-10.md for source evidence and validation limits.
+Experimental anatomical correction remains unproven; default released placement
+is the fallback. Weapon-bound and melee improvements preserved, further melee
+work paused. User-friendly package notes are ROOMSCALE-LEFT-HAND-RELEASE-NOTES-2026-09-10.md.
+Release build, 3 CTest suites (including actual roomscale transport fixture and
+60/90/120 Hz simulation), and Reach gate pass. Packaging repeats checks at its
+final committed identity; both ZIPs and hashes go under out/candidates. Deliver
+the build and matching source ZIP here, then wait for testing/instructions.
+Do not redeliver 644148a as the update. No headset acceptance of these fixes yet.
+
 
 # Active MCCVR work checkpoint - September 10, 2026
 

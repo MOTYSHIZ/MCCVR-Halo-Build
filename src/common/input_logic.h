@@ -3,6 +3,23 @@
 #include <cstdint>
 #include "runtime_types.h"
 
+// Import shims may call a hooked export (and exports can forward to each other).
+// Only the outermost call may fabricate/merge a pad; inner calls return native
+// input so our own locomotion is never mistaken for physical stick movement.
+class InputPollMergeScope
+{
+public:
+    explicit InputPollMergeScope(unsigned& depth) noexcept
+        : m_depth(depth), m_outermost(depth++ == 0) {}
+    ~InputPollMergeScope() { --m_depth; }
+    bool IsOutermost() const noexcept { return m_outermost; }
+    InputPollMergeScope(const InputPollMergeScope&) = delete;
+    InputPollMergeScope& operator=(const InputPollMergeScope&) = delete;
+private:
+    unsigned& m_depth;
+    bool m_outermost;
+};
+
 struct MenuChordResult
 {
     bool toggled = false;

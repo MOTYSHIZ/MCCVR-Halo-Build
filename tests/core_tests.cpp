@@ -1,3 +1,4 @@
+int RunRoomscaleInputTests();
 #include "../src/common/roomscale_logic.h"
 #include "../src/common/vr_interaction_refinement_logic.h"
 #include "../src/common/menu_slider_logic.h"
@@ -17417,6 +17418,7 @@ int main()
     }
     Check(!Config{}.roomscale_movement, "roomscale is opt-in for existing and new configurations");
 
+    g_failures += RunRoomscaleInputTests();
     if (g_failures == 0)
         std::cout << "HaloMCCVR core tests passed\n";
     return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

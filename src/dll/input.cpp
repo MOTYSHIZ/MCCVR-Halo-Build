@@ -6,6 +6,7 @@
 #include <MinHook.h>
 #include "game.h"
 #include "roomscale.h"
+#include "../common/roomscale_logic.h"
 #include "vr.h"
 #include "menu.h"
 #include "title_adapter.h"
@@ -272,8 +273,8 @@ namespace
 
         const bool physicalMove = std::abs(int(state->Gamepad.sThumbLX)) > 7849 ||
             std::abs(int(state->Gamepad.sThumbLY)) > 7849;
-        Roomscale_Input(sharedGameplayInput && !dpadMode && !physicalMove &&
-            TitleAdapter_GetRuntimeMode() == RuntimeMode::Gameplay &&
+        Roomscale_Input(RoomscaleGameplayEligible(TitleAdapter_GetActiveTitle(),
+            TitleAdapter_GetRuntimeMode()) && !dpadMode && !physicalMove &&
             Game_IsHeadTracking() && Game_IsPositionalTracking() &&
             VR_IsStereoEnabled() && !VR_IsPausePresentation() &&
             !VR_IsPausePresentationTarget() && !VR_IsCutsceneTheaterActive(),
@@ -476,6 +477,7 @@ namespace
         // exists: hold the connection above and skip the merge when gated off.
         if (!Game_AllowsSharedControllerInput())
         {
+            Roomscale_Input(false, 0, 0);
             if constexpr (kEnableRetiredInputDiagnostics)
             {
                 if (ownVirtualSlot)
@@ -509,6 +511,7 @@ namespace
         VR_GetPadState(pad);
         if (!pad.valid)
         {
+            Roomscale_Input(false, 0, 0);
             // No VR controllers: the physical pad still gets the Y+B pause
             // chord and the Start pulse it produces.
             if (!ownVirtualSlot && g_config.y_b_start_chord &&
@@ -546,10 +549,14 @@ namespace
         return r;
     }
 
+    thread_local unsigned g_getStateDepth = 0;
+
     template <int Slot>
     DWORD WINAPI GetStateHook(DWORD user, XINPUT_STATE* state)
     {
-        return ProcessGetState(g_origGetState[Slot](user, state), user, state);
+        InputPollMergeScope poll(g_getStateDepth);
+        const DWORD result = g_origGetState[Slot](user, state);
+        return poll.IsOutermost() ? ProcessGetState(result, user, state) : result;
     }
 
     DWORD(WINAPI* const g_hooks[6])(DWORD, XINPUT_STATE*) = {
@@ -637,9 +644,10 @@ namespace
 
     DWORD WINAPI IatGetStateShim(DWORD user, XINPUT_STATE* state)
     {
+        InputPollMergeScope poll(g_getStateDepth);
         const DWORD r = g_iatPrevGetState ? g_iatPrevGetState(user, state)
                                           : ERROR_DEVICE_NOT_CONNECTED;
-        return ProcessGetState(r, user, state);
+        return poll.IsOutermost() ? ProcessGetState(r, user, state) : r;
     }
 
     DWORD WINAPI IatGetCapsShim(DWORD user, DWORD flags, XINPUT_CAPABILITIES* caps)

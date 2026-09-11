@@ -1,15 +1,18 @@
-# Current development candidate - September 10, 2026
+# Roomscale and left-hand update - September 2026
 
 This source supports **H2 Classic/Anniversary, H3, ODST, Reach and H4**, on Steam
 and Microsoft Store. The current roomscale candidate awaits headset testing;
 `4e01f28` remains the accepted baseline. Halo CE VR is not implemented.
 
 Use [current installation/update instructions](installer/MANUAL-README.txt),
-[roomscale candidate notes](docs/ROOMSCALE-CANDIDATE-2026-09-10.md) and
+[current release notes](docs/ROOMSCALE-LEFT-HAND-RELEASE-NOTES-2026-09-10.md) and
 [build instructions](BUILDING.md). **Keep your existing config when updating.**
 Roomscale body movement is optional in F1 > Controls and defaults off. Controller
 aiming is preserved; independent head-following body yaw is deferred for this
-package. H3's failed dual-fire experiment stays disabled. Recovery is H3-only.
+package. Left-handed positioning defaults to the released MCCVR-d77c9dd path;
+Fix Hand Alignment (Experimental) is a separate, default-off option. The latest
+roomscale changes fix title admission and nested input cancellation. H3's failed
+dual-fire experiment stays disabled. Recovery is H3-only.
 
 [Current checkpoint](docs/ACTIVE-WORK-CHECKPOINT.md) and
 [standing work list](docs/CONTINUATION-REFINEMENT-LIST.md) distinguish implemented,

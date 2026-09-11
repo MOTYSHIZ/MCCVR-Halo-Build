@@ -1,98 +1,144 @@
-HALO MCC VR - ROOMSCALE CANDIDATE - 10 SEPTEMBER 2026
-====================================================
+HALO MCC VR - ROOMSCALE AND LEFT-HAND UPDATE - SEPTEMBER 2026
+==========================================================
 
-This test candidate includes Halo 2 Classic and Anniversary, Halo 3, Halo 3:
-ODST, Halo: Reach and Halo 4. Both Steam and Microsoft Store / Xbox app / Game
-Pass editions use the same DLL and launcher. Halo CE VR is not implemented.
+Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
+and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
+files. Halo CE VR is not implemented. This is an alpha mod; the changes in
+this package have passed local checks and still need headset confirmation.
+Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
+exact build identity and file hashes; you do not need to edit it.
 
-Read CANDIDATE-NOTES.md for what changed and what still needs headset testing.
-CANDIDATE-MANIFEST.json identifies the exact source and SHA-256 file hashes.
-This is an unaccepted test build, not a new accepted public release.
+BEFORE YOU START
+----------------
+- A Windows x64 PC with MCC and the campaign(s) you want to play installed.
+  Run MCC normally once to finish its first-run setup and game dependencies.
+- A working PCVR headset connection, controllers and an active OpenXR runtime.
+  Start the headset connection before the mod. SteamVR is the runtime used in
+  the latest user feedback; other runtimes/headsets need separate testing.
+- Steam running and signed in for the Steam edition; a working Xbox app/game
+  entitlement for the Store edition. No special Steam launch options are
+  required by this package: use the supplied launcher.
+- You do not need Visual Studio, CMake, the source ZIP or a separate OpenXR SDK.
+  The mod's C++ runtime and OpenXR loader are included in its compiled DLL.
+  Your headset's OpenXR runtime and MCC's normal dependencies are still needed.
 
-INSTALL OR UPDATE
------------------
-1. Fully close MCC. Keep a backup of your previous mod DLL, launcher and config.
-2. Locate the MCC installation:
-   Steam: Manage > Browse local files.
-   Xbox app: Manage > Files > Browse, then open Content if necessary.
-   Use the folder containing MCC\Binaries\Win64. Do not rename game executables.
-3. Create or open Halo_MCC_VR inside that folder.
-4. Copy HaloMCCVR.dll and HaloMCCVRLauncher.exe into Halo_MCC_VR.
-   NEW INSTALL: also copy the supplied halomccvr.cfg.
-   UPDATE: KEEP your existing halomccvr.cfg to preserve controls, alignment,
-   seat settings and other preferences. Missing keys use current defaults.
-   Roomscale is OFF until enabled. The included config is generated from this
-   exact source; it is not an older, separately tuned configuration.
-5. Keep one active mod DLL/launcher pair. If updating a very old install, move
-   obsolete halo3xr.dll / halo3xr_launcher.exe into your backup outside the game
-   folder. Do not inject both versions.
-6. Start your headset connection and its OpenXR runtime. SteamVR is the runtime
-   used in the preserved user tests; make sure your chosen runtime is active.
-   Steam edition: have Steam running. Store edition: sign into the Xbox app.
-7. Run the included HaloMCCVRLauncher.exe from Halo_MCC_VR. It detects the edition
-   and launches the anti-cheat-disabled game. For Store, let the launcher start
-   MCC through package activation; do not prelaunch it or rename its executable.
+FRESH INSTALL
+-------------
+1. Fully close MCC. Extract the Build ZIP before running anything inside it.
+2. Find your MCC installation:
+   Steam: Library > Halo: The Master Chief Collection > Manage > Browse local files.
+   Xbox app: MCC > Manage > Files > Browse; open Content if necessary.
+   Choose the folder containing MCC\Binaries\Win64.
+3. Create a folder named Halo_MCC_VR there. The result should look like:
 
-If you alternate editions, repeat the copy into EACH edition's Halo_MCC_VR
-folder. Each installation keeps its own config; copy your preferences between
-those folders manually if you want them identical. Extracting this ZIP does
-not install anything automatically. Never use the mod in anti-cheat-enabled
-matchmaking.
+   Halo The Master Chief Collection\
+     MCC\Binaries\Win64\...
+     Halo_MCC_VR\
+       HaloMCCVR.dll
+       HaloMCCVRLauncher.exe
+       halomccvr.cfg
 
-ROOMSCALE
----------
-F1 > Controls > Roomscale body movement (or roomscale_movement = 1 in the config).
-Head tracking and positional tracking must be enabled. Recenter with F3 after
-standing comfortably. Start in an open, level area with the movement stick idle.
+4. Copy those three files from the extracted Build ZIP into Halo_MCC_VR.
+   Keep the included instructions, release notes, manifest and licenses for reference.
+   Do not replace original game files or copy the mod DLL into MCC\Binaries\Win64.
+5. Start your headset connection and OpenXR runtime, then run
+   HaloMCCVRLauncher.exe from Halo_MCC_VR. Make a shortcut to it if convenient.
+   The launcher starts MCC in its anti-cheat-disabled mode and loads the mod.
+   If MCC presents a launch choice, select the anti-cheat-disabled option.
+   Do not use the mod in anti-cheat-enabled matchmaking.
+6. For Store, let the launcher activate the game package. Do not prelaunch MCC
+   or rename its executable. If package activation fails, follow the launcher's
+   displayed instructions. A first Store launch can take longer to load.
+7. Load a supported campaign. VR enters automatically with the supplied defaults.
+   Recenter with F3 once you are standing or seated comfortably.
 
-Horizontal physical steps request normal character walking. Native movement
-handles walls, ground and steps; as the body moves, the tracked camera offset is
-consumed so the same step is not added twice. This is a follow controller, so
-body catch-up depends on the game's native movement and current settings.
-Vertical head motion remains tracked crouching/leaning; it does not issue a jump.
-The movement stick takes priority. Pause, VR menu, D-pad gesture, unavailable
-on-foot evidence and stale tracking/input suspend body following. Turning the
-option off restores the previous tracked-lean behavior.
+UPDATING AN EXISTING INSTALL
+---------------------------
+With MCC closed, back up your old mod DLL, launcher and halomccvr.cfg.
+Replace ONLY HaloMCCVR.dll and HaloMCCVRLauncher.exe with the new pair.
+KEEP your existing halomccvr.cfg: controls, alignment and seat preferences
+remain saved. Missing settings use current defaults. Roomscale and experimental
+hand alignment are off by default, though an existing roomscale setting is kept.
 
-Controller gun aiming is preserved by request. Walking stays head-relative.
-Independent native-body rotation that always follows head direction is DEFERRED;
-this candidate does not claim to separate body yaw from gun aim in every game.
-Roomscale has not yet been headset-accepted in any title. It does not guarantee
-that your camera can never lean through a wall. See the notes for test steps.
+For very old installs, keep obsolete halo3xr.dll / halo3xr_launcher.exe in your
+backup outside the game folder. Do not load both versions. If you use both MCC
+editions, update EACH edition's Halo_MCC_VR folder. Each has its own config.
+Extracting this ZIP does not install anything automatically.
 
-CONTROLS AND SETTINGS
----------------------
-F1: VR settings. F3: recenter. Both stick clicks (L3+R3): recenter and toggle F1.
-F1 > Controls selects smooth or snap turning and its speed/angle.
-Left-handed main weapon, world contact, physical melee and gesture melee have
-separate options. New installs leave optional experimental features off unless
-the generated config says otherwise. Existing saved values are preserved.
-Slider arrows step the last displayed digit. F1 saves edited preferences.
+LEFT-HANDED MODE
+----------------
+Open F1 > Weapon & Aim and enable Left-handed main weapon.
+The primary weapon, aim and trigger follow the physical left controller; the
+right controller supports it or carries a secondary weapon. Stick and face-button
+bindings retain their existing physical layout.
 
-First-person vehicle placement is implemented in H3, ODST and Reach. While in
-a seat, F1 > Vehicles adjusts that seat's forward/height/lateral offset. H2/H4
-first-person vehicle parity is still pending. Reach swaps LT and X on foot and
-restores native actions in vehicles.
+Default positioning now follows the released MCCVR-d77c9dd behavior requested
+by the user. It can retain reversed hands or imperfect orientation, but the
+newer anatomical correction no longer replaces that positioning automatically.
+The current weapon-collision and physical-melee improvements are preserved.
 
-DIAGNOSIS AND RECOVERY
----------------------
-Keep HaloMCCVR.log and HaloMCCVRLauncher.log from Halo_MCC_VR. The game log names
-source identity, edition, OpenXR runtime and headset information. Report title,
-mission, H2 renderer when applicable, headset model, refresh rate and symptoms.
-Include the manifest so the build is unambiguous; the log alone is not a DLL hash.
+Fix Hand Alignment (Experimental) appears directly underneath only while
+left-handed mode is enabled. Leave it OFF for the released positioning.
+Turn it on to try the newer anatomical hand/arm correction. It remains
+experimental and can misalign hands. Turn it off to return to the default.
+Config keys: left_handed = 1; experimental_hand_alignment = 0 (recommended).
 
-F1 > Status and the launcher offer Force injection / recover VR. With an already
-loaded current DLL, this requests H3 camera recovery. It is NOT all-title recovery
-and does not recreate a lost OpenXR session. Restart MCC if recovery does not
-help; do not inject duplicate DLLs. Transition/flat-mode recovery is not fully
-headset-confirmed. H4 damage black-screen/fade investigation remains deferred.
+ROOMSCALE BODY MOVEMENT
+----------------------
+Open F1 > Controls and enable Roomscale body movement. Head tracking and
+positional tracking must be enabled. Recenter with F3, close F1, and begin in
+an open, level area with the movement stick idle. Take small forward, backward
+and sideways steps. The CHARACTER BODY should follow those physical steps.
+Config key: roomscale_movement = 1; use 0 to disable.
 
-A temporary Store loading stall has been observed; duration varies. A frozen
-frame alone does not diagnose its cause. Half-refresh app cadence can indicate
-missed runtime frame deadlines; compare the log's panel/app cadence and try a
-lower VR resolution. Resolution changes marked next-launch require a restart.
+This update fixes title admission and input cancellation that prevented follow
+commands from working. Native walking handles ground, walls and steps. As the
+body travels, the matching tracked offset is consumed so the step is not added
+twice. Catch-up speed depends on the game's movement settings; headset validation
+of this fix remains pending. The movement stick takes priority and cancels
+pending follow motion. Vertical head movement remains leaning/crouching, not
+jumping. Roomscale does not stop the tracked camera leaning through a wall.
+
+Body following suspends for menus, pause, vehicles/turrets, unavailable on-foot
+evidence and stale tracking/input. F3 resets the reference. Switching roomscale
+off returns to the previous tracked-lean behavior. Controller aiming and
+head-relative walking are retained. Independently turning the native body to
+follow head direction remains deferred; this option adds physical translation.
+
+EVERYDAY CONTROLS
+----------------
+F1: VR settings. F3: recenter. L3+R3 together: recenter and toggle F1.
+F1 > Controls: snap/smooth turning and angle/speed.
+World contact, physical melee and gesture melee have separate settings.
+Slider arrows move by the last displayed digit. F1 saves changes.
+H3, ODST and Reach have first-person vehicles; F1 > Vehicles adjusts the seat.
+
+KNOWN LIMITS AND TROUBLESHOOTING
+------------------------------
+- Independent dual-weapon trajectories are unfinished across titles. H3's
+  rejected experimental dual-fire hooks remain disabled. Left-handed mode alone
+  does not provide independent secondary-gun shots.
+- H2/H4 first-person vehicle parity, complete scope parity, some visibility
+  edges and further weapon calibration remain unfinished. Specific modded
+  weapons and unarmed/secondary melee damage need individual testing.
+- H4's reported black screen/fade after damage and H2's reported reticle issue
+  after leaving a tank remain unresolved.
+- F1 > Status and the launcher offer Force injection / recover VR. With the
+  current DLL already loaded, this requests H3 camera recovery only. It does
+  not recreate a lost OpenXR session. If VR remains flat, restart MCC; do not
+  inject duplicate DLLs. All-title transition recovery is not confirmed.
+- If performance falls to half refresh rate, try a lower VR resolution.
+  Settings marked next-launch require restarting MCC.
+
+For feedback, keep HaloMCCVR.log and HaloMCCVRLauncher.log from Halo_MCC_VR.
+State the title/mission, Steam or Store edition, headset model, runtime and
+refresh rate; for H2, state Classic or Anniversary. Include the manifest.
+For roomscale, test physical steps with the stick idle, then normal stick
+movement, stopping, turning, recentering, pause and vehicle entry/exit.
+Check Halo 3 as well as other titles. Roomscale log entries now distinguish
+command requests, unavailable conditions and consumed native travel.
 
 TO REMOVE
 ---------
-With MCC closed, move or remove only the dedicated Halo_MCC_VR folder and its
-shortcut. The mod does not require replacing original game files.
+With MCC closed, move or remove only Halo_MCC_VR and its shortcut. Original
+game files do not need replacing. Keep a copy of your config if desired.

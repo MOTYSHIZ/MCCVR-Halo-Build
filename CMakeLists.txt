@@ -371,6 +371,7 @@ if(BUILD_TESTING)
 
     add_executable(halomccvr_core_tests
         tests/core_tests.cpp
+        tests/roomscale_input_tests.cpp
         src/common/input_logic.cpp
         src/common/scope_logic.cpp
         src/common/title_registry.cpp
@@ -414,5 +415,6 @@ install(TARGETS halo3xr halo3xr_launcher
 install(FILES
     LICENSE
     installer/MANUAL-README.txt
+    installer/THIRD-PARTY-LICENSES.txt
     DESTINATION .
     COMPONENT dist)

@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'roomscale-movement-test',
+        'roomscale-left-hand-update',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1125,15 +1125,22 @@ try {
             halo2_cinematic_gate = 'fresh-first-person-packets-and-native-on-foot-sample-no-cinematic-publisher'
             halo4_on_foot_proof = 'existing-H4EK-contact-binding-unparented-local-biped'
         }
+        left_hand_alignment = [ordered]@{
+            default_presentation_reference = 'MCCVR-d77c9dd'
+            config_key = 'experimental_hand_alignment'
+            default_enabled = $false
+            requires_left_handed = $true
+            headset_accepted = $false
+        }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
-        current_notes = 'CANDIDATE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs above describe inherited bindings, not this candidate name or new headset acceptance. Current scope and limits are in CANDIDATE-NOTES.md and roomscale_candidate.'
+        current_notes = 'RELEASE-NOTES.md'
+        historical_metadata_notice = 'Older stage/profile IDs above describe inherited bindings, not this candidate name or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and roomscale_candidate.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Roomscale movement candidate with preserved local handedness, runtime weapon bounds, melee, snap-turn, slider and lifecycle work. Controller aiming preserved by user choice; independent head-following body yaw deferred. H3 dual firing remains disabled. Keep existing config. Both editions; package only; no new headset acceptance.'
+        note = 'Roomscale title admission and nested XInput cancellation corrected. Released d77c9dd hand positioning restored; anatomical correction is default-off experimental. Runtime weapon bounds, melee, snap-turn, slider and lifecycle work preserved. Controller aiming preserved by user choice; independent head-following body yaw deferred. H3 dual firing remains disabled. Keep existing config. Both editions; package only; no new headset acceptance.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/ROOMSCALE-CANDIDATE-2026-09-10.md') -Destination (Join-Path $packageDir 'CANDIDATE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/ROOMSCALE-LEFT-HAND-RELEASE-NOTES-2026-09-10.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6
