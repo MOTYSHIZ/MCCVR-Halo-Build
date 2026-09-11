@@ -9,6 +9,8 @@
 #include <bit>
 
 namespace {
+// 644148a failed headset body-follow test; retain code, disable before refining.
+constexpr bool kEnableRoomscaleBodyFollow = false;
 std::atomic<uint64_t> inputAt{0}, commandAt{0}, command{0};
 std::atomic<bool> inputAllowed{false}, manualMove{false};
 std::atomic<uint32_t> inputEpoch{1}, commandEpoch{0}, commandGeneration{0};
@@ -20,7 +22,7 @@ std::atomic<uint64_t> admitted{0}, refused{0}, consumed{0};
 
 void Roomscale_Input(bool allowed,float x,float y) noexcept
 {
-    allowed=allowed && g_config.roomscale_movement && VR_RoomscaleTrackingFresh();
+    allowed=kEnableRoomscaleBodyFollow && allowed && g_config.roomscale_movement && VR_RoomscaleTrackingFresh();
     if (inputAllowed.exchange(allowed,std::memory_order_acq_rel)!=allowed)
         inputEpoch.fetch_add(1,std::memory_order_acq_rel);
     manualMove.store(!std::isfinite(x)||!std::isfinite(y)||x*x+y*y>0.02f,
@@ -68,7 +70,7 @@ void Roomscale_Camera(GameTitle title,bool allowed,const float body[3],
     { state={}; prior=title; priorInputEpoch=epoch; }
     const auto now=GetTickCount64(),at=inputAt.load(std::memory_order_acquire);
     const auto generation=TitleAdapter_GetGeneration(title);
-    const bool active=allowed && g_config.roomscale_movement && VR_RoomscaleTrackingFresh() && at && now>=at &&
+    const bool active=kEnableRoomscaleBodyFollow && allowed && g_config.roomscale_movement && VR_RoomscaleTrackingFresh() && at && now>=at &&
         now-at<=100 && inputAllowed.load(std::memory_order_acquire) &&
         title==TitleAdapter_GetActiveTitle();
     const float hx=-2*(q[3]*q[1]+q[0]*q[2]);
