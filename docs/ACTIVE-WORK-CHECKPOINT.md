@@ -1,3 +1,110 @@
+# Latest user override - September 13, 2026
+
+Continue Halo CE VR. Do not package a ZIP until the implementation is reasonably
+expected to function with 6DoF comparable to the other games. This supersedes
+any earlier suggestion to package an injection-only or research milestone.
+No installation, MCC launch, game-folder writes or publishing. Physical melee
+and world collision remain deferred until the user confirms CE injection.
+
+September 13 later continuation: CE loaded-image verifier/native camera rebuild
+adapter and explicit active/copied-list receipt logic are now implemented and
+tested. Read the NEW later-continuation section of HALOCE-BRINGUP-2026-09-12.md
+and E-CE-7 in HALOCE-RENDER-EVIDENCE.md. `0x4556B0` signals completion; it is
+NOT a worker wait. Native scope/scheduling, GPU descriptor/lifetime/capture,
+OpenXR/title admission and Classic/controller/HUD integration remain unfinished.
+Six Release tests, mapped pinned-PE verification, SHA/witness verification and
+Reach consistency pass. No hooks/injection, native game code execution, ZIP,
+install or launch occurred. Preserve both editions, deferred tasks and accepted
+pointer 4e01f28. Pre-edit WIP backup: out/checkpoints/20260913-155919-ce-runtime-resume.
+
+Earlier September 13 continuation: CE private two-view preparation and native transfer
+shape guards now implemented/tested. The previous full-frame replay direction is
+not safe: CE consumes worker completion once per frame. E-CE-5/6 trace its native
+two-view builder before culling and exact D3D surface handoff/variant selection.
+Read the new continuation section of HALOCE-BRINGUP-2026-09-12.md and
+HALOCE-RENDER-EVIDENCE.md before runtime integration. No CE runtime .cpp or
+OpenXR/title admission is wired yet; no claim of functioning injection. Release,
+five tests and Reach consistency pass; packaging remains held. Accepted pointer
+stays 4e01f28. Do not repeat completed offline investigation or package scaffolding.
+
+# ACTIVE — September 12, 2026: Halo CE Anniversary VR bring-up
+
+LATEST delivery instruction: package a test ZIP as soon as the CE implementation
+reaches a state reasonably expected to work. Do not wait for complete CE parity
+or deferred vehicle/zoom/melee/collision work. Deliver matching source ZIP and
+accurate implemented/unverified limits; no installation or MCC launch.
+
+Latest CE steering: graphics switching must match H2's gesture (physical left
+hand beside the left side of the head, click movement stick). Confirm VR injection
+first; true physical melee and world collision are explicitly deferred until the
+user confirms it. User permits using the existing CE VR mod as a reference while
+acknowledging its different implementation. Verify MCC-native bindings independently.
+
+User resumed and explicitly reprioritized: current vehicle controls are manageable;
+checkpoint/defer that investigation. Focus now on Halo 1 / Combat Evolved
+Anniversary matching the other supported titles: stereo injection, 6DOF, HUD,
+crosshair and the same overall VR experience, translating proven workflows through
+CE-specific evidence. This explicitly adds CE to scope, superseding older CE
+exclusions. All-title zoom and H2 vehicle refinements remain deferred, preserved
+in VEHICLE-ZOOM-PAUSED-2026-09-11.md; their old combined packaging hold does not
+require completing them before CE work. No new packaging instruction yet.
+
+Verified source at resume: cfb22eda5c968fc10b1083b56817a710855bd546, with only
+the three preserved checkpoint documents modified/untracked. No vehicle changes
+were implemented. CE registry entry exists but grants zero capabilities; no
+CE-specific adapter/render/evidence files found on initial source search.
+Read HALOCE-BRINGUP-2026-09-12.md for current CE progress and exact blockers.
+Preserve existing title behavior, both MCC editions, and accepted pointer 4e01f28.
+No installation, MCC launch, game-file modification or GitHub action is authorized.
+
+# Historical pause — September 11, 2026: weekly usage checkpoint
+
+User explicitly requested saving this checkpoint and stopping; wait until they
+say to resume. Latest exact stopping point is the new first section in
+[VEHICLE-ZOOM-PAUSED-2026-09-11.md](VEHICLE-ZOOM-PAUSED-2026-09-11.md).
+Verified HEAD remains cfb22eda5c968fc10b1083b56817a710855bd546. This session
+changed checkpoint documents only: NO vehicle/zoom source edits or tests yet.
+The proposed stable seated heading reference and convergence test were announced
+but NOT written. GitHub release task was cancelled because user uploaded it.
+Preserve main-gun-hand-directed vehicle controls; do not replace with wheel/stick.
+H2 AI feedback and source/history explanation are recorded in the detailed pause.
+
+# Historical resume — September 11, 2026: Halo 2 vehicles and all-title zoom
+
+LATEST vehicle clarification: user observes the other games following the right
+controller/main gun hand wherever it points and explicitly wants that retained.
+Match that controller-directed steering/aim in H2. Do not substitute raw-stick
+or wheel steering as the requested default, or change the other titles' working
+behavior. Existing optional controls are not a reason to change this priority.
+
+Latest user instruction: disregard GitHub release work (user uploaded it
+manually), resume the MOST RECENT progress, prioritize H2 Classic/Anniversary
+vehicle controls matching the other titles, then H3's zoom box in the remaining
+supported titles. Verified starting state: HEAD cfb22ed; only the existing
+checkpoint/standing-list edits and VEHICLE-ZOOM-PAUSED-2026-09-11.md were dirty.
+No post-delivery feature implementation existed. Resume the investigation in
+that document; preserve the delivered build's changes. No GitHub actions.
+
+User reports H2 AI is now more responsive/attentive in both renderers and appears
+fixed. Preserve its current behavior; inspect existing source/history only unless
+new evidence makes a change necessary. No new log or exact test identity supplied;
+this is positive user feedback, not cumulative build acceptance. Vehicle controls
+and zoom remain the priorities. Packaging stays held until both are implemented
+and checked, then deliver build/source ZIPs without installation or game launch.
+
+# Historical pause — September 11, 2026: exact delivered-build continuation
+
+User requested a checkpoint and STOP; wait for their explicit resume instruction.
+Read [VEHICLE-ZOOM-PAUSED-2026-09-11.md](VEHICLE-ZOOM-PAUSED-2026-09-11.md)
+for the recovered prior-chat sequence and exact investigation stopping point.
+The cfb22ed build/source ZIPs were ALREADY DELIVERED, followed by the separate
+GitHub root cleanup c57160d. HEAD remains cfb22ed. No feature source changes were
+made after that delivery; this session performed read-only investigation only.
+Next requested work is H2 Classic/Anniversary vehicle-control parity and H3-style
+zoom screens in the other supported titles. Do NOT package until BOTH additions
+are implemented and checked. Preserve all delivered progress. The older
+roomscale delivery instructions below are historical, not outstanding work.
+
 # Latest priority - recovered September 10 headset feedback
 
 The roomscale package 644148a was tested: user reports improved collision/melee,

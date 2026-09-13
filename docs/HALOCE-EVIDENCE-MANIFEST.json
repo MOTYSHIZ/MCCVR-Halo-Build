@@ -1,0 +1,593 @@
+{
+  "title": "Halo: Combat Evolved Anniversary (MCC)",
+  "status": "native camera binding adapter and loaded-image verifier implemented; preparation receipt logic tested; hook scheduling/GPU lifetime and OpenXR integration remain unresolved; no runtime hooks enabled",
+  "recorded_date": "2026-09-13",
+  "retail": {
+    "module": "halo1.dll",
+    "source_path": "C:/Program Files (x86)/Steam/steamapps/common/Halo The Master Chief Collection/halo1/halo1.dll",
+    "pinned_path": "out/deps/re-tools/inputs/halo1.dll",
+    "bytes": 30718936,
+    "sha256": "0A12DC561780F449D3F4D0DF10BB8D3BC7BE7840A5BEB2B236F672EB6CD42E6C",
+    "machine": "0x8664",
+    "timestamp": "0x68A0E4CF",
+    "image_base": "0x180000000",
+    "image_size": "0x3D82000",
+    "edition": "Steam; Store CE module not independently pinned in this session"
+  },
+  "official_kit": {
+    "name": "HCEEK",
+    "build_tag": "2023.07.17.176677.1-QFE1",
+    "source_path": "D:/SteamLibrary/steamapps/common/HCEEK/halo_tag_test.exe",
+    "pinned_path": "out/deps/re-tools/inputs/halo_tag_test.exe",
+    "bytes": 8945904,
+    "sha256": "FC9E2B6193C6F6D9FF988278B0D39A983747F3FDBDECA7CAFADD28F1F0C53E73",
+    "machine": "0x14C",
+    "timestamp": "0x64B47534",
+    "image_base": "0x400000",
+    "image_size": "0x5324000",
+    "archive_path": "D:/SteamLibrary/steamapps/common/HCEEK/HCEEK.7z",
+    "archive_status": "listed only; not hash-pinned or extracted by this session"
+  },
+  "third_party_reference": {
+    "path": "out/deps/HaloCEVR-reference",
+    "commit": "66b511c0eb7ced20882de76aeab3e514df05bb1d",
+    "scope": "2003 Halo PC, explicitly not MCC-compatible; architectural reference only, no native bindings copied"
+  },
+  "approved_runtime_bindings": [],
+  "offline_render_contracts": [
+    {
+      "name": "native_player_window",
+      "rva": "0xbbca64",
+      "signature": "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 48 FB FF FF 48 81 EC 90 05 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-1",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xbbccad",
+          "target_rva": "0xbbcf30",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ]
+    },
+    {
+      "name": "native_frustum",
+      "rva": "0xb8f690",
+      "signature": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 44 0F BF 51 32",
+      "function_entry": true,
+      "evidence": "E-CE-1"
+    },
+    {
+      "name": "native_camera_build",
+      "rva": "0xac450c",
+      "signature": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 A1 48 81 EC 90 00 00 00 48 8B FA 48 8B D9 48 85 D2 0F 84 46 01 00 00 F2",
+      "function_entry": true,
+      "evidence": "E-CE-1"
+    },
+    {
+      "name": "native_window_loop",
+      "rva": "0xbbce28",
+      "signature": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 30 F3 0F 10 44 24 68 41 BE 01 00 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-1",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xbbcee6",
+          "target_rva": "0xbbca64",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ]
+    },
+    {
+      "name": "native_game_render",
+      "rva": "0xac47c0",
+      "signature": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 20 57 41 54 41 55 41 56 41 57 48 83 EC 60",
+      "function_entry": true,
+      "evidence": "E-CE-1",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xac483f",
+          "target_rva": "0x2e9fe80",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 15 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xac48e0",
+          "target_rva": "0xac450c",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xac4942",
+          "target_rva": "0xac450c",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xac4956",
+          "target_rva": "0xbbce28",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ]
+    },
+    {
+      "name": "initialized_clock_render_gate",
+      "rva": "0xac269c",
+      "signature": "40 53 48 83 EC 30 48 8B 05 BF D6 3D 02 ?? ?? ?? ??",
+      "function_entry": true,
+      "evidence": "E-CE-2",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xac26a2",
+          "target_rva": "0x2e9fd68",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xac2704",
+          "target_rva": "0xac47c0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_camera_view_rebuild",
+      "rva": "0x11aba0",
+      "signature": "48 8B C4 48 89 58 10 48 89 70 18 55 57 41 56 48 8D 68 A1 48 81 EC 00 01 00 00 0F 29 70 D8 0F 29 78 C8 44 0F 29 40 B8 44 0F 29 48 A8",
+      "function_entry": true,
+      "evidence": "E-CE-4",
+      "relative_operands": [],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "anniversary_camera_projection_rebuild",
+      "rva": "0x11ae90",
+      "signature": "40 53 48 83 EC 50 F3 0F 10 81 4C 01 00 00 48 8B D9 F3 0F 59 05 73 49 83 01",
+      "function_entry": true,
+      "evidence": "E-CE-4",
+      "relative_operands": [],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "anniversary_camera_culling_rebuild",
+      "rva": "0x11e5f0",
+      "signature": "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 48 8D A8 38 FF FF FF 48 81 EC C0 01 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-4",
+      "relative_operands": [],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "anniversary_view_append",
+      "rva": "0x2ea720",
+      "signature": "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 78 FC FF FF",
+      "function_entry": true,
+      "evidence": "E-CE-4",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x2ea8b3",
+          "target_rva": "0x11ae90",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x2ea96d",
+          "target_rva": "0x11e5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x2eab31",
+          "signature": "48 69 C9 C8 03 00 00",
+          "instruction": "imul rcx, rcx, 0x3c8",
+          "meaning": "native view record stride"
+        },
+        {
+          "rva": "0x2eab9d",
+          "signature": "44 89 6C 39 1C",
+          "instruction": "mov dword ptr [rcx + rdi + 0x1c], r13d",
+          "meaning": "view identity at list entry plus 0x1c"
+        },
+        {
+          "rva": "0x2eabb2",
+          "signature": "48 8D 4A 40",
+          "instruction": "lea rcx, [rdx + 0x40]",
+          "meaning": "camera at list entry plus 0x40"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_primary_view_pair_builder",
+      "rva": "0x4547e0",
+      "signature": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 54 41 55 41 56 41 57 48 81 EC D0 00 00 00 8B 0D 93 33 6C 02",
+      "function_entry": true,
+      "evidence": "E-CE-5",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x454a69",
+          "target_rva": "0x2ea720",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x454c93",
+          "target_rva": "0x2ea720",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x454a95",
+          "signature": "45 84 E4",
+          "instruction": "test r12b, r12b",
+          "meaning": "explicit secondary-view argument checked"
+        },
+        {
+          "rva": "0x454aa7",
+          "signature": "83 0E 01",
+          "instruction": "or dword ptr [rsi], 1",
+          "meaning": "native list multiple-view flag"
+        },
+        {
+          "rva": "0x454aaa",
+          "signature": "41 B8 0B 02 00 00",
+          "instruction": "mov r8d, 0x20b",
+          "meaning": "native secondary-primary-view flags"
+        },
+        {
+          "rva": "0x454ab0",
+          "signature": "83 B8 38 02 00 00 00",
+          "instruction": "cmp dword ptr [rax + 0x238], 0",
+          "meaning": "separate native stereo setting; not written by VR"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_view_prepare",
+      "rva": "0x455170",
+      "signature": "4C 8B DC 53 56 41 56 48 81 EC 90 00 00 00 48 8B 05 8B FE 71 01 48 33 C4",
+      "function_entry": true,
+      "evidence": "E-CE-5",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x455308",
+          "target_rva": "0x4547e0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x455611",
+          "target_rva": "0x4547e0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x455373",
+          "target_rva": "0x4aa740",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x455506",
+          "target_rva": "0x4aa740",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x45526c",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x455284",
+          "target_rva": "0x1606fb1",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x455267",
+          "target_rva": "0x4556b0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x45518d",
+          "signature": "83 B9 58 BE 00 00 00",
+          "instruction": "cmp dword ptr [rcx + 0xbe58], 0",
+          "meaning": "native preparation mode selects synchronous or copied list"
+        },
+        {
+          "rva": "0x455273",
+          "signature": "49 8D 56 70",
+          "meaning": "copied list source is preparation object plus 0x70"
+        },
+        {
+          "rva": "0x455277",
+          "signature": "48 81 C1 B0 00 00 00",
+          "meaning": "copied list destination is renderer plus 0xb0"
+        },
+        {
+          "rva": "0x45527e",
+          "signature": "41 B8 E8 BD 00 00",
+          "meaning": "complete native copy length 0xbde8"
+        },
+        {
+          "rva": "0x45560d",
+          "signature": "49 8D 56 70",
+          "meaning": "preparation builder receives object plus 0x70"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_per_view_output",
+      "rva": "0x45e2b0",
+      "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 60 80 3D 4E CE 71 01 00 8B D9",
+      "function_entry": true,
+      "evidence": "E-CE-5",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x45e2ce",
+          "target_rva": "0x1dc2f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x45e2de",
+          "signature": "BA 01 00 00 04",
+          "instruction": "mov edx, 0x4000001",
+          "meaning": "native combined-view output resource kind"
+        },
+        {
+          "rva": "0x45e34c",
+          "signature": "89 74 24 44",
+          "instruction": "mov dword ptr [rsp + 0x44], esi",
+          "meaning": "first view destination row is zero"
+        },
+        {
+          "rva": "0x45e35d",
+          "signature": "89 44 24 44",
+          "instruction": "mov dword ptr [rsp + 0x44], eax",
+          "meaning": "second view destination row is source height"
+        },
+        {
+          "rva": "0x45e370",
+          "signature": "FF 90 90 01 00 00",
+          "instruction": "call qword ptr [rax + 0x190]",
+          "meaning": "native copy virtual call at slot 0x190"
+        },
+        {
+          "rva": "0x45e434",
+          "signature": "C7 05 DE CC 71 01 FF FF FF FF",
+          "instruction": "mov dword ptr [rip + 0x171ccde], 0xffffffff",
+          "meaning": "per-view source selector invalidated after transfer"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_full_frame_not_replayable",
+      "rva": "0x455a10",
+      "signature": "48 8B C4 55 41 54 41 55 41 56 41 57 48 8D A8 88 F3 FF FF 48 81 EC 50 0D 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-5",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x456dd0",
+          "target_rva": "0x45e2b0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x456f18",
+          "signature": "B8 FF FF FF FF",
+          "instruction": "mov eax, 0xffffffff",
+          "meaning": "decrement amount -1 for worker completion"
+        },
+        {
+          "rva": "0x456f1d",
+          "signature": "F0 0F C1 05 3F FC 75 01",
+          "instruction": "lock xadd dword ptr [rip + 0x175fc3f], eax",
+          "meaning": "once-per-frame worker completion counter consumption"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_backend_constructor",
+      "rva": "0x203580",
+      "signature": "48 89 4C 24 08 56 57 41 56 48 83 EC 40 48 C7 44 24 30 FE FF FF FF 48 89 5C 24 68 48 89 6C 24 70 41 0F B6 F1 49 8B E8 48",
+      "function_entry": true,
+      "evidence": "E-CE-6",
+      "instruction_witnesses": [
+        {
+          "rva": "0x203643",
+          "signature": "48 8D 05 C6 66 5F 01",
+          "meaning": "derived backend vtable address"
+        },
+        {
+          "rva": "0x20364a",
+          "signature": "48 89 03",
+          "meaning": "install derived vtable"
+        },
+        {
+          "rva": "0x203660",
+          "signature": "48 89 AB E0 0C 00 00",
+          "meaning": "store immediate D3D context at backend plus 0xce0"
+        }
+      ],
+      "relative_operands": []
+    },
+    {
+      "name": "anniversary_surface_transfer",
+      "rva": "0x204c40",
+      "signature": "40 55 56 57 41 54 41 55 41 56 41 57 48 81 EC 90 00 00 00 48 C7 44 24 50 FE FF FF FF 48 89 9C 24 E0 00 00 00 48 8B 05 A5",
+      "function_entry": true,
+      "evidence": "E-CE-6",
+      "instruction_witnesses": [
+        {
+          "rva": "0x204c7c",
+          "signature": "4C 8B 22",
+          "meaning": "native source surface argument"
+        },
+        {
+          "rva": "0x204c7f",
+          "signature": "4C 8B 6A 08",
+          "meaning": "native destination surface argument"
+        },
+        {
+          "rva": "0x204d2b",
+          "signature": "48 8B A8 70 01 00 00",
+          "meaning": "CopySubresourceRegion virtual slot"
+        },
+        {
+          "rva": "0x204d4b",
+          "signature": "4C 8B 98 E0 00 00 00",
+          "meaning": "resolved source D3D resource field"
+        },
+        {
+          "rva": "0x204d94",
+          "signature": "48 8B 90 E0 00 00 00",
+          "meaning": "resolved destination D3D resource field"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0x204d46",
+          "target_rva": "0xad5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x204d69",
+          "target_rva": "0xad5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x204db6",
+          "target_rva": "0xad5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x204dc5",
+          "target_rva": "0xad5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "image_pointers": [
+        {
+          "rva": "0x17f9ea0",
+          "target_rva": "0x204c40",
+          "meaning": "derived backend vtable plus 0x190"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_surface_selector",
+      "rva": "0xad5f0",
+      "signature": "4C 8B 91 A8 00 00 00 4C 8B C1 4D 85 D2 74 45 48 8B 05 B2 D0 B3 01 44 8B",
+      "function_entry": false,
+      "evidence": "E-CE-6",
+      "instruction_witnesses": [
+        {
+          "rva": "0xad5f0",
+          "signature": "4C 8B 91 A8 00 00 00",
+          "meaning": "optional primary variant"
+        },
+        {
+          "rva": "0xad61e",
+          "signature": "48 8B 8A 18 01 00 00",
+          "meaning": "display configuration consumed for variant selection"
+        },
+        {
+          "rva": "0xad63c",
+          "signature": "49 8B 80 B0 00 00 00",
+          "meaning": "optional secondary variant"
+        }
+      ],
+      "relative_operands": []
+    },
+    {
+      "name": "anniversary_legacy_mode_reader",
+      "rva": "0x84730",
+      "signature": "48 8B C4 48 89 48 08 57 48 83 EC 40 48 C7 40 E0 FE FF FF FF 48 89 58 10 49 8B D9 48 8B F9 C7 40 DC 00 00 00 00 83 3D 28",
+      "function_entry": true,
+      "evidence": "E-CE-6",
+      "instruction_witnesses": [],
+      "relative_operands": []
+    },
+    {
+      "name": "anniversary_preparation_complete_not_wait",
+      "rva": "0x4556b0",
+      "signature": "48 89 5C 24 08 57 48 83 EC 20 4C 8D 41 70 48 8B F9 E8 9A B9 E8 FF 45 33 C0 48 8D 57 70",
+      "function_entry": true,
+      "evidence": "E-CE-7",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x4556c1",
+          "target_rva": "0x2e1060",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4556cd",
+          "target_rva": "0x4aa740",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x4556d9",
+          "signature": "C7 87 60 BE 00 00 01 00 00 00",
+          "meaning": "mark preparation completion before signalling event"
+        },
+        {
+          "rva": "0x4556ed",
+          "signature": "48 FF 25 C4 BB 2F 01",
+          "meaning": "tail call SetEvent; not a wait"
+        }
+      ]
+    }
+  ]
+}

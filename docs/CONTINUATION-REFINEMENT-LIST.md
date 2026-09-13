@@ -1,3 +1,70 @@
+# Latest user override - September 13, 2026
+
+Continue Halo CE VR. Do not package a ZIP until the implementation is reasonably
+expected to function with 6DoF comparable to the other games. This supersedes
+any earlier suggestion to package an injection-only or research milestone.
+No installation, MCC launch, game-folder writes or publishing. Physical melee
+and world collision remain deferred until the user confirms CE injection.
+
+Later September 13 continuation implemented/tested the CE loaded-image binding
+adapter and explicit preparation receipt logic. Runtime hooks/GPU capture and
+OpenXR admission remain unwired, so this is still not a testable CE VR package.
+Use the latest section of HALOCE-BRINGUP-2026-09-12.md and E-CE-7 for the exact
+handoff; retain every completed and deferred item below. Accepted pointer stays
+4e01f28 and packaging stays held for credible comparable 6DoF.
+
+# Latest override — September 12 Halo CE Anniversary priority
+
+Package the first credible CE test implementation promptly, per latest user
+instruction; do not wait for full parity or the deferred refinements. Include
+matching source and clear limitations. No install, MCC launch or GitHub writes.
+
+CE staging: graphics toggle matches H2 (left hand at left side of head + movement
+stick click). After user confirms VR injection, implement true physical melee
+and world collision; do not claim or implement those as part of initial injection.
+Existing CE VR mod may inform design, but its bindings are not MCC CE evidence.
+
+User explicitly adds Halo 1 / CE Anniversary VR to current scope and prioritizes
+stereo injection, 6DOF, HUD, crosshair and parity with the other titles. Vehicle
+controls are manageable as-is: preserve/checkpoint that work and defer refinements.
+The all-title zoom task is retained after the new CE priority. Older statements
+excluding CE or requiring vehicle+zoom completion before any new scope are
+superseded. See ACTIVE-WORK-CHECKPOINT.md and HALOCE-BRINGUP-2026-09-12.md.
+
+# Historical override — September 11 weekly usage pause
+
+User requested checkpoint and STOP until explicit resume. See the latest first
+section of VEHICLE-ZOOM-PAUSED-2026-09-11.md. No vehicle/zoom implementation or
+new tests exist yet; HEAD is still cfb22ed. Retain the clarified hand-directed
+vehicle priority, positive H2 AI feedback, and all-title zoom requirement below.
+GitHub release task is cancelled/completed manually by the user.
+
+# Historical override — September 11 vehicle/zoom work resumed
+
+Vehicle clarification: retain the observed main-gun-hand-directed steering/aim
+in other games and make H2 follow that same behavior. Pointing the right/main
+controller should direct the vehicle; raw-stick/wheel steering is not the
+requested replacement default. All-title zoom remains the following priority.
+
+User finished the GitHub release manually and cancelled that task. Resume from
+verified cfb22ed plus the preserved investigation/checkpoint docs. Main priorities:
+proper H2 Classic/Anniversary vehicle controls, then H3-style zoom boxes in H2
+Classic/Anniversary, ODST, Reach and H4. Preserve current H2 AI: user now reports
+responsive/attentive AI in both renderers, apparently fixed. Source/history check
+is requested, but no AI behavior change absent a demonstrated need. Exact test
+identity/log is not supplied and the accepted pointer remains unchanged.
+
+# Historical override — September 11 vehicle/zoom work paused
+
+User explicitly requested "save a checkpoint here and stop" and will say when
+to resume. See [VEHICLE-ZOOM-PAUSED-2026-09-11.md](VEHICLE-ZOOM-PAUSED-2026-09-11.md).
+The cfb22ed roomscale/left-hand ZIP handoff and separate GitHub cleanup are done.
+On resume, prioritize H2 Classic/Anniversary vehicle-control parity, then H3-style
+weapon-side zoom screens in H2 Classic/Anniversary, ODST, Reach and H4. No new ZIP
+until BOTH additions are implemented and checked. Preserve current progress and
+the remaining standing scope. Investigation only so far; neither addition is
+complete. Older immediate-delivery instructions below have been fulfilled.
+
 # Latest priority - recovered September 10 headset feedback
 
 The roomscale package 644148a was tested: user reports improved collision/melee,

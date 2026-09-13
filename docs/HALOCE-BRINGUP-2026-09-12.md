@@ -1,0 +1,173 @@
+# Halo CE Anniversary VR bring-up — September 12, 2026
+
+## User scope and reference behavior
+
+September 13 overrides earlier delivery wording: continue CE VR and do not
+package a ZIP until the implementation is reasonably expected to function with
+6DoF similar to the other supported games. A passing camera fixture or a probe
+alone does not meet that threshold.
+
+User requests a test ZIP as soon as a CE implementation is reasonably expected
+to work. Initial stereo/6DOF injection is the first test milestone; do not delay
+it for full feature parity. Package matching source and clear testing/known-limit
+notes without installing or launching. Offline research alone is not working VR.
+
+Latest staging instruction: match H2 graphics switching exactly (left hand raised
+to left side of head, click movement stick). User must confirm VR injection before
+the next physical-melee/world-collision implementation stage. Existing CE VR mod
+may be consulted for techniques, with title/version-specific verification; no
+copied PC/Custom Edition offsets count as MCC bindings.
+
+User explicitly requested Halo 1 Anniversary matching the existing titles for
+stereo injection, 6DOF, HUD, crosshair and overall VR behavior. H2 vehicle work
+is checkpointed/deferred as manageable; all-title zoom remains a retained task.
+
+Halo 3 reference: two independently rendered eyes in one OpenXR frame, headset
+rotation and room-space translation with recenter/world-scale controls, stable
+menu/level transitions, controller input/aim and tracked hands/weapons, readable
+configurable HUD and controller-aligned crosshair. Each optional feature must fail
+locally without tearing down valid camera/stereo ownership. CE's own rendering,
+simulation, HUD and Anniversary bridge must establish the implementation; no
+H2/H3 offsets or tag semantics are CE evidence.
+
+## Verified starting point
+
+- Source HEAD cfb22eda5c968fc10b1083b56817a710855bd546.
+- No post-delivery vehicle/zoom feature edits exist. The prior checkpoint files
+  are preserved. Accepted pointer remains 4e01f28.
+- `title_registry.cpp` recognizes `GameTitle::HaloCE` / `halo1.dll` but grants
+  no runtime/admission capabilities. Recognition is not existing VR support.
+- `title_reentry_probe.cpp` excludes CE from present-hint/retention routes;
+  no title-specific CE adapter/evidence/render core found on initial file search.
+- Official kit policy names HCEEK under N:/SteamLibrary/steamapps/common/HCEEK,
+  but N: does not exist in this current environment. Locate actual installed
+  kit/archive and retail module before assuming evidence is unavailable.
+- Existing pinned RE inputs cover H2/H3/ODST/Reach/H4 only, not CE.
+
+Located current installed evidence after checking Steam libraries:
+`D:/SteamLibrary/steamapps/common/HCEEK` (halo_tag_test.exe, tool.exe,
+guerilla.exe, sapien.exe, HCEEK.7z and extracted data/tags), and
+`C:/Program Files (x86)/Steam/steamapps/common/Halo The Master Chief Collection/halo1/halo1.dll`.
+The earlier N: path is historical. Hash/pin these files before binding work.
+Existing third-party reference checkout: `out/deps/HaloCEVR-reference`.
+
+Pinned identities are now recorded in HALOCE-EVIDENCE-MANIFEST.json; both inputs
+were copied into ignored out/deps/re-tools/inputs. Kit is x86, retail is x64;
+the differing pointer/ABI model requires explicit matching. Ghidra projects
+CEKit and CERetail were started for offline analysis, logs out/ce-kit-import.*
+and out/ce-retail-import.*. `tools/re/inspect_ce_pe.py` provides offline PE
+identity, retained-string operand leads and architecture-correct disassembly;
+it does not open any process. No runtime address is approved at this point.
+
+The old CE mod's README explicitly excludes MCC. Its useful design reference is
+the draw-frame bracket: save camera/targets, render eyes independently, capture
+HUD/crosshair separately, then restore. Its D3D9 wrapper and 2003 PC function
+signatures are not suitable MCC bindings. MCC kit source strings identify CE's
+own render.c, render_cameras.c, camera/observer.c, interface/hud_draw.c and
+game/game_time.c for the native investigation. Kit render.c operand leads include
+RVA 426C30; no retail homolog or runtime render contract is established yet.
+
+## September 13 later continuation: native binding and handoff components
+
+User resumed with "continue halo ce vr work. forget nothing." The prior WIP was
+preserved before edits at `out/checkpoints/20260913-155919-ce-runtime-resume`.
+The complete standing refinement list and deferred vehicle/zoom report remain
+preserved. Both editions remain in scope; accepted source stays `4e01f28`.
+
+Implemented this pass:
+
+- Production CE loaded-image verifier and native camera rebuild adapter in
+  `src/dll/haloce_native_bindings.{h,cpp}`, compiled into the cumulative DLL.
+  The verifier rejects changed/multiple signatures, wrong function boundaries,
+  operands, body instructions, backend pointer, image identity or generation.
+  Generation-safe private staging now calls the bound native rebuild path.
+  No CE hook/admission calls it yet; no native game routine has been executed.
+- Tracked generated contract header and generator/check command keep loaded-
+  image validation tied to the pinned evidence manifest.
+- Explicit active/copied-source preparation receipts, with revocation on every
+  new builder attempt, exact pair matching and independent per-frame snapshots.
+  Sequential failure cases and actual concurrent publications are tested.
+- Finite derived-camera guards after native rebuild, preserving opaque fields.
+- E-CE-7 records exact native copy operands and a negative finding: `0x4556B0`
+  submits preparation/culling and signals completion; it is not a worker wait.
+  Source-list exclusion cannot be assumed from that function.
+
+Validation: cumulative Release build, all six CTest suites, Reach consistency,
+generated-contract drift check, pinned SHA-256/static verifier, and the production
+mapped-image verifier against non-executable private copies of the pinned CE PE
+pass. Logs use `out/ce-runtime-resume-*`. No game launch, DLL load/injection,
+installation, game-folder modification, publishing, ZIP, or accepted-pointer change.
+
+Exact next work (do not redo completed math/binding/receipt scaffolding):
+
+1. Prove native scheduling/exclusive list ownership at the builder and copy
+   handoff, then attach the generation-scoped preparation receipts. The
+   `0x455170` body and E-CE-7 name both routes. Do not substitute a latest-pose
+   lookup for the actual source receipt, or mistake `0x4556B0` for a wait.
+2. Complete E-CE-6's source-texture descriptor/lifetime proof, cold compatible
+   eye-cache preparation and exact per-view transfer capture. Native selector
+   `0xAD5F0` is required; naked wrapper `+0xE0` can select the wrong resource.
+   Pool refresh `0x20B880`/view accessor `0x22B5D0` have been inspected but do
+   not establish lifetime. Do not introduce COM/allocation/locks into hot hooks.
+3. Wire the CE stereo core, title/generation retirement, OpenXR publication,
+   actual rendered-pair submission and recenter. No `haloce_stereo_core.cpp`
+   or CE capability admission exists yet. Preserve stock outside owned frames;
+   a failed owned eye pair drops only that frame.
+4. Verify Classic mode and switching, then finish requested controller aim/
+   hands, HUD/crosshair and left-head-side movement-stick graphics gesture.
+   Physical melee/world collision remain deferred until injection confirmation.
+
+Packaging stays held until comparable 6DoF is reasonably expected to function.
+These local components and tests do not meet that threshold yet. No CE support
+or runtime acceptance is claimed. The older continuation below is retained as
+history; its "no CE runtime .cpp" wording predates the native binding component.
+
+## Earlier September 13 continuation implementation and exact remaining work
+
+Preserved resumed WIP before editing under
+`out/checkpoints/20260913-104747-ce-continuation`. Branch still descends from
+accepted `4e01f28`. CE runtime admission remains zero and no hook is installed.
+
+New `haloce_view_pair.h` prepares a native two-camera pair atomically in private
+storage, rejecting split-screen, unexpected native flags and tracking/pose/FOV
+or raster disagreements. New `haloce_surface_transfer.h` validates the exact
+native per-eye transfer request. Both are exercised by
+`haloce_view_pair_tests.cpp`; the earlier camera math suite is retained.
+These are implementation components, not functioning VR injection yet.
+
+The important architecture correction is E-CE-5 in HALOCE-RENDER-EVIDENCE.md:
+do not replay Anniversary `0x455A10` twice, because it consumes worker completion
+and frame resources. CE already has native two-view construction before culling.
+Use that direction. E-CE-6 traces the per-view handoff into the actual backend
+surface-copy method and its conditional resource selector.
+
+Next required implementation, in dependency order:
+
+1. Bind verified CE camera rebuilds and the native pair-builder scope; distinguish
+   active and copied preparation lists and attach one tracking serial to both.
+2. Bind per-view output and resolve the current native source through `0xAD5F0`;
+   establish live source descriptor/lifetime and preallocated compatible GPU
+   caches. Observe exact native view indices and reject stale/partial pairs.
+3. Connect CE title admission, generation/retirement, OpenXR tracking publication,
+   complete-pair submission and recenter. Verify renderer switching and Classic
+   behavior. Preserve stock behavior outside a claimed CE frame.
+4. Finish the requested controller/HUD/crosshair integration and H2-style left
+   head-side movement-stick graphics gesture. Physical melee/collision stay
+   deferred until injection is confirmed. Do not call these pieces implemented.
+
+Release build, all five CTest suites and Reach consistency pass. Logs:
+`out/ce-continuation-{configure,build,tests,reach-gate}.txt`.
+`out/ce-render-contract-verification.json` is the offline binding report.
+Neither mathematical fixtures nor static call-edge checks establish headset
+success. No ZIP, install, MCC launch, game-file write or accepted-pointer change.
+
+## Workflow and limits
+
+Locate/pin official HCEEK executables/tags and installed retail module, establish
+CE-native lifecycle/camera/render/HUD semantics, match unique retail signatures,
+then implement isolated ownership. Share proven OpenXR/math/input infrastructure
+where appropriate, without treating engine layouts as interchangeable. Record
+findings and negative results separately from hypotheses. No runtime success or
+full parity is claimed until headset validation. No new game launch, installation,
+game-folder write or GitHub work. Package only when a concrete candidate is ready
+under the user delivery contract; preserve both editions and existing titles.

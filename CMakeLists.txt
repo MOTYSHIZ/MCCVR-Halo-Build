@@ -281,6 +281,7 @@ add_library(halo3xr SHARED
     src/dll/halo2_render_mode_guard.cpp
     src/dll/halo2_render_probe.cpp
     src/dll/halo2_saber_camera.cpp
+    src/dll/haloce_native_bindings.cpp
     src/dll/halo2_anniversary_stereo.cpp
     src/dll/halo4_adapter.cpp
     src/dll/halo4_cold_observation.cpp)
@@ -402,6 +403,17 @@ if(BUILD_TESTING)
         HALOMCCVR_HALO2_RENDER_PROBE=$<BOOL:${HALOMCCVR_HALO2_RENDER_PROBE}>
         HALOMCCVR_HALO2_ANNIVERSARY_STEREO=$<BOOL:${HALOMCCVR_HALO2_ANNIVERSARY_STEREO}>)
     add_test(NAME halomccvr_core_tests COMMAND halomccvr_core_tests)
+    add_executable(halomccvr_ce_render_tests tests/haloce_render_tests.cpp)
+    target_include_directories(halomccvr_ce_render_tests PRIVATE src/common)
+    add_test(NAME halomccvr_ce_render_tests COMMAND halomccvr_ce_render_tests)
+    add_executable(halomccvr_ce_view_pair_tests tests/haloce_view_pair_tests.cpp)
+    target_include_directories(halomccvr_ce_view_pair_tests PRIVATE src/common)
+    add_test(NAME halomccvr_ce_view_pair_tests COMMAND halomccvr_ce_view_pair_tests)
+    add_executable(halomccvr_ce_bindings_tests
+        tests/haloce_bindings_tests.cpp src/dll/haloce_native_bindings.cpp)
+    target_include_directories(halomccvr_ce_bindings_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_bindings_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_ce_bindings_tests COMMAND halomccvr_ce_bindings_tests)
     add_executable(halomccvr_menu_slider_tests tests/menu_slider_tests.cpp)
     target_link_libraries(halomccvr_menu_slider_tests PRIVATE imgui_lib)
     add_test(NAME halomccvr_menu_slider_tests COMMAND halomccvr_menu_slider_tests)
