@@ -1,3 +1,14 @@
+# Latest continuation - September 13 evening, 2026
+
+CE owned GPU eye storage is now implemented and tested with actual D3D11 WARP
+copies, source recycling/release, frame identity/recovery and resource lifetime
+guards. Native hooks/source acquisition and OpenXR admission remain unfinished;
+this is not enabled/testable CE VR. Resume from the evening section of
+HALOCE-BRINGUP-2026-09-12.md and E-CE-8/9. User reiterated reusing the working
+VR baseline across existing titles. Preserve every completed/deferred item
+below, both editions and accepted `4e01f28`. No ZIP until credible comparable
+6DoF; no installation, launch or publishing.
+
 # Latest user override - September 13, 2026
 
 Continue Halo CE VR. Do not package a ZIP until the implementation is reasonably

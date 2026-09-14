@@ -301,6 +301,117 @@ headset result. The independent Python SHA-256/offline witness verifier also
 passes. Results: `out/ce-runtime-resume-{build,tests,mapped-pe-test,reach-gate}.txt`
 and `out/ce-runtime-resume-binding-verification.json`.
 
+## E-CE-8: native preparation job execution and completion
+
+September 13 evening continuation traced the preparation job beyond the
+previously identified `0x455170` body. Its vtable at `0x1810040` points slot
+`+8` to `0x455170`. Constructors `0x454FA0` and `0x18440` initialize the
+static job at `0x1BAA780`; its list is job `+0x70`. The constructor creates
+the separate preparation event at job `+0xBE68`, and obtains a generic job
+completion object through `0xC1860`, storing it at `0x1BB6600`.
+
+- Generic dispatcher `0xC2560` calls job virtual `+8` at `0xC2599`. Only
+  AFTER that call returns does it enter job `+0x10`'s critical section,
+  update completion/dependencies, and signal the generic completion event.
+  The completion lock is therefore not an exclusive lock around camera
+  construction. Do not claim it protects a cold camera/list read.
+- `0xC24D0` resets and queues a job. `0xC2D50` pumps the main queue through
+  `0xC2860` and `0xC2560`, returning after executing the exact requested job;
+  while empty, it waits on the queue event with a 15 ms timeout.
+- `0x87F90` sets job `+0xBE58=1` and `+0xBE5C=1`, then queues/pumps this job
+  at `0x88503/0x8850F`. `0x3BBA10`, called from the camera/game update, sets
+  `+0xBE58=0` and queues the preparation variant on a worker queue once per
+  eligible tick. `0x3BD820` waits on the generic job completion event before
+  its subsequent work when the copied-list route is enabled.
+
+These are verified scheduling edges, not proof that an arbitrary observer has
+exclusive access to either list. Native source-list association still belongs
+inside the exact preparation/copy scope; workers must not mutate cameras after
+culling submission. No new scheduler hook is installed. In particular,
+`0x4556B0` remains a completion signal, not a wait.
+
+Preserved derivation: `out/ce-scheduler-{owner,construction,refs,flow,execution}.txt`,
+`ce-scheduler-execute-disasm.txt`, `ce-scheduler-wait-disasm.txt`, and
+`ce-builder-consumers.txt`. The first refs run's final request for unrecognized
+`0x22A100` failed; it does not invalidate its preceding successful scheduler
+queries and is not texture-function evidence. The manifest now checks the two
+dispatcher/pump entry signatures and exact execution/order witnesses.
+
+## E-CE-9: texture descriptor paths and restricted source lifetime
+
+The native copy's bounded branch calls the D3D context at `0x204D9E` while
+inside its native critical section (`EnterCriticalSection` at `0x204C92`,
+leave at `0x204E0A`). Its arguments contain the resources actually selected by
+`0xAD5F0`; an adapter at this exact call can use that live source for an
+immediate GPU copy. It must not retain a borrowed pointer past this scope or
+substitute a frame-wide texture guess. The transfer's lock protects this
+operation; it does not by itself prove safe cold acquisition of arbitrary
+wrapper/resource pointers.
+
+Texture constructor `0x2298B0` installs vtable `0x17FB608`. Its width/height
+accessors `0x1F4B80/0x1F4BC0` read signed 16-bit `+0x10/+0x12`, except when
+renderer bit `0x8000` redirects them through wrapper `+0xA8`. This is not the
+same conditional selection as the resource accessor in E-CE-6.
+
+`0x229B70` builds texture descriptors. Its ordinary 2D branch passes a full
+D3D11 descriptor to device virtual `+0x28` at `0x22A036`, writing the result
+into wrapper `+0xE0`. This branch supplies sample count 1/quality 0, uses
+format `+0xD0`, and derives width/height through the native accessors. Separate
+branches create 1D/3D resources; do not treat every `+0xE0` as a 2D eye.
+
+**Negative finding:** imported resources are a different case. `0x22A1E0`
+calls resource virtual `+0x50` (2D GetDesc) and saves dimensions, mip count,
+format and the resource pointer into the wrapper, but does not retain every
+descriptor field, including sample count/quality. `0x1EFE90` imports the
+swapchain backbuffer similarly. `0x22A360` is the separate 3D import shape.
+Reading a plausible wrapper width/height/format cannot prove full copy
+compatibility or single-sample ownership. The current GPU adapter therefore
+requires an actual, independently obtained source descriptor.
+
+`0x22B0A0` releases resource/view references and clears `+0xE0`. Destructors
+`0x2299A0/0x229A60` call it before freeing wrapper storage. Their allocator
+lock is not a source-resource lifetime lock. Inspected map/update routines
+`0x22ADF0/0x22B2F0` use the transfer's native lock, but they do not establish
+that every destruction/import path shares it. No cold pointer-retention
+binding is approved by this investigation.
+
+Preserved output: `out/ce-scheduling-resume.txt`,
+`ce-texture-descriptor-paths.txt`, `ce-resource-lock-ownership.txt`, and
+`ce-import-descriptor-disasm.txt`. The attempted decompilations in
+`ce-texture-shape-lifetime.txt` and `ce-texture-release.txt` failed on missing
+function definitions; they are not evidence. Width/height leaves were then
+inspected with the architecture-correct PE disassembler. The manifest checks
+creation/import/release entry identities and the actual copy call witnesses.
+
+## Implemented D3D11 eye storage (not native capture admission)
+
+`src/dll/haloce_eye_cache.{h,cpp}` now allocates compatible owned eye textures
+on a cold path, retains the verified immediate context, and accepts only an
+exact generation/space/tracking/resource key. Capture issues one bounded GPU
+copy with a separately proven live source descriptor, without querying or
+retaining the source. Copies, native-frame completion and one-time submission
+borrowing are separate stages. Partial, repeated, out-of-order, wrong-context,
+resized and stale-resource frames cannot become a completed pair. A failed
+frame can recover on the next serial. Retired resource epochs and submission
+borrow IDs cannot be reused. Cold replacement declines while a submission
+holds the eye textures; a stale release cannot release a newer borrow.
+
+The standalone D3D11 WARP test performs real GPU copies and full pixel
+readback: left/right receive distinct colors from one recycled source; both
+remain intact after that source is overwritten and released. It also tests
+frame rejection/recovery and concurrent cold retirement during a borrow.
+This validates the storage implementation, not CE rendering, OpenXR submission,
+gamma/cropping, or headset performance. Native source acquisition and calling
+this component from verified CE scopes remain unfinished.
+
+The copy restrictions follow Microsoft's
+[CopySubresourceRegion contract](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-copysubresourceregion).
+Only bounded ordinary color 2D sources are admitted; depth, arrays and MSAA
+need a separately verified path. Queued copies must be consumed on the same
+immediate context after native rendering completes. The component does not
+claim that returning from a void D3D copy proves physical GPU completion or
+that it alone permits OpenXR submission.
+
 ## Still unresolved
 
 GPU capture source/lifetime and final image mapping; exclusive native preparation
@@ -309,4 +420,8 @@ Classic stereo integration; HUD/crosshair routing; controller aim/hands;
 graphics-switch gesture wiring and runtime acceptance. No CE VR support is
 claimed yet. Physical melee and world collision remain deferred until injection
 is confirmed. Packaging is held by the September 13 user instruction until a
-functioning comparable-6DoF implementation is reasonably expected.
+functioning comparable-6DoF implementation is reasonably expected. The owned
+GPU cache above is implemented, but live source descriptor acquisition,
+per-view output attachment and final color/crop mapping are not. Also verify
+the `0x04000001` packed native destination dimensions under forced two-view
+construction; E-CE-5 proves the transfer shape, not that allocation shape.

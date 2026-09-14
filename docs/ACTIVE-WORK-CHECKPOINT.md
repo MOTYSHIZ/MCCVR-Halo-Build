@@ -1,3 +1,22 @@
+# Latest continuation - September 13 evening, 2026
+
+CE continuation from clean `73c9cd2`: owned D3D11 eye-cache component implemented,
+with real WARP pixel-copy/recycling/release tests, exact frame/resource identity,
+and guarded submission borrowing/retirement. Read the NEW evening section of
+HALOCE-BRINGUP-2026-09-12.md and E-CE-8/9 in HALOCE-RENDER-EVIDENCE.md.
+Seven Release tests and Reach consistency pass. Native scheduler/source
+descriptor evidence extended; loaded-image contracts now check 24 entries.
+Actual CE hooks, live source acquisition and OpenXR/title admission remain
+unwired. No functioning CE VR or headset result is claimed.
+
+User explicitly reminded us to reuse all existing games as the working VR
+baseline. Preserve shared tracking/input/recenter/frame submission behavior,
+translating CE-specific native details through evidence. Do not redo completed
+camera math, bindings, receipt or GPU-cache fixtures. All standing/deferred
+tasks remain retained. Packaging is held for credible comparable 6DoF; no
+install, MCC launch, game-folder writes or publishing. Both editions remain
+required; accepted pointer remains `4e01f28`.
+
 # Latest user override - September 13, 2026
 
 Continue Halo CE VR. Do not package a ZIP until the implementation is reasonably

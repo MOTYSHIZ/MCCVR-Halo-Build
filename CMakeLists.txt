@@ -282,6 +282,7 @@ add_library(halo3xr SHARED
     src/dll/halo2_render_probe.cpp
     src/dll/halo2_saber_camera.cpp
     src/dll/haloce_native_bindings.cpp
+    src/dll/haloce_eye_cache.cpp
     src/dll/halo2_anniversary_stereo.cpp
     src/dll/halo4_adapter.cpp
     src/dll/halo4_cold_observation.cpp)
@@ -414,6 +415,12 @@ if(BUILD_TESTING)
     target_include_directories(halomccvr_ce_bindings_tests PRIVATE src/common src/dll)
     target_compile_definitions(halomccvr_ce_bindings_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_ce_bindings_tests COMMAND halomccvr_ce_bindings_tests)
+    add_executable(halomccvr_ce_eye_cache_tests
+        tests/haloce_eye_cache_tests.cpp src/dll/haloce_eye_cache.cpp)
+    target_include_directories(halomccvr_ce_eye_cache_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_eye_cache_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_eye_cache_tests PRIVATE d3d11)
+    add_test(NAME halomccvr_ce_eye_cache_tests COMMAND halomccvr_ce_eye_cache_tests)
     add_executable(halomccvr_menu_slider_tests tests/menu_slider_tests.cpp)
     target_link_libraries(halomccvr_menu_slider_tests PRIVATE imgui_lib)
     add_test(NAME halomccvr_menu_slider_tests COMMAND halomccvr_menu_slider_tests)

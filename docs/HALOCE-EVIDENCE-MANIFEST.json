@@ -1,6 +1,6 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "native camera binding adapter and loaded-image verifier implemented; preparation receipt logic tested; hook scheduling/GPU lifetime and OpenXR integration remain unresolved; no runtime hooks enabled",
+  "status": "native bindings, preparation receipts and owned D3D11 eye cache implemented/tested; native scheduling and descriptor/lifetime evidence extended; hooks, source acquisition and OpenXR/title admission remain unfinished",
   "recorded_date": "2026-09-13",
   "retail": {
     "module": "halo1.dll",
@@ -480,6 +480,21 @@
           "rva": "0x204d94",
           "signature": "48 8B 90 E0 00 00 00",
           "meaning": "resolved destination D3D resource field"
+        },
+        {
+          "rva": "0x204c92",
+          "signature": "FF 15 98 C5 54 01",
+          "meaning": "call qword ptr [rip + 0x154c598]"
+        },
+        {
+          "rva": "0x204d9e",
+          "signature": "FF D5",
+          "meaning": "call rbp"
+        },
+        {
+          "rva": "0x204e0a",
+          "signature": "FF 15 48 C4 54 01",
+          "meaning": "call qword ptr [rip + 0x154c448]"
         }
       ],
       "relative_operands": [
@@ -588,6 +603,109 @@
           "meaning": "tail call SetEvent; not a wait"
         }
       ]
+    },
+    {
+      "name": "anniversary_job_execute",
+      "rva": "0xc2560",
+      "signature": "40 55 41 54 41 55 41 56 41 57 48 83 EC 30 48 8D 6C 24 20 48 89 5D 40 48 89 75 48 48 89 7D 50 48 8B 05 8A 2A AB 01",
+      "function_entry": true,
+      "evidence": "E-CE-8",
+      "instruction_witnesses": [
+        {
+          "rva": "0xc2599",
+          "signature": "FF 50 08",
+          "meaning": "call qword ptr [rax + 8]"
+        },
+        {
+          "rva": "0xc259c",
+          "signature": "4C 8D 63 10",
+          "meaning": "lea r12, [rbx + 0x10]"
+        },
+        {
+          "rva": "0xc25a3",
+          "signature": "FF 15 87 EC 68 01",
+          "meaning": "call qword ptr [rip + 0x168ec87]"
+        },
+        {
+          "rva": "0xc2656",
+          "signature": "FF 15 5C EC 68 01",
+          "meaning": "call qword ptr [rip + 0x168ec5c]"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_job_pump_until_target",
+      "rva": "0xc2d50",
+      "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 3D 12 12 B7 01 48 8B F2 0F 1F 80 00 00 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-8",
+      "instruction_witnesses": [
+        {
+          "rva": "0xc2d86",
+          "signature": "E8 D5 F7 FF FF",
+          "meaning": "call 0xc2560"
+        },
+        {
+          "rva": "0xc2d8b",
+          "signature": "48 3B DE",
+          "meaning": "cmp rbx, rsi"
+        },
+        {
+          "rva": "0xc2d8e",
+          "signature": "74 26",
+          "meaning": "je 0xc2db6"
+        },
+        {
+          "rva": "0xc2dae",
+          "signature": "FF 15 0C E5 68 01",
+          "meaning": "call qword ptr [rip + 0x168e50c]"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_texture_create",
+      "rva": "0x229b70",
+      "signature": "40 55 56 57 41 54 41 55 41 56 41 57 48 81 EC 90 00 00 00 48 8D 6C 24 20 48 89 9D C0 00 00 00 48 8B 05 7A B4 94 01",
+      "function_entry": true,
+      "evidence": "E-CE-9",
+      "instruction_witnesses": [
+        {
+          "rva": "0x229fc8",
+          "signature": "48 C7 45 4C 01 00 00 00",
+          "meaning": "mov qword ptr [rbp + 0x4c], 1"
+        },
+        {
+          "rva": "0x229fe2",
+          "signature": "41 8B 87 D0 00 00 00",
+          "meaning": "mov eax, dword ptr [r15 + 0xd0]"
+        },
+        {
+          "rva": "0x22a01e",
+          "signature": "4D 8D 8F E0 00 00 00",
+          "meaning": "lea r9, [r15 + 0xe0]"
+        },
+        {
+          "rva": "0x22a036",
+          "signature": "FF 50 28",
+          "meaning": "call qword ptr [rax + 0x28]"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_texture_import_2d",
+      "rva": "0x22a1e0",
+      "signature": "4C 8B DC 57 41 56 48 81 EC 88 00 00 00 48 8B 05 1C AE 94 01 48 33 C4 48 89 44 24 70 48 8B 02 48 8B F9",
+      "function_entry": true,
+      "evidence": "E-CE-9",
+      "instruction_witnesses": []
+    },
+    {
+      "name": "anniversary_texture_release_resources",
+      "rva": "0x22b0a0",
+      "signature": "48 89 5C 24 18 55 48 83 EC 20 33 ED 48 89 74 24 30 48 8B D9 48 89 7C 24 38 8B F5 39 A9 F0 00 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-9",
+      "instruction_witnesses": []
     }
   ]
 }

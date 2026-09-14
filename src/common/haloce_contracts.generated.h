@@ -29,6 +29,11 @@ inline constexpr Entry entries[]={
     {"anniversary_surface_selector",0xad5f0,"4C 8B 91 A8 00 00 00 4C 8B C1 4D 85 D2 74 45 48 8B 05 B2 D0 B3 01 44 8B",false},
     {"anniversary_legacy_mode_reader",0x84730,"48 8B C4 48 89 48 08 57 48 83 EC 40 48 C7 40 E0 FE FF FF FF 48 89 58 10 49 8B D9 48 8B F9 C7 40 DC 00 00 00 00 83 3D 28",true},
     {"anniversary_preparation_complete_not_wait",0x4556b0,"48 89 5C 24 08 57 48 83 EC 20 4C 8D 41 70 48 8B F9 E8 9A B9 E8 FF 45 33 C0 48 8D 57 70",true},
+    {"anniversary_job_execute",0xc2560,"40 55 41 54 41 55 41 56 41 57 48 83 EC 30 48 8D 6C 24 20 48 89 5D 40 48 89 75 48 48 89 7D 50 48 8B 05 8A 2A AB 01",true},
+    {"anniversary_job_pump_until_target",0xc2d50,"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 3D 12 12 B7 01 48 8B F2 0F 1F 80 00 00 00 00",true},
+    {"anniversary_texture_create",0x229b70,"40 55 56 57 41 54 41 55 41 56 41 57 48 81 EC 90 00 00 00 48 8D 6C 24 20 48 89 9D C0 00 00 00 48 8B 05 7A B4 94 01",true},
+    {"anniversary_texture_import_2d",0x22a1e0,"4C 8B DC 57 41 56 48 81 EC 88 00 00 00 48 8B 05 1C AE 94 01 48 33 C4 48 89 44 24 70 48 8B 02 48 8B F9",true},
+    {"anniversary_texture_release_resources",0x22b0a0,"48 89 5C 24 18 55 48 83 EC 20 33 ED 48 89 74 24 30 48 8B D9 48 89 7C 24 38 8B F5 39 A9 F0 00 00 00",true},
 };
 inline constexpr Witness witnesses[]={
     {0xbbccad,"E8 ?? ?? ?? ??"},
@@ -79,6 +84,9 @@ inline constexpr Witness witnesses[]={
     {0x204d2b,"48 8B A8 70 01 00 00"},
     {0x204d4b,"4C 8B 98 E0 00 00 00"},
     {0x204d94,"48 8B 90 E0 00 00 00"},
+    {0x204c92,"FF 15 98 C5 54 01"},
+    {0x204d9e,"FF D5"},
+    {0x204e0a,"FF 15 48 C4 54 01"},
     {0x204d46,"E8 ?? ?? ?? ??"},
     {0x204d69,"E8 ?? ?? ?? ??"},
     {0x204db6,"E8 ?? ?? ?? ??"},
@@ -90,6 +98,18 @@ inline constexpr Witness witnesses[]={
     {0x4556ed,"48 FF 25 C4 BB 2F 01"},
     {0x4556c1,"E8 ?? ?? ?? ??"},
     {0x4556cd,"E8 ?? ?? ?? ??"},
+    {0xc2599,"FF 50 08"},
+    {0xc259c,"4C 8D 63 10"},
+    {0xc25a3,"FF 15 87 EC 68 01"},
+    {0xc2656,"FF 15 5C EC 68 01"},
+    {0xc2d86,"E8 D5 F7 FF FF"},
+    {0xc2d8b,"48 3B DE"},
+    {0xc2d8e,"74 26"},
+    {0xc2dae,"FF 15 0C E5 68 01"},
+    {0x229fc8,"48 C7 45 4C 01 00 00 00"},
+    {0x229fe2,"41 8B 87 D0 00 00 00"},
+    {0x22a01e,"4D 8D 8F E0 00 00 00"},
+    {0x22a036,"FF 50 28"},
 };
 inline constexpr Relative relatives[]={
     {0xbbccad,5,1,0xbbcf30},
@@ -142,4 +162,9 @@ inline constexpr uint32_t anniversary_surface_transfer=0x204c40;
 inline constexpr uint32_t anniversary_surface_selector=0xad5f0;
 inline constexpr uint32_t anniversary_legacy_mode_reader=0x84730;
 inline constexpr uint32_t anniversary_preparation_complete_not_wait=0x4556b0;
+inline constexpr uint32_t anniversary_job_execute=0xc2560;
+inline constexpr uint32_t anniversary_job_pump_until_target=0xc2d50;
+inline constexpr uint32_t anniversary_texture_create=0x229b70;
+inline constexpr uint32_t anniversary_texture_import_2d=0x22a1e0;
+inline constexpr uint32_t anniversary_texture_release_resources=0x22b0a0;
 }

@@ -67,6 +67,53 @@ own render.c, render_cameras.c, camera/observer.c, interface/hud_draw.c and
 game/game_time.c for the native investigation. Kit render.c operand leads include
 RVA 426C30; no retail homolog or runtime render contract is established yet.
 
+## September 13 evening continuation: owned GPU eye storage
+
+Resumed from clean commit `73c9cd2`, descending from accepted `4e01f28`.
+User reiterated using all existing titles as the working VR baseline. Retain
+their proven tracking/input/recenter/frame-submission behavior; verify only
+CE-specific engine bindings and scheduling rather than inventing a parallel
+VR product. All retained/deferred standing tasks remain unchanged.
+
+Implemented `haloce_eye_cache.{h,cpp}` in the cumulative DLL: cold D3D11 eye
+texture allocation, exact prepared tracking/resource keys, ordered per-eye
+copy, native-frame completion, one-time submission borrows, and guarded cold
+retirement. No COM queries, source retention, allocation, locks or waits in
+the eye-copy operation. The adapter needs a separately proven live source
+descriptor; it does not guess one from the swapchain or wrapper dimensions.
+
+New WARP GPU test verifies actual distinct pixel copies after source reuse
+and release, plus invalid/partial/stale frame recovery and submission-borrow
+retirement. Release and all seven suites pass, as does Reach consistency.
+Generated contracts and pinned SHA/witness verification pass; the manifest
+now contains 24 entry signatures. Logs: `out/ce-gpu-resume-*`.
+
+E-CE-8/9 in HALOCE-RENDER-EVIDENCE.md preserve the new scheduling and resource
+findings and exact successful/failed offline queries. Key negative findings:
+the generic job lock starts AFTER its virtual body; it is not camera-write
+exclusion. Imported texture wrappers omit some D3D descriptor fields, so they
+cannot independently prove sample/format compatibility. The native transfer
+lock is not yet proven to cover all wrapper destruction/import paths.
+
+Next work remains actual runtime integration, not more eye math/cache fixtures:
+
+1. Attach preparation receipts inside CE's exact builder/copy/job scopes.
+   Scheduler edges are now traced; establish source-list exclusion and preserve
+   the particular prepared receipt across handoff. Do not replay the full frame.
+2. Finish real source-descriptor acquisition/lifetime and connect the exact
+   per-view copy to EyeCache. Check the native packed destination's allocation
+   dimensions when forcing two views; transfer shape alone is insufficient.
+3. Wire the title/core hooks, generation retirement, shared OpenXR tracking,
+   complete-pair submission and recenter. Classic/switching, controller aim/
+   hands, HUD/crosshair and the H2 left-head-side movement-stick gesture remain
+   unfinished. Physical melee/world collision remain deferred until the user
+   confirms CE injection. No CE runtime acceptance or credible test ZIP yet.
+
+No install, launch, game-file modification, publishing or package occurred.
+Accepted pointer stays `4e01f28`; both editions remain required. The code is
+an implemented GPU storage component, not enabled CE VR support. Packaging
+remains held for the user's comparable-6DoF threshold.
+
 ## September 13 later continuation: native binding and handoff components
 
 User resumed with "continue halo ce vr work. forget nothing." The prior WIP was
