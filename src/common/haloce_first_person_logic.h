@@ -11,6 +11,10 @@
 namespace halo_ce
 {
 inline constexpr size_t kFirstPersonMaxNodes=64;
+// Disabled September 15 after the e524d21 headset report: collapsing hidden
+// arm vertices at the camera spans triangles between the camera and wrist.
+// Retain the old behavior inert; its wrist-local replacement is separate.
+inline constexpr bool kCeFloatingArmsAtCameraEnabled=false;
 struct AnimationNode
 {
     char name[32]{};
@@ -439,7 +443,7 @@ inline bool BuildTrackedFirstPersonPalette(const FirstPersonBinding& binding,
                 if (joint>=0&&joint<binding.count&&!MoveNode(carrier,target,source[joint],candidate[joint])) return false;
         }
     }
-    if (rig.floatingHands)
+    if (rig.floatingHands&&kCeFloatingArmsAtCameraEnabled)
         // Saber also uses the remapped model's root matrix to position the
         // entire first-person object (native bridge 0x7AC60). Keep the graph
         // root intact so hiding arm geometry cannot collapse that carrier.
