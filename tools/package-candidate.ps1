@@ -1133,14 +1133,25 @@ try {
             headset_accepted = $false
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
+        halo_ce_candidate = [ordered]@{
+            graphics = 'Anniversary-stereo-6DoF; Classic-stock'
+            native_views = 'prepared-before-culling-no-full-frame-replay'
+            submitted_pose = 'exact-native-preparation-receipt'
+            source_storage = 'owned-D3D11-per-eye-textures'
+            graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
+            controller_aim_hands_hud_parity = 'unfinished'
+            physical_melee_world_collision = 'deferred-until-injection-confirmed'
+            headset_accepted = $false
+            editions = 'Steam-and-Microsoft-Store'
+        }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs above describe inherited bindings, not this candidate name or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and roomscale_candidate.'
+        historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Roomscale title admission and nested XInput cancellation corrected. Released d77c9dd hand positioning restored; anatomical correction is default-off experimental. Runtime weapon bounds, melee, snap-turn, slider and lifecycle work preserved. Controller aiming preserved by user choice; independent head-following body yaw deferred. H3 dual firing remains disabled. Keep existing config. Both editions; package only; no new headset acceptance.'
+        note = 'CE Anniversary native two-view stereo and 6DoF test candidate. Classic and CE motion-controller/HUD parity remain unfinished. CE melee/collision deferred until injection confirmation. Cumulative roomscale, handedness, bounds, melee, snap-turn, slider and lifecycle work preserved for the existing titles. H3 dual firing remains disabled. Keep existing config. Both editions; package only; no headset acceptance.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/ROOMSCALE-LEFT-HAND-RELEASE-NOTES-2026-09-10.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-CANDIDATE-2026-09-14.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

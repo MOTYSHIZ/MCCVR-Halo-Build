@@ -26,6 +26,7 @@
 #include <vector>
 #include <MinHook.h>
 #include "game.h"
+#include "haloce_stereo_core.h"
 #include "roomscale.h"
 #include "d3d11_hook.h"
 #include "sigscan.h"
@@ -40803,6 +40804,13 @@ namespace
                 }
             }
             RefreshGestureMeleeBinding(activeTitle,activeLevelRunning,pollNow);
+            {
+                uintptr_t ceBase=0; size_t ceSize=0;
+                const bool ceActive=activeTitle&&activeTitle->title==GameTitle::HaloCE&&
+                    !g_vrRuntimeFailureLatched.load(std::memory_order_acquire);
+                if (ceActive) sig::ModuleRange(L"halo1.dll",ceBase,ceSize);
+                HaloCE_Poll(ceBase,ceSize,TitleAdapter_GetGeneration(GameTitle::HaloCE),ceActive);
+            }
             if (!halo2Active)
                 Halo2ColdObservation_Rearm();
             {
@@ -41522,6 +41530,7 @@ bool Game_IsStereoGeometryOnlyBringup()
 }
 bool Game_UsesTitleOwnedHeadTracking()
 {
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE) return HaloCE_Armed();
 #if HALOMCCVR_HALO2_STEREO6DOF
     return TitleAdapter_GetActiveTitle() == GameTitle::Halo2 &&
         (Halo2Stereo_Armed() || Halo2AnniversaryStereo_Armed());
@@ -42467,6 +42476,7 @@ bool Game_CanToggleImmersiveView()
 }
 void Game_DetachForVrRuntimeFailure()
 {
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE) HaloCE_PublishTracking({},false);
     // This is the same render-thread ownership transition used by normal title
     // unload/pause paths, reached only after OpenXR can no longer submit. Stop
     // every title from beginning new camera/stereo transactions before the VR
@@ -42613,8 +42623,10 @@ void Game_ToggleHeadTracking()
     if (on)
     {
         g_needRecenter = true;
+        if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+        { HaloCE_Recenter(); g_autoVrUserVeto.store(false,std::memory_order_release); }
 #if HALOMCCVR_HALO2_STEREO6DOF
-        if (Game_UsesTitleOwnedHeadTracking())
+        if (TitleAdapter_GetActiveTitle()==GameTitle::Halo2&&Game_UsesTitleOwnedHeadTracking())
         {
             Halo2Stereo_RequestRecenter();
             Halo2Observer6Dof_RequestRecenter();
@@ -42654,6 +42666,38 @@ void Game_AutoVrTick()
     }
     wasHalo2ClaimContext = halo2ClaimContext;
 #endif
+    // CE owns its camera lifecycle. Keep the existing title branches intact.
+    static bool wasCeContext=false;
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+    {
+        if (!wasCeContext)
+        { HaloCE_Recenter(); g_autoVrUserVeto.store(false); VR_RequestPausePresentation(false); }
+        wasCeContext=true;
+        const bool ready=HaloCE_Armed()&&!g_autoVrUserVeto.load()&&
+            !g_vrRuntimeFailureLatched.load();
+        if (ready)
+        {
+            g_enabled.store(true,std::memory_order_release);
+            g_autoVrOwned.store(true,std::memory_order_release);
+            if (!VR_IsStereoEnabled()) VR_ToggleStereo();
+            TitleAdapter_PublishMode(GameTitle::HaloCE,
+                TitleAdapter_GetGeneration(GameTitle::HaloCE),
+                VR_IsPausePresentationTarget() ? RuntimeMode::Paused : RuntimeMode::Gameplay);
+        }
+        else if (g_autoVrOwned.exchange(false))
+        {
+            g_enabled.store(false,std::memory_order_release);
+            VR_DetachGamePresentation();
+        }
+        return;
+    }
+    if (wasCeContext)
+    {
+        wasCeContext=false; HaloCE_PublishTracking({},false);
+        g_enabled.store(false,std::memory_order_release);
+        g_autoVrOwned.store(false,std::memory_order_release);
+        VR_DetachGamePresentation();
+    }
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     static OdstFreshCameraDebounce odstFreshDebounce;
     static bool wasOdstCameraContext = false;
@@ -43685,6 +43729,7 @@ void Game_AutoVrTick()
 
 void Game_Recenter()
 {
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE) HaloCE_Recenter();
     // One public recenter action owns both references: Halo's camera/position
     // origin and the OpenXR head-locked screen origin. This keeps keyboard F3,
     // the F1 button, and transition-triggered recentering behavior identical.

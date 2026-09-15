@@ -126,7 +126,9 @@ namespace
         { GameTitle::Halo4, L"halo4.dll", "Halo 4", false,
           kHalo4Capabilities, kHalo4AdmissionCapabilities },
         { GameTitle::HaloCE, L"halo1.dll", "Halo: CE Anniversary", false,
-          TitleCapability_None, TitleCapability_None },
+          TitleCapability_Stereo | TitleCapability_RoomScale |
+          TitleCapability_ControllerInput | TitleCapability_RuntimeModes,
+          TitleCapability_ControllerInput },
         { GameTitle::Halo2, L"halo2.dll", "Halo 2 Anniversary", false,
           kHalo2Capabilities, kHalo2AdmissionCapabilities },
     };
@@ -191,6 +193,8 @@ TitleHookPlan TitleRegistry_HookPlan(GameTitle title)
 #endif
     case GameTitle::HaloReach:
         return TitleHookPlan::ReachCameraCore;
+    case GameTitle::HaloCE:
+        return TitleHookPlan::HaloCECameraCore;
     case GameTitle::Halo4:
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
         return TitleHookPlan::Halo4CameraCore;
@@ -247,7 +251,7 @@ bool TitleRegistry_AllowsGenericDrawDistance(
     // write an unrelated debug variable, so it remains unreachable in both.
     return activeTitle != GameTitle::None &&
         activeTitle != GameTitle::Unknown &&
-        activeTitle != GameTitle::Halo2;
+        activeTitle != GameTitle::Halo2 && activeTitle != GameTitle::HaloCE;
 }
 
 bool TitleRegistry_Halo3CameraOwnsAmbiguousState(

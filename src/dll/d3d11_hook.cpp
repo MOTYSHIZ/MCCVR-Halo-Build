@@ -15,6 +15,7 @@
 #include "d3d11_hook.h"
 #include "game.h"
 #include "vr.h"
+#include "haloce_stereo_core.h"
 #include "title_reentry_probe.h"
 #include "title_adapter.h"
 #if HALOMCCVR_HALO2_STEREO6DOF
@@ -40,6 +41,23 @@
 typedef HRESULT(STDMETHODCALLTYPE* PresentFn)(IDXGISwapChain*, UINT, UINT);
 typedef HRESULT(STDMETHODCALLTYPE* Present1Fn)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
 typedef HRESULT(STDMETHODCALLTYPE* ResizeBuffersFn)(IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
+using CreateTexture2DFn = HRESULT(STDMETHODCALLTYPE*)(ID3D11Device*,
+    const D3D11_TEXTURE2D_DESC*,const D3D11_SUBRESOURCE_DATA*,ID3D11Texture2D**);
+static CreateTexture2DFn g_origCreateTexture2D = nullptr;
+static HRESULT STDMETHODCALLTYPE CreateTexture2DHook(ID3D11Device* device,
+    const D3D11_TEXTURE2D_DESC* descriptor,const D3D11_SUBRESOURCE_DATA* data,
+    ID3D11Texture2D** texture)
+{
+    const HRESULT result=g_origCreateTexture2D(device,descriptor,data,texture);
+    if (SUCCEEDED(result)&&texture&&*texture)
+    {
+        // Creation owns this pointer; observe runtime-normalized fields here.
+        D3D11_TEXTURE2D_DESC actual{};
+        (*texture)->GetDesc(&actual);
+        HaloCE_RecordTextureCreated(*texture,actual);
+    }
+    return result;
+}
 typedef void(STDMETHODCALLTYPE* OMSetRenderTargetsFn)(ID3D11DeviceContext*, UINT,
     ID3D11RenderTargetView* const*, ID3D11DepthStencilView*);
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
@@ -1708,6 +1726,11 @@ bool InstallD3D11Hooks()
               MH_CreateHook(vtbl[13], (void*)&ResizeBuffersHook, (void**)&g_origResizeBuffers) == MH_OK &&
               MH_CreateHook(contextVtbl[33], (void*)&OMSetRenderTargetsHook,
                             (void**)&g_origOMSetRenderTargets) == MH_OK;
+    // Optional CE metadata observation must never block an existing title.
+    const MH_STATUS ceTextureStatus=MH_CreateHook(deviceVtbl[5],
+        (void*)&CreateTexture2DHook,(void**)&g_origCreateTexture2D);
+    if (ceTextureStatus!=MH_OK)
+        LOG("CE early texture metadata unavailable (%d); native creation/import observation remains",ceTextureStatus);
 #if HALOMCCVR_HALO2_STEREO6DOF || HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     const MH_STATUS createPixelShader = MH_CreateHook(
         deviceVtbl[15], (void*)&CreatePixelShaderHook,

@@ -1,20 +1,17 @@
 #pragma once
-#include <cstddef>
-#include <cstdint>
-#include "../common/haloce_render_logic.h"
+#include "haloce_eye_cache.h"
 
-// Planned stereo-core interface; no hook/admission implementation exists yet.
-// haloce_native_bindings.cpp now implements loaded-image verification and the
-// native camera rebuild adapter; prepared-handoff/transfer components are tested.
-// CE will own its native camera bridge and remastered scene transaction only.
+// CE Anniversary builds two views before culling. No whole-frame replay.
 // Classic, weapon IK, melee, collision and HUD extraction remain separate.
 bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t generation,bool active) noexcept;
 bool HaloCE_Armed() noexcept;
 void HaloCE_Recenter() noexcept;
-bool HaloCE_GetHalfFovs(uint64_t serial,float halfX[2],float halfY[2]) noexcept;
-
-// Present publishes exact-frame OpenXR data and preallocates capture resources;
-// CE render hooks only read snapshots and issue a validated GPU copy.
-bool VR_HaloCEGetTracking(halo_ce::Tracking& tracking) noexcept;
-bool VR_HaloCECaptureEye(int eye,uint64_t serial) noexcept;
-void VR_HaloCEDropPair() noexcept;
+void HaloCE_PublishTracking(const halo_ce::Tracking& tracking,bool enabled) noexcept;
+void HaloCE_PresentResources(ID3D11Device* device,ID3D11DeviceContext* context) noexcept;
+bool HaloCE_AcquirePair(ID3D11DeviceContext* context,uint64_t currentSerial,
+    uint64_t spaceEpoch,halo_ce::EyeCache::Completed& pair) noexcept;
+void HaloCE_ReleasePair(uint64_t borrowId) noexcept;
+bool HaloCE_OwnsPresentation() noexcept;
+// Successful creation owns this texture, even before CE loads. Metadata only.
+void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
+    const D3D11_TEXTURE2D_DESC& descriptor) noexcept;

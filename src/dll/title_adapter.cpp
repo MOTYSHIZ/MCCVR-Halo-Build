@@ -654,6 +654,11 @@ const TitleDescriptor* TitleAdapter_PollLoaded(uint64_t observedAtMs)
                 identity.h4ekBuild, identity.moduleSha256Steam,
                 identity.moduleSha256Store);
         }
+        else if (detected->title == GameTitle::HaloCE)
+        {
+            LOG("Title adapter: detected CE; Anniversary native two-view core "
+                "will verify bindings before arming; Classic remains stock");
+        }
         else if (TitleRegistry_HookPlan(detected->title) ==
             TitleHookPlan::OdstExperimentalCameraCore)
         {

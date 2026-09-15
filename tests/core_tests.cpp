@@ -4802,7 +4802,7 @@ int main()
                   TitleRuntimeHeartbeatWindowMs(GameTitle::Halo3ODST) == 5001 &&
                   TitleRuntimeHeartbeatWindowMs(GameTitle::HaloReach) == 500 &&
                   TitleRuntimeHeartbeatWindowMs(GameTitle::Halo4) == 500 &&
-                  TitleRuntimeHeartbeatWindowMs(GameTitle::HaloCE) == 0 &&
+                  TitleRuntimeHeartbeatWindowMs(GameTitle::HaloCE) == 500 &&
 #if HALOMCCVR_HALO2_STEREO6DOF || \
     HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO
                   TitleRuntimeHeartbeatWindowMs(GameTitle::Halo2) == 500 &&
@@ -13051,7 +13051,6 @@ int main()
 #if !HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
         GameTitle::Halo4,
 #endif
-        GameTitle::HaloCE,
 #if !HALOMCCVR_HALO2_STEREO6DOF && \
     !HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO
         GameTitle::Halo2, GameTitle::Unknown, GameTitle::None,
@@ -13067,9 +13066,13 @@ int main()
         const bool admitted = descriptor &&
             (descriptor->admissionCapabilities &
                 TitleCapability_ControllerInput) != 0;
-        Check(!admitted && !TitleRegistry_AllowsSharedControllerInput(
+        Check(admitted && TitleRegistry_AllowsSharedControllerInput(
                   GameTitle::HaloCE, false, false, true, admitted),
-            "CE never receives shared virtual-controller admission");
+            "CE receives the existing virtual-controller transport without granting unimplemented aiming");
+        Check(TitleRegistry_HookPlan(GameTitle::HaloCE)==TitleHookPlan::HaloCECameraCore&&
+            !(descriptor->capabilities&(TitleCapability_ControllerAim|TitleCapability_ArmIk|TitleCapability_Hud))&&
+            !TitleRegistry_AllowsGenericDrawDistance(GameTitle::HaloCE,true),
+            "CE camera admission does not enable other engines' aiming, HUD, IK or generic native writes");
     }
 #if HALOMCCVR_HALO2_STEREO6DOF
     {

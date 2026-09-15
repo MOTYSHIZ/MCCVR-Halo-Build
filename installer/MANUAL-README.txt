@@ -1,12 +1,21 @@
-HALO MCC VR - ROOMSCALE AND LEFT-HAND UPDATE - SEPTEMBER 2026
+HALO MCC VR - CE ANNIVERSARY STEREO / 6DOF TEST - SEPTEMBER 2026
 ==========================================================
 
 Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
 and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
-files. Halo CE VR is not implemented. This is an alpha mod; the changes in
+files. This candidate adds CE Anniversary stereo/head tracking/6DoF for testing;
+CE Classic stereo and full motion-controller/HUD parity are unfinished.
+This is an alpha mod; the changes in
 this package have passed local checks and still need headset confirmation.
 Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
 exact build identity and file hashes; you do not need to edit it.
+
+For the CE test, use Anniversary graphics and read the exact feature limits in
+RELEASE-NOTES.md. CE currently keeps stock stick aim and weapons. The existing
+left-hand, snap-turn, roomscale-body, melee and collision sections below describe
+the other supported titles; they are not promises of those features in CE.
+CE graphics switching: physical left hand beside the left side of the head,
+then click the movement stick. Classic returns to stock flat presentation.
 
 BEFORE YOU START
 ----------------

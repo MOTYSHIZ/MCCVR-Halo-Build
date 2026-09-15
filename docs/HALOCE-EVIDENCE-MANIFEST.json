@@ -1,7 +1,7 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "native bindings, preparation receipts and owned D3D11 eye cache implemented/tested; native scheduling and descriptor/lifetime evidence extended; hooks, source acquisition and OpenXR/title admission remain unfinished",
-  "recorded_date": "2026-09-13",
+  "status": "CE Anniversary connected stereo/6DoF candidate; native execution and headset acceptance pending; Classic and motion-controller/HUD parity unfinished",
+  "recorded_date": "2026-09-14",
   "retail": {
     "module": "halo1.dll",
     "source_path": "C:/Program Files (x86)/Steam/steamapps/common/Halo The Master Chief Collection/halo1/halo1.dll",
@@ -33,7 +33,20 @@
     "commit": "66b511c0eb7ced20882de76aeab3e514df05bb1d",
     "scope": "2003 Halo PC, explicitly not MCC-compatible; architectural reference only, no native bindings copied"
   },
-  "approved_runtime_bindings": [],
+  "approved_runtime_bindings": [
+    "anniversary_view_prepare",
+    "anniversary_primary_view_pair_builder",
+    "anniversary_full_frame_not_replayable",
+    "anniversary_per_view_output",
+    "anniversary_surface_transfer",
+    "anniversary_camera_view_rebuild",
+    "anniversary_camera_projection_rebuild",
+    "anniversary_camera_culling_rebuild",
+    "anniversary_texture_create",
+    "anniversary_texture_import_2d",
+    "anniversary_texture_release_resources",
+    "anniversary_view_list_reset"
+  ],
   "offline_render_contracts": [
     {
       "name": "native_player_window",
@@ -231,6 +244,62 @@
           "instruction_bytes": 5,
           "displacement_offset": 1,
           "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4547ff",
+          "target_rva": "0x2b17b98",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "8B 0D 93 33 6C 02"
+        },
+        {
+          "instruction_rva": "0x454812",
+          "target_rva": "0x2b17b90",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 1D 77 33 6C 02"
+        },
+        {
+          "instruction_rva": "0x4549f0",
+          "target_rva": "0x2b17b98",
+          "instruction_bytes": 7,
+          "displacement_offset": 2,
+          "instruction_signature": "83 3D A1 31 6C 02 00"
+        },
+        {
+          "instruction_rva": "0x4549f9",
+          "target_rva": "0x2b17b90",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 90 31 6C 02"
+        },
+        {
+          "instruction_rva": "0x454a86",
+          "target_rva": "0x2e3bdd8",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 4B 73 9E 02"
+        },
+        {
+          "instruction_rva": "0x454ab7",
+          "target_rva": "0x2b17b90",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D D2 30 6C 02"
+        },
+        {
+          "instruction_rva": "0x454ac4",
+          "target_rva": "0x2b17b98",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "44 8B 0D CD 30 6C 02"
+        },
+        {
+          "instruction_rva": "0x454c1e",
+          "target_rva": "0x2b17b98",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "8B 05 74 2F 6C 02"
         }
       ],
       "instruction_witnesses": [
@@ -315,6 +384,62 @@
           "instruction_bytes": 5,
           "displacement_offset": 1,
           "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4551b7",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 22 58 79 01"
+        },
+        {
+          "instruction_rva": "0x4552fa",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 DF 56 79 01"
+        },
+        {
+          "instruction_rva": "0x45530d",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 CC 56 79 01"
+        },
+        {
+          "instruction_rva": "0x455341",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "4C 8B 05 98 56 79 01"
+        },
+        {
+          "instruction_rva": "0x455362",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 77 56 79 01"
+        },
+        {
+          "instruction_rva": "0x455493",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "4C 8B 0D 46 55 79 01"
+        },
+        {
+          "instruction_rva": "0x45555b",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 7E 54 79 01"
+        },
+        {
+          "instruction_rva": "0x45557e",
+          "target_rva": "0x1b7b114",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "44 88 05 8F 5B 72 01"
         }
       ],
       "instruction_witnesses": [
@@ -706,6 +831,13 @@
       "function_entry": true,
       "evidence": "E-CE-9",
       "instruction_witnesses": []
+    },
+    {
+      "name": "anniversary_view_list_reset",
+      "rva": "0x2eacd0",
+      "signature": "40 53 56 48 81 EC 78 04 00 00 48 8B 05 2F A3 88 01 48 33 C4 48 89 84 24 00 04 00 00 48 8B F1 48 89 AC 24 98 04 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-10"
     }
   ]
 }

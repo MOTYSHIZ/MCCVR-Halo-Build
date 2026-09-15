@@ -193,8 +193,6 @@ void TitleReentryProbe_PublishPresentCaller(const void* caller,
         HMODULE module = GetModuleHandleW(titles[i].moduleName);
         if (reinterpret_cast<uintptr_t>(module) != allocation)
             continue;
-        if (titles[i].title == GameTitle::HaloCE)
-            return;
         // Publish the timestamp last. Clearing it first makes a concurrent
         // worker either see no hint or a fully paired title+timestamp, never a
         // newly written title with the previous title's still-fresh stamp.
@@ -244,8 +242,7 @@ GameTitle TitleReentryProbe_Resolve(const TitleRuntimeModuleSet& modules,
     // immediately when the title stops running. A different title's unique
     // fresh liveness evidence above always preempts this retention.
     const size_t retainedSlot = TitleRuntimeSlotIndex(retainedTitle);
-    if (retainedTitle != GameTitle::HaloCE &&
-        retainedTitle != GameTitle::None &&
+    if (retainedTitle != GameTitle::None &&
         retainedTitle != GameTitle::Unknown &&
         retainedSlot < kTitleRuntimeSlotCount &&
         modules.moduleBases[retainedSlot])

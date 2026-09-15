@@ -262,12 +262,22 @@ namespace
         bool dpadMode = false;
         {
             float hq[4], hp[3], cq[4], cp[3];
+            const bool ce = TitleAdapter_GetActiveTitle() == GameTitle::HaloCE;
             const bool haveController = VR_GetPhysicalControllerPose(
-                g_config.dpad_hand == 0 ? 0 : 1, cq, cp);
+                ce ? 0 : (g_config.dpad_hand == 0 ? 0 : 1), cq, cp);
             if (haveController && VR_GetHeadPose(hq, hp))
             {
                 const float dx = hp[0] - cp[0], dy = hp[1] - cp[1], dz = hp[2] - cp[2];
                 dpadMode = dx * dx + dy * dy + dz * dz < 0.30f * 0.30f;
+                // CE's requested switch uses the physical left hand beside
+                // the left of the head, independent of weapon handedness.
+                if (ce)
+                {
+                    const float rightX=1.0f-2.0f*(hq[1]*hq[1]+hq[2]*hq[2]);
+                    const float rightY=2.0f*(hq[0]*hq[1]+hq[3]*hq[2]);
+                    const float rightZ=2.0f*(hq[0]*hq[2]-hq[3]*hq[1]);
+                    dpadMode = dpadMode && dx*rightX+dy*rightY+dz*rightZ>0.03f;
+                }
             }
         }
 
@@ -293,10 +303,11 @@ namespace
             // stick is already acting as a D-pad here, so its click has no
             // other meaning, and normal play keeps L3 untouched.
             const bool halo2 = TitleAdapter_GetActiveTitle() == GameTitle::Halo2;
+            const bool graphicsSwitch = halo2 || TitleAdapter_GetActiveTitle() == GameTitle::HaloCE;
             if (pad.clickL && !chord.consumeClicks)
             {
                 btn &= ~XINPUT_GAMEPAD_LEFT_THUMB;
-                if (!halo2)
+                if (!graphicsSwitch)
                 {
                     // ODST/Reach/Halo 3/Halo 4: the click is the Back button.
                     btn |= XINPUT_GAMEPAD_BACK;
@@ -313,15 +324,15 @@ namespace
                     {
                         g_halo2GestureClickSinceMs.store(now, std::memory_order_relaxed);
                         g_halo2GestureClickSent.store(false, std::memory_order_relaxed);
-                        LOG("M3: Halo 2 - head-gesture stick click: Back pressed "
-                            "(the Classic/Anniversary switch)");
+                        LOG("M3: %s - head-gesture stick click: Back pressed "
+                            "(the Classic/Anniversary switch)", halo2 ? "Halo 2" : "Halo CE");
                     }
                     if (now - g_halo2GestureClickSinceMs.load(std::memory_order_relaxed) <
                         kHalo2GestureClickHoldMs)
                         btn |= XINPUT_GAMEPAD_BACK;
                 }
             }
-            else if (halo2)
+            else if (graphicsSwitch)
             {
                 g_halo2GestureClickSinceMs.store(0, std::memory_order_relaxed);
                 g_halo2GestureClickSent.store(false, std::memory_order_relaxed);

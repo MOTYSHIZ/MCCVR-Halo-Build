@@ -1,5 +1,37 @@
 # Halo CE Anniversary VR bring-up — September 12, 2026
 
+## September 14: connected Anniversary candidate
+
+Recovered uncommitted runtime work beyond a6a507a was preserved before edits at
+`out/checkpoints/20260914-215646-ce-finish-resume`. The native job/builder/output
+hooks, source descriptor registry, owned eye capture, generation retirement,
+title admission and shared OpenXR submission are now connected. The head-side
+movement-stick graphics gesture is connected through shared Back/View input.
+
+This continuation additionally closed early texture-discovery coverage, recenter
+revision races, elapsed-time staleness, raster/source dimension mismatch,
+descriptor retirement, CE pause-mode publication and misleading title logging.
+The full native frame is never replayed. See E-CE-10 in the render evidence.
+
+Release and eight suites pass locally, including actual WARP pixels through the
+production capture scopes. Pinned identity/witness, mapped-data PE, generated
+contract and Reach checks accompany packaging. No native game routine has been
+executed by these tests. No headset acceptance is claimed.
+
+The candidate now meets the implementation threshold for the user's first
+Anniversary stereo/6DoF test: a complete native preparation-to-GPU-to-OpenXR path
+exists with explicit ownership/pose evidence. This is a judgment about test
+readiness, not proof of headset operation or completion of all CE work. Package
+build/source ZIPs without -Install, with `HALOCE-CANDIDATE-2026-09-14.md` as the
+current release notes; deliver them and wait for testing per the user contract.
+
+Classic stereo, CE controller-directed aim/tracked weapons, separate HUD/reticle
+capture, native state/vehicle integration, head-relative movement, snap turning
+and body following remain unfinished. Initial CE controls retain native stick
+aim. Physical melee/world collision stay deferred until injection confirmation.
+Preserve all existing-title work and standing/deferred items, both editions,
+and accepted pointer 4e01f28. No install, launch, game writes or publishing.
+
 ## User scope and reference behavior
 
 September 13 overrides earlier delivery wording: continue CE VR and do not

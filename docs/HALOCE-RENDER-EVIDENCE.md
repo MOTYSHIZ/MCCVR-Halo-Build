@@ -412,7 +412,77 @@ immediate context after native rendering completes. The component does not
 claim that returning from a void D3D copy proves physical GPU completion or
 that it alone permits OpenXR submission.
 
-## Still unresolved
+## E-CE-10: connected Anniversary runtime and source metadata (September 14)
+
+Recovered runtime WIP is now connected in `haloce_stereo_core.cpp`, the title
+registry/worker and shared OpenXR preparation/submission. This is candidate
+implementation, not evidence of execution inside MCC or headset acceptance.
+The native reset entry `0x2EACD0` is uniquely verified and added to the manifest
+and generated loaded-image contracts (25 entries total).
+
+Native preparation wraps `0x455170`. Builder `0x4547E0` is intercepted only for
+the exact active `renderer+0xB0` or copied `job+0x70` list in that job scope.
+Its existing secondary-view argument constructs the second native view; private
+camera staging/rebuild happens before returning to native culling submission.
+The particular copied/active receipt is frozen after the job's native body.
+The generic dispatcher completes the job after its virtual body returns
+(E-CE-8); no additional wait or lock is inserted. An overlapping adapter scope
+declines mutation. The renderer checks the actual primary pair against the
+frozen receipt. None of this licenses an external concurrent list write.
+
+The full native frame executes exactly once. `0x45E2B0` brackets per-view output;
+the transfer is admitted only at return address `0x45E376`. Within its native
+copy scope, D3D11 CopySubresourceRegion at return address `0x204DA0` exposes
+the actual selected resources. Those raw resources are used immediately and
+not retained beyond the copy. Existing CPU descriptors must match the resource
+identity and the staged raster dimensions. Native source-wrapper `+0xE0` alone
+still does not bypass variant selection.
+
+Descriptors are obtained at native creation/import, where the native caller
+owns its resource, and at early D3D11 CreateTexture2D completion so textures
+created before title-hook attachment can be recognized. Device virtual slot 5
+is the same creation call already witnessed at `0x22A036` (`+0x28`, E-CE-9).
+GetDesc/QueryInterface occur in resource management only, never the output/copy
+hooks. Only metadata is published; native resource release revokes it. Unrelated
+ordinary textures do not replace render-target records. Hash collisions decline
+the affected capture. Module retirement invalidates prior pointer identities.
+Failure to install early metadata observation leaves existing titles unaffected.
+
+The native packed destination is **not assumed** to accommodate two full-height
+views. `0x20A9B0` derives allocation dimensions from pool flags; `0x20B510`
+selects by those flags and pool identity. A matching native transfer alone does
+not establish allocation height. The implementation validates actual source and
+destination descriptors inside the copy. For a synthetic pair whose second
+copy exceeds a known single-height destination, the desktop preview copy uses
+y=0; the independently owned left/right VR copies remain distinct. Unknown,
+incompatible or otherwise invalid copy shapes perform no synthetic GPU copy.
+No native texture allocation-size or split-screen flag is patched.
+
+Preserved offline derivations: `out/ce-live-integration-resource-evidence.txt`,
+`ce-packed-target-allocation.txt`, `ce-packed-pool-and-culling.txt`,
+`ce-packed-target-dimensions.txt`, and `ce-native-stereo-texture-shape.txt`.
+The last file's request for undefined `0x1F3790` failed; it is not evidence for
+that function. The successful preceding texture-construction output is retained.
+
+The shared compositor borrows only complete, current-generation/resource pairs
+and submits the exact older preparation poses/FOVs associated with those
+pixels. Recenter has its own revision in addition to the OpenXR tracking-space
+epoch. Old prepared/completed frames cannot cross it. A new native frame revokes
+the preceding completion. Frame age is bounded by both serial and elapsed time.
+Native list-reset hooks remain until synthetic lists drain before detour removal;
+callback/trampoline quiescence and cache borrows protect retirement.
+
+Production-scope WARP fixtures exercise explicit copied-list handoff, actual
+distinct GPU pixels, native source reuse, bounded desktop preview, missing eye,
+invalid copy boxes, changed raster dimensions, resource revocation/bootstrap,
+recenter before/after rendering, stale age, foreign title/space, and retirement.
+They execute fixture native callbacks, not game code. Eight Release suites pass;
+generated-contract, pinned SHA/witness, mapped-data PE and Reach checks are run
+for the candidate. The runtime tests do not establish native scheduling or
+headset success by themselves. The first headset test protocol and remaining
+limits are in `HALOCE-CANDIDATE-2026-09-14.md`.
+
+## Still unresolved (historical September 13 list; see E-CE-10 above)
 
 GPU capture source/lifetime and final image mapping; exclusive native preparation
 scope and attachment of the implemented receipt logic; installed hooks/title admission;

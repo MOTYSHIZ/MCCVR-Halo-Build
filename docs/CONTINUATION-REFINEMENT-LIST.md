@@ -1,3 +1,18 @@
+# Latest continuation - September 14, 2026
+
+CE Anniversary now has a connected native two-view stereo/6DoF candidate with
+shared OpenXR, owned eye storage, lifetime/raster/pose/recenter guards and eight
+passing local suites. Package build/source ZIPs after final checks and wait for
+the user's headset testing. See ACTIVE-WORK-CHECKPOINT.md, the September 14
+bring-up section, E-CE-10 and HALOCE-CANDIDATE-2026-09-14.md. Not headset accepted.
+
+Retain Classic stereo, CE controller aim/tracked weapons/hands, HUD/crosshair,
+native state/vehicle integration, snap turning, head-relative walking and body
+following as unfinished. The left-head-side graphics gesture is wired; Classic
+is stock flat for now. CE melee/world collision still await injection confirmation.
+All existing-title and deferred tasks below remain intact. Both editions,
+accepted 4e01f28, package-only delivery, and no launch/publishing remain in force.
+
 # Latest continuation - September 13 evening, 2026
 
 CE owned GPU eye storage is now implemented and tested with actual D3D11 WARP

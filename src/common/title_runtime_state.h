@@ -89,6 +89,7 @@ constexpr uint64_t TitleRuntimeHeartbeatWindowMs(GameTitle title)
     // fits both.
     case GameTitle::HaloReach: return kTitleRuntimeHeartbeatFreshMs;
     case GameTitle::Halo4: return kTitleRuntimeHeartbeatFreshMs;
+    case GameTitle::HaloCE: return kTitleRuntimeHeartbeatFreshMs;
     case GameTitle::Halo2:
 #if HALOMCCVR_HALO2_STEREO6DOF || \
     HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO

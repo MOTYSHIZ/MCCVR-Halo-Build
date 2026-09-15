@@ -24,6 +24,7 @@
 #include "vr.h"
 #include "menu.h"
 #include "game.h"
+#include "haloce_stereo_core.h"
 #include "d3d11_hook.h"
 #include "d3d_state.h"
 #include "smaa_resource.h"
@@ -9176,6 +9177,31 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             std::memory_order_release);
         const bool upcomingHeadValid =
             CaptureHeadPose(frameState.predictedDisplayTime);
+        {
+            halo_ce::Tracking ce{};
+            const bool enabled=TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&
+                upcomingViewsValid&&upcomingHeadValid&&g_views.size()==2&&
+                frameState.shouldRender&&g_stereoEnabled.load()&&Game_IsHeadTracking()&&
+                !g_pausePresentation.load()&&!VR_IsPausePresentationTarget();
+            if (enabled)
+            {
+                ce.serial=g_preparedFrame.serial;
+                ce.generation=TitleAdapter_GetGeneration(GameTitle::HaloCE);
+                ce.spaceEpoch=g_contactSpaceEpoch.load(std::memory_order_acquire);
+                ce.headPosition={g_headPose.position.x,g_headPose.position.y,g_headPose.position.z};
+                ce.headOrientation={g_headPose.orientation.x,g_headPose.orientation.y,g_headPose.orientation.z,g_headPose.orientation.w};
+                for (int eye=0;eye<2;++eye)
+                {
+                    const auto& pose=g_views[eye].pose; const auto& fov=g_views[eye].fov;
+                    ce.eyes[eye].offset={pose.position.x-ce.headPosition.x,
+                        pose.position.y-ce.headPosition.y,pose.position.z-ce.headPosition.z};
+                    ce.eyes[eye].orientation={pose.orientation.x,pose.orientation.y,pose.orientation.z,pose.orientation.w};
+                    ce.eyes[eye].fov[0]=fov.angleLeft; ce.eyes[eye].fov[1]=fov.angleRight;
+                    ce.eyes[eye].fov[2]=fov.angleUp; ce.eyes[eye].fov[3]=fov.angleDown;
+                }
+            }
+            HaloCE_PublishTracking(ce,enabled);
+        }
 #if HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO || \
     HALOMCCVR_HALO2_STEREO6DOF
         if (upcomingViewsValid && upcomingHeadValid &&
@@ -9266,6 +9292,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (!g_preparedFrame.begun)
             return;
         const XrFrameState fs = g_preparedFrame.state;
+        HaloCE_PresentResources(g_device,g_context);
+        struct CeLease
+        {
+            halo_ce::EyeCache::Completed pair;
+            ~CeLease() { if (pair.borrowId) HaloCE_ReleasePair(pair.borrowId); }
+        } ceLease{};
+        const bool ceTitle=TitleAdapter_GetActiveTitle()==GameTitle::HaloCE;
+        const bool ceImages=ceTitle&&HaloCE_AcquirePair(g_context,g_preparedFrame.serial,
+            g_contactSpaceEpoch.load(std::memory_order_acquire),ceLease.pair);
+        const bool ceOwned=ceTitle&&HaloCE_OwnsPresentation();
         float comfortFadeAlpha = UpdatePauseTransition();
 
         // M2: per-eye pose + field of view for this frame (foundation for
@@ -9373,15 +9409,23 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             // compositor rather than only for those that honour a custom FOV.
             float haloHalfX[2] = {atanf(1.091595f), atanf(1.091595f)};
             float haloHalfY[2] = {atanf(1.114286f), atanf(1.114286f)};
-            const bool renderFovsValid = Game_GetRenderHalfFovs(
+            const bool renderFovsValid = ceTitle ? ceImages : Game_GetRenderHalfFovs(
                 g_preparedFrame.serial, haloHalfX, haloHalfY);
+            if (ceImages)
+                for (int eye=0;eye<2;++eye)
+                { haloHalfX[eye]=ceLease.pair.covers[eye].halfX; haloHalfY[eye]=ceLease.pair.covers[eye].halfY; }
             bool nativeFovValid = renderFovsValid;
             for (uint32_t i = 0; nativeFovValid && i < locatedViewCount; ++i)
             {
                 // Tangent space: the cover maps linearly across the slice, x from
                 // -coverX (left edge) to +coverX, y from +coverY (TOP row) down to
                 // -coverY. Solve for the native frustum's edges in pixels.
-                const XrFovf& native = g_views[i].fov;
+                XrFovf native = g_views[i].fov;
+                if (ceImages)
+                {
+                    const auto& f=ceLease.pair.tracking.eyes[i].fov;
+                    native={f[0],f[1],f[2],f[3]};
+                }
                 const float coverX = tanf(haloHalfX[i]);
                 const float coverY = tanf(haloHalfY[i]);
                 const float nl = tanf(native.angleLeft);
@@ -9423,6 +9467,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 // then describes the same frustum exactly, which is the property
                 // the compositor relies on.
                 projectionViews[i].pose = g_views[i].pose;
+                if (ceImages)
+                {
+                    const auto& tracking=ceLease.pair.tracking; const auto& eye=tracking.eyes[i];
+                    projectionViews[i].pose.position={tracking.headPosition.x+eye.offset.x,
+                        tracking.headPosition.y+eye.offset.y,tracking.headPosition.z+eye.offset.z};
+                    projectionViews[i].pose.orientation={eye.orientation.x,eye.orientation.y,eye.orientation.z,eye.orientation.w};
+                }
                 projectionViews[i].fov = {
                     atanf(coverX * (2.0f * x0 / w - 1.0f)),
                     atanf(coverX * (2.0f * x1 / w - 1.0f)),
@@ -9489,6 +9540,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
             if (renderFovsValid)
             {
+                // Also cover the symmetric-FOV fallback: asynchronous CE
+                // preparation always submits the pose that drew these pixels.
+                if (ceImages)
+                    for (int index=0;index<2;++index)
+                    {
+                        const auto& tracking=ceLease.pair.tracking; const auto& eye=tracking.eyes[index];
+                        projectionViews[index].pose.position={tracking.headPosition.x+eye.offset.x,
+                            tracking.headPosition.y+eye.offset.y,tracking.headPosition.z+eye.offset.z};
+                        projectionViews[index].pose.orientation={eye.orientation.x,eye.orientation.y,eye.orientation.z,eye.orientation.w};
+                    }
                 projection.viewCount = locatedViewCount;
                 projection.views = projectionViews.data();
             }
@@ -9770,7 +9831,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             eye;
                     }
                 }
-                if (stereoWorldFrame)
+                if (stereoWorldFrame&&(!ceTitle||ceImages))
                 {
 #if HALOMCCVR_HALO2_STEREO6DOF
                     // The exact-current H2 pair and projection descriptor were
@@ -9843,7 +9904,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     // Halo 2 has its own bounded source-learning validator;
                     // running the generic full-resolution check as well is a
                     // redundant synchronous GPU stall.
-                    if (!reachTitle && !halo2Title)
+                    if (!reachTitle && !halo2Title && !ceTitle)
                         ValidateStereoImagesOnce();
 #if HALOMCCVR_HALO2_STEREO6DOF
                     if (halo2Title && halo2LiveExactPair)
@@ -9892,7 +9953,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             xrAcquireSwapchainImage(g_stereoChain, &ai, &idx);
                     }
                     const bool exactStereoTransaction =
-                        reachTitle || halo4Title || halo2Title;
+                        reachTitle || halo4Title || halo2Title || ceTitle;
                     // An ordinary failed acquire owns no image and is therefore
                     // a frame-local miss. An exact-title positive non-success
                     // may nevertheless have acquired one (for example session
@@ -9909,7 +9970,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     {
                         (void)RequireExactSwapchainCompletion(
                             stereoAcquire,
-                            halo2Title
+                            ceTitle ? "CE world swapchain acquire did not complete" : halo2Title
                                 ? "Halo 2 synchronous world swapchain acquire did "
                                   "not complete"
                                 : halo4Title
@@ -9926,7 +9987,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         stereoWaitCompleted = exactStereoTransaction
                             ? RequireExactSwapchainCompletion(
                                   stereoWait,
-                                  halo2Title
+                                  ceTitle ? "CE world swapchain wait did not complete" : halo2Title
                                       ? "Halo 2 synchronous world swapchain wait "
                                         "did not complete"
                                       : halo4Title
@@ -9953,14 +10014,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                       targetEye,
                                       g_config.cutscene_theater_flip_depth)
                                 : targetEye;
-                            const bool haveImage = reachImages ||
+                            const bool haveImage = ceImages || reachImages ||
                                 (!reachTitle && (!halo4Title || halo4Images) &&
                                  (!halo2Title || halo2Images) &&
                                  g_eyeHasImage[sourceEye]);
-                            ID3D11Texture2D* source = reachImages
+                            ID3D11Texture2D* source = ceImages ? ceLease.pair.eyes[sourceEye] : reachImages
                                 ? reachAccess.eyes[sourceEye]
                                 : (reachTitle ? nullptr : g_eyeCache[sourceEye]);
-                            const D3D11_TEXTURE2D_DESC& sourceDesc = reachImages
+                            const D3D11_TEXTURE2D_DESC& sourceDesc = ceImages ? ceLease.pair.descriptor : reachImages
                                 ? g_reachCaptureDesc : g_eyeCacheDesc;
                             bool eyeUploaded = false;
                             if (haveImage && source)
@@ -10018,7 +10079,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         stereoReleased = exactStereoTransaction
                             ? RequireExactSwapchainCompletion(
                                   stereoRelease,
-                                  halo2Title
+                                  ceTitle ? "CE world swapchain release did not complete" : halo2Title
                                       ? "Halo 2 synchronous world swapchain release "
                                         "did not complete"
                                       : halo4Title
@@ -10152,7 +10213,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             std::memory_order_relaxed);
                     }
 #endif
-                    const bool projectionImagesReady = reachTitle
+                    const bool projectionImagesReady = ceTitle
+                        ? ceImages&&stereoAcquired&&stereoWaitCompleted&&everyEyeUploaded&&stereoReleased
+                        : reachTitle
                         ? reachImages && reachStereoUploadComplete
                         : halo2Title
                             ? halo2Images && halo2StereoUploadComplete &&
@@ -10803,7 +10866,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         VR_ReachEndRenderAccess(reachAccess);
 #endif
                 }
-                else if (allowStockScreenFrame)
+                else if (allowStockScreenFrame&&!ceOwned)
                 {
 #if HALOMCCVR_HALO2_STEREO6DOF
                     if (halo2StrictStockScreen)
@@ -13047,6 +13110,8 @@ void VR_ToggleStereo()
         LOG("Halo 2 C-H2-2 temporal stereo presentation ON (stock head pose; "
             "one render per frame, adjacent-eye pair)");
 #if HALOMCCVR_HALO2_STEREO6DOF
+    else if (on && TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+        LOG("CE Anniversary native two-view stereo + positional 6DoF presentation ON");
     else if (on && Game_UsesTitleOwnedHeadTracking())
         LOG("Halo 2 C-H2-6 synchronous stereo+6DOF presentation ON "
             "(title-owned headset pose; exact-current-serial eye pair)");

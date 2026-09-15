@@ -1,3 +1,28 @@
+# Latest continuation - September 14, 2026: CE Anniversary candidate
+
+The runtime WIP beyond a6a507a was recovered and preserved under
+out/checkpoints/20260914-215646-ce-finish-resume. CE Anniversary native two-view
+preparation/capture is now connected to shared OpenXR and title admission.
+Early texture metadata, lifetime/raster guards, exact prepared poses, recenter
+revisions, stale-frame rejection and scoped retirement are implemented. Eight
+Release suites pass, including actual WARP pixels through production scopes.
+Read the NEW September 14 bring-up section and E-CE-10 for evidence/limits.
+
+The first connected Anniversary stereo/6DoF candidate is ready for package-only
+testing after final checks. Deliver both build/source ZIPs, then WAIT for the
+user's headset result/instructions. Package with tools/package-candidate.ps1
+without -Install. Current notes: HALOCE-CANDIDATE-2026-09-14.md. No install,
+game-folder writes, MCC launch, PR or publishing. No headset success is claimed;
+accepted pointer remains 4e01f28. Both editions remain supported.
+
+Unfinished CE work is explicitly retained: Classic stereo, controller aim and
+tracked weapons/hands, separate HUD/crosshair, native state/vehicle integration,
+snap turning, head-relative walking and roomscale body following. The graphics
+gesture is wired; Classic currently returns to stock flat presentation. Physical
+melee/world collision await injection confirmation. ALL standing/deferred tasks,
+including H2 vehicles and all-title zoom, remain preserved below. No full CE
+parity/completion claim. Earlier no-runtime-hook entries below are historical.
+
 # Latest continuation - September 13 evening, 2026
 
 CE continuation from clean `73c9cd2`: owned D3D11 eye-cache component implemented,
