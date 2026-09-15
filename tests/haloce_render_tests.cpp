@@ -2,15 +2,35 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <fstream>
 
 using namespace halo_ce;
-int main()
+int main(int argc,char** argv)
 {
     int failures=0;
     const auto check=[&](bool ok,const char* what) {
         if (!ok) { std::fprintf(stderr,"CE: %s\n",what); ++failures; }
     };
     const auto near=[](float a,float b) { return std::fabs(a-b)<0.00001f; };
+    if (argc==4&&std::strcmp(argv[1],"--native-gameplay-bridge-fixture")==0)
+    {
+        std::ifstream source(argv[2],std::ios::binary);
+        std::ofstream destination(argv[3],std::ios::binary);
+        uint32_t count{};
+        if (!source.read(reinterpret_cast<char*>(&count),sizeof(count))||!count||count>1000||
+            !destination.write(reinterpret_cast<const char*>(&count),sizeof(count))) return 1;
+        for (uint32_t index=0;index<count;++index)
+        {
+            SaberCamera saber{};Vec3 offset{};float bias{};Camera mapped{},native{};
+            if (!source.read(reinterpret_cast<char*>(&saber),sizeof(saber))||
+                !source.read(reinterpret_cast<char*>(&offset),sizeof(offset))||
+                !source.read(reinterpret_cast<char*>(&bias),sizeof(bias))||
+                !NativeCameraFromSaber(saber,mapped)||
+                !RecoverNativeCameraFromSaberBridge(mapped,offset,bias,native)||
+                !destination.write(reinterpret_cast<const char*>(&native),sizeof(native))) return 1;
+        }
+        return 0;
+    }
     Camera stock{};
     stock.position={10,20,30}; stock.forward={1,0,0}; stock.up={0,0,1};
     stock.viewport=stock.window={0,0,1000,1000};
@@ -94,6 +114,23 @@ int main()
           near(roundTrip.position.x,stock.position.x)&&
           near(roundTrip.position.y,stock.position.y)&&
           near(roundTrip.position.z,stock.position.z),"Saber camera round trip preserves position");
+    for (Vec3 offset:{Vec3{},Vec3{100,200,300}})
+        for (float bias:{0.0f,.25f,-.5f})
+        {
+            SaberCamera shifted=saberStock;
+            check(BuildSaberPose(stock,offset,bias,shifted.pose),"native bridge fixture builds");
+            Camera mapped{},recovered{};
+            check(NativeCameraFromSaber(shifted,mapped)&&
+                RecoverNativeCameraFromSaberBridge(mapped,offset,bias,recovered)&&
+                near(recovered.position.x,stock.position.x)&&
+                near(recovered.position.y,stock.position.y)&&
+                near(recovered.position.z,stock.position.z),"gameplay recovery removes native bridge offset and bias exactly once");
+            mapped.position=recovered.position;
+            check(std::memcmp(&mapped,&recovered,sizeof(mapped))==0,"gameplay recovery changes only position");
+        }
+    Camera invalidRecovery=stock;
+    check(!RecoverNativeCameraFromSaberBridge(stock,{0,0,std::numeric_limits<float>::infinity()},0,invalidRecovery)&&
+        std::memcmp(&stock,&invalidRecovery,sizeof(stock))==0,"invalid bridge offset preserves output");
     tracking.headOrientation={}; tracking.eyes[0].orientation={};
     tracking.eyes[0].offset={-0.032f,0,0}; reference.orientation={};
     SaberCamera saberEye{};

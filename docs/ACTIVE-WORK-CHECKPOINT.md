@@ -1,3 +1,141 @@
+# Package-ready integrated CE candidate - September 15, 2026
+
+Latest user instruction is to continue until a ZIP is packaged; it supersedes
+all older package holds below. Deliver the build ZIP AND matching source ZIP
+in chat, then wait for headset results. Never install, launch MCC, change game
+folders, open a PR or publish. Accepted 4e01f28 is unchanged; both editions and
+all prior/deferred work remain supported/preserved.
+
+Recovered exact prior root chat through 15:11 UTC HUD update. Pre-edit recovery
+copy: out/checkpoints/20260915-111814-ce-package-resume. This continuation
+finishes the interrupted base CE integration: Classic native eyes; Anniversary
+camera/depth admission, full-height HUD-to-eye replay and restoration; native
+FP skin/GLT/ZFILL/SFX projection; motion-blur configuration; hands, aim, native
+controls and state guards. A new integrated enable flag is on; the three failed
+camera-only experiment flags stay false. Their verified camera construction is
+reused with the new consumers/features, not presented as a new transform fix.
+
+New audit fixes: Anniversary previously never published its gameplay center,
+so its control/shot path could not admit. Publication now removes proven Saber
+world-offset/forward-bias terms with separately verified normal-camera branch
+guards, and rejects free/external cameras. FP retirement now drains nine hooks
+in supported 8+1 batches. HUD callback stack, target, viewport/scissor and
+full-height/half-height mapping are restored and verified.
+
+Final pre-commit Release build and 19/19 CTest suites pass, alongside Reach gate,
+generated contract check and full pinned/mapped native bindings. Actual native
+camera, depth, HUD, controls/shot, blur, skin/material and shader verification
+records are under out/ce-package-* and out/ce-fp-final-*. Actual shader WARP:
+48 draws; gameplay bridge: 27 native->compiled inverse cases. Packaging repeats
+Release/checks for the exact committed identity. Read out/ce-current-handoff.json
+for the finalized package/source paths, hashes and source commit after packaging.
+Candidate notes: docs/HALOCE-BASE-VR-CANDIDATE-2026-09-15.md.
+
+The old b9662cd displaced-right/flat-left Anniversary world-render failure is
+NOT established fixed. Camera/projection/viewport audit found no supported new
+transform correction; this is an integrated headset test, not runtime acceptance.
+Actual live materials, animation/muzzle/HUD behavior, broad vehicle/state parity,
+and Halo 3 regression remain unconfirmed. CE roomscale/body following, physical
+melee/world collision, H2 vehicles, all-title zoom and EVERY standing/deferred
+requirement below are preserved for later. No manual compaction was initiated.
+
+# Latest user instruction - September 15: continue through package delivery
+
+The user explicitly requests continuing the recovered CE/Anniversary work and
+DO NOT stop until a build ZIP is packaged. This supersedes the older packaging
+hold below. Deliver BOTH build and matching source ZIPs in chat; run packaging
+without -Install, then wait for headset testing. No install, game-folder writes,
+MCC launch or PR/publishing. Accepted 4e01f28 remains unchanged.
+
+Recovered the exact prior root chat through its September 15 15:11 UTC HUD
+full-desktop/half-height-eye update. Its motion-blur, native FP shader and HUD
+replay work is preserved with all earlier Classic, input, hands and depth work.
+Finish and verify the base CE VR candidate, Anniversary first; roomscale,
+physical melee/world collision, H2 vehicle refinements and all-title zoom remain
+deferred and retained. Never claim local tests prove the unresolved headset
+world-render failure is fixed. Do not initiate manual context compaction.
+
+# Exact continuation - September 15: native skin verified, depth admission guarded
+
+Recovered the actual 10:00 root chat and its three interrupted agent traces,
+including the unfinished skin-converter verification and native depth audit.
+Pre-edit copy: `out/checkpoints/20260915-102015-ce-exact-resume` (70 WIP files).
+HEAD remains 7d34ab7; accepted 4e01f28 remains unchanged. Previous HUD/controls,
+Classic, hands and deferred roomscale WIP is preserved. No install, launch,
+game-folder writes, package, PR or publishing occurred.
+
+Completed `tools/re/test_ce_skin_native.py`: 30 fixtures execute the pinned
+native bone converter, then the compiled production scale helper. Native
+conversion omits NodeMatrix's separate scale; the adapter applies it to the
+nine basis elements while preserving translation/homogeneous bytes. See
+E-CE-FP-4 and `out/ce-native-skin-adapter-verification-20260915.json`.
+
+Added Anniversary per-eye depth ownership admission at the proven native
+depth-mesh boundary. Immutable depth texture metadata, native selected DSV,
+binding cache, camera raster and interpass resource revision must agree;
+primary eyes cannot share texture/DSV identities and auxiliary depth cannot
+overwrite a completed primary. Invalid ownership drops only that frame.
+See `docs/HALOCE-DEPTH-EVIDENCE-2026-09-15.md` and its contract. Native split
+depth allocation exists; aliasing is NOT established as the headset failure's
+cause. All three rejected stereo enable flags remain false.
+
+After these edits: Release build, all 17 CTest suites, generated-contract
+check, pinned-image contract verification, production mapped-PE verification
+and Reach gate pass. Final records: `out/ce-depth-final-*20260915.txt` and
+`out/ce-depth-contract-verification-20260915.json`. WARP cases include aliasing,
+missing/bad binding, interpass recycling, auxiliary overwrite and recovery.
+These local checks are not headset acceptance. The displaced-right/flat-left
+Anniversary failure and actual FP material projection selection remain open.
+Core CE package hold and all standing/deferred requirements below still apply.
+
+# Current priority - September 15: finish basic CE VR, Anniversary first
+
+Actual previous root chat was read through its last roomscale-wiring update.
+User explicitly corrects that priority: finish basic VR comparable to the other
+games (stereo/6DoF, native HUD/reticle, independent tracked hands, weapon and
+controller aim, standard input). Anniversary is first; Classic remains supported.
+Roomscale, world collision, physical melee and other experimental refinements
+are deferred. Preserve their work without spending this continuation on them.
+No ZIP until the core CE implementation is credibly ready for headset testing.
+No install, MCC launch, game-folder writes, PR or publishing. Accepted 4e01f28
+remains unchanged. The b9662cd world-render failure is still unresolved at this
+resume, and its three rejected enable flags remain false.
+
+# Current resume - September 15 morning: full CE implementation remains WIP
+
+Recovered the actual prior root chat and all three interrupted agent traces.
+User reaffirms: no ZIP until confident both Original and Anniversary provide
+VR comparable to the other titles; the user then headset-tests it, and only
+AFTER functional confirmation do CE physical melee/world collision begin.
+No install, game launch, game-folder writes, PR or publishing. Accepted 4e01f28
+is unchanged. Preserve every standing/deferred item below.
+
+HEAD at recovery: 7d34ab7, the separate disable of failed b9662cd. Preserved
+pre-edit WIP at out/checkpoints/20260915-085454-ce-full-resume. The old session
+ended mid-integration, not at a package-ready point. All three rejected
+Anniversary enable flags remain FALSE; never re-enable them as a correction.
+
+Current source work: Classic native render/capture adapter plus production
+WARP failure/recovery tests; CE independent hand/weapon palette and guarded
+native shot/aim-assist adapter; optional authored-crosshair transaction;
+shared immutable controller/config publication, nonrender stock-camera receipt,
+reference/renderer/generation freshness, and feature lifecycle wiring. Contracts
+are now split by optional feature group; full mapped-PE checks exposed/fixed
+duplicate first-person and HUD prefixes. Shared-renderer regression protects
+Classic completed eyes from a stock Anniversary worker. New native camera
+emulation checks execute pinned instructions and production C++ staging.
+
+These are LOCAL validations, not native visible VR success. Anniversary's
+same displaced-right/flat-left headset failure remains unresolved. Native
+HUD size/aspect/curvature/vertical layout, actual Anniversary FP consumer,
+locomotion/snap/body-following and state/vehicle parity still require work.
+Read latest CE evidence docs and current git diff; active independent work
+covers native shader upload, native HUD geometry, and first-person consumers.
+Do not package a diagnostic/camera-only/single-renderer milestone. Full records
+remain under out/ce-full-resume-*, out/ce-hud-*, out/ce-classic-* and new pinned
+native camera/shot/tag verifiers. Exact final checks must be repeated after
+active edits settle; do not infer current test status from historical output.
+
 # Latest user override - September 15: b9662cd FAILED; full CE package hold
 
 User confirms b9662cd has the SAME displaced right eye / flat left appearance.

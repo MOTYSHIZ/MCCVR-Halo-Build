@@ -129,12 +129,13 @@ bool ReadImage(uintptr_t base,size_t size,Image& image) noexcept
     return image.unwindSize&&image.unwindSize%sizeof(IMAGE_RUNTIME_FUNCTION_ENTRY)==0&&
         image.FileBacked(image.unwindRva,image.unwindSize,false);
 }
-bool Verify(uintptr_t base,size_t size,const char*& failure) noexcept
+bool Verify(uintptr_t base,size_t size,const NativeContractSet& contracts,const char*& failure) noexcept
 {
     Image image{};
     failure="mapped PE identity/range";
     if (!ReadImage(base,size,image)) return false;
-    for (const auto& entry:contract::entries)
+    if (contracts.entries.empty()) { failure="empty feature contract"; return false; }
+    for (const auto& entry:contracts.entries)
     {
         failure=entry.name;
         Pattern pattern{};
@@ -161,14 +162,14 @@ bool Verify(uintptr_t base,size_t size,const char*& failure) noexcept
         if (hits!=1) return false;
     }
     failure="body instruction witness";
-    for (const auto& witness:contract::witnesses)
+    for (const auto& witness:contracts.witnesses)
     {
         Pattern pattern{};
         if (!Parse(witness.pattern,pattern)||!image.FileBacked(witness.rva,pattern.size,true)||
             !Matches(image.bytes+witness.rva,pattern)) return false;
     }
     failure="relative call/data operand";
-    for (const auto& edge:contract::relatives)
+    for (const auto& edge:contracts.relatives)
     {
         if (!image.FileBacked(edge.rva,edge.size,true)||
             !Range(edge.size,edge.displacement,sizeof(int32_t))) return false;
@@ -178,7 +179,7 @@ bool Verify(uintptr_t base,size_t size,const char*& failure) noexcept
         if (target!=edge.target||!Range(size,edge.target,1)) return false;
     }
     failure="relocated backend vtable pointer";
-    for (const auto& pointer:contract::pointers)
+    for (const auto& pointer:contracts.pointers)
     {
         uintptr_t address{};
         if (!image.FileBacked(pointer.rva,sizeof(address),false)) return false;
@@ -190,6 +191,16 @@ bool Verify(uintptr_t base,size_t size,const char*& failure) noexcept
 }
 }
 
+bool VerifyNativeFeatureBindings(uintptr_t base,size_t size,uint32_t generation,
+    const NativeContractSet& contracts,const char*& failure) noexcept
+{
+    failure="zero module generation";
+    if (!generation) return false;
+    __try { return Verify(base,size,contracts,failure); }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { failure="unreadable mapped feature module"; return false; }
+}
+
 bool ResolveNativeBindings(uintptr_t base,size_t size,uint32_t generation,
     NativeBindings& out,const char*& failure) noexcept
 {
@@ -198,7 +209,9 @@ bool ResolveNativeBindings(uintptr_t base,size_t size,uint32_t generation,
     if (!generation) return false;
     __try
     {
-        if (!Verify(base,size,failure)) return false;
+        const NativeContractSet contracts{contract::entries,contract::witnesses,
+            contract::relatives,contract::pointers};
+        if (!Verify(base,size,contracts,failure)) return false;
         out={base,size,generation,
             base+contract::anniversary_camera_view_rebuild,
             base+contract::anniversary_camera_projection_rebuild,

@@ -132,6 +132,20 @@ int RunRoomscaleInputTests()
     for (GameTitle title : {GameTitle::None,GameTitle::Unknown,GameTitle::HaloCE})
         check(!RoomscaleGameplayEligible(title,RuntimeMode::Gameplay),
             "roomscale cannot acquire an unsupported title");
+    // A saved experimental setting cannot inject body-follow movement into
+    // CE's basic VR bring-up, even with fresh tracking and physical motion.
+    testTitle=GameTitle::HaloCE; ++testGeneration; testNow+=1000;
+    Roomscale_Input(false,0,0);
+    const float ceOrientation[4]{0,0,0,1},ceForward[3]{1,0,0};
+    float ceBody[3]{},ceHead[3]{0,1.7f,0},ceReference[3]{0,1.7f,0};
+    for (int sample=0;sample<3;++sample) {
+        Roomscale_Input(RoomscaleGameplayEligible(testTitle,RuntimeMode::Gameplay),0,0);
+        Roomscale_Camera(testTitle,true,ceBody,ceHead,ceOrientation,ceForward,ceReference,0.328084f);
+        float x=0,y=0;
+        check(!Roomscale_Move(x,y)&&x==0&&y==0,
+            "CE experimental roomscale stays deferred with saved setting enabled");
+        testNow+=16; ceHead[2]-=0.2f;
+    }
     g_config.roomscale_movement=saved;
     return failures;
 }

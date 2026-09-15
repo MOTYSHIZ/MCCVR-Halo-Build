@@ -14,6 +14,9 @@ bool TitleAdapter_PublishLifecycle(GameTitle,uint32_t,const TitleRuntimeLifecycl
 bool TitleAdapter_PublishHeartbeat(GameTitle,uint32_t,uint64_t) { return true; }
 float Game_GetWorldScale() { return 1.0f/3.048f; }
 bool Game_IsPositionalTracking() { return true; }
+bool Game_RoomscaleCameraAllowed(GameTitle) { return false; }
+bool HaloCEHud_HasCrosshairScope() noexcept { return false; }
+void Roomscale_Camera(GameTitle,bool,const float*,const float*,const float*,const float*,float*,float) noexcept {}
 void Logf(const char*,...) { }
 bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t count,
     const std::atomic<uint32_t>& value) { return count<=8&&!value.load(); }
@@ -26,6 +29,34 @@ ID3D11Texture2D* testDestination{};
 D3D11_TEXTURE2D_DESC testDesc{};
 bool omitRight{};
 bool invalidBox{};
+bool omitDepth{},omitShading{},foreignUploadCamera{},changedUploadCamera{},changedUploadPlayer{};
+bool aliasDepthResource{},aliasDepthView{},wrongBoundDepth{},changeDepthAtScene{},omitDepthDraw{};
+bool recreateDepthAtScene{},auxiliaryDepthOverwrite{};
+int depthEye{};
+uintptr_t depthRoot{},depthBackend{};
+std::array<std::array<uint8_t,0x118>,2> depthSurfaces{};
+ID3D11DepthStencilView* depthViews[2]{};
+ID3D11Resource* depthTextures[2]{};
+uintptr_t __fastcall NativeDepthSelect(uintptr_t root)
+{ return root==depthRoot?reinterpret_cast<uintptr_t>(depthSurfaces[depthEye].data()):0; }
+void SelectDepth(int eye)
+{
+    depthEye=eye;
+    const auto resource=reinterpret_cast<uintptr_t>(depthTextures[aliasDepthResource?0:eye]);
+    const auto view=reinterpret_cast<uintptr_t>(depthViews[aliasDepthView?0:eye]);
+    std::memcpy(depthSurfaces[eye].data()+0xe0,&resource,8);
+    std::memcpy(depthSurfaces[eye].data()+0x108,&view,8);
+}
+void __fastcall NativeDepthDraw(uintptr_t,uintptr_t,uintptr_t,int32_t eye)
+{
+    if (eye==2) eye=0;
+    SelectDepth(eye);
+    const auto view=reinterpret_cast<uintptr_t>(depthViews[wrongBoundDepth?1-eye:aliasDepthView?0:eye]);
+    std::memcpy(reinterpret_cast<void*>(depthBackend+0xd20),&view,8);
+    testContext->OMSetRenderTargets(0,nullptr,reinterpret_cast<ID3D11DepthStencilView*>(view));
+    testContext->ClearDepthStencilView(reinterpret_cast<ID3D11DepthStencilView*>(view),
+        D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL,eye?.8f:.2f,static_cast<UINT8>(eye+1));
+}
 unsigned nativeCopies{};
 uintptr_t rendererAddress{};
 constexpr uint32_t leftColor=0xff123456,rightColor=0xffabcdef;
@@ -66,10 +97,45 @@ void __fastcall NativeOutput(int eye)
         static_cast<int>(testDesc.Width),static_cast<int>(testDesc.Height)};
     TransferBody(0,&request,bindings.base+0x45e376);
 }
+void __fastcall NativeCameraUpload(uintptr_t,uintptr_t,const SaberCamera* camera)
+{
+    const uintptr_t selected=reinterpret_cast<uintptr_t>(camera);
+    std::memcpy(reinterpret_cast<void*>(rendererAddress+0xbe98),&selected,sizeof(selected));
+}
+void ConsumeCamera(int eye,uintptr_t caller)
+{
+    SelectDepth(changeDepthAtScene&&caller==0x456a86?1-eye:eye);
+    auto* camera=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0+eye*sizeof(SaberView));
+    const SaberCamera saved=*camera;
+    SaberCamera foreign=*camera;
+    if (changedUploadCamera&&eye==1) camera->pose.matrix[12]+=100;
+    if (changedUploadPlayer&&eye==1)
+    {
+        const int32_t otherPlayer=1;
+        std::memcpy(reinterpret_cast<uint8_t*>(camera)+0x220,&otherPlayer,4);
+    }
+    CameraUploadBody(0,0,foreignUploadCamera?&foreign:camera,bindings.base+caller);
+    *camera=saved;
+}
 void __fastcall NativeFrame(uintptr_t,uint32_t)
 {
-    Paint(testSource,leftColor); OutputBody(0);
-    if (!omitRight) { Paint(testSource,rightColor); OutputBody(1); }
+    if (!omitDepth) for (int eye=0;eye<2;++eye)
+    {
+        ConsumeCamera(eye,0x4562bf);
+        if (!omitDepthDraw) DepthMeshBody(0,0,0,eye,bindings.base+0x456329);
+    }
+    if (recreateDepthAtScene)
+    {
+        D3D11_TEXTURE2D_DESC d{};static_cast<ID3D11Texture2D*>(depthTextures[0])->GetDesc(&d);
+        HaloCE_RecordTextureCreated(static_cast<ID3D11Texture2D*>(depthTextures[0]),d);
+    }
+    if (auxiliaryDepthOverwrite) DepthMeshBody(0,0,0,2,bindings.base+0x456329);
+    for (int eye=0;eye<(omitRight?1:2);++eye)
+    {
+        ConsumeCamera(eye,0x456a86);
+        if (!omitShading) ConsumeCamera(eye,0x457c07);
+        Paint(testSource,eye?rightColor:leftColor); OutputBody(eye);
+    }
 }
 uintptr_t __fastcall NativeReset(uintptr_t list)
 { *reinterpret_cast<SaberViewPair*>(list)={}; return 0xfedcba9876543210ull; }
@@ -153,8 +219,34 @@ int main()
     std::memcpy(destinationWrapper.data()+0xe0,&testDestination,sizeof(testDestination));
     RecordResource(reinterpret_cast<uintptr_t>(sourceWrapper.data()));
     RecordResource(reinterpret_cast<uintptr_t>(destinationWrapper.data()));
-    std::vector<uint8_t> mapped(contract::imageSize),renderer(0xc000),job(0xc000);
+    std::vector<uint8_t> mapped(contract::imageSize),renderer(0xc000),job(0xc000),nativeBackend(0xd28),nativeConfig(0x330);
     bindings.base=reinterpret_cast<uintptr_t>(mapped.data()); bindings.generation=3;
+    bindings.surfaceSelector=reinterpret_cast<uintptr_t>(&NativeDepthSelect);
+    depthRoot=reinterpret_cast<uintptr_t>(depthSurfaces[0].data());
+    depthBackend=reinterpret_cast<uintptr_t>(nativeBackend.data());
+    const uintptr_t configAddress=reinterpret_cast<uintptr_t>(nativeConfig.data());
+    const uintptr_t backendVtable=bindings.base+0x17f9d10,textureVtable=bindings.base+0x17fb608;
+    std::memcpy(mapped.data()+0x2e3bdd8,&configAddress,8);
+    std::memcpy(mapped.data()+0x2e3bde0,&depthBackend,8);
+    std::memcpy(mapped.data()+0x2ea2d30,&testContext,8);
+    std::memcpy(nativeConfig.data()+0x318,&depthRoot,8);
+    std::memcpy(nativeBackend.data(),&backendVtable,8);
+    std::memcpy(nativeBackend.data()+0xce0,&testContext,8);
+    std::memcpy(nativeBackend.data()+0x48,&depthRoot,8);
+    ComPtr<ID3D11Texture2D> depthTexture[2];ComPtr<ID3D11DepthStencilView> depthView[2];
+    auto depthDesc=testDesc;depthDesc.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depthDesc.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+    for (int eye=0;eye<2;++eye)
+    {
+        if (FAILED(device->CreateTexture2D(&depthDesc,nullptr,&depthTexture[eye]))||
+            FAILED(device->CreateDepthStencilView(depthTexture[eye].Get(),nullptr,&depthView[eye]))) return 1;
+        depthTextures[eye]=depthTexture[eye].Get();depthViews[eye]=depthView[eye].Get();
+        std::memcpy(depthSurfaces[eye].data(),&textureVtable,8);
+        const uint32_t flags=1u<<9;std::memcpy(depthSurfaces[eye].data()+0x88,&flags,4);
+        SelectDepth(eye);HaloCE_RecordTextureCreated(depthTexture[eye].Get(),depthDesc);
+    }
+    *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
+    CeObserveRendererMode();
     rendererAddress=reinterpret_cast<uintptr_t>(renderer.data());
     std::memcpy(mapped.data()+0x1bea9e0,&rendererAddress,sizeof(rendererAddress));
     installed=true; active=true; retiring=false; armed=true; generation=3; recenter=false; trackingEnabled=true;
@@ -163,6 +255,8 @@ int main()
     hooks[Transfer].original=reinterpret_cast<void*>(&NativeTransfer);
     hooks[Output].original=reinterpret_cast<void*>(&NativeOutput);
     hooks[Frame].original=reinterpret_cast<void*>(&NativeFrame);
+    hooks[CameraUpload].original=reinterpret_cast<void*>(&NativeCameraUpload);
+    hooks[DepthMesh].original=reinterpret_cast<void*>(&NativeDepthDraw);
     hooks[Prepare].original=reinterpret_cast<void*>(&NativePrepare);
     hooks[ResetList].original=reinterpret_cast<void*>(&NativeReset);
     auto bootstrap=MakePrepared(99,rendererAddress+0xb0,PreparationOrigin::ActiveList);
@@ -180,6 +274,9 @@ int main()
         check(p.valid,"fixture uses the production receipt ledger"); preparedLists[0].Publish(p); renderReady.Publish(p);
     };
     publish(100); FrameBody(0,0);
+    FrameDiagnostic initialDepth{};frameDiagnostic.Read(initialDepth);
+    if (initialDepth.failure!=FrameFailure::None)
+        std::fprintf(stderr,"initial frame failure=%u depth=%u mask=%u\n",unsigned(initialDepth.failure),initialDepth.depthFailure,initialDepth.depthMask);
     EyeCache::Completed pair{};
     check(HaloCE_AcquirePair(context.Get(),101,7,pair),"native frame/output/transfer scopes produce a submitted pair with its older prepared pose");
     if (pair.borrowId)
@@ -253,6 +350,170 @@ int main()
     check(frameDiagnostic.Read(diagnostic)&&diagnostic.failure==FrameFailure::CameraChanged&&
         diagnostic.cameraDifference>=sizeof(SaberCamera)&&diagnostic.eyeMask==0,
         "a displaced right camera is rejected and identified before any GPU capture");
+    publish(116); omitDepth=true; FrameBody(0,0); omitDepth=false;
+    check(!HaloCE_AcquirePair(context.Get(),116,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.failure==FrameFailure::DepthResource&&diagnostic.depthFailure==5,
+        "prepared cameras and two GPU colors cannot prove a missing native depth-camera consumption");
+    publish(117); omitShading=true; FrameBody(0,0); omitShading=false;
+    check(!HaloCE_AcquirePair(context.Get(),117,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.consumerFailure==5,"missing native shading upload rejects the current pair only");
+    publish(118); foreignUploadCamera=true; FrameBody(0,0); foreignUploadCamera=false;
+    check(!HaloCE_AcquirePair(context.Get(),118,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.consumerFailure==1,"identical bytes at an unrelated camera address cannot claim a native primary eye");
+    publish(119); changedUploadCamera=true; FrameBody(0,0); changedUploadCamera=false;
+    check(!HaloCE_AcquirePair(context.Get(),119,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.consumerFailure==2,"camera changes after frame entry are rejected at the actual render consumer");
+    publish(120); changedUploadPlayer=true; FrameBody(0,0); changedUploadPlayer=false;
+    check(!HaloCE_AcquirePair(context.Get(),120,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.consumerFailure==3,"camera source-player changes outside the pose prefix cannot claim the right eye");
+    publish(121); FrameBody(0,0);
+    check(HaloCE_AcquirePair(context.Get(),121,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.consumedDepth==3&&diagnostic.consumedScene==3&&diagnostic.consumedShading==3&&
+        diagnostic.consumedCamera[0]==rendererAddress+0xf0&&
+        diagnostic.consumedCamera[1]==rendererAddress+0xf0+sizeof(SaberView)&&
+        diagnostic.sourceResource[0]==reinterpret_cast<uintptr_t>(testSource)&&
+        diagnostic.sourceResource[1]==reinterpret_cast<uintptr_t>(testSource)&&
+        diagnostic.copyContext[0]==reinterpret_cast<uintptr_t>(testContext),
+        "a new frame recovers and reports actual consumed cameras and recycled per-eye source identity");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+    aliasDepthResource=true;publish(122);FrameBody(0,0);aliasDepthResource=false;
+    check(!HaloCE_AcquirePair(context.Get(),122,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==4&&diagnostic.depthResource[0]==diagnostic.depthResource[1]&&
+        diagnostic.depthView[0]!=diagnostic.depthView[1],
+        "different DSV identities cannot admit two eyes using the same depth texture");
+    aliasDepthView=true;publish(123);FrameBody(0,0);aliasDepthView=false;
+    check(!HaloCE_AcquirePair(context.Get(),123,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==4,"aliased depth views reject a manufactured pair");
+    wrongBoundDepth=true;publish(124);FrameBody(0,0);wrongBoundDepth=false;
+    check(!HaloCE_AcquirePair(context.Get(),124,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==1,"native depth draw must bind the selected native depth view");
+    changeDepthAtScene=true;publish(125);FrameBody(0,0);changeDepthAtScene=false;
+    check(!HaloCE_AcquirePair(context.Get(),125,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==5,"scene cannot silently select the opposite eye depth");
+    omitDepthDraw=true;publish(126);FrameBody(0,0);omitDepthDraw=false;
+    check(!HaloCE_AcquirePair(context.Get(),126,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==5,"camera uploads alone do not establish completed native depth draws");
+    publish(127);FrameBody(0,0);
+    check(HaloCE_AcquirePair(context.Get(),127,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthMask==3&&diagnostic.depthFailure==0,
+        "independent current depth restores frame submission after each rejected pair");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+    recreateDepthAtScene=true;publish(128);FrameBody(0,0);recreateDepthAtScene=false;
+    check(!HaloCE_AcquirePair(context.Get(),128,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==5,"reused texture pointers cannot borrow depth from an earlier resource lifetime");
+    auxiliaryDepthOverwrite=true;publish(129);FrameBody(0,0);auxiliaryDepthOverwrite=false;
+    check(!HaloCE_AcquirePair(context.Get(),129,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+        diagnostic.depthFailure==6,"an auxiliary depth draw cannot overwrite a completed primary depth");
+    publish(130);FrameBody(0,0);
+    check(HaloCE_AcquirePair(context.Get(),130,7,pair),"new depth lifetime and clean native frame recover without disarming");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+    {
+        FrameScope post{};
+        post.synthetic=post.capture=true;post.renderer=rendererAddress;
+        post.prepared=MakePrepared(131,rendererAddress+0xb0,PreparationOrigin::ActiveList);
+        post.diagnostic.consumedDepth=post.diagnostic.consumedScene=post.diagnostic.consumedShading=3;
+        auto current=post.prepared.receipt.tracking;current.serial=133;current.motionBlur=true;
+        trackingSnapshot.Publish(current);trackingAtMs.store(GetTickCount64());
+        frameScope=&post;
+        Tracking borrowed{};
+        for (int eye=0;eye<2;++eye)
+        {
+            auto* camera=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0+eye*sizeof(SaberView));
+            post.lastSceneEye=eye;
+            post.diagnostic.consumedCamera[eye]=reinterpret_cast<uintptr_t>(camera);
+            NativeCameraUpload(0,0,camera);
+            check(HaloCE_GetAnniversaryEyeTracking(camera,borrowed)&&borrowed.serial==131&&!borrowed.motionBlur,
+                "post effects borrow each current primary's frozen preparation settings rather than newer XR input");
+            auto foreign=*camera;
+            check(!HaloCE_GetAnniversaryEyeTracking(&foreign,borrowed)&&!borrowed.serial,
+                "identical copied camera bytes cannot lend post-effect ownership");
+            const auto saved=*camera;camera->pose.matrix[12]+=1;
+            check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject camera mutation after shading");
+            *camera=saved;
+        }
+        auto* camera=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0+sizeof(SaberView));
+        const auto selected=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0);
+        NativeCameraUpload(0,0,selected);
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"a later selected camera revokes current-scene post ownership");
+        NativeCameraUpload(0,0,camera);
+        post.diagnostic.consumedShading=1;
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects require completed shading consumption");
+        post.diagnostic.consumedShading=3;
+        post.capture=false;
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"dropped pairs cannot lend post-effect ownership");
+        post.capture=true;current.serial=140;trackingSnapshot.Publish(current);
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject an old preparation beyond the XR serial window");
+        current.serial=133;trackingSnapshot.Publish(current);trackingAtMs.store(GetTickCount64()-300);
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject expired XR publication");
+        trackingAtMs.store(GetTickCount64());current.spaceEpoch=8;trackingSnapshot.Publish(current);
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject a different XR reference space");
+        current.spaceEpoch=7;trackingSnapshot.Publish(current);
+        ++post.prepared.referenceRevision;
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject a changed tracking reference");
+        --post.prepared.referenceRevision;
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"Original renderer cannot borrow an Anniversary post scope");
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
+        check(HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"current post-effect ownership recovers after rejected observations");
+        frameScope=nullptr;
+        check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post-effect ownership ends with the native frame scope");
+    }
+    {
+        // The Anniversary native builder must publish its untouched center
+        // for controls/shot consumers outside render callbacks. Earlier WIP
+        // only published this receipt from Classic, leaving Anniversary inert.
+        Tracking tracking{}; tracking.generation=3; tracking.spaceEpoch=7; tracking.serial=140;
+        tracking.headPosition={.4f,1.7f,-.3f};
+        HaloCE_PublishTracking(tracking,true); recenter=false;
+        const Reference frozen{{0,1.6f,0},{},7,3};
+        Camera native{}; native.position={10,20,30}; native.forward={1,0,0}; native.up={0,0,1};
+        native.verticalFov=1; native.viewport=native.window={0,0,32,32};
+        native.nearPlane=.01f; native.farPlane=1000;
+        const Vec3 offset{17,-9,23}; const float bias=2.5f;
+        std::array<uint8_t,0x138> nativeScene{};
+        const uintptr_t sceneAddress=reinterpret_cast<uintptr_t>(nativeScene.data());
+        std::memcpy(mapped.data()+0x2e3c418,&sceneAddress,sizeof(sceneAddress));
+        std::memcpy(mapped.data()+0x2b05118,&offset,sizeof(offset));
+        std::memcpy(mapped.data()+0x2e3b838,&bias,sizeof(bias));
+        SaberCamera saber{}; BuildSaberPose(native,offset,bias,saber.pose);
+        saber.viewportWidth=32; saber.viewportHeight=32; saber.verticalFovDegrees=57.2957795f;
+        saber.nearPlane=.03f; saber.farPlane=3000;
+        const auto revision=referenceRevision.load();
+        gameplayCamera.Publish({}); RenderContext received{};
+        check(!HaloCE_GetGameplayContext(received),"Anniversary controls require an actual stock-camera publication");
+        gameplayBridgeVerified=false;
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,revision,Game_GetWorldScale(),true);
+        check(!HaloCE_GetGameplayContext(received),"unverified native bridge stays stock for controls only");
+        gameplayBridgeVerified=true;
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,revision,Game_GetWorldScale(),true);
+        check(HaloCE_GetGameplayContext(received)&&std::fabs(received.camera.position.x-10)<.0001f&&
+            std::fabs(received.camera.position.y-20)<.0001f&&std::fabs(received.camera.position.z-30)<.0001f&&
+            received.tracking.serial==140&&received.referenceRevision==revision,
+            "Anniversary stock-camera receipt reaches nonrender controls without tracked-eye offsets");
+        tracking.serial=141; tracking.headPosition.x=.7f; HaloCE_PublishTracking(tracking,true);
+        check(HaloCE_GetGameplayContext(received)&&received.tracking.serial==141&&
+            received.tracking.headPosition.x==.7f&&std::fabs(received.camera.position.x-10)<.0001f,
+            "controls refresh XR input while preserving the native center and matching reference");
+        mapped[0x2e3b826]=1;
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,revision,Game_GetWorldScale(),true);
+        check(!HaloCE_GetGameplayContext(received),"native free camera immediately revokes prior gameplay publication");
+        mapped[0x2e3b826]=0; nativeScene[0x130]=1;
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,revision,Game_GetWorldScale(),true);
+        check(!HaloCE_GetGameplayContext(received),"external native scene camera cannot be inverted as a gameplay center");
+        nativeScene[0x130]=0;
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,revision,Game_GetWorldScale(),true);
+        check(HaloCE_GetGameplayContext(received),"ordinary native camera publication recovers after external mode");
+        HaloCE_Recenter();
+        check(!HaloCE_GetGameplayContext(received),"recenter revokes the nonrender Anniversary control receipt");
+        recenter=false;
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,revision,Game_GetWorldScale(),true);
+        check(!HaloCE_GetGameplayContext(received),"old builder revision cannot republish after recenter");
+        PublishAnniversaryGameplayContext(saber,tracking,frozen,referenceRevision.load(),Game_GetWorldScale(),true);
+        check(HaloCE_GetGameplayContext(received),"new native center recovers Anniversary controls");
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
+        check(!HaloCE_GetGameplayContext(received),"graphics-mode switch revokes Anniversary controls before reuse");
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1; CeObserveRendererMode();
+    }
     ResourceRegistry::Record recorded{};
     resources.Forget(reinterpret_cast<uintptr_t>(testSource));
     HaloCE_RecordTextureCreated(testSource,testDesc);

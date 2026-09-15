@@ -1,9 +1,22 @@
 #pragma once
 #include "../common/haloce_anniversary_logic.h"
 #include "../common/haloce_view_pair.h"
+#include "../common/haloce_contracts.generated.h"
+#include <span>
 
 namespace halo_ce
 {
+struct NativeContractSet
+{
+    std::span<const contract::Entry> entries;
+    std::span<const contract::Witness> witnesses;
+    std::span<const contract::Relative> relatives;
+    std::span<const contract::Pointer> pointers;
+};
+// Cold, read-only verification for one independent feature. A failed optional
+// set never mutates the camera bindings or any other feature's lifecycle.
+bool VerifyNativeFeatureBindings(uintptr_t base,size_t size,uint32_t generation,
+    const NativeContractSet& contracts,const char*& failure) noexcept;
 struct NativeBindings
 {
     uintptr_t base{};

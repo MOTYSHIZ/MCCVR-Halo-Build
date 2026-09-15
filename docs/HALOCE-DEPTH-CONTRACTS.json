@@ -1,0 +1,38 @@
+[
+  {
+    "name": "anniversary_depth_mesh_pass",
+    "rva": "0x4577b0",
+    "signature": "40 53 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 48 8B 0D ?? ?? ?? ?? 49 63 D9",
+    "function_entry": true,
+    "evidence": "E-CE-DEPTH-1",
+    "relative_operands": [
+      {
+        "instruction_rva": "0x456324",
+        "target_rva": "0x4577b0",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 87 14 00 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0x4575d5",
+        "signature": "48 8B 88 18 03 00 00"
+      },
+      {
+        "rva": "0x22b84e",
+        "signature": "48 8B 80 08 01 00 00"
+      }
+    ],
+    "image_pointers": [
+      {
+        "rva": "0x17fb6e8",
+        "target_rva": "0x22b830"
+      },
+      {
+        "rva": "0x17f9e08",
+        "target_rva": "0x205e40"
+      }
+    ]
+  }
+]

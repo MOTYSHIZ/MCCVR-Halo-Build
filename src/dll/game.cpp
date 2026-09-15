@@ -27,6 +27,11 @@
 #include <MinHook.h>
 #include "game.h"
 #include "haloce_stereo_core.h"
+#include "haloce_first_person.h"
+#include "haloce_hud.h"
+#include "haloce_hud_layout.h"
+#include "haloce_controls.h"
+#include "haloce_comfort.h"
 #include "roomscale.h"
 #include "d3d11_hook.h"
 #include "sigscan.h"
@@ -40810,6 +40815,14 @@ namespace
                     !g_vrRuntimeFailureLatched.load(std::memory_order_acquire);
                 if (ceActive) sig::ModuleRange(L"halo1.dll",ceBase,ceSize);
                 HaloCE_Poll(ceBase,ceSize,TitleAdapter_GetGeneration(GameTitle::HaloCE),ceActive);
+                // Feature transactions retire independently. A missing hand
+                // graph or HUD target must never disarm CE's camera core.
+                const auto ceGeneration=TitleAdapter_GetGeneration(GameTitle::HaloCE);
+                (void)HaloCEControls_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEFirstPerson_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEHud_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEHudLayout_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEComfort_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
             }
             if (!halo2Active)
                 Halo2ColdObservation_Rearm();
@@ -41568,6 +41581,8 @@ bool Game_IsCameraOnlyBringup()
 bool Game_TitleCapturesAuthoredCrosshair()
 {
     const GameTitle activeTitle = TitleAdapter_GetActiveTitle();
+    if (activeTitle == GameTitle::HaloCE)
+        return HaloCEHud_CapturedCrosshair();
 #if HALOMCCVR_HALO2_STEREO6DOF
     // Do not revoke the generic marker merely because the shader hooks exist.
     // Ownership changes only after a real native Halo 2 crosshair draw has
@@ -41632,6 +41647,8 @@ uint64_t Game_GetReachAuthoredCrosshairKey()
 }
 uint64_t Game_GetAuthoredCrosshairKey()
 {
+    if (TitleAdapter_GetActiveTitle() == GameTitle::HaloCE)
+        return HaloCEHud_CrosshairKey();
 #if HALOMCCVR_HALO2_STEREO6DOF
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2 &&
         D3D_Halo2NativeCrosshairCaptured())
@@ -41701,6 +41718,8 @@ void Game_RejectReachAuthoredReticle(uint32_t expectedGeneration,
 
 bool Game_VrOwnsLookStick()
 {
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+        return Game_CeControllerFeaturesRequested()&&HaloCEControls_OwnsLookStick();
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     if (OdstVrOwnsLookStick(
             OdstCameraOnlyContext(),
@@ -42680,12 +42699,25 @@ void Game_AutoVrTick()
             g_enabled.store(true,std::memory_order_release);
             g_autoVrOwned.store(true,std::memory_order_release);
             if (!VR_IsStereoEnabled()) VR_ToggleStereo();
+            HaloCELocalPlayerState player{};
+            RuntimeMode mode=RuntimeMode::Unsupported;
+            if (HaloCEControls_GetLocalPlayerState(player))
+            {
+                if (player.nativePaused) mode=RuntimeMode::Paused;
+                else if (player.nativeCinematicFlag) mode=RuntimeMode::Cutscene;
+                else if (!player.hasControlledUnit) mode=RuntimeMode::Dead;
+                else if (!player.nativeInputBlocked&&!player.nativeLookBlocked)
+                    mode=!player.onFoot?RuntimeMode::Vehicle:
+                        player.nativePreparesFirstPerson?RuntimeMode::Gameplay:RuntimeMode::Unsupported;
+            }
             TitleAdapter_PublishMode(GameTitle::HaloCE,
                 TitleAdapter_GetGeneration(GameTitle::HaloCE),
-                VR_IsPausePresentationTarget() ? RuntimeMode::Paused : RuntimeMode::Gameplay);
+                VR_IsPausePresentationTarget()?RuntimeMode::Paused:mode);
         }
         else if (g_autoVrOwned.exchange(false))
         {
+            LOG("CE presentation detached by Game_AutoVrTick: core=%d userVeto=%d runtimeFailure=%d",
+                HaloCE_Armed()?1:0,g_autoVrUserVeto.load()?1:0,g_vrRuntimeFailureLatched.load()?1:0);
             g_enabled.store(false,std::memory_order_release);
             VR_DetachGamePresentation();
         }
@@ -43835,6 +43867,13 @@ bool Game_Halo2ControllerAimActive()
 #endif
 }
 
+bool Game_CeControllerFeaturesRequested()
+{
+    return TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&
+        g_enabled.load(std::memory_order_acquire)&&g_vrAim.load(std::memory_order_acquire)&&
+        VR_IsStereoEnabled();
+}
+
 // C-H2-41. H2EK units.cpp proves stick look updates unit->aiming_vector at
 // +0x174. weapons.cpp's native firing helper copies that exact vector into the
 // direction later passed to weapon_barrel_simulation_action and projectile
@@ -44829,6 +44868,13 @@ bool Game_GetClampedAimDirection(float outDir[3])
 
 void Game_MapMoveStick(float& mx, float& my)
 {
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+    {
+        float x{},y{};
+        if (Game_CeControllerFeaturesRequested()&&HaloCEControls_MapMoveStick(mx,my,x,y))
+        { mx=x;my=y; }
+        return;
+    }
     if (TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
     {
         // Reach has no controller aim: its stock movement heading is frozen (the
@@ -44967,6 +45013,14 @@ void Game_MapMoveStick(float& mx, float& my)
 
 bool Game_MoveStickIsLocomotion()
 {
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+    {
+        HaloCELocalPlayerState player{};
+        return HaloCEControls_GetLocalPlayerState(player)&&player.hasControlledUnit&&
+            !player.nativeInputBlocked&&!player.nativeLookBlocked&&!player.nativePaused&&
+            !player.nativeCinematicFlag&&!Menu_IsOpen()&&!VR_IsPausePresentation()&&
+            !VR_IsPausePresentationTarget()&&!VR_IsCutsceneTheaterActive();
+    }
     // Only these runtime modes drive the character with the left stick. Every
     // other mode (Paused/settings, Shell, Loading, Cutscene, Dead, Unsupported)
     // means the game is reading the stick for menu navigation, so the input
@@ -45264,6 +45318,13 @@ bool Game_RoomscaleCameraAllowed(GameTitle title)
     {
         switch(title)
         {
+        case GameTitle::HaloCE:
+        {
+            HaloCELocalPlayerState player{};
+            return HaloCEControls_GetLocalPlayerState(player)&&player.hasControlledUnit&&
+                player.onFoot&&player.nativePreparesFirstPerson&&!player.nativeInputBlocked&&
+                !player.nativeLookBlocked&&!player.nativePaused&&!player.nativeCinematicFlag;
+        }
         case GameTitle::Halo3:
         {
             int32_t scene=-1,shot=-1;

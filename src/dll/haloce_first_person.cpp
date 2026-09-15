@@ -1,0 +1,621 @@
+#include "haloce_first_person.h"
+#include "haloce_stereo_core.h"
+#include "haloce_native_bindings.h"
+#include "hook_quiescence.h"
+#include "title_adapter.h"
+#include "../common/haloce_first_person_logic.h"
+#include "../common/haloce_snapshot.h"
+#include "../common/minhook_lifecycle.h"
+#include "../common/log.h"
+#include <windows.h>
+#include <intrin.h>
+#include <MinHook.h>
+#include <limits>
+
+namespace
+{
+using namespace halo_ce;
+using PrepareFn=void(__fastcall*)(int16_t);
+using PaletteFn=void(__fastcall*)(uint32_t,NodeMatrix*,const void*,const Vec3*,const Vec3*,const Vec3*);
+using TagGetFn=uintptr_t(__fastcall*)(uint32_t);
+using ModernRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,Vec3*,const Vec3*,bool,bool);
+using LegacyRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,float*,bool,bool);
+using PlayerRayFn=int16_t(__fastcall*)(uint32_t,Vec3*,Vec3*);
+using SkinConvertFn=void(__fastcall*)(const NodeMatrix*,SaberBoneMatrix*);
+using GltConstantsFn=void(__fastcall*)(uintptr_t,float*,uintptr_t,const uint32_t*,
+    uintptr_t,uintptr_t,uintptr_t,const float*);
+struct Hook { void* target{};void* original{};bool enabled{}; };
+Hook prepareHook,paletteHook;
+Hook modernRayHook,legacyRayHook,assistRayHook;
+Hook skinConvertHook;
+Hook projectionHook,zfillProjectionHook,sfxProjectionHook;
+HMODULE retainedModule{};
+uintptr_t moduleBase{};
+std::atomic<uint32_t> generation{},callbacks{};
+std::atomic<bool> installed{},active{},retiring{};
+std::atomic<bool> aimInstalled{};
+bool aimRetiring{};
+std::atomic<bool> skinInstalled{};
+bool skinRetiring{};
+std::atomic<bool> projectionInstalled{};
+bool projectionRetiring{};
+std::atomic<uint64_t> observed{},applied{},refused{},exceptions{},lastApplied{};
+std::atomic<uint64_t> aimObserved{},aimApplied{},aimRefused{};
+std::atomic<uint64_t> assistApplied{};
+std::atomic<uint64_t> skinApplied{},skinRefused{};
+std::atomic<uint64_t> projectionApplied{},projectionRefused{};
+uint32_t failedGeneration{};
+uint32_t aimFailedGeneration{};
+uint32_t skinFailedGeneration{};
+uint32_t projectionFailedGeneration{};
+uint64_t lastReport{};
+struct Scope
+{
+    RenderContext context{};
+    NodeMatrix* output{};
+    bool valid{};
+};
+struct PaletteReceipt
+{
+    RenderContext context{};
+    uint64_t capturedAtMs{};
+};
+Snapshot<PaletteReceipt> paletteReceipt;
+thread_local Scope* scope{};
+struct Callback
+{
+    Callback() { callbacks.fetch_add(1,std::memory_order_acq_rel); }
+    ~Callback() { callbacks.fetch_sub(1,std::memory_order_release); }
+};
+template<class T> bool Read(uintptr_t address,T& value) noexcept
+{
+    if (!address) return false;
+    __try { std::memcpy(&value,reinterpret_cast<const void*>(address),sizeof(value));return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool Current() noexcept
+{
+    return installed.load(std::memory_order_acquire)&&active.load(std::memory_order_acquire)&&
+        !retiring.load(std::memory_order_acquire)&&
+        TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&
+        TitleAdapter_GetGeneration(GameTitle::HaloCE)==generation.load(std::memory_order_acquire);
+}
+bool CurrentPaletteContext(RenderContext& context) noexcept
+{
+    const uint64_t last=lastApplied.load(std::memory_order_acquire),now=GetTickCount64();
+    PaletteReceipt receipt{};
+    if (!Current()||!last||now<last||now-last>=250||!paletteReceipt.Read(receipt)||
+        receipt.capturedAtMs!=last||!HaloCE_RenderContextCurrent(receipt.context)||
+        lastApplied.load(std::memory_order_acquire)!=last) return false;
+    context=receipt.context;
+    return true;
+}
+bool AimCurrent() noexcept
+{
+    return aimInstalled.load(std::memory_order_acquire)&&active.load(std::memory_order_acquire)&&
+        !retiring.load(std::memory_order_acquire)&&
+        TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&
+        TitleAdapter_GetGeneration(GameTitle::HaloCE)==generation.load(std::memory_order_acquire);
+}
+bool LocalOnFootShooter(uint32_t shooter) noexcept
+{
+    if (shooter==0xffffffffu) return false;
+    HaloCELocalPlayerState state{};
+    return HaloCEControls_GetLocalPlayerState(state)&&state.hasControlledUnit&&state.unit==shooter&&
+        state.weapon!=0xffffffffu&&state.onFoot&&state.nativePreparesFirstPerson&&
+        !state.nativeInputBlocked&&!state.nativeLookBlocked&&!state.nativePaused&&
+        !state.nativeCinematicFlag;
+}
+bool ControllerShotDirection(uint32_t shooter,Vec3& direction) noexcept
+{
+    RenderContext context{};NodeMatrix aim{};
+    if (!AimCurrent()||!LocalOnFootShooter(shooter)||
+        !HaloCE_GetGameplayContext(context)||
+        context.tracking.controllers.controlsPresentationBlocked||
+        !BuildControllerMatrix(context.camera,context.tracking,context.reference,
+            context.tracking.controllers.primaryAim,context.unitsPerMeter,context.positional,aim)||
+        !HaloCE_RenderContextCurrent(context)||!AimCurrent()) return false;
+    direction=aim.forward;
+    return true;
+}
+bool WriteDirection(Vec3* destination,const Vec3& value) noexcept
+{
+    if (!destination||!Finite(value)||std::fabs(Dot(value,value)-1)>0.05f) return false;
+    __try { std::memcpy(destination,&value,sizeof(value));return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+}
+__declspec(noinline) void __fastcall ModernRayHook(uint32_t unit,Vec3* position,
+    Vec3* direction,Vec3* inheritedVelocity,const Vec3* offset,bool projectOrigin,bool useUnitAim)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<ModernRayFn>(modernRayHook.original);
+    if (!original) return;
+    Vec3 controller{};
+    const bool callsite=reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0xb7a796;
+    if (callsite&&AimCurrent()) aimObserved.fetch_add(1,std::memory_order_relaxed);
+    if (!callsite||!ControllerShotDirection(unit,controller)||!direction)
+    {
+        if (callsite&&AimCurrent()) aimRefused.fetch_add(1,std::memory_order_relaxed);
+        original(unit,position,direction,inheritedVelocity,offset,projectOrigin,useUnitAim);return;
+    }
+    // The stock native helper still projects/clamps the authored muzzle and
+    // computes inherited velocity. Only its optional unit-facing overwrite is
+    // disabled. Trigger code applies stock spread/magnetism after this call.
+    original(unit,position,&controller,inheritedVelocity,offset,projectOrigin,false);
+    if (WriteDirection(direction,controller)) aimApplied.fetch_add(1,std::memory_order_relaxed);
+    else aimRefused.fetch_add(1,std::memory_order_relaxed);
+}
+__declspec(noinline) void __fastcall LegacyRayHook(uint32_t unit,Vec3* position,
+    Vec3* direction,float* inheritedSpeed,bool projectOrigin,bool useUnitAim)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<LegacyRayFn>(legacyRayHook.original);
+    if (!original) return;
+    Vec3 controller{};
+    const bool callsite=reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0xb7a858;
+    if (callsite&&AimCurrent()) aimObserved.fetch_add(1,std::memory_order_relaxed);
+    if (!callsite||!ControllerShotDirection(unit,controller)||!direction)
+    {
+        if (callsite&&AimCurrent()) aimRefused.fetch_add(1,std::memory_order_relaxed);
+        original(unit,position,direction,inheritedSpeed,projectOrigin,useUnitAim);return;
+    }
+    original(unit,position,&controller,inheritedSpeed,projectOrigin,false);
+    if (WriteDirection(direction,controller)) aimApplied.fetch_add(1,std::memory_order_relaxed);
+    else aimRefused.fetch_add(1,std::memory_order_relaxed);
+}
+__declspec(noinline) int16_t __fastcall AssistRayHook(uint32_t unit,Vec3* position,Vec3* direction)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<PlayerRayFn>(assistRayHook.original);
+    if (!original) return -1;
+    const int16_t perspective=original(unit,position,direction);
+    Vec3 controller{};
+    // This is the downstream PLAYER aim-assist ray, after shot adjustment.
+    // Other uses of the director ray (camera, AI, scopes) remain untouched.
+    if (reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0xb67be4&&
+        ControllerShotDirection(unit,controller)&&WriteDirection(direction,controller))
+        assistApplied.fetch_add(1,std::memory_order_relaxed);
+    return perspective;
+}
+bool ReadGraph(uint32_t graph,AnimationNode (&nodes)[kFirstPersonMaxNodes],uint32_t& count) noexcept
+{
+    if (graph==0xffffffffu||(graph&0xffffu)>=0x8000u) return false;
+    __try
+    {
+        const uintptr_t definition=reinterpret_cast<TagGetFn>(
+            moduleBase+contract::first_person::first_person_cached_tag_get)(graph);
+        if (!definition) return false;
+        const int32_t nodeCount=*reinterpret_cast<const int32_t*>(definition+0x68);
+        const int32_t cached=*reinterpret_cast<const int32_t*>(definition+0x6c);
+        if (nodeCount<=0||nodeCount>int32_t(kFirstPersonMaxNodes)||!cached) return false;
+        const intptr_t tagVirtual=*reinterpret_cast<const intptr_t*>(moduleBase+0x2ea3410);
+        const intptr_t tagMapped=*reinterpret_cast<const intptr_t*>(moduleBase+0x2d9ce10);
+        const intptr_t relative=intptr_t(cached)-tagVirtual;
+        if (tagMapped<=0||relative<0||relative>0x40000000||
+            tagMapped>std::numeric_limits<intptr_t>::max()-relative) return false;
+        std::memcpy(nodes,reinterpret_cast<const void*>(tagMapped+relative),
+            size_t(nodeCount)*sizeof(AnimationNode));
+        count=uint32_t(nodeCount);
+        return true;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool CopyPalette(const NodeMatrix* source,NodeMatrix* destination,size_t count) noexcept
+{
+    if (!source||!destination||!count||count>kFirstPersonMaxNodes) return false;
+    __try { std::memcpy(destination,source,count*sizeof(NodeMatrix));return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool ScaleConvertedSkin(const NodeMatrix* source,SaberBoneMatrix* destination) noexcept
+{
+    NodeMatrix native{};SaberBoneMatrix converted{};RenderContext context{};
+    if (!source||!destination||!CurrentPaletteContext(context)||
+        context.tracking.controllers.controlsPresentationBlocked||
+        !Read(reinterpret_cast<uintptr_t>(source),native)||!Valid(native)||
+        !Read(reinterpret_cast<uintptr_t>(destination),converted)||
+        !ApplySaberFirstPersonScale(native.scale,converted)||
+        !HaloCE_RenderContextCurrent(context)||!Current()) return false;
+    __try { std::memcpy(destination,&converted,sizeof(converted));return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+}
+__declspec(noinline) void __fastcall SkinConvertHook(const NodeMatrix* source,SaberBoneMatrix* destination)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<SkinConvertFn>(skinConvertHook.original);
+    if (!original) return;
+    original(source,destination);
+    // Only the native first-person skin subclass's proven conversion call.
+    // Object carrier conversion and all world-object matrices remain native.
+    if (reinterpret_cast<uintptr_t>(_ReturnAddress())!=moduleBase+0x8b982||
+        !skinInstalled.load(std::memory_order_acquire)||!Current()) return;
+    if (ScaleConvertedSkin(source,destination)) skinApplied.fetch_add(1,std::memory_order_relaxed);
+    else skinRefused.fetch_add(1,std::memory_order_relaxed);
+}
+bool ApplyTrackedProjection(float* constants,uintptr_t model,size_t selectorOffset=0x170) noexcept
+{
+    uint32_t flags{};float selector[4]{};RenderContext context{};
+    if (!constants||!model||!Read(model+0x28,flags)||!(flags&0x10000000u)||
+        !CurrentPaletteContext(context)||
+        context.tracking.controllers.controlsPresentationBlocked||
+        !Read(reinterpret_cast<uintptr_t>(constants)+selectorOffset,selector)||
+        !SelectSaberTrackedProjection(flags,selector)||
+        !HaloCE_RenderContextCurrent(context)||!Current()) return false;
+    __try { std::memcpy(reinterpret_cast<uint8_t*>(constants)+selectorOffset,selector,sizeof(selector));return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+}
+__declspec(noinline) void __fastcall ProjectionHook(uintptr_t material,float* constants,
+    uintptr_t model,const uint32_t* variants,uintptr_t a5,uintptr_t a6,uintptr_t a7,const float* a8)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<GltConstantsFn>(projectionHook.original);
+    if (!original) return;
+    original(material,constants,model,variants,a5,a6,a7,a8);
+    if (!projectionInstalled.load(std::memory_order_acquire)||!Current()) return;
+    // The native writer is GLT-specific. Only its proven first-person flag
+    // and exact four-lane selector can authorize the optional correction.
+    uint32_t flags{};
+    if (!Read(model+0x28,flags)||!(flags&0x10000000u)) return;
+    if (ApplyTrackedProjection(constants,model)) projectionApplied.fetch_add(1,std::memory_order_relaxed);
+    else projectionRefused.fetch_add(1,std::memory_order_relaxed);
+}
+__declspec(noinline) void __fastcall ZfillProjectionHook(uintptr_t material,float* constants,
+    uintptr_t model,const uint32_t* variants,uintptr_t a5,uintptr_t a6,uintptr_t a7,const float* a8)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<GltConstantsFn>(zfillProjectionHook.original);
+    if (!original) return;
+    original(material,constants,model,variants,a5,a6,a7,a8);
+    if (!projectionInstalled.load(std::memory_order_acquire)||!Current()) return;
+    uint32_t flags{};
+    if (!Read(model+0x28,flags)||!(flags&0x10000000u)) return;
+    if (ApplyTrackedProjection(constants,model,0x20)) projectionApplied.fetch_add(1,std::memory_order_relaxed);
+    else projectionRefused.fetch_add(1,std::memory_order_relaxed);
+}
+__declspec(noinline) void __fastcall SfxProjectionHook(uintptr_t material,float* constants,
+    uintptr_t model,const uint32_t* variants,uintptr_t a5,uintptr_t a6,uintptr_t a7,const float* a8)
+{
+    Callback callback;
+    const auto original=reinterpret_cast<GltConstantsFn>(sfxProjectionHook.original);
+    if (!original) return;
+    original(material,constants,model,variants,a5,a6,a7,a8);
+    if (!projectionInstalled.load(std::memory_order_acquire)||!Current()) return;
+    uint32_t flags{};
+    if (!Read(model+0x28,flags)||!(flags&0x10000000u)) return;
+    if (ApplyTrackedProjection(constants,model,0x70)) projectionApplied.fetch_add(1,std::memory_order_relaxed);
+    else projectionRefused.fetch_add(1,std::memory_order_relaxed);
+}
+bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexcept
+{
+    AnimationNode nodes[kFirstPersonMaxNodes]{};
+    uint32_t count{};
+    if (!ReadGraph(graph,nodes,count)) return false;
+    FirstPersonBinding binding{};
+    const auto& context=owner.context;
+    if (!BuildFirstPersonBinding(graph,context.tracking.generation,nodes,count,binding)) return false;
+    std::array<NodeMatrix,kFirstPersonMaxNodes> source{},staged{};
+    if (!CopyPalette(matrices,source.data(),count)) return false;
+    if (!BuildTrackedFirstPersonPalette(binding,source.data(),context.camera,context.tracking,
+            context.reference,context.unitsPerMeter,context.positional,staged)) return false;
+    // Ownership is checked after staging as well: a title transition cannot
+    // publish an old graph merely because its native builder completed.
+    if (!Current()||generation.load()!=context.tracking.generation||
+        !HaloCE_RenderContextCurrent(context)) return false;
+    if (!CopyPalette(staged.data(),matrices,count))
+    {
+        (void)CopyPalette(source.data(),matrices,count);
+        return false;
+    }
+    // Skin/lens consumers must refer to the palette that actually committed.
+    // A fresh gameplay sample is not evidence that its native palette tracked
+    // successfully, especially after recenter, graphics switch or fallback.
+    const uint64_t now=GetTickCount64();
+    if (!now||!paletteReceipt.Publish({context,now}))
+    {
+        (void)CopyPalette(source.data(),matrices,count);
+        return false;
+    }
+    lastApplied.store(now,std::memory_order_release);
+    return true;
+}
+__declspec(noinline) void __fastcall PaletteHook(uint32_t graph,NodeMatrix* matrices,
+    const void* animation,const Vec3* position,const Vec3* forward,const Vec3* up)
+{
+    Callback callback;
+    auto original=reinterpret_cast<PaletteFn>(paletteHook.original);
+    if (!original) return;
+    original(graph,matrices,animation,position,forward,up);
+    if (!Current()||!scope||!scope->valid||scope->output!=matrices||
+        reinterpret_cast<uintptr_t>(_ReturnAddress())!=moduleBase+0xb29d8d) return;
+    observed.fetch_add(1,std::memory_order_relaxed);
+    if (ApplyPalette(graph,matrices,*scope))
+    { applied.fetch_add(1,std::memory_order_relaxed); }
+    else refused.fetch_add(1,std::memory_order_relaxed);
+}
+void RunPrepare(PrepareFn original,int16_t user,Scope* current,Scope* previous)
+{
+    scope=current;
+    __try { original(user); }
+    __finally { scope=previous; }
+}
+__declspec(noinline) void __fastcall PrepareHook(int16_t user)
+{
+    Callback callback;
+    auto original=reinterpret_cast<PrepareFn>(prepareHook.original);
+    if (!original) return;
+    Scope local{};
+    Scope* previous=scope;
+    // The original prepare rebuilds stock first-person matrices. Invalidate
+    // the old success even if this invocation cannot produce a tracked rig.
+    if (user==0&&!previous) lastApplied.store(0,std::memory_order_release);
+    Camera stock{};
+    uintptr_t users{};
+    if (user==0&&!previous&&Current()&&Read(moduleBase+0x29af2c4,stock)&&
+        Read(moduleBase+0x2d9cd90,users)&&users&&
+        users<=std::numeric_limits<uintptr_t>::max()-0x1e94&&
+        HaloCE_GetRenderContext(stock,local.context))
+    {
+        local.output=reinterpret_cast<NodeMatrix*>(users+0x1088);
+        local.valid=true;
+    }
+    RunPrepare(original,user,&local,previous);
+}
+bool Remove() noexcept
+{
+    active=false;retiring=true;installed=false;aimInstalled=false;skinInstalled=false;projectionInstalled=false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook})
+    {
+        if (!hook->target||!hook->enabled) continue;
+        const auto result=MCCVR_DisableHookForRetirement(hook->target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        hook->enabled=false;
+    }
+    const void* functions[]={reinterpret_cast<const void*>(&PrepareHook),reinterpret_cast<const void*>(&PaletteHook),
+        reinterpret_cast<const void*>(&ModernRayHook),reinterpret_cast<const void*>(&LegacyRayHook),
+        reinterpret_cast<const void*>(&AssistRayHook),reinterpret_cast<const void*>(&SkinConvertHook),
+        reinterpret_cast<const void*>(&ProjectionHook),reinterpret_cast<const void*>(&ZfillProjectionHook),
+        reinterpret_cast<const void*>(&SfxProjectionHook)};
+    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original};
+    // The shared native stack verifier admits at most eight detour ranges.
+    // All nine entries above are disabled before either batch is checked;
+    // keep every trampoline/module alive until both batches are quiescent.
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,8,callbacks)||
+        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,1,callbacks)) return false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook})
+    {
+        if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
+        *hook={};
+    }
+    if (retainedModule) { FreeLibrary(retainedModule);retainedModule=nullptr; }
+    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;skinRetiring=false;projectionRetiring=false;
+    return true;
+}
+bool RemoveSkin() noexcept
+{
+    skinInstalled=false;skinRetiring=true;
+    if (skinConvertHook.target&&skinConvertHook.enabled)
+    {
+        const auto result=MCCVR_DisableHookForRetirement(skinConvertHook.target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        skinConvertHook.enabled=false;
+    }
+    const void* functions[]={reinterpret_cast<const void*>(&SkinConvertHook)};
+    const void* trampolines[]={skinConvertHook.original};
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,1,callbacks)) return false;
+    if (skinConvertHook.target&&MH_RemoveHook(skinConvertHook.target)!=MH_OK) return false;
+    skinConvertHook={};skinRetiring=false;return true;
+}
+bool InstallSkin(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::first_person_skin::entries,
+        contract::first_person_skin::witnesses,contract::first_person_skin::relatives,contract::first_person_skin::pointers};
+    if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
+    { LOG("CE Anniversary hand scale stock fallback: binding verification failed: %s",failure?failure:"unknown");return false; }
+    void* target=reinterpret_cast<void*>(base+contract::first_person_skin::first_person_saber_bone_convert);
+    auto result=MH_CreateHook(target,reinterpret_cast<void*>(&SkinConvertHook),&skinConvertHook.original);
+    if (result!=MH_OK)
+    { LOG("CE Anniversary hand scale stock fallback: create hook status %d",result);return false; }
+    skinConvertHook.target=target;
+    result=MH_EnableHook(target);
+    if (result!=MH_OK)
+    { LOG("CE Anniversary hand scale stock fallback: enable hook status %d",result);(void)RemoveSkin();return false; }
+    skinConvertHook.enabled=true;skinInstalled=true;
+    LOG("CE Anniversary hand scale installed: native FP skin conversion preserves tracked gun/hand scale and floating arms");
+    return true;
+}
+bool RemoveProjection() noexcept
+{
+    projectionInstalled=false;projectionRetiring=true;
+    for (Hook* hook:{&projectionHook,&zfillProjectionHook,&sfxProjectionHook})
+    {
+        if (!hook->target||!hook->enabled) continue;
+        const auto result=MCCVR_DisableHookForRetirement(hook->target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        hook->enabled=false;
+    }
+    const void* functions[]={reinterpret_cast<const void*>(&ProjectionHook),reinterpret_cast<const void*>(&ZfillProjectionHook),
+        reinterpret_cast<const void*>(&SfxProjectionHook)};
+    const void* trampolines[]={projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original};
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,3,callbacks)) return false;
+    for (Hook* hook:{&projectionHook,&zfillProjectionHook,&sfxProjectionHook})
+    {
+        if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
+        *hook={};
+    }
+    projectionRetiring=false;return true;
+}
+bool InstallProjection(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::first_person_projection::entries,
+        contract::first_person_projection::witnesses,contract::first_person_projection::relatives,contract::first_person_projection::pointers};
+    if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
+    { LOG("CE Anniversary FP projection stock fallback: binding verification failed: %s",failure?failure:"unknown");return false; }
+    const uintptr_t addresses[]={base+contract::first_person_projection::first_person_glt_constants,
+        base+contract::first_person_projection::first_person_zfill_constants,
+        base+contract::first_person_projection::first_person_sfx_constants};
+    void* detours[]={reinterpret_cast<void*>(&ProjectionHook),reinterpret_cast<void*>(&ZfillProjectionHook),
+        reinterpret_cast<void*>(&SfxProjectionHook)};
+    Hook* hooks[]={&projectionHook,&zfillProjectionHook,&sfxProjectionHook};
+    for (size_t i=0;i<3;++i)
+    {
+        void* target=reinterpret_cast<void*>(addresses[i]);
+        const auto result=MH_CreateHook(target,detours[i],&hooks[i]->original);
+        if (result!=MH_OK)
+        { LOG("CE Anniversary FP projection stock fallback: create hook %zu status %d",i,result);(void)RemoveProjection();return false; }
+        hooks[i]->target=target;
+    }
+    for (Hook* hook:hooks)
+    {
+        const auto result=MH_EnableHook(hook->target);
+        if (result!=MH_OK)
+        { LOG("CE Anniversary FP projection stock fallback: enable hook status %d",result);(void)RemoveProjection();return false; }
+        hook->enabled=true;
+    }
+    projectionInstalled=true;
+    LOG("CE Anniversary FP projection installed: native GLT color, ZFILL depth and SFX materials share the tracked world lens");
+    return true;
+}
+bool RemoveAim() noexcept
+{
+    aimInstalled=false;aimRetiring=true;
+    for (Hook* hook:{&modernRayHook,&legacyRayHook,&assistRayHook})
+    {
+        if (!hook->target||!hook->enabled) continue;
+        const auto result=MCCVR_DisableHookForRetirement(hook->target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        hook->enabled=false;
+    }
+    const void* functions[]={reinterpret_cast<const void*>(&ModernRayHook),reinterpret_cast<const void*>(&LegacyRayHook),
+        reinterpret_cast<const void*>(&AssistRayHook)};
+    const void* trampolines[]={modernRayHook.original,legacyRayHook.original,assistRayHook.original};
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,3,callbacks)) return false;
+    for (Hook* hook:{&modernRayHook,&legacyRayHook,&assistRayHook})
+    {
+        if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
+        *hook={};
+    }
+    aimRetiring=false;return true;
+}
+bool InstallAim(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::first_person_aim::entries,
+        contract::first_person_aim::witnesses,contract::first_person_aim::relatives,contract::first_person_aim::pointers};
+    if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
+    { LOG("CE controller aim stock fallback: binding verification failed: %s",failure?failure:"unknown");return false; }
+    if (!retainedModule)
+    {
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                reinterpret_cast<LPCWSTR>(base),&retainedModule)) return false;
+        moduleBase=base;generation=gen;retiring=false;active=true;
+    }
+    const uintptr_t addresses[]={base+contract::first_person_aim::shot_adjust_modern,
+        base+contract::first_person_aim::shot_adjust_legacy,base+contract::first_person_aim::shot_assist_director_ray};
+    void* detours[]={reinterpret_cast<void*>(&ModernRayHook),reinterpret_cast<void*>(&LegacyRayHook),reinterpret_cast<void*>(&AssistRayHook)};
+    Hook* hooks[]={&modernRayHook,&legacyRayHook,&assistRayHook};
+    for (size_t i=0;i<3;++i)
+    {
+        void* target=reinterpret_cast<void*>(addresses[i]);
+        const auto result=MH_CreateHook(target,detours[i],&hooks[i]->original);
+        if (result!=MH_OK)
+        { LOG("CE controller aim stock fallback: create hook %zu status %d",i,result);(void)RemoveAim();return false; }
+        hooks[i]->target=target;
+    }
+    for (Hook* hook:hooks)
+    {
+        const auto result=MH_EnableHook(hook->target);
+        if (result!=MH_OK)
+        { LOG("CE controller aim stock fallback: enable hook status %d",result);(void)RemoveAim();return false; }
+        hook->enabled=true;
+    }
+    aimInstalled=true;
+    LOG("CE controller aim installed: local equipped on-foot shooter, native modern/legacy shot adjustment; engine origin/spread retained");
+    return true;
+}
+bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::first_person::entries,
+        contract::first_person::witnesses,contract::first_person::relatives,contract::first_person::pointers};
+    if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
+    { LOG("CE first-person stock fallback: binding verification failed: %s",failure?failure:"unknown");return false; }
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+            reinterpret_cast<LPCWSTR>(base),&retainedModule)) return false;
+    moduleBase=base;generation=gen;retiring=false;
+    const uintptr_t addresses[]={base+contract::first_person::first_person_prepare,
+        base+contract::first_person::first_person_graph_palette};
+    void* detours[]={reinterpret_cast<void*>(&PrepareHook),reinterpret_cast<void*>(&PaletteHook)};
+    Hook* hooks[]={&prepareHook,&paletteHook};
+    for (size_t i=0;i<2;++i)
+    {
+        void* target=reinterpret_cast<void*>(addresses[i]);
+        const auto result=MH_CreateHook(target,detours[i],&hooks[i]->original);
+        if (result!=MH_OK)
+        { LOG("CE first-person stock fallback: create hook %zu status %d",i,result);(void)Remove();return false; }
+        hooks[i]->target=target;
+    }
+    for (Hook* hook:hooks)
+    {
+        const auto result=MH_EnableHook(hook->target);
+        if (result!=MH_OK)
+        { LOG("CE first-person stock fallback: enable hook status %d",result);(void)Remove();return false; }
+        hook->enabled=true;
+    }
+    installed=true;active=true;
+    LOG("CE first-person installed: native FP graph palette, independent wrists and weapon grip; waiting for coherent VR context");
+    return true;
+}
+}
+bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
+{
+    active.store(isActive,std::memory_order_release);
+    if (retainedModule&&(!isActive||base!=moduleBase||gen!=generation.load()||retiring.load()))
+        if (!Remove()) return false;
+    if (!isActive||!base||!gen) return false;
+    if (!installed.load()&&gen!=failedGeneration)
+        if (!Install(base,size,gen)) failedGeneration=gen;
+    if (aimRetiring&&!RemoveAim()) return HaloCEFirstPerson_Armed();
+    if (!aimInstalled.load()&&gen!=aimFailedGeneration&&!retiring.load())
+        if (!InstallAim(base,size,gen)) aimFailedGeneration=gen;
+    if (skinRetiring&&!RemoveSkin()) return HaloCEFirstPerson_Armed();
+    if (installed.load()&&!skinInstalled.load()&&gen!=skinFailedGeneration&&!retiring.load())
+        if (!InstallSkin(base,size,gen)) skinFailedGeneration=gen;
+    if (projectionRetiring&&!RemoveProjection()) return HaloCEFirstPerson_Armed();
+    if (installed.load()&&!projectionInstalled.load()&&gen!=projectionFailedGeneration&&!retiring.load())
+        if (!InstallProjection(base,size,gen)) projectionFailedGeneration=gen;
+    const uint64_t now=GetTickCount64();
+    if (now-lastReport>=2000)
+    {
+        lastReport=now;
+        LOG("CE FP gen=%u installed=%d observed=%llu applied=%llu stock=%llu exceptions=%llu",
+            gen,installed.load(),observed.load(),applied.load(),refused.load(),exceptions.load());
+        LOG("CE aim gen=%u installed=%d observed=%llu applied=%llu stock=%llu assist=%llu",
+            gen,aimInstalled.load(),aimObserved.load(),aimApplied.load(),aimRefused.load(),assistApplied.load());
+        LOG("CE Anniversary hand scale gen=%u installed=%d applied=%llu stock=%llu",
+            gen,skinInstalled.load(),skinApplied.load(),skinRefused.load());
+        LOG("CE Anniversary FP projection gen=%u installed=%d applied=%llu stock=%llu",
+            gen,projectionInstalled.load(),projectionApplied.load(),projectionRefused.load());
+    }
+    return HaloCEFirstPerson_Armed();
+}
+bool HaloCEFirstPerson_AimArmed() noexcept
+{
+    RenderContext context{};
+    return AimCurrent()&&HaloCE_GetGameplayContext(context)&&
+        !context.tracking.controllers.controlsPresentationBlocked&&context.tracking.controllers.primaryAim.valid;
+}
+bool HaloCEFirstPerson_Armed() noexcept
+{
+    RenderContext context{};
+    return CurrentPaletteContext(context);
+}
+
+bool HaloCEFirstPerson_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept
+{
+    Callback callback;
+    return HaloCEControls_GetLocalPlayerState(state);
+}

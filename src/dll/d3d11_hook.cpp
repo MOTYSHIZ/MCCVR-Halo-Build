@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <d3d11.h>
+#include <d3d11_1.h>
 #include <dxgi1_2.h>
 #include <dxgi1_5.h>
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include "game.h"
 #include "vr.h"
 #include "haloce_stereo_core.h"
+#include "haloce_hud_layout.h"
 #include "title_reentry_probe.h"
 #include "title_adapter.h"
 #if HALOMCCVR_HALO2_STEREO6DOF
@@ -60,16 +62,24 @@ static HRESULT STDMETHODCALLTYPE CreateTexture2DHook(ID3D11Device* device,
 }
 typedef void(STDMETHODCALLTYPE* OMSetRenderTargetsFn)(ID3D11DeviceContext*, UINT,
     ID3D11RenderTargetView* const*, ID3D11DepthStencilView*);
-#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+using RSSetViewportsFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, const D3D11_VIEWPORT*);
+using RSSetScissorRectsFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, const D3D11_RECT*);
+using ExecuteCommandListFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11CommandList*, BOOL);
+using ClearStateFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*);
+using SwapDeviceContextStateFn = void(STDMETHODCALLTYPE*)(ID3D11DeviceContext1*, ID3DDeviceContextState*, ID3DDeviceContextState**);
+static RSSetViewportsFn g_origRSSetViewports = nullptr;
+static RSSetScissorRectsFn g_origRSSetScissorRects = nullptr;
+static ExecuteCommandListFn g_origExecuteCommandList = nullptr;
+static ClearStateFn g_origClearState = nullptr;
+static SwapDeviceContextStateFn g_origSwapDeviceContextState = nullptr;
 typedef void(STDMETHODCALLTYPE* OMSetRenderTargetsAndUnorderedAccessViewsFn)(
     ID3D11DeviceContext*, UINT, ID3D11RenderTargetView* const*,
     ID3D11DepthStencilView*, UINT, UINT,
     ID3D11UnorderedAccessView* const*, const UINT*);
-typedef void(STDMETHODCALLTYPE* ClearStateFn)(ID3D11DeviceContext*);
-static std::atomic<bool> g_halo4AuthoredReticleDrawPathAvailable{false};
 static OMSetRenderTargetsAndUnorderedAccessViewsFn
     g_origOMSetRenderTargetsAndUnorderedAccessViews = nullptr;
-static ClearStateFn g_origClearState = nullptr;
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+static std::atomic<bool> g_halo4AuthoredReticleDrawPathAvailable{false};
 #endif
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 typedef void(STDMETHODCALLTYPE* DrawIndexedFn)(ID3D11DeviceContext*, UINT, UINT, INT);
@@ -1148,6 +1158,14 @@ static void STDMETHODCALLTYPE OMSetRenderTargetsHook(ID3D11DeviceContext* contex
     ID3D11RenderTargetView* const* rtvs, ID3D11DepthStencilView* dsv)
 {
     ID3D11RenderTargetView* redirected[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]{};
+    UINT ceCount{};
+    ID3D11DepthStencilView* ceDepth{};
+    if (VR_CeRedirectAuthoredReticleTargets(context,count,rtvs,dsv,ceCount,redirected,ceDepth))
+    {
+        g_origOMSetRenderTargets(context,ceCount,redirected,ceDepth);
+        VR_Halo4NoteBoundRenderTargets(context,ceCount,redirected);
+        return;
+    }
     if (count <= D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT &&
         VR_RedirectRenderTargets(context, count, rtvs, redirected))
     {
@@ -1161,13 +1179,65 @@ static void STDMETHODCALLTYPE OMSetRenderTargetsHook(ID3D11DeviceContext* contex
     VR_Halo4NoteBoundRenderTargets(context, count, rtvs);
 }
 
+// CE's optional native gameplay-HUD scope supplies the only transform. These
+// observers copy bounded numeric state, with no queries, allocation or logging.
+static void STDMETHODCALLTYPE RSSetViewportsHook(ID3D11DeviceContext* context,
+    UINT count, const D3D11_VIEWPORT* viewports)
+{
+    D3D11_VIEWPORT capture;
+    if (VR_CeRedirectAuthoredReticleViewports(context,count,viewports,capture))
+    { g_origRSSetViewports(context,1,&capture);return; }
+    D3D11_VIEWPORT adjusted[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+    const bool replace = HaloCEHudLayout_PrepareViewports(context,count,viewports,adjusted);
+    g_origRSSetViewports(context,count,replace?adjusted:viewports);
+}
+
+static void STDMETHODCALLTYPE RSSetScissorRectsHook(ID3D11DeviceContext* context,
+    UINT count, const D3D11_RECT* scissors)
+{
+    D3D11_RECT capture;
+    if (VR_CeRedirectAuthoredReticleScissors(context,count,scissors,capture))
+    { g_origRSSetScissorRects(context,1,&capture);return; }
+    D3D11_RECT adjusted[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
+    const bool replace = HaloCEHudLayout_PrepareScissors(context,count,scissors,adjusted);
+    g_origRSSetScissorRects(context,count,replace?adjusted:scissors);
+}
+
+static void STDMETHODCALLTYPE ExecuteCommandListHook(ID3D11DeviceContext* context,
+    ID3D11CommandList* commands, BOOL restoreState)
+{
+    VR_CeInvalidateAuthoredReticleState(context);
+    HaloCEHudLayout_InvalidateState(context);
+    g_origExecuteCommandList(context,commands,restoreState);
+}
+
+static void STDMETHODCALLTYPE ClearStateHook(ID3D11DeviceContext* context)
+{
+    VR_CeInvalidateAuthoredReticleState(context);
+    HaloCEHudLayout_InvalidateState(context);
+    g_origClearState(context);
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    VR_Halo4NoteBoundRenderTargets(context, 0, nullptr);
+#endif
+}
+
+static void STDMETHODCALLTYPE SwapDeviceContextStateHook(ID3D11DeviceContext1* context,
+    ID3DDeviceContextState* state, ID3DDeviceContextState** previous)
+{
+    VR_CeInvalidateAuthoredReticleState(context);
+    HaloCEHudLayout_InvalidateState(context);
+    g_origSwapDeviceContextState(context,state,previous);
+}
+
 static void STDMETHODCALLTYPE OMSetRenderTargetsAndUnorderedAccessViewsHook(
     ID3D11DeviceContext* context, UINT renderTargetCount,
     ID3D11RenderTargetView* const* rtvs, ID3D11DepthStencilView* dsv,
     UINT uavStartSlot, UINT uavCount,
     ID3D11UnorderedAccessView* const* uavs, const UINT* initialCounts)
 {
+    // CE's verified native binder uses OMSetRenderTargets. An unexpected
+    // UAV/target mutation invalidates just its current crosshair capture.
+    VR_CeInvalidateAuthoredReticleState(context);
     g_origOMSetRenderTargetsAndUnorderedAccessViews(
         context, renderTargetCount, rtvs, dsv, uavStartSlot, uavCount, uavs,
         initialCounts);
@@ -1177,13 +1247,6 @@ static void STDMETHODCALLTYPE OMSetRenderTargetsAndUnorderedAccessViewsHook(
     if (renderTargetCount != D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL)
         VR_Halo4NoteBoundRenderTargets(context, renderTargetCount, rtvs);
 }
-
-static void STDMETHODCALLTYPE ClearStateHook(ID3D11DeviceContext* context)
-{
-    g_origClearState(context);
-    VR_Halo4NoteBoundRenderTargets(context, 0, nullptr);
-}
-#endif
 
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 // Diagnostic only, and deliberately far more conservative than the retired
@@ -1731,6 +1794,37 @@ bool InstallD3D11Hooks()
         (void*)&CreateTexture2DHook,(void**)&g_origCreateTexture2D);
     if (ceTextureStatus!=MH_OK)
         LOG("CE early texture metadata unavailable (%d); native creation/import observation remains",ceTextureStatus);
+    // The SDK ID3D11DeviceContext slots are 44/45 (raster setters), 58
+    // (command-list execution), and 110 (ClearState). Every observation path
+    // is required only by optional CE layout; a partial set cannot gate VR.
+    const MH_STATUS ceViewports=MH_CreateHook(contextVtbl[44],
+        (void*)&RSSetViewportsHook,(void**)&g_origRSSetViewports);
+    const MH_STATUS ceScissors=MH_CreateHook(contextVtbl[45],
+        (void*)&RSSetScissorRectsHook,(void**)&g_origRSSetScissorRects);
+    const MH_STATUS ceCommands=MH_CreateHook(contextVtbl[58],
+        (void*)&ExecuteCommandListHook,(void**)&g_origExecuteCommandList);
+    const MH_STATUS sharedClearState=MH_CreateHook(contextVtbl[110],
+        (void*)&ClearStateHook,(void**)&g_origClearState);
+    const MH_STATUS sharedOmRtUav=MH_CreateHook(contextVtbl[34],
+        (void*)&OMSetRenderTargetsAndUnorderedAccessViewsHook,
+        (void**)&g_origOMSetRenderTargetsAndUnorderedAccessViews);
+    // D3D11.1 can replace numeric state without the individual setters. Its
+    // interface discovery belongs here at installation, never in a HUD draw.
+    ID3D11DeviceContext1* context1=nullptr;
+    bool ceContextStateObserved=true;
+    if (SUCCEEDED(ctx->QueryInterface(__uuidof(ID3D11DeviceContext1),
+        reinterpret_cast<void**>(&context1))))
+    {
+        void** context1Vtbl=*reinterpret_cast<void***>(context1);
+        ceContextStateObserved=MH_CreateHook(context1Vtbl[131],
+            (void*)&SwapDeviceContextStateHook,(void**)&g_origSwapDeviceContextState)==MH_OK;
+        context1->Release();
+    }
+    const bool ceRasterObservationCreated=ceViewports==MH_OK&&ceScissors==MH_OK&&
+        ceCommands==MH_OK&&sharedClearState==MH_OK&&sharedOmRtUav==MH_OK&&ceContextStateObserved;
+    if (!ceRasterObservationCreated)
+        LOG("CE HUD raster observation unavailable: viewports=%d scissors=%d commands=%d clear=%d RTV/UAV=%d contextState=%d; layout stays stock",
+            ceViewports,ceScissors,ceCommands,sharedClearState,sharedOmRtUav,ceContextStateObserved?1:0);
 #if HALOMCCVR_HALO2_STEREO6DOF || HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     const MH_STATUS createPixelShader = MH_CreateHook(
         deviceVtbl[15], (void*)&CreatePixelShaderHook,
@@ -1762,12 +1856,8 @@ bool InstallD3D11Hooks()
     // Stage 3BH admitted framing only when its selected private RTV was truly
     // bound. Tracking all MCC-used OM mutation paths preserves that evidence
     // without an OMGetRenderTargets AddRef/Release in every admitted Draw.
-    const MH_STATUS halo4OmRtUav = MH_CreateHook(
-        contextVtbl[34],
-        (void*)&OMSetRenderTargetsAndUnorderedAccessViewsHook,
-        (void**)&g_origOMSetRenderTargetsAndUnorderedAccessViews);
-    const MH_STATUS halo4ClearState = MH_CreateHook(
-        contextVtbl[110], (void*)&ClearStateHook, (void**)&g_origClearState);
+    const MH_STATUS halo4OmRtUav = sharedOmRtUav;
+    const MH_STATUS halo4ClearState = sharedClearState;
     halo4ReticleBindingStatePathCreated =
         halo4OmRtUav == MH_OK && halo4ClearState == MH_OK;
     if (!halo4ReticleBindingStatePathCreated)
@@ -2001,6 +2091,7 @@ bool InstallD3D11Hooks()
         return false;
     }
     const bool enabled = MH_EnableHook(MH_ALL_HOOKS) == MH_OK;
+    HaloCEHudLayout_SetObservationAvailable(enabled&&ceRasterObservationCreated);
 #if HALOMCCVR_HALO2_STEREO6DOF
     g_halo2ShaderHooksAvailable.store(
         enabled && halo2ShaderPathCreated, std::memory_order_release);

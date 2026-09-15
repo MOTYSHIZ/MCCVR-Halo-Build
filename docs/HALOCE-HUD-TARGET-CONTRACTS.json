@@ -1,0 +1,188 @@
+{
+  "entries": [
+    {
+      "name": "hud_target_bind",
+      "rva": "0x205e40",
+      "signature": "40 53 56 57 41 56 41 57 48 83 EC 40 0F 10 02 4C 8B FA 45 33 C0 48 8B D9 0F 11 41 18 0F 10 4A 10",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x205e80",
+          "target_rva": "0x1dc120",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 9B 62 FD FF"
+        },
+        {
+          "instruction_rva": "0x205f25",
+          "target_rva": "0xad5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 C6 76 EA FF"
+        },
+        {
+          "instruction_rva": "0x205fc9",
+          "target_rva": "0x2059b0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 E2 F9 FF FF"
+        },
+        {
+          "instruction_rva": "0x2060e3",
+          "target_rva": "0x1dc120",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 38 60 FD FF"
+        },
+        {
+          "instruction_rva": "0x203643",
+          "target_rva": "0x17f9d10",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 05 C6 66 5F 01"
+        },
+        {
+          "instruction_rva": "0x1efa3d",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 89 05 9C C3 C4 02"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x205e58",
+          "signature": "0F 11 41 18",
+          "meaning": "native descriptor begins at backend+18"
+        },
+        {
+          "rva": "0x205e7b",
+          "signature": "F2 0F 11 41 58",
+          "meaning": "last eight descriptor bytes stored at backend+58"
+        },
+        {
+          "rva": "0x20611c",
+          "signature": "48 8B 8B E0 0C 00 00",
+          "meaning": "native immediate context at backend+CE0"
+        },
+        {
+          "rva": "0x206123",
+          "signature": "4C 8D 83 00 0D 00 00",
+          "meaning": "color view cache at backend+D00"
+        },
+        {
+          "rva": "0x20612a",
+          "signature": "4C 8B 8B 20 0D 00 00",
+          "meaning": "depth view cache at backend+D20"
+        },
+        {
+          "rva": "0x206131",
+          "signature": "8B 93 F8 0C 00 00",
+          "meaning": "color view count at backend+CF8"
+        },
+        {
+          "rva": "0x20613a",
+          "signature": "FF 90 08 01 00 00",
+          "meaning": "unconditional OMSetRenderTargets virtual33"
+        },
+        {
+          "rva": "0x206148",
+          "signature": "B0 01",
+          "meaning": "successful native bind returns AL true"
+        }
+      ],
+      "image_pointers": [
+        {
+          "rva": "0x17f9e08",
+          "target_rva": "0x205e40"
+        },
+        {
+          "rva": "0x17f9e30",
+          "target_rva": "0x206160"
+        },
+        {
+          "rva": "0x17fb6e0",
+          "target_rva": "0x22b7b0"
+        },
+        {
+          "rva": "0x17fb6e8",
+          "target_rva": "0x22b830"
+        },
+        {
+          "rva": "0x17fb620",
+          "target_rva": "0x1f4b80"
+        },
+        {
+          "rva": "0x17fb628",
+          "target_rva": "0x1f4bc0"
+        }
+      ]
+    },
+    {
+      "name": "hud_target_surface_select",
+      "rva": "0xad5f0",
+      "signature": "4C 8B 91 A8 00 00 00 4C 8B C1 4D 85 D2 74 45 48 8B 05 B2 D0 B3 01 44 8B 88 D0 01 00 00 41 8B C1",
+      "function_entry": false,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_viewport",
+      "rva": "0x206160",
+      "signature": "40 53 48 83 EC 50 48 8B 05 A3 EE 96 01 48 33 C4 48 89 44 24 48 41 8D 04 11 66 0F 6E C2 0F 5B C0",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_rtv_accessor",
+      "rva": "0x22b7b0",
+      "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 41 8B F9 41 8B F0 0F B6 DA 4C 8B D9 E8 20 1E E8 FF",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_dsv_accessor",
+      "rva": "0x22b830",
+      "signature": "48 83 EC 28 44 0F B6 DA E8 B3 1D E8 FF 45 84 DB 74 0C 48 8B 80 10 01 00 00 48 83 C4 28 C3 48 8B",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_dimensions",
+      "rva": "0x1dc120",
+      "signature": "F3 0F 10 0D D0 4D 62 01 4C 8B C9 89 51 50 0F 28 D1 44 89 41 54 85 D2 7E 0B 66 0F 6E C2 0F 5B C0",
+      "function_entry": false,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_conflicts",
+      "rva": "0x2059b0",
+      "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 20 45 33 FF 48 8D 99 28 10",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_alias_check",
+      "rva": "0x22b700",
+      "signature": "40 53 48 83 EC 20 4C 8B DA 48 8B D9 E8 DF 1E E8 FF 4C 8B C0 4C 3B 98 18 01 00 00 0F 84 7E 00 00",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    },
+    {
+      "name": "hud_target_release",
+      "rva": "0x22b0a0",
+      "signature": "48 89 5C 24 18 55 48 83 EC 20 33 ED 48 89 74 24 30 48 8B D9 48 89 7C 24 38 8B F5 39 A9 F0 00 00",
+      "function_entry": true,
+      "runtime_group": "hud_target",
+      "evidence": "HALOCE-HUD-TARGET-EVIDENCE-2026-09-15.md E-CE-HUD-TARGET-1"
+    }
+  ]
+}

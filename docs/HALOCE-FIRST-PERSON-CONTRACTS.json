@@ -1,0 +1,1048 @@
+[
+  {
+    "name": "first_person_prepare",
+    "rva": "0xb29698",
+    "signature": "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 41 54 41 55 41 56 41 57 48 81 EC F0 08 00 00 0F 29 70 C8 0F 29 78 B8",
+    "function_entry": true,
+    "evidence": "E-CE-FP-1",
+    "runtime_group": "first_person",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb2976f",
+        "target_rva": "0x2d9cd90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 3D 1A 36 27 02"
+      },
+      {
+        "instruction_rva": "0xb29d88",
+        "target_rva": "0xc43c14",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 87 9E 11 00"
+      },
+      {
+        "instruction_rva": "0xb29d81",
+        "target_rva": "0x29af2c4",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "4C 8D 0D 3C 55 E8 01"
+      },
+      {
+        "instruction_rva": "0xb29d6a",
+        "target_rva": "0x29af2d0",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8D 05 5F 55 E8 01"
+      },
+      {
+        "instruction_rva": "0xb29d57",
+        "target_rva": "0x29af2dc",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8D 05 7E 55 E8 01"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb2975d",
+        "signature": "48 69 FE 94 1E 00 00"
+      },
+      {
+        "rva": "0xb29d75",
+        "signature": "48 8D 97 88 10 00 00"
+      }
+    ]
+  },
+  {
+    "name": "first_person_graph_palette",
+    "rva": "0xc43c14",
+    "signature": "48 89 5C 24 18 48 89 74 24 20 55 57 41 54 41 56 41 57 48 8D 6C 24 E0 48 81 EC 20 01 00 00 48 8B 05 D7 13 F3 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-1",
+    "runtime_group": "first_person",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xc43c46",
+        "target_rva": "0xa9b648",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 FD 79 E5 FF"
+      },
+      {
+        "instruction_rva": "0xc43ca9",
+        "target_rva": "0x2ea3410",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 2B 05 60 F7 25 02"
+      },
+      {
+        "instruction_rva": "0xc43cb0",
+        "target_rva": "0x2d9ce10",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 05 59 91 15 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xc43c74",
+        "signature": "44 39 7F 68"
+      },
+      {
+        "rva": "0xc43ca5",
+        "signature": "48 63 47 6C"
+      },
+      {
+        "rva": "0xc43cbe",
+        "signature": "49 C1 E2 06"
+      },
+      {
+        "rva": "0xc43cd1",
+        "signature": "49 0F BF 42 24 48 6B D8 34 48 03 DE"
+      },
+      {
+        "rva": "0xc43d06",
+        "signature": "4D 6B C0 34"
+      },
+      {
+        "rva": "0xc43d22",
+        "signature": "45 0F B7 42 20 66 41 83 F8 FF"
+      },
+      {
+        "rva": "0xc43d3c",
+        "signature": "41 0F B7 4A 22 66 83 F9 FF"
+      }
+    ]
+  },
+  {
+    "name": "first_person_dispatch",
+    "rva": "0xb27510",
+    "signature": "40 53 48 83 EC 20 B9 11 00 00 00 E8 88 AB FF FF 0F B7 0D 91 7D E8 01 84 C0 0F 94 C0 41 83 C9 FF 66 41 3B C9 74 79 84 C0 74 75 48 0F BF C1 48 69",
+    "function_entry": true,
+    "evidence": "E-CE-FP-1",
+    "runtime_group": "first_person",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb27520",
+        "target_rva": "0x29af2b8",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "0F B7 0D 91 7D E8 01"
+      },
+      {
+        "instruction_rva": "0xb27545",
+        "target_rva": "0x2d9cd90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 15 44 58 27 02"
+      },
+      {
+        "instruction_rva": "0xb275aa",
+        "target_rva": "0xb29698",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 E9 20 00 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb2753e",
+        "signature": "48 69 D0 94 1E 00 00"
+      }
+    ]
+  },
+  {
+    "name": "first_person_cached_tag_get",
+    "rva": "0xa9b648",
+    "signature": "48 8B 05 61 99 19 01 48 0F BF D1 48 C1 E2 05 48 63 4C 02 14 33 C0 85 C9 74 11 48 8B C1 48 2B 05 A4 7D 40 02 48 03 05 9D 17 30 02 C3",
+    "function_entry": false,
+    "evidence": "E-CE-FP-1",
+    "runtime_group": "first_person",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xa9b648",
+        "target_rva": "0x1c34fb0",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 61 99 19 01"
+      },
+      {
+        "instruction_rva": "0xa9b665",
+        "target_rva": "0x2ea3410",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 2B 05 A4 7D 40 02"
+      },
+      {
+        "instruction_rva": "0xa9b66c",
+        "target_rva": "0x2d9ce10",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 05 9D 17 30 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xa9b64f",
+        "signature": "48 0F BF D1 48 C1 E2 05 48 63 4C 02 14"
+      }
+    ]
+  },
+  {
+    "name": "shot_adjust_modern",
+    "rva": "0xb00880",
+    "signature": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 C1 48 81 EC D0 00 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88 44 0F 29 90 78 FF FF FF 44 0F 29 5C 24 70",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb008fb",
+        "target_rva": "0xb04d00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 00 44 00 00"
+      },
+      {
+        "instruction_rva": "0xb00b38",
+        "target_rva": "0xb93c8c",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 4F 31 09 00"
+      },
+      {
+        "instruction_rva": "0xb00b61",
+        "target_rva": "0xb38398",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 32 78 03 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb00900",
+        "signature": "80 7D 77 00 74 22 41 83 FF FF 49 8D 86 50 02 00 00 B9 1C 02 00 00 48 0F 44 C1 F2 0F 10 00 F2 0F 11 07 8B 40 08 89 47 08"
+      }
+    ]
+  },
+  {
+    "name": "shot_adjust_legacy",
+    "rva": "0xb00740",
+    "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 30 44 0F B7 D1 49 8B E9 49 8B D8 8B F9 48 8B F2",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb007bf",
+        "target_rva": "0xb04d00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 3C 45 00 00"
+      },
+      {
+        "instruction_rva": "0xb00839",
+        "target_rva": "0xb38398",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 5A 7B 03 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb00775",
+        "signature": "80 7C 24 68 00 74 35 4B 63 54 9A 08 B8 1C 02 00 00 48 8B 0D 6B C6 29 02 48 81 C1 50 02 00 00 48 03 CA 43 83 7C 9A 08 FF 48 0F 44 C8 F2 0F 10 01 F2 41 0F 11 00 8B 41 08 41 89 40 08"
+      },
+      {
+        "rva": "0xb0083e",
+        "signature": "F3 0F 10 54 24 24 F3 0F 59 53 04 48 8B 74 24 50 F3 0F 10 4C 24 20 F3 0F 59 0B F3 0F 10 44 24 28 F3 0F 59 43 08 48 8B 5C 24 40 F3 0F 58 D1 F3 0F 58 D0 F3 0F 11 55 00 48 8B 6C 24 48"
+      }
+    ]
+  },
+  {
+    "name": "shot_weapon_trigger",
+    "rva": "0xb7a374",
+    "signature": "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 C0 E1 FF FF B8 40 1F 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb7a545",
+        "target_rva": "0xb77814",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 CA D2 FF FF"
+      },
+      {
+        "instruction_rva": "0xb7a608",
+        "target_rva": "0xb389a4",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 97 E3 FB FF"
+      },
+      {
+        "instruction_rva": "0xb7a791",
+        "target_rva": "0xb00880",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 EA 60 F8 FF"
+      },
+      {
+        "instruction_rva": "0xb7a853",
+        "target_rva": "0xb00740",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 E8 5E F8 FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb7a741",
+        "signature": "F7 03 00 40 00 00"
+      },
+      {
+        "rva": "0xb7a64d",
+        "signature": "44 8B B6 F8 01 00 00"
+      }
+    ]
+  },
+  {
+    "name": "shot_weapon_owner",
+    "rva": "0xb77814",
+    "signature": "48 89 5C 24 08 57 48 83 EC 20 0F B7 C9 83 CB FF 48 8D 14 49 48 8B 0D 19 AA 0C 01",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb77828",
+        "target_rva": "0x1c42248",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 0D 19 AA 0C 01"
+      },
+      {
+        "instruction_rva": "0xb77840",
+        "target_rva": "0x2d9cdf8",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 15 B1 55 22 02"
+      },
+      {
+        "instruction_rva": "0xb77863",
+        "target_rva": "0xb389a4",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 3C 11 FC FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb77847",
+        "signature": "48 81 C2 0C 01 00 00"
+      },
+      {
+        "rva": "0xb77858",
+        "signature": "8B 3A 3B FB 74 10 8D 53 04 8B CF E8 3C 11 FC FF 48 85 C0 0F 45 DF"
+      }
+    ]
+  },
+  {
+    "name": "shot_object_try_get",
+    "rva": "0xb389a4",
+    "signature": "40 53 48 83 EC 20 8B DA 8B D1 48 8B 0D 93 98 10 01 E8 16 2F 08 00 4C 8B D8 33 C0 4D 85 DB 74 28 41 0F B6 4B",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb389ae",
+        "target_rva": "0x1c42248",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 0D 93 98 10 01"
+      },
+      {
+        "instruction_rva": "0xb389b5",
+        "target_rva": "0xbbb8d0",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 16 2F 08 00"
+      },
+      {
+        "instruction_rva": "0xb389ce",
+        "target_rva": "0x2d9cdf8",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "4C 8B 05 23 44 26 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb389c4",
+        "signature": "41 0F B6 4B 03 0F A3 CB 73 1E 4C 8B 05 23 44 26 02 49 63 53 08 49 83 C0 34 4C 03 C2 41 83 7B 08 FF 4C 0F 44 C0"
+      }
+    ]
+  },
+  {
+    "name": "shot_local_fp_record",
+    "rva": "0xb27510",
+    "signature": "40 53 48 83 EC 20 B9 11 00 00 00 E8 88 AB FF FF 0F B7 0D 91 7D E8 01 84 C0 0F 94 C0 41 83 C9 FF 66 41 3B C9 74 79 84 C0 74 75 48 0F BF C1 48 69",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb27545",
+        "target_rva": "0x2d9cd90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 15 44 58 27 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb2753e",
+        "signature": "48 69 D0 94 1E 00 00"
+      },
+      {
+        "rva": "0xb2754c",
+        "signature": "44 39 4A 04 74 5D 44 39 4A 08"
+      }
+    ]
+  },
+  {
+    "name": "shot_unit_origin",
+    "rva": "0xb04d00",
+    "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 81 EC A0 00 00 00 4C 8B 0D 26 D5 13 01 33 DB 48 8B 2D CD 80 29 02",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb04d5c",
+        "target_rva": "0xa9b648",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 E7 68 F9 FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb04d61",
+        "signature": "8B 8E D8 00 00 00"
+      },
+      {
+        "rva": "0xb04d6a",
+        "signature": "41 3B CF 0F 85 A4 00 00 00"
+      }
+    ]
+  },
+  {
+    "name": "shot_player_assist",
+    "rva": "0xb67b00",
+    "signature": "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 A0 48 81 EC 60 01 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb67bdf",
+        "target_rva": "0xb14f14",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 30 D3 FA FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb67bd3",
+        "signature": "8B 4F 64 4C 8D 44 24 50 48 8D 55 88"
+      },
+      {
+        "rva": "0xb67e9e",
+        "signature": "F2 0F 10 44 24 50 8B 44 24 58 F2 0F 11 03 89 43 08"
+      }
+    ]
+  },
+  {
+    "name": "shot_assist_director_ray",
+    "rva": "0xb14f14",
+    "signature": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 48 83 EC 20 48 8B EA 49 8B F0 48 8D 50 20 8B D9 E8 37 00 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-2",
+    "runtime_group": "first_person_aim",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb14f34",
+        "target_rva": "0xb14f70",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 37 00 00 00"
+      },
+      {
+        "instruction_rva": "0xb14f49",
+        "target_rva": "0xc52274",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 26 D3 13 00"
+      },
+      {
+        "instruction_rva": "0xb14f50",
+        "target_rva": "0xc52b78",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 23 DC 13 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb14f39",
+        "signature": "0F B7 F8 4C 8B C6 48 8B D5 8B CB 66 85 C0 75 07"
+      },
+      {
+        "rva": "0xb14f5a",
+        "signature": "0F B7 C7"
+      }
+    ]
+  },
+  {
+    "name": "state_datum_get",
+    "rva": "0xbbb8d0",
+    "signature": "45 33 C0 4C 8B D1 83 FA FF 74 3D 44 8B CA 41 C1 F9 10 66 85 D2 78 31 66 3B 51 20 7D 2B 0F B7 49 22 0F BF C2 0F AF C1 49 63 4A 34 48 98 49 03 C2 48 03 C8 66 44 39 01 74 0F 66 45 85 C9 74 06 66 44 39 09 75 03 4C 8B C1 49 8B C0 C3",
+    "function_entry": false,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [],
+    "instruction_witnesses": [
+      {
+        "rva": "0xbbb8e2",
+        "signature": "66 85 D2 78 31 66 3B 51 20 7D 2B 0F B7 49 22"
+      },
+      {
+        "rva": "0xbbb8f1",
+        "signature": "0F BF C2 0F AF C1 49 63 4A 34 48 98 49 03 C2 48 03 C8 66 44 39 01 74 0F 66 45 85 C9 74 06 66 44 39 09 75 03 4C 8B C1 49 8B C0 C3"
+      }
+    ]
+  },
+  {
+    "name": "state_output_player",
+    "rva": "0xa999e8",
+    "signature": "41 83 C9 FF 4C 8B D2 41 3B C9 74 12 48 8B 05 95 93 40 02 4C 63 C1 46 8B 8C 80 B8 00 00 00",
+    "function_entry": false,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xa999f4",
+        "target_rva": "0x2ea2d90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 95 93 40 02"
+      },
+      {
+        "instruction_rva": "0xa99a06",
+        "target_rva": "0x2d8fe70",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 15 63 64 2F 02"
+      },
+      {
+        "instruction_rva": "0xa99a25",
+        "target_rva": "0xad0304",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E9 DA 68 03 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xa999fb",
+        "signature": "4C 63 C1 46 8B 8C 80 B8 00 00 00"
+      },
+      {
+        "rva": "0xa99a0d",
+        "signature": "48 0F BF C1 48 81 C2 7C 01 00 00 4C 6B C0 38 41 8B C9 49 03 D0"
+      }
+    ]
+  },
+  {
+    "name": "state_player_unit",
+    "rva": "0xad0304",
+    "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B 05 66 01 17 01 49 8B F0 F3 0F 10 42",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xad0313",
+        "target_rva": "0x1c40480",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 66 01 17 01"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xad0325",
+        "signature": "0F B7 C9 4C 69 C9 20 0C 00 00"
+      },
+      {
+        "rva": "0xad037b",
+        "signature": "74 10 8B 4F 64 83 F9 FF 74 08 48 8B D6 E8 BF 54 03 00"
+      }
+    ]
+  },
+  {
+    "name": "state_control_user_loop",
+    "rva": "0xa997b8",
+    "signature": "48 8B C4 48 89 58 08 48 89 68 18 48 89 70 20 57 41 54 41 56 48 81 EC 10 01 00 00 0F 29 70 D8 48",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xa99835",
+        "target_rva": "0x2ea2d90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "4C 8B 05 54 95 40 02"
+      },
+      {
+        "instruction_rva": "0xa9985e",
+        "target_rva": "0xa9915c",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 F9 F8 FF FF"
+      },
+      {
+        "instruction_rva": "0xa99877",
+        "target_rva": "0x2d8fe70",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 F2 65 2F 02"
+      },
+      {
+        "instruction_rva": "0xa9988f",
+        "target_rva": "0xa9ab00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 6C 12 00 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xa9983c",
+        "signature": "4C 63 F3 43 8B 4C B0 04 83 F9 FF"
+      },
+      {
+        "rva": "0xa99863",
+        "signature": "49 6B CE 58"
+      }
+    ]
+  },
+  {
+    "name": "state_control_admission",
+    "rva": "0xa9915c",
+    "signature": "48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 88 F7 FF FF 48 81 EC 40 09 00 00 0F 29 70 B8 48 8B 05 89 BE 0D 01 48 33 C4 48 89 85 20 08 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xa9919b",
+        "target_rva": "0x2d8fe70",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "4C 8B 35 CE 6C 2F 02"
+      },
+      {
+        "instruction_rva": "0xa99215",
+        "target_rva": "0x1c34fc8",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "44 39 3D AC BD 19 01"
+      },
+      {
+        "instruction_rva": "0xa9921e",
+        "target_rva": "0x1b85760",
+        "instruction_bytes": 7,
+        "displacement_offset": 2,
+        "instruction_signature": "83 3D 3B C5 0E 01 FF"
+      },
+      {
+        "instruction_rva": "0xa994c0",
+        "target_rva": "0x2e9fd68",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 A1 68 40 02"
+      },
+      {
+        "instruction_rva": "0xa994e0",
+        "target_rva": "0x2ea0208",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 21 6D 40 02"
+      },
+      {
+        "instruction_rva": "0xa9965b",
+        "target_rva": "0xa99c1c",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 BC 05 00 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xa991f4",
+        "signature": "48 0F BF C3 48 8D 0D 01 6E 56 FF 48 69 C0 F8 00 00 00 48 89 44 24 58 44 38 BC 08 B9 B9 D9 02"
+      },
+      {
+        "rva": "0xa99215",
+        "signature": "44 39 3D AC BD 19 01 75 09 83 3D 3B C5 0E 01 FF 75 09 0F B7 9D 1C 08 00 00 EB 20"
+      },
+      {
+        "rva": "0xa994c7",
+        "signature": "44 38 78 02 0F 85 48 01 00 00"
+      },
+      {
+        "rva": "0xa994e7",
+        "signature": "44 38 78 0A 0F 85 28 01 00 00"
+      },
+      {
+        "rva": "0xa9963e",
+        "signature": "46 38 BC 00 B8 B9 D9 02 75 18"
+      },
+      {
+        "rva": "0xa992df",
+        "signature": "46 8B 5C 36 10 41 83 C8 FF 45 3B D8 0F 84 06 04 00 00"
+      }
+    ]
+  },
+  {
+    "name": "state_control_output_copy",
+    "rva": "0xa9ab00",
+    "signature": "48 8B 15 69 53 2F 02 48 63 C1 4C 6B C0 58 41 83 7C 10 10 FF 74 46 48 8D 8A 70 01 00 00 41 B9 04 00 00 00",
+    "function_entry": false,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xa9ab00",
+        "target_rva": "0x2d8fe70",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 15 69 53 2F 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xa9ab07",
+        "signature": "48 63 C1 4C 6B C0 58 41 83 7C 10 10 FF 74 46 48"
+      },
+      {
+        "rva": "0xa9ab23",
+        "signature": "41 8B 44 10 10 39 01 75 26 41 0F 10 44 10 14"
+      }
+    ]
+  },
+  {
+    "name": "state_user_perspective",
+    "rva": "0xb14ea4",
+    "signature": "48 0F BF C1 4C 8D 05 B1 6A 28 02 48 69 C8 F8 00 00 00 48 8D 15 7F D7 13 00 4A 8B 44 01 10 48 3B C2",
+    "function_entry": false,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb14ea8",
+        "target_rva": "0x2d9b960",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "4C 8D 05 B1 6A 28 02"
+      },
+      {
+        "instruction_rva": "0xb14eb6",
+        "target_rva": "0xc5263c",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8D 15 7F D7 13 00"
+      },
+      {
+        "instruction_rva": "0xb14ee4",
+        "target_rva": "0xc52ca4",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8D 15 B9 DD 13 00"
+      },
+      {
+        "instruction_rva": "0xb14ef7",
+        "target_rva": "0xbe4124",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8D 15 26 F2 0C 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb14eaf",
+        "signature": "48 69 C8 F8 00 00 00"
+      },
+      {
+        "rva": "0xb14edd",
+        "signature": "42 0F B7 44 01 5C C3"
+      },
+      {
+        "rva": "0xb14f0d",
+        "signature": "66 42 89 44 01 5C C3"
+      }
+    ]
+  },
+  {
+    "name": "state_fp_visibility",
+    "rva": "0xb275b8",
+    "signature": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 E8 F2 FF FF 48 81 EC F0 0D 00 00 0F",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb27631",
+        "target_rva": "0x2d9cd90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 1D 58 57 27 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb27626",
+        "signature": "48 69 D8 94 1E 00 00"
+      },
+      {
+        "rva": "0xb2765c",
+        "signature": "44 8A 03 41 8D 44 24 01 44 84 C0"
+      }
+    ]
+  },
+  {
+    "name": "state_object_try_get",
+    "rva": "0xb389a4",
+    "signature": "40 53 48 83 EC 20 8B DA 8B D1 48 8B 0D 93 98 10 01 E8 16 2F 08 00 4C 8B D8 33 C0 4D 85 DB 74 28 41 0F B6 4B",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb389ae",
+        "target_rva": "0x1c42248",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 0D 93 98 10 01"
+      },
+      {
+        "instruction_rva": "0xb389b5",
+        "target_rva": "0xbbb8d0",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 16 2F 08 00"
+      },
+      {
+        "instruction_rva": "0xb389ce",
+        "target_rva": "0x2d9cdf8",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "4C 8B 05 23 44 26 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb389c4",
+        "signature": "41 0F B6 4B 03 0F A3 CB 73 1E 4C 8B 05 23 44 26 02 49 63 53 08 49 83 C0 34 4C 03 C2 41 83 7B 08 FF 4C 0F 44 C0"
+      }
+    ]
+  },
+  {
+    "name": "state_weapon_owner",
+    "rva": "0xb77814",
+    "signature": "48 89 5C 24 08 57 48 83 EC 20 0F B7 C9 83 CB FF 48 8D 14 49 48 8B 0D 19 AA 0C 01",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb77828",
+        "target_rva": "0x1c42248",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 0D 19 AA 0C 01"
+      },
+      {
+        "instruction_rva": "0xb77840",
+        "target_rva": "0x2d9cdf8",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 15 B1 55 22 02"
+      },
+      {
+        "instruction_rva": "0xb77863",
+        "target_rva": "0xb389a4",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 3C 11 FC FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb77847",
+        "signature": "48 81 C2 0C 01 00 00"
+      },
+      {
+        "rva": "0xb77858",
+        "signature": "8B 3A 3B FB 74 10 8D 53 04 8B CF E8 3C 11 FC FF 48 85 C0 0F 45 DF"
+      }
+    ]
+  },
+  {
+    "name": "state_equipped_record",
+    "rva": "0xb27510",
+    "signature": "40 53 48 83 EC 20 B9 11 00 00 00 E8 88 AB FF FF 0F B7 0D 91 7D E8 01 84 C0 0F 94 C0 41 83 C9 FF 66 41 3B C9 74 79 84 C0 74 75 48 0F BF C1 48 69",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb27545",
+        "target_rva": "0x2d9cd90",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 03 15 44 58 27 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb2753e",
+        "signature": "48 69 D0 94 1E 00 00"
+      },
+      {
+        "rva": "0xb2754c",
+        "signature": "44 39 4A 04 74 5D 44 39 4A 08"
+      }
+    ]
+  },
+  {
+    "name": "state_unit_player_backlink",
+    "rva": "0xb7a374",
+    "signature": "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 C0 E1 FF FF B8 40 1F 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb7a545",
+        "target_rva": "0xb77814",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 CA D2 FF FF"
+      },
+      {
+        "instruction_rva": "0xb7a608",
+        "target_rva": "0xb389a4",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 97 E3 FB FF"
+      },
+      {
+        "instruction_rva": "0xb7a791",
+        "target_rva": "0xb00880",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 EA 60 F8 FF"
+      },
+      {
+        "instruction_rva": "0xb7a853",
+        "target_rva": "0xb00740",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 E8 5E F8 FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb7a741",
+        "signature": "F7 03 00 40 00 00"
+      },
+      {
+        "rva": "0xb7a64d",
+        "signature": "44 8B B6 F8 01 00 00"
+      }
+    ]
+  },
+  {
+    "name": "state_unit_parent",
+    "rva": "0xb04d00",
+    "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 81 EC A0 00 00 00 4C 8B 0D 26 D5 13 01 33 DB 48 8B 2D CD 80 29 02",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "player_state",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb04d5c",
+        "target_rva": "0xa9b648",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 E7 68 F9 FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb04d61",
+        "signature": "8B 8E D8 00 00 00"
+      },
+      {
+        "rva": "0xb04d6a",
+        "signature": "41 3B CF 0F 85 A4 00 00 00"
+      }
+    ]
+  },
+  {
+    "name": "input_angle_delta",
+    "rva": "0xa99c1c",
+    "signature": "48 8B C4 48 89 58 10 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 B0 48 81 EC 50 01 00 00 48 8B 3D 2C 62 2F 02",
+    "function_entry": true,
+    "evidence": "E-CE-FP-3",
+    "runtime_group": "controls",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xa99c3d",
+        "target_rva": "0x2d8fe70",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 3D 2C 62 2F 02"
+      },
+      {
+        "instruction_rva": "0xa9965b",
+        "target_rva": "0xa99c1c",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 BC 05 00 00"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xa99648",
+        "signature": "F3 0F 10 95 10 08 00 00 41 8B CC F3 0F 10 8D 0C 08 00 00 E8 BC 05 00 00"
+      },
+      {
+        "rva": "0xa99c91",
+        "signature": "44 0F 28 FA 48 63 C1 48 6B D8 58"
+      },
+      {
+        "rva": "0xa99d3d",
+        "signature": "F3 0F 58 74 3B 1C F3 0F 11 74 3B 1C"
+      }
+    ]
+  }
+]

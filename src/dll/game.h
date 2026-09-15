@@ -133,6 +133,7 @@ bool Game_ComputeAimStick(float& outRx, float& outRy);
 // C-H2-41. True only while Halo 2's controller-owned aim/weapon feature is
 // requested; tracking loss still makes each call fail open independently.
 bool Game_Halo2ControllerAimActive();
+bool Game_CeControllerFeaturesRequested();
 bool Game_ComputeHalo2SnapStick(float& outRx);
 // C-H2-89 optional feature transaction. The official H2EK boolean is resolved
 // by name and set only while the Halo 2 VR core owns gameplay. Failure leaves

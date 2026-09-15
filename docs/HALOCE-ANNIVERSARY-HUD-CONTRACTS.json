@@ -1,0 +1,255 @@
+{
+  "entries": [
+    {
+      "name": "native_hud_callback",
+      "rva": "0x740b0",
+      "signature": "48 8B C4 57 48 81 EC A0 00 00 00 48 C7 40 98 FE FF FF FF 48 89 58 08 48 89 70 10 0F 29 70 E8 0F 29 78 D8 33 F6 89 35 9D",
+      "function_entry": true,
+      "runtime_group": "anniversary_hud",
+      "evidence": "HALOCE-ANNIVERSARY-HUD-EVIDENCE-2026-09-15.md E-CE-AHUD-1..4",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x8d088",
+          "target_rva": "0x740b0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 05 21 70 FE FF"
+        },
+        {
+          "instruction_rva": "0x8d08f",
+          "target_rva": "0x1c33fe0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 89 05 4A 6F BA 01"
+        },
+        {
+          "instruction_rva": "0x740db",
+          "target_rva": "0x2d9bdd1",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "40 38 35 EF 7C D2 02"
+        },
+        {
+          "instruction_rva": "0x740e8",
+          "target_rva": "0x2b23700",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "40 38 35 11 F6 AA 02"
+        },
+        {
+          "instruction_rva": "0x740f5",
+          "target_rva": "0x2d91330",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 34 D2 D1 02"
+        },
+        {
+          "instruction_rva": "0x74345",
+          "target_rva": "0xb31d88",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 3E DA AB 00"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x740fc",
+          "signature": "40 38 70 02",
+          "meaning": "cmp byte ptr [rax + 2], sil"
+        },
+        {
+          "rva": "0x74361",
+          "signature": "83 FB 01",
+          "meaning": "cmp ebx, 1"
+        },
+        {
+          "rva": "0x743e1",
+          "signature": "48 8B 0D F8 79 DC 02",
+          "meaning": "mov rcx, qword ptr [rip + 0x2dc79f8]"
+        }
+      ]
+    },
+    {
+      "name": "native_hud_preamble",
+      "rva": "0x4255a0",
+      "signature": "48 83 EC 28 48 83 3D 34 EA 80 01 00 74 3C E8 2D 6C DB FF E8 38 6D DB FF 48 8B 15 21 68 A1 02 0F 57 C0 48 8B 82 D8 00 00",
+      "function_entry": true,
+      "runtime_group": "anniversary_hud",
+      "evidence": "HALOCE-ANNIVERSARY-HUD-EVIDENCE-2026-09-15.md E-CE-AHUD-1..4",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x4255a4",
+          "target_rva": "0x1c33fe0",
+          "instruction_bytes": 8,
+          "displacement_offset": 3,
+          "instruction_signature": "48 83 3D 34 EA 80 01 00"
+        },
+        {
+          "instruction_rva": "0x4255ae",
+          "target_rva": "0x1dc1e0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 2D 6C DB FF"
+        },
+        {
+          "instruction_rva": "0x4255b3",
+          "target_rva": "0x1dc2f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 38 6D DB FF"
+        },
+        {
+          "instruction_rva": "0x4255b8",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 21 68 A1 02"
+        },
+        {
+          "instruction_rva": "0x4255e3",
+          "target_rva": "0x1c33fe0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 FF 25 F6 E9 80 01"
+        },
+        {
+          "instruction_rva": "0x456d1d",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 BC 3C 79 01"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x4255c2",
+          "signature": "48 8B 82 D8 00 00 00",
+          "meaning": "mov rax, qword ptr [rdx + 0xd8]"
+        },
+        {
+          "rva": "0x4255c9",
+          "signature": "C6 40 30 01",
+          "meaning": "mov byte ptr [rax + 0x30], 1"
+        },
+        {
+          "rva": "0x4255cd",
+          "signature": "48 8B 48 08",
+          "meaning": "mov rcx, qword ptr [rax + 8]"
+        },
+        {
+          "rva": "0x4255d1",
+          "signature": "0F 11 81 50 03 00 00",
+          "meaning": "movups xmmword ptr [rcx + 0x350], xmm0"
+        },
+        {
+          "rva": "0x4255d8",
+          "signature": "C6 82 C8 02 00 00 01",
+          "meaning": "mov byte ptr [rdx + 0x2c8], 1"
+        },
+        {
+          "rva": "0x456d24",
+          "signature": "8B 88 B0 00 00 00",
+          "meaning": "mov ecx, dword ptr [rax + 0xb0]"
+        }
+      ]
+    },
+    {
+      "name": "native_target_push",
+      "rva": "0x1dc1e0",
+      "signature": "48 8B C4 48 89 58 10 48 89 48 08 57 48 83 EC 60 48 8B 1D E9 FB C5 02 48 63 4B 10 8B 53 14 0F 10 43 18 8D 79 01 3B D7 0F",
+      "function_entry": true,
+      "runtime_group": "anniversary_hud",
+      "evidence": "HALOCE-ANNIVERSARY-HUD-EVIDENCE-2026-09-15.md E-CE-AHUD-1..4",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x1dc1f0",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 1D E9 FB C5 02"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x1dc1f7",
+          "signature": "48 63 4B 10",
+          "meaning": "movsxd rcx, dword ptr [rbx + 0x10]"
+        },
+        {
+          "rva": "0x1dc1fb",
+          "signature": "8B 53 14",
+          "meaning": "mov edx, dword ptr [rbx + 0x14]"
+        },
+        {
+          "rva": "0x1dc1fe",
+          "signature": "0F 10 43 18",
+          "meaning": "movups xmm0, xmmword ptr [rbx + 0x18]"
+        },
+        {
+          "rva": "0x1dc202",
+          "signature": "8D 79 01",
+          "meaning": "lea edi, [rcx + 1]"
+        },
+        {
+          "rva": "0x1dc205",
+          "signature": "3B D7",
+          "meaning": "cmp edx, edi"
+        },
+        {
+          "rva": "0x1dc2b0",
+          "signature": "48 8B 43 08",
+          "meaning": "mov rax, qword ptr [rbx + 8]"
+        }
+      ]
+    },
+    {
+      "name": "native_target_pop",
+      "rva": "0x1dc2f0",
+      "signature": "40 53 48 83 EC 40 48 8B 1D E3 FA C5 02 83 7B 10 00 74 3D 48 8B 03 4C 8B 80 F8 00 00 00 8B 43 10 FF C8 48 98 48 8D 0C C0",
+      "function_entry": true,
+      "runtime_group": "anniversary_hud",
+      "evidence": "HALOCE-ANNIVERSARY-HUD-EVIDENCE-2026-09-15.md E-CE-AHUD-1..4",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x1dc2f6",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 1D E3 FA C5 02"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x1dc306",
+          "signature": "4C 8B 80 F8 00 00 00",
+          "meaning": "mov r8, qword ptr [rax + 0xf8]"
+        },
+        {
+          "rva": "0x1dc30d",
+          "signature": "8B 43 10",
+          "meaning": "mov eax, dword ptr [rbx + 0x10]"
+        },
+        {
+          "rva": "0x1dc318",
+          "signature": "48 8B 43 08",
+          "meaning": "mov rax, qword ptr [rbx + 8]"
+        },
+        {
+          "rva": "0x1dc31c",
+          "signature": "48 8D 14 C8",
+          "meaning": "lea rdx, [rax + rcx*8]"
+        },
+        {
+          "rva": "0x1dc323",
+          "signature": "41 FF D0",
+          "meaning": "call r8"
+        },
+        {
+          "rva": "0x1dc337",
+          "signature": "89 4B 10",
+          "meaning": "mov dword ptr [rbx + 0x10], ecx"
+        }
+      ]
+    }
+  ]
+}

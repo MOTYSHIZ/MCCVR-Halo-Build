@@ -1,0 +1,204 @@
+// Native HUD output routing is an independent optional feature. The forced
+// two-view list uses bit0, while the native in-frame HUD branch requires bit1.
+// E-CE-AHUD-1..4, HALOCE-ANNIVERSARY-HUD-EVIDENCE-2026-09-15.md.
+using AnniversaryHudFn=void(__fastcall*)();
+Hook anniversaryHudHook;
+std::atomic<bool> anniversaryHudInstalled{};
+std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
+std::atomic<uint32_t> anniversaryHudFailure{};
+struct AnniversaryHudReplay
+{
+    RenderContext owner;
+    ID3D11DeviceContext* context{};
+    UINT width{},height{},eyeWidth{},eyeHeight{};
+    bool entered{},returned{},rasterRestored{};
+};
+thread_local AnniversaryHudReplay* anniversaryHudReplay{};
+
+void AnniversaryHudCallbackBody()
+{
+    const auto original=reinterpret_cast<AnniversaryHudFn>(anniversaryHudHook.original);
+    auto* replay=anniversaryHudReplay;
+    if (!replay) { original(); return; }
+    if (replay->entered||!HaloCE_RenderContextCurrent(replay->owner)||
+        !HaloCEHudLayout_BeginEyeReplay(replay->context,replay->width,replay->height,
+            replay->eyeWidth,replay->eyeHeight)) return;
+    replay->entered=true;
+    __try { original(); replay->returned=true; }
+    __finally { replay->rasterRestored=HaloCEHudLayout_EndEyeReplay(); }
+}
+void __fastcall AnniversaryHudCallbackHook()
+{ Callback callback; AnniversaryHudCallbackBody(); }
+
+bool AnniversaryHud_Remove() noexcept
+{
+    anniversaryHudInstalled=false;
+    if (anniversaryHudHook.enabled)
+    {
+        const auto result=MCCVR_DisableHookForRetirement(anniversaryHudHook.target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        anniversaryHudHook.enabled=false;
+    }
+    if (!anniversaryHudHook.target) return true;
+    const void* detours[]{reinterpret_cast<void*>(&AnniversaryHudCallbackHook)};
+    const void* originals[]{anniversaryHudHook.original};
+    if (!WaitForNativeDetourQuiescence(detours,originals,1,callbacks)) return false;
+    const auto result=MH_RemoveHook(anniversaryHudHook.target);
+    if (result!=MH_OK&&result!=MH_ERROR_NOT_CREATED) return false;
+    anniversaryHudHook={};
+    return true;
+}
+bool AnniversaryHud_Install() noexcept
+{
+    const NativeContractSet set{contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,
+        contract::anniversary_hud::relatives,contract::anniversary_hud::pointers};
+    const char* failure{};
+    if (!VerifyNativeFeatureBindings(bindings.base,bindings.size,generation.load(),set,failure))
+    { LOG("CE Anniversary HUD stock fallback: %s; camera retained",failure?failure:"binding verification"); return false; }
+    auto* target=reinterpret_cast<void*>(bindings.base+contract::anniversary_hud::native_hud_callback);
+    if (MH_CreateHook(target,reinterpret_cast<void*>(&AnniversaryHudCallbackHook),
+        &anniversaryHudHook.original)!=MH_OK) return false;
+    anniversaryHudHook.target=target;
+    if (MH_EnableHook(target)!=MH_OK) { (void)AnniversaryHud_Remove(); return false; }
+    anniversaryHudHook.enabled=true; anniversaryHudInstalled=true;
+    LOG("CE Anniversary HUD installed: per-eye native callback before exact source copy; independent target/raster restoration, visible result unverified");
+    return true;
+}
+
+struct AnniversaryHudSource
+{
+    uintptr_t root{},surface{},resource{},context{},backend{};
+    ResourceRegistry::Record record;
+    int32_t index{};
+};
+bool AnniversaryHud_ReadSource(AnniversaryHudSource& out) noexcept
+{
+    AnniversaryHudSource next{}; uintptr_t vtable{},context{};
+    if (!Read(bindings.base+0x1b7b11c,next.index)||next.index<0||next.index>1||
+        !Read(bindings.base+0x2d62890+next.index*8,next.root)||!next.root||
+        !Read(next.root,vtable)||vtable!=bindings.base+0x17fb608||
+        !Read(bindings.base+0x2e3bde0,next.backend)||!next.backend||
+        !Read(next.backend,vtable)||vtable!=bindings.base+0x17f9d10||
+        !Read(next.backend+0xce0,next.context)||!next.context||
+        !Read(bindings.base+0x2ea2d30,context)||context!=next.context) return false;
+    __try { next.surface=reinterpret_cast<uintptr_t(__fastcall*)(uintptr_t)>(bindings.surfaceSelector)(next.root); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+    if (!next.surface||!Read(next.surface,vtable)||vtable!=bindings.base+0x17fb608||
+        !Read(next.surface+0xe0,next.resource)||!next.resource||
+        !resources.Read(next.resource,next.resource,next.record)) return false;
+    out=next; return true;
+}
+void AnniversaryHud_ReplayEye(FrameScope& scope,int eye)
+{
+    if (!anniversaryHudInstalled.load()||!scope.synthetic||!scope.capture||
+        eye<0||eye>1||anniversaryHudReplay) return;
+    const uint32_t mask=1u<<eye;
+    if (scope.hudAttempted&mask) return;
+    scope.hudAttempted|=mask;
+    uint32_t failure=1;
+    AnniversaryHudReplay replay{};
+    AnniversaryHudSource source{};
+    ReferenceSample sample{};
+    uintptr_t callback{},players{},config{},display{},enabledPointer{},stackStorage{};
+    uintptr_t previousOutput{};
+    uint8_t nativeInitialized{},nativeDisabled{},nativeRendering{},hudAvailable{};
+    int16_t playerCount{}; int32_t stereo{},nativeStackDepth{},nativeStackCapacity{};
+    std::array<uint8_t,0x48> targetDescriptor{};
+    constexpr UINT rasterCapacity=D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_VIEWPORT previousViewports[rasterCapacity]{};
+    D3D11_RECT previousScissors[rasterCapacity]{};
+    UINT previousViewportCount{},previousScissorCount{};
+    bool targetRestored=false;
+    const auto camera=reinterpret_cast<const SaberCamera*>(scope.renderer+0xf0+eye*sizeof(SaberView));
+    if (!(scope.renderFlags&0x10)||scope.diagnostic.nativeFlags!=1||
+        !HaloCE_GetAnniversaryEyeTracking(camera,replay.owner.tracking)||
+        !Read(bindings.base+0x1c33fe0,callback)||callback!=bindings.base+contract::anniversary_hud::native_hud_callback||
+        !Read(bindings.base+0x2ea2d90,players)||!Read(players+0xb4,playerCount)||playerCount!=1||
+        !Read(bindings.base+0x2d9bdd1,nativeInitialized)||!nativeInitialized||
+        !Read(bindings.base+0x2b23700,nativeDisabled)||nativeDisabled||
+        !Read(bindings.base+0x2d91330,enabledPointer)||!Read(enabledPointer+2,nativeRendering)||!nativeRendering||
+        !Read(bindings.base+0x2e3b829,hudAvailable)||!hudAvailable||
+        !Read(bindings.base+0x2e3bdd8,config)||!Read(config+0x238,stereo)||stereo||
+        !Read(config+0x118,display)||!Read(display+0x10,replay.width)||!Read(display+0x14,replay.height)||
+        !Read(bindings.base+0x2d9cb34,replay.owner.camera)||!Valid(replay.owner.camera)||
+        !publishedReference.Read(sample)||sample.revision!=scope.prepared.referenceRevision||
+        !AnniversaryHud_ReadSource(source)) goto failed;
+    failure=2;
+    replay.owner.reference=sample.value; replay.owner.referenceRevision=sample.revision;
+    replay.owner.rendererEpoch=ceRendererEpoch.load();
+    replay.owner.unitsPerMeter=Game_GetWorldScale(); replay.owner.positional=Game_IsPositionalTracking();
+    replay.context=reinterpret_cast<ID3D11DeviceContext*>(source.context);
+    replay.eyeWidth=source.record.descriptor.Width; replay.eyeHeight=source.record.descriptor.Height;
+    if (!HaloCE_RenderContextCurrent(replay.owner)||
+        !std::isfinite(replay.owner.unitsPerMeter)||replay.owner.unitsPerMeter<=0||replay.owner.unitsPerMeter>10||
+        replay.width!=replay.eyeWidth||replay.height!=2*replay.eyeHeight||
+        replay.eyeWidth!=scope.prepared.receipt.pair.cameras[eye].viewportWidth||
+        replay.eyeHeight!=scope.prepared.receipt.pair.cameras[eye].viewportHeight||
+        replay.owner.camera.viewport.left||replay.owner.camera.viewport.top||
+        replay.owner.camera.viewport.right!=replay.width||replay.owner.camera.viewport.bottom!=replay.height||
+        !Read(bindings.base+0x2e3d0d0,previousOutput)||
+        !Read(source.backend+0x10,nativeStackDepth)||nativeStackDepth<0||
+        !Read(source.backend+0x14,nativeStackCapacity)||nativeStackCapacity<2||
+        nativeStackCapacity>4096||nativeStackDepth>nativeStackCapacity-2||
+        !Read(source.backend+8,stackStorage)||!stackStorage||
+        !Read(source.backend+0x18,targetDescriptor)||
+        !HaloCEHudLayout_CopyState(replay.context,&previousViewportCount,previousViewports,
+            &previousScissorCount,previousScissors)) goto failed;
+    {
+        // Both native pushes fit the existing stack: this adapter never grows
+        // native storage. The callback borrows kind1/2 and restores them itself.
+        // Our outer push/pop restores the pre-HUD backend target and viewport.
+        bool pushed=false,borrowed=false;
+        __try
+        {
+            reinterpret_cast<AnniversaryHudFn>(bindings.base+contract::anniversary_hud::native_target_push)();
+            pushed=true;
+            *reinterpret_cast<uintptr_t*>(bindings.base+0x2e3d0d0)=source.root; borrowed=true;
+            anniversaryHudReplay=&replay;
+            reinterpret_cast<AnniversaryHudFn>(bindings.base+contract::anniversary_hud::native_hud_preamble)();
+        }
+        __finally
+        {
+            anniversaryHudReplay=nullptr;
+            uintptr_t outputAfter{};
+            const bool outputOwned=borrowed&&Read(bindings.base+0x2e3d0d0,outputAfter)&&outputAfter==source.root;
+            if (outputOwned) *reinterpret_cast<uintptr_t*>(bindings.base+0x2e3d0d0)=previousOutput;
+            if (pushed)
+            {
+                uintptr_t backendAfter{},contextAfter{},storageAfter{};
+                int32_t depthAfter{};
+                std::array<uint8_t,0x48> descriptorAfter{};
+                const bool popOwned=Read(bindings.base+0x2e3bde0,backendAfter)&&
+                    backendAfter==source.backend&&Read(source.backend+0xce0,contextAfter)&&
+                    contextAfter==source.context&&Read(source.backend+8,storageAfter)&&
+                    storageAfter==stackStorage&&Read(source.backend+0x10,depthAfter)&&
+                    depthAfter==nativeStackDepth+1;
+                const auto popped=popOwned?reinterpret_cast<uint8_t(__fastcall*)()>(
+                    bindings.base+contract::anniversary_hud::native_target_pop)():0;
+                targetRestored=outputOwned&&popped&&Read(source.backend+0x10,depthAfter)&&
+                    depthAfter==nativeStackDepth&&Read(source.backend+0x18,descriptorAfter)&&
+                    descriptorAfter==targetDescriptor;
+                if (targetRestored)
+                {
+                    // The native pop restores target dimensions, not an earlier
+                    // custom viewport. Restore its separately observed numeric
+                    // raster only after the descriptor and stack match again.
+                    replay.context->RSSetViewports(previousViewportCount,previousViewports);
+                    replay.context->RSSetScissorRects(previousScissorCount,previousScissors);
+                }
+            }
+        }
+    }
+    failure=3;
+    {
+        AnniversaryHudSource after{};
+        if (!replay.entered||!replay.returned||!replay.rasterRestored||!targetRestored||
+            !HaloCE_RenderContextCurrent(replay.owner)||!AnniversaryHud_ReadSource(after)||
+            after.root!=source.root||after.surface!=source.surface||after.resource!=source.resource||
+            after.context!=source.context||after.record.revision!=source.record.revision) goto failed;
+    }
+    anniversaryHudDraws.fetch_add(1,std::memory_order_relaxed); return;
+failed:
+    anniversaryHudFailure.store(failure,std::memory_order_relaxed);
+    anniversaryHudFallbacks.fetch_add(1,std::memory_order_relaxed);
+}

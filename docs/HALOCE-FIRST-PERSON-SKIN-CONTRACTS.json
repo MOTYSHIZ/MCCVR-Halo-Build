@@ -1,0 +1,33 @@
+[
+  {
+    "name": "first_person_saber_bone_convert",
+    "rva": "0x77e70",
+    "signature": "48 83 EC 68 F3 0F 10 69 14 33 C0 F3 0F 10 59 20 F3 0F 10 49 24 F3 0F 10 51 10 F3 0F 10 61 18",
+    "function_entry": true,
+    "evidence": "E-CE-FP-4",
+    "runtime_group": "first_person_skin",
+    "relative_operands": [
+      {
+        "instruction_rva": "0x8b97d",
+        "target_rva": "0x77e70",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 EE C4 FE FF"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0x8b96f",
+        "signature": "48 6B C8 34 48 81 C1 0C 02 00 00 49 03 CF"
+      },
+      {
+        "rva": "0x77f19",
+        "signature": "F3 0F 11 32"
+      },
+      {
+        "rva": "0x77f5c",
+        "signature": "C7 42 3C 00 00 80 3F"
+      }
+    ]
+  }
+]

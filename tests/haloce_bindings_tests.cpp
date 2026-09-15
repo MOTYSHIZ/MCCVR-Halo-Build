@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <vector>
+#include <set>
 
 using namespace halo_ce;
 namespace
@@ -88,6 +89,18 @@ int main(int argc,char** argv)
     if (failure) std::fprintf(stderr,"initial failure: %s\n",failure);
     check(bindings.generation==4&&bindings.viewRebuild==base+0x11aba0&&
         bindings.surfaceSelector==base+0xad5f0,"CE-specific callable addresses returned");
+    const contract::Entry optionalEntries[]{
+        {"fixture optional feature",0x3000,"0F 0B 31 42 53 64 75 86 97 A8 B9 CA DB EC FD",false}};
+    const NativeContractSet optionalSet{optionalEntries,{},{},{}};
+    WritePattern(image,optionalEntries[0].rva,optionalEntries[0].pattern);
+    check(VerifyNativeFeatureBindings(base,image.size(),4,optionalSet,failure),
+        "independent feature signature is verified against the same pinned image");
+    image[0x3000]^=1;
+    check(!VerifyNativeFeatureBindings(base,image.size(),4,optionalSet,failure)&&resolve(),
+        "optional feature failure leaves camera bindings independently usable");
+    check(!VerifyNativeFeatureBindings(base,image.size(),4,{},failure),
+        "empty optional contract cannot claim proof");
+    std::memset(image.data()+0x3000,0xcc,32);
     SaberViewPair native{};
     Tracking tracking{}; tracking.generation=5;
     Reference reference{};
@@ -160,8 +173,25 @@ int main(int argc,char** argv)
             std::memcpy(image.data()+s.VirtualAddress,raw.data()+s.PointerToRawData,s.SizeOfRawData);
         }
         const auto mappedBase=reinterpret_cast<uintptr_t>(image.data());
-        for (const auto& pointer:contract::pointers)
+        const NativeContractSet featureSets[]{
+            {contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,contract::anniversary_hud::relatives,contract::anniversary_hud::pointers},
+            {contract::gameplay_bridge::entries,contract::gameplay_bridge::witnesses,contract::gameplay_bridge::relatives,contract::gameplay_bridge::pointers},
+            {contract::comfort::entries,contract::comfort::witnesses,contract::comfort::relatives,contract::comfort::pointers},
+            {contract::entries,contract::witnesses,contract::relatives,contract::pointers},
+            {contract::classic::entries,contract::classic::witnesses,contract::classic::relatives,contract::classic::pointers},
+            {contract::first_person::entries,contract::first_person::witnesses,contract::first_person::relatives,contract::first_person::pointers},
+            {contract::first_person_aim::entries,contract::first_person_aim::witnesses,contract::first_person_aim::relatives,contract::first_person_aim::pointers},
+            {contract::first_person_skin::entries,contract::first_person_skin::witnesses,contract::first_person_skin::relatives,contract::first_person_skin::pointers},
+            {contract::first_person_projection::entries,contract::first_person_projection::witnesses,contract::first_person_projection::relatives,contract::first_person_projection::pointers},
+            {contract::hud::entries,contract::hud::witnesses,contract::hud::relatives,contract::hud::pointers},
+            {contract::hud_layout::entries,contract::hud_layout::witnesses,contract::hud_layout::relatives,contract::hud_layout::pointers},
+            {contract::hud_target::entries,contract::hud_target::witnesses,contract::hud_target::relatives,contract::hud_target::pointers},
+            {contract::player_state::entries,contract::player_state::witnesses,contract::player_state::relatives,contract::player_state::pointers},
+            {contract::controls::entries,contract::controls::witnesses,contract::controls::relatives,contract::controls::pointers}};
+        std::set<uint32_t> relocatedPointers;
+        for (const auto& set:featureSets) for (const auto& pointer:set.pointers)
         {
+            if (!relocatedPointers.insert(pointer.rva).second) continue;
             uintptr_t original{};
             std::memcpy(&original,image.data()+pointer.rva,8);
             const uintptr_t relocated=original-source->OptionalHeader.ImageBase+mappedBase;
@@ -170,6 +200,12 @@ int main(int argc,char** argv)
         check(ResolveNativeBindings(mappedBase,image.size(),9,bindings,failure),
             "production mapped-image verifier accepts the pinned PE offline");
         if (failure) std::fprintf(stderr,"pinned failure: %s\n",failure);
+        for (const auto& set:featureSets)
+        {
+            check(VerifyNativeFeatureBindings(mappedBase,image.size(),9,set,failure),
+                "production optional-feature verifier accepts its pinned native group");
+            if (failure) std::fprintf(stderr,"pinned feature failure: %s\n",failure);
+        }
     }
     return failures?1:0;
 }

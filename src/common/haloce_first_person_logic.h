@@ -1,0 +1,470 @@
+#pragma once
+
+#include "haloce_render_logic.h"
+#include "two_hand_ik_logic.h"
+#include "../dll/ik.h"
+#include <array>
+#include <cstring>
+
+// CE-specific data, established independently in HCEEK and the pinned MCC
+// image. See E-CE-FP-1 in docs/HALOCE-FIRST-PERSON-EVIDENCE.md.
+namespace halo_ce
+{
+inline constexpr size_t kFirstPersonMaxNodes=64;
+struct AnimationNode
+{
+    char name[32]{};
+    int16_t sibling{-1},child{-1},parent{-1};
+    uint8_t remaining[26]{};
+};
+struct NodeMatrix
+{
+    float scale{1};
+    Vec3 forward{1,0,0},left{0,1,0},up{0,0,1},position{};
+};
+static_assert(sizeof(AnimationNode)==0x40);
+static_assert(offsetof(AnimationNode,parent)==0x24);
+static_assert(sizeof(NodeMatrix)==0x34);
+static_assert(offsetof(NodeMatrix,position)==0x28);
+
+// E-CE-FP-4: Saber converts the native 52-byte bone matrix to this row-major
+// 4x4 representation, but its native converter omits the separate scale.
+// Skinning consumes the 3x3 basis, so restore scale there without moving the
+// already converted world translation or changing the object's root carrier.
+struct SaberBoneMatrix { float value[16]{}; };
+// E-CE-FP-5: native GLT, ZFILL and SFX material writers select their alternate
+// fixed-FOV lens from the same first-person model flag. Tracked geometry uses
+// the world lens, retaining native depth-range treatment of both matrices.
+inline bool SelectSaberTrackedProjection(uint32_t modelFlags,float (&selector)[4]) noexcept
+{
+    if (!(modelFlags&0x10000000u)) return false;
+    for (float value:selector) if (value!=1.0f) return false;
+    for (float& value:selector) value=0;
+    return true;
+}
+inline bool ApplySaberFirstPersonScale(float scale,SaberBoneMatrix& matrix) noexcept
+{
+    if (!std::isfinite(scale)||scale<=0.000001f||scale>=100) return false;
+    for (float value:matrix.value) if (!std::isfinite(value)) return false;
+    if (std::fabs(matrix.value[3])>0.00001f||std::fabs(matrix.value[7])>0.00001f||
+        std::fabs(matrix.value[11])>0.00001f||std::fabs(matrix.value[15]-1)>0.00001f)
+        return false;
+    SaberBoneMatrix candidate=matrix;
+    for (size_t row=0;row<3;++row)
+        for (size_t column=0;column<3;++column)
+        {
+            float& value=candidate.value[row*4+column];
+            value*=scale;
+            if (!std::isfinite(value)) return false;
+        }
+    matrix=candidate;
+    return true;
+}
+
+inline bool Valid(const NodeMatrix& m) noexcept
+{
+    return std::isfinite(m.scale)&&m.scale>0.000001f&&m.scale<100&&
+        Finite(m.position)&&Finite(m.forward)&&Finite(m.left)&&Finite(m.up)&&
+        std::fabs(Dot(m.forward,m.forward)-1)<0.05f&&
+        std::fabs(Dot(m.left,m.left)-1)<0.05f&&
+        std::fabs(Dot(m.up,m.up)-1)<0.05f&&
+        std::fabs(Dot(m.forward,m.left))<0.05f&&
+        std::fabs(Dot(m.forward,m.up))<0.05f&&
+        std::fabs(Dot(m.left,m.up))<0.05f&&
+        Dot(Cross(m.forward,m.left),m.up)>0.95f;
+}
+inline Vec3 TransformDirection(const NodeMatrix& m,Vec3 p) noexcept
+{ return m.forward*p.x+m.left*p.y+m.up*p.z; }
+inline Vec3 InverseDirection(const NodeMatrix& m,Vec3 p) noexcept
+{ return {Dot(m.forward,p),Dot(m.left,p),Dot(m.up,p)}; }
+
+// Preserve the authored pose within a hand: each node receives the exact same
+// rigid carrier delta. Reload fingers, the weapon, magazine and muzzle retain
+// their relationship. Opposite-hand nodes never inherit this delta.
+inline bool MoveNode(const NodeMatrix& sourceCarrier,const NodeMatrix& targetCarrier,
+    const NodeMatrix& source,NodeMatrix& out) noexcept
+{
+    if (!Valid(sourceCarrier)||!Valid(targetCarrier)||!Valid(source)) return false;
+    NodeMatrix candidate=source;
+    candidate.scale=source.scale*targetCarrier.scale/sourceCarrier.scale;
+    candidate.forward=TransformDirection(targetCarrier,InverseDirection(sourceCarrier,source.forward));
+    candidate.left=TransformDirection(targetCarrier,InverseDirection(sourceCarrier,source.left));
+    candidate.up=TransformDirection(targetCarrier,InverseDirection(sourceCarrier,source.up));
+    candidate.position=targetCarrier.position+TransformDirection(targetCarrier,
+        InverseDirection(sourceCarrier,source.position-sourceCarrier.position))*
+        (targetCarrier.scale/sourceCarrier.scale);
+    if (!Valid(candidate)) return false;
+    out=candidate;
+    return true;
+}
+
+struct FirstPersonBinding
+{
+    uint32_t graph{0xffffffffu};
+    uint32_t generation{};
+    uint16_t count{};
+    int16_t rightWrist{-1},leftWrist{-1},gun{-1};
+    int16_t shoulder[2]{-1,-1},elbow[2]{-1,-1}; // physical left/right
+    uint64_t rightMask{},leftMask{},gunMask{};
+};
+inline bool NodeName(const char (&name)[32],const char* expected) noexcept
+{
+    const size_t length=std::strlen(expected);
+    if (length>=sizeof(name)) return false;
+    return std::memcmp(name,expected,length)==0&&name[length]==0;
+}
+inline bool IsWrist(const char (&name)[32],bool left) noexcept
+{
+    // These exact spellings occur in the official HCEEK first-person graphs.
+    return NodeName(name,left?"frame l wriste":"frame r wriste")||
+        NodeName(name,left?"frame l wrist":"frame r wrist");
+}
+inline bool DescendsFrom(const AnimationNode* nodes,size_t count,size_t node,
+    size_t ancestor) noexcept
+{
+    for (size_t depth=0;depth<count;++depth)
+    {
+        if (node==ancestor) return true;
+        if (!node) return false;
+        const int parent=nodes[node].parent;
+        if (parent<0||size_t(parent)>=count||size_t(parent)==node) return false;
+        node=size_t(parent);
+    }
+    return false;
+}
+inline bool BuildFirstPersonBinding(uint32_t graph,uint32_t generation,
+    const AnimationNode* nodes,size_t count,FirstPersonBinding& out) noexcept
+{
+    if (!nodes||graph==0xffffffffu||!generation||!count||count>kFirstPersonMaxNodes)
+        return false;
+    FirstPersonBinding candidate{};
+    candidate.graph=graph;candidate.generation=generation;candidate.count=uint16_t(count);
+    for (size_t i=0;i<count;++i)
+    {
+        if (!std::memchr(nodes[i].name,0,sizeof(nodes[i].name))) return false;
+        if (!i)
+        {
+            if (nodes[i].parent!=-1&&nodes[i].parent!=0) return false;
+        }
+        else if (!DescendsFrom(nodes,count,i,0)) return false;
+        for (int16_t index:{nodes[i].child,nodes[i].sibling})
+            if (index!=-1&&(index<0||size_t(index)>=count||size_t(index)==i)) return false;
+        if (IsWrist(nodes[i].name,false))
+        { if (candidate.rightWrist!=-1) return false;candidate.rightWrist=int16_t(i); }
+        if (IsWrist(nodes[i].name,true))
+        { if (candidate.leftWrist!=-1) return false;candidate.leftWrist=int16_t(i); }
+        for (size_t side=0;side<2;++side)
+        {
+            if (NodeName(nodes[i].name,side?"frame r upperarm":"frame l upperarm"))
+            { if (candidate.shoulder[side]!=-1) return false;candidate.shoulder[side]=int16_t(i); }
+            if (NodeName(nodes[i].name,side?"frame r forearm":"frame l forearm"))
+            { if (candidate.elbow[side]!=-1) return false;candidate.elbow[side]=int16_t(i); }
+        }
+    }
+    // The official CE graphs use four weapon-root spellings. Only the direct
+    // wrist child is a root: the rocket launcher also has a "frame body"
+    // deeper inside its weapon tree, which must never become a second root.
+    for (size_t i=0;i<count;++i)
+        if (nodes[i].parent==candidate.rightWrist&&
+            (NodeName(nodes[i].name,"frame gun")||NodeName(nodes[i].name,"frame body")||
+             NodeName(nodes[i].name,"frame pole")||NodeName(nodes[i].name,"frame skull")))
+        { if (candidate.gun!=-1) return false;candidate.gun=int16_t(i); }
+    if (candidate.rightWrist<0||candidate.leftWrist<0||candidate.gun<0||
+        !DescendsFrom(nodes,count,size_t(candidate.gun),size_t(candidate.rightWrist)))
+        return false;
+    for (size_t i=0;i<count;++i)
+    {
+        const uint64_t bit=uint64_t{1}<<i;
+        if (DescendsFrom(nodes,count,i,size_t(candidate.rightWrist))) candidate.rightMask|=bit;
+        if (DescendsFrom(nodes,count,i,size_t(candidate.leftWrist))) candidate.leftMask|=bit;
+        if (DescendsFrom(nodes,count,i,size_t(candidate.gun))) candidate.gunMask|=bit;
+    }
+    if ((candidate.rightMask&candidate.leftMask)||!candidate.gunMask) return false;
+    for (size_t side=0;side<2;++side)
+    {
+        const int wrist=side?candidate.rightWrist:candidate.leftWrist;
+        if (candidate.shoulder[side]>=0&&candidate.elbow[side]>=0&&
+            (nodes[wrist].parent!=candidate.elbow[side]||
+             nodes[candidate.elbow[side]].parent!=candidate.shoulder[side])) return false;
+    }
+    out=candidate;
+    return true;
+}
+
+// The adapter supplies a single proven camera/reference/controller receipt.
+// Missing or stale controller data fails this feature without affecting eyes.
+inline bool BuildControllerMatrix(const Camera& native,const Tracking& tracking,
+    const Reference& reference,const ControllerPose& controller,float unitsPerMeter,
+    bool positional,NodeMatrix& out) noexcept
+{
+    if (!Valid(native)||!tracking.serial||!tracking.generation||!controller.valid||
+        tracking.generation!=reference.generation||tracking.spaceEpoch!=reference.spaceEpoch||
+        !Valid(reference.orientation)||!Valid(controller.orientation)||
+        !Finite(reference.position)||!Finite(controller.position)||!Finite(tracking.headPosition)||
+        !std::isfinite(unitsPerMeter)||unitsPerMeter<=0||unitsPerMeter>10) return false;
+    Vec3 delta=controller.position-reference.position;
+    if (!positional) delta=controller.position-tracking.headPosition;
+    if (!Finite(delta)||Dot(delta,delta)>64) return false;
+    const Quat inverse=Conjugate(reference.orientation);
+    const Quat orientation=Multiply(inverse,controller.orientation);
+    NodeMatrix candidate{};
+    candidate.position=native.position+ToNative(native,Rotate(inverse,delta))*unitsPerMeter;
+    candidate.forward=ToNative(native,Rotate(orientation,{0,0,-1}));
+    candidate.up=ToNative(native,Rotate(orientation,{0,1,0}));
+    candidate.left=Cross(candidate.up,candidate.forward);
+    if (!Valid(candidate)) return false;
+    out=candidate;
+    return true;
+}
+
+inline bool BuildGripCarriers(const FirstPersonBinding& binding,const NodeMatrix* source,
+    size_t count,const NodeMatrix& primaryAim,const NodeMatrix& supportAim,
+    NodeMatrix& primary,NodeMatrix& support) noexcept
+{
+    if (!source||binding.count!=count||binding.gun<0||binding.rightWrist<0||binding.leftWrist<0||
+        size_t(binding.gun)>=count||size_t(binding.rightWrist)>=count||size_t(binding.leftWrist)>=count||
+        !Valid(primaryAim)||!Valid(supportAim)) return false;
+    NodeMatrix primaryCandidate{},supportCandidate{};
+    const NodeMatrix& gun=source[binding.gun];
+    if (!MoveNode(gun,primaryAim,source[binding.rightWrist],primaryCandidate)||
+        !MoveNode(gun,supportAim,source[binding.leftWrist],supportCandidate)) return false;
+    // Preserve each wrist's authored rotation relative to the gun, while the
+    // physical controller supplies the grip's world position. The gun now
+    // follows mount-calibrated aim without assuming wrist axes equal gun axes.
+    primaryCandidate.position=primaryAim.position;
+    supportCandidate.position=supportAim.position;
+    primary=primaryCandidate;support=supportCandidate;
+    return true;
+}
+
+inline bool ApplyVisualMount(const ControllerRig& rig,float unitsPerMeter,
+    bool primary,NodeMatrix& matrix) noexcept
+{
+    const float scale=primary?rig.gunScale:rig.supportScale;
+    const float forward=primary?rig.gunForwardM:rig.supportForwardM;
+    const float pitchDeg=primary?rig.visualPitchDeg:rig.supportMountPitchDeg;
+    const float yawDeg=primary?rig.visualYawDeg:rig.supportMountYawDeg;
+    const float rollDeg=primary?rig.visualRollDeg:rig.supportMountRollDeg;
+    if (!Valid(matrix)||!std::isfinite(scale)||!std::isfinite(forward)||
+        !std::isfinite(unitsPerMeter)||unitsPerMeter<=0||
+        !std::isfinite(pitchDeg)||!std::isfinite(yawDeg)||
+        !std::isfinite(rollDeg)||!std::isfinite(rig.gunRightM)||
+        !std::isfinite(rig.gunUpM)) return false;
+    NodeMatrix candidate=matrix;
+    {
+        constexpr float radians=0.01745329252f;
+        const float pitch=pitchDeg*radians,yaw=-yawDeg*radians,
+            roll=-rollDeg*radians;
+        const float cp=std::cos(pitch),sp=std::sin(pitch),cy=std::cos(yaw),sy=std::sin(yaw),
+            cr=std::cos(roll),sr=std::sin(roll);
+        const Vec3 f{cp*cy,cp*sy,sp},u{-sp*cy*cr+sy*sr,-sp*sy*cr-cy*sr,cp*cr};
+        candidate.forward=TransformDirection(matrix,f);
+        candidate.up=TransformDirection(matrix,u);
+        candidate.left=Cross(candidate.up,candidate.forward);
+    }
+    candidate.scale=std::clamp(scale,0.3f,3.0f);
+    candidate.position=candidate.position+candidate.forward*
+        (std::clamp(forward,primary?-0.3f:-0.15f,primary?0.5f:0.3f)*unitsPerMeter);
+    if (primary)
+        candidate.position=candidate.position-candidate.left*(std::clamp(rig.gunRightM,-0.3f,0.3f)*unitsPerMeter)+
+            candidate.up*(std::clamp(rig.gunUpM,-0.3f,0.3f)*unitsPerMeter);
+    if (!Valid(candidate)) return false;
+    matrix=candidate;return true;
+}
+
+inline bool RotateBoneToward(NodeMatrix source,Vec3 sourceDirection,
+    Vec3 targetDirection,Vec3 position,NodeMatrix& out) noexcept
+{
+    const float fromLength=std::sqrt(Dot(sourceDirection,sourceDirection));
+    const float toLength=std::sqrt(Dot(targetDirection,targetDirection));
+    if (!Valid(source)||!Finite(position)||!std::isfinite(fromLength)||
+        !std::isfinite(toLength)||fromLength<0.00001f||toLength<0.00001f) return false;
+    const Vec3 from=sourceDirection*(1/fromLength),to=targetDirection*(1/toLength);
+    const float cosine=std::clamp(Dot(from,to),-1.0f,1.0f);
+    Quat swing{};
+    if (cosine<-0.9999f)
+    {
+        Vec3 axis=Cross(from,source.up);
+        float length=std::sqrt(Dot(axis,axis));
+        if (length<0.001f) { axis=Cross(from,source.left);length=std::sqrt(Dot(axis,axis)); }
+        if (length<0.001f) return false;
+        axis=axis*(1/length);swing={axis.x,axis.y,axis.z,0};
+    }
+    else
+    {
+        const Vec3 axis=Cross(from,to);
+        const float inverse=1/std::sqrt(2*(1+cosine));
+        swing={axis.x*inverse,axis.y*inverse,axis.z*inverse,(1+cosine)*inverse};
+    }
+    source.forward=Rotate(swing,source.forward);source.left=Rotate(swing,source.left);
+    source.up=Rotate(swing,source.up);source.position=position;
+    if (!Valid(source)) return false;
+    out=source;return true;
+}
+
+inline bool SolveFirstPersonArm(const FirstPersonBinding& binding,size_t side,
+    const NodeMatrix* source,const Camera& camera,const ControllerRig& rig,
+    const NodeMatrix& wrist,std::array<NodeMatrix,kFirstPersonMaxNodes>& palette) noexcept
+{
+    const int shoulder=binding.shoulder[side],elbow=binding.elbow[side],
+        wristIndex=side?binding.rightWrist:binding.leftWrist;
+    if (shoulder<0||elbow<0||shoulder>=binding.count||elbow>=binding.count||
+        wristIndex<0||wristIndex>=binding.count) return false;
+    NodeMatrix center{},torso{};
+    center.forward=camera.forward;center.up=camera.up;center.left=Cross(camera.up,camera.forward);
+    center.position=camera.position;torso=center;
+    if (rig.shoulderLevel)
+    {
+        // CE's world-up is independently established by the unit ray helper's
+        // upright perpendicular construction (E-CE-FP-2), not another title.
+        const Vec3 heading{camera.forward.x,camera.forward.y,0};
+        const float length=std::sqrt(Dot(heading,heading));
+        if (length>0.001f)
+        { torso.forward=heading*(1/length);torso.up={0,0,1};torso.left=Cross(torso.up,torso.forward); }
+    }
+    NodeMatrix upper{},lower{},oldWrist{};
+    if (!MoveNode(center,torso,source[shoulder],upper)||
+        !MoveNode(center,torso,source[elbow],lower)||
+        !MoveNode(center,torso,source[wristIndex],oldWrist)||
+        !std::isfinite(rig.shoulderBackM)||!std::isfinite(rig.primaryShoulderDrop)) return false;
+    // The shared shoulder_back_m key is historically in native world units,
+    // as is right_shoulder_drop; only controller mount standoffs use metres.
+    const Vec3 rootOffset=torso.forward*(-std::clamp(rig.shoulderBackM,-1.0f,1.0f))+
+        torso.up*((side==((rig.leftHanded&&rig.handAlignment)?0u:1u))?
+            -std::clamp(rig.primaryShoulderDrop,0.0f,1.0f):0.0f);
+    upper.position=upper.position+rootOffset;
+    const Vec3 upperDirection=lower.position-upper.position,lowerDirection=oldWrist.position-lower.position;
+    const float upperLength=std::sqrt(Dot(upperDirection,upperDirection));
+    const float lowerLength=std::sqrt(Dot(lowerDirection,lowerDirection));
+    Vec3 pole=lower.position-(upper.position+oldWrist.position)*0.5f;
+    if (Dot(pole,pole)<0.000001f) pole={0,0,-1};
+    const Vec3 outward=torso.left*(side?-1.0f:1.0f)-torso.up*0.6f;
+    const float poleLength=std::sqrt(Dot(pole,pole)),outwardLength=std::sqrt(Dot(outward,outward));
+    if (poleLength>0.0001f&&outwardLength>0.0001f)
+        pole=pole*(0.25f/poleLength)+outward*(0.75f/outwardLength);
+    float solveUpper=upperLength,solveLower=lowerLength;
+    const float reach=upperLength+lowerLength;
+    const Vec3 toTarget=wrist.position-upper.position;
+    const float targetDistance=std::sqrt(Dot(toTarget,toTarget));
+    if (reach>0.0001f&&targetDistance>reach)
+    {
+        const float stretch=std::min(targetDistance/reach,1.8f);
+        solveUpper*=stretch;solveLower*=stretch;
+    }
+    Vec3 solved{};
+    if (!IK_SolveTwoBone(&upper.position.x,&wrist.position.x,solveUpper,solveLower,&pole.x,&solved.x)||
+        !RotateBoneToward(upper,upperDirection,solved-upper.position,upper.position,palette[shoulder])||
+        !RotateBoneToward(lower,lowerDirection,wrist.position-solved,solved,palette[elbow])) return false;
+    return true;
+}
+
+// Preserve the shared controller-role presentation by default. The explicit
+// hand-alignment option keeps physical left/right geometry on matching hands
+// in left-handed mode. The weapon receives its own primary carrier either way.
+inline bool BuildTrackedFirstPersonPalette(const FirstPersonBinding& binding,
+    const NodeMatrix* source,const Camera& camera,const Tracking& tracking,const Reference& reference,
+    float unitsPerMeter,bool positional,std::array<NodeMatrix,kFirstPersonMaxNodes>& out) noexcept
+{
+    const auto& rig=tracking.controllers;
+    if (rig.controlsPresentationBlocked||!source||binding.generation!=tracking.generation||!binding.count||
+        binding.count>kFirstPersonMaxNodes||binding.rightWrist<0||binding.leftWrist<0||binding.gun<0||
+        binding.rightWrist>=binding.count||binding.leftWrist>=binding.count||binding.gun>=binding.count) return false;
+    NodeMatrix primaryAim{},supportAim{};
+    if (!BuildControllerMatrix(camera,tracking,reference,rig.primaryAim,unitsPerMeter,positional,primaryAim)||
+        !BuildControllerMatrix(camera,tracking,reference,rig.support,unitsPerMeter,positional,supportAim)||
+        !ApplyVisualMount(rig,unitsPerMeter,true,primaryAim)||
+        !ApplyVisualMount(rig,unitsPerMeter,false,supportAim)) return false;
+    NodeMatrix weaponGrip{},unused{},left{},right{};
+    if (!BuildGripCarriers(binding,source,binding.count,primaryAim,supportAim,weaponGrip,unused)) return false;
+    const NodeMatrix& gun=source[binding.gun];
+    const bool anatomical=rig.leftHanded&&rig.handAlignment;
+    const NodeMatrix& rightAim=anatomical?supportAim:primaryAim;
+    const NodeMatrix& leftAim=anatomical?primaryAim:supportAim;
+    if (!MoveNode(gun,rightAim,source[binding.rightWrist],right)||
+        !MoveNode(gun,leftAim,source[binding.leftWrist],left)) return false;
+    right.position=rightAim.position;left.position=leftAim.position;
+    if (rig.twoHandAimActive)
+    {
+        // Match the accepted planted support-grip policy; releasing grip
+        // immediately restores the independent support controller target.
+        NodeMatrix& support=anatomical?right:left;
+        NodeMatrix supportPosition{};
+        if (!MoveNode(source[binding.rightWrist],weaponGrip,source[binding.leftWrist],supportPosition)) return false;
+        if (anatomical)
+        {
+            if (!MoveNode(gun,primaryAim,source[binding.rightWrist],support)) return false;
+            support.position=supportPosition.position;
+        }
+        else support=supportPosition;
+    }
+    std::array<NodeMatrix,kFirstPersonMaxNodes> candidate{};
+    for (size_t i=0;i<binding.count;++i)
+    {
+        if (!Valid(source[i])) return false;
+        candidate[i]=source[i];const uint64_t bit=uint64_t{1}<<i;
+        if (binding.gunMask&bit)
+        { if (!MoveNode(source[binding.rightWrist],weaponGrip,source[i],candidate[i])) return false; }
+        else if (binding.rightMask&bit)
+        { if (!MoveNode(source[binding.rightWrist],right,source[i],candidate[i])) return false; }
+        else if (binding.leftMask&bit)
+        { if (!MoveNode(source[binding.leftWrist],left,source[i],candidate[i])) return false; }
+    }
+    for (size_t side=0;side<2;++side)
+    {
+        const NodeMatrix& target=side?right:left;
+        if (ShouldApplyArmIk(rig.armIk,rig.twoHandAimActive))
+        {
+            if (!SolveFirstPersonArm(binding,side,source,camera,rig,target,candidate)) return false;
+        }
+        else
+        {
+            const NodeMatrix& carrier=source[side?binding.rightWrist:binding.leftWrist];
+            for (const int joint:{binding.shoulder[side],binding.elbow[side]})
+                if (joint>=0&&joint<binding.count&&!MoveNode(carrier,target,source[joint],candidate[joint])) return false;
+        }
+    }
+    if (rig.floatingHands)
+        // Saber also uses the remapped model's root matrix to position the
+        // entire first-person object (native bridge 0x7AC60). Keep the graph
+        // root intact so hiding arm geometry cannot collapse that carrier.
+        for (size_t i=1;i<binding.count;++i)
+            if (!((binding.rightMask|binding.leftMask|binding.gunMask)&(uint64_t{1}<<i)))
+            { candidate[i].scale=0.00001f;candidate[i].position=camera.position; }
+    out=candidate;return true;
+}
+
+// All-or-nothing private palette staging. Runtime code must verify graph and
+// generation, then publish this palette in the engine's own FP consumption
+// scope. This helper alone does not install or claim a renderer integration.
+inline bool RelocateFirstPersonPalette(const FirstPersonBinding& binding,
+    uint32_t graph,uint32_t generation,const NodeMatrix* source,size_t count,
+    const NodeMatrix& primaryCarrier,const NodeMatrix& supportCarrier,
+    bool twoHandAim,std::array<NodeMatrix,kFirstPersonMaxNodes>& out) noexcept
+{
+    if (!source||graph!=binding.graph||generation!=binding.generation||
+        !generation||count!=binding.count||count>kFirstPersonMaxNodes||
+        binding.rightWrist<0||binding.leftWrist<0||binding.gun<0||
+        size_t(binding.rightWrist)>=count||size_t(binding.leftWrist)>=count||
+        size_t(binding.gun)>=count||!Valid(primaryCarrier)||!Valid(supportCarrier)) return false;
+    std::array<NodeMatrix,kFirstPersonMaxNodes> candidate{};
+    for (size_t i=0;i<count;++i)
+    {
+        if (!Valid(source[i])) return false;
+        candidate[i]=source[i];
+        const uint64_t bit=uint64_t{1}<<i;
+        if (binding.rightMask&bit)
+        {
+            if (!MoveNode(source[binding.rightWrist],primaryCarrier,source[i],candidate[i]))
+                return false;
+        }
+        else if (binding.leftMask&bit)
+        {
+            const NodeMatrix& sourceCarrier=source[twoHandAim?binding.rightWrist:binding.leftWrist];
+            const NodeMatrix& targetCarrier=twoHandAim?primaryCarrier:supportCarrier;
+            if (!MoveNode(sourceCarrier,targetCarrier,source[i],candidate[i])) return false;
+        }
+    }
+    out=candidate;
+    return true;
+}
+}

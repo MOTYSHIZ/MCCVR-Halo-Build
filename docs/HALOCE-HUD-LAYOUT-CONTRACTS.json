@@ -1,0 +1,74 @@
+{
+  "entries": [
+    {
+      "name": "hud_gameplay_draw",
+      "rva": "0xb12b08",
+      "signature": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 55 41 56 48 83 EC 30 48 0F BF 3D 90 C7 E9 01 83 CE FF",
+      "function_entry": true,
+      "runtime_group": "hud_layout",
+      "evidence": "HALOCE-HUD-LAYOUT-EVIDENCE-2026-09-15.md E-CE-HUD-LAYOUT-1",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb32106",
+          "target_rva": "0xb12b08",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "meaning": "native interface gameplay HUD dispatch",
+          "instruction_signature": "E8 FD 09 FE FF"
+        },
+        {
+          "instruction_rva": "0xb12b20",
+          "target_rva": "0x29af2b8",
+          "instruction_bytes": 8,
+          "displacement_offset": 4,
+          "meaning": "native current local player index",
+          "instruction_signature": "48 0F BF 3D 90 C7 E9 01"
+        },
+        {
+          "instruction_rva": "0xb12b33",
+          "target_rva": "0x2ea2d90",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "meaning": "native player-window state pointer",
+          "instruction_signature": "48 8B 05 56 02 39 02"
+        },
+        {
+          "instruction_rva": "0xb12dc4",
+          "target_rva": "0xb3ed24",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "meaning": "weapon HUD includes separate native crosshair scope",
+          "instruction_signature": "E8 5B BF 02 00"
+        },
+        {
+          "instruction_rva": "0xb12df0",
+          "target_rva": "0xc5093c",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "meaning": "motion tracker HUD dispatch",
+          "instruction_signature": "E8 47 DB 13 00"
+        },
+        {
+          "instruction_rva": "0xb12dfc",
+          "target_rva": "0xb74830",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "meaning": "native gameplay navigation-point HUD dispatch, HCEEK 1FBC00 hud_nav_points.c",
+          "instruction_signature": "E8 2F 1A 06 00"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0xb12b3a",
+          "signature": "8B B4 B8 B8 00 00 00",
+          "meaning": "local player datum by current window index"
+        },
+        {
+          "rva": "0xb12b65",
+          "signature": "83 FE FF 0F 84 11 03 00 00 84 C9 0F 84 09 03 00 00",
+          "meaning": "no player or invalid window skips native HUD"
+        }
+      ]
+    }
+  ]
+}

@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-tracked-view-construction',
+        'ce-classic-anniversary-base-vr',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 43
+        schema_version = 44
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -525,7 +525,7 @@ try {
         titles = @(
             'Halo 3', 'Halo 3: ODST', 'Halo: Reach', 'Halo 4',
             'Halo 2 Anniversary', 'Halo 2 Classic',
-            'Halo CE Anniversary (stereo/6DoF test)')
+            'Halo CE Anniversary (base VR test)', 'Halo CE Classic (base VR test)')
         embedded_build_identity = [ordered]@{
             source_commit = $commit
             odst = $true
@@ -1135,26 +1135,28 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
-            rejected_previous_candidate = '6e31b25-803-pairs-displaced-right-eye-failed-VR'
-            correction = 'tracked-eye-cameras-before-native-append; native-origin-metadata-and-camera-pose-coherent; primary-clips-for-both-eyes'
-            graphics = 'Anniversary-stereo-6DoF; Classic-stock'
-            native_views = 'prepared-before-culling-no-full-frame-replay'
+            rejected_previous_candidate = 'b9662cd-555-pairs-displaced-right-flat-left-failed-VR'
+            correction = 'integrated-native-Classic-stereo; Anniversary-consumer-depth-validation-HUD-replay-FP-color-depth-projection-motion-blur-setting; native-center-controls-publication'
+            graphics = 'Classic-and-Anniversary-stereo-6DoF-test'
+            native_views = 'Anniversary-prepared-before-culling; Classic-native-render-only-eye-replay'
             submitted_pose = 'exact-native-preparation-receipt'
             source_storage = 'owned-D3D11-per-eye-textures'
             graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
-            controller_aim_hands_hud_parity = 'unfinished'
-            physical_melee_world_collision = 'deferred-until-injection-confirmed'
+            controller_aim_hands_hud_parity = 'implemented-locally-awaiting-headset-test; stock-feature-fallback-on-validation-failure'
+            world_render_failure = 'prior-headset-failure-cause-not-isolated; no-headset-success-claimed'
+            physical_melee_world_collision = 'deferred-until-basic-VR-confirmed'
+            physical_roomscale_body_following = 'disabled-for-CE-deferred'
             headset_accepted = $false
             editions = 'Steam-and-Microsoft-Store'
         }
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE Anniversary native two-view stereo and 6DoF test candidate. Classic and CE motion-controller/HUD parity remain unfinished. CE melee/collision deferred until injection confirmation. Cumulative roomscale, handedness, bounds, melee, snap-turn, slider and lifecycle work preserved for the existing titles. H3 dual firing remains disabled. Keep existing config. Both editions; package only; no headset acceptance.'
+        note = 'Integrated CE Classic and Anniversary base VR test candidate: native stereo/6DoF, tracked hands/weapon, controller aim, native HUD/reticle and standard input. Prior Anniversary world-render failure remains unisolated and headset success is unconfirmed. CE body-following, melee and world collision deferred. Existing title work preserved. Keep existing config. Both editions; package only; no headset acceptance.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-CONSTRUCTION-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-BASE-VR-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

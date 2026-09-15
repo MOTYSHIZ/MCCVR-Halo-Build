@@ -1,0 +1,113 @@
+{
+  "source": "Official HCEEK 2023.07.17.176677.1-QFE1 extracted tags",
+  "graphs": [
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.model_animations",
+      "sha256": "3154D660A65BB947B87A65B7CEAF57F0FA77BB7A24D39374398EF9470FB64B01",
+      "nodes": 42,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/ball/fp/fp.model_animations",
+      "sha256": "6711E1714380DB6774B63EA2254A19F0783E51009DC2EA16A2BBCE9701E55A06",
+      "nodes": 38,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 17,
+      "weapon_root_name": "frame skull"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/flag/fp/fp.model_animations",
+      "sha256": "3748EE88AA15557A68D35B88C6E43A74687CEEBCAB09EBA2A6554FDDE636CEB5",
+      "nodes": 38,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 12,
+      "weapon_root_name": "frame pole"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/flamethrower/fp/fp.model_animations",
+      "sha256": "AFB5C92EED8BC3FF11902AAB726ADB08AE195FC6E240D9D0E320F853F0C4EF0E",
+      "nodes": 40,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/needler/fp/fp.model_animations",
+      "sha256": "F82284E88FD86ED0D80C6221084402887967552EFF6DB3B675E92D77B2A3DD50",
+      "nodes": 54,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame body"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.model_animations",
+      "sha256": "6E058CABADB7EE1A30A95A0148C008F8661BF2EE7B4575725F1E00552A94E5B6",
+      "nodes": 44,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/plasma pistol/fp/fp.model_animations",
+      "sha256": "503FF9F925208AD7A2A30DCF689211EC8E2208D08EE0FF906956A4F9B30CAA42",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/plasma rifle/fp/fp.model_animations",
+      "sha256": "AB1DD9E18C96C3CB0300E924C3321F3B5D28CCF43CFC30DDF9FC0059DFFF2662",
+      "nodes": 42,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/plasma_cannon/fp/fp.model_animations",
+      "sha256": "B0A4BA2AB8128596CC8C3DB751A770432DCA16DDC68F5642FCC25FB607006D1F",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/rocket launcher/fp/fp.model_animations",
+      "sha256": "AC458776F24CAE08B164ECD53E08EC594E3CCABDBB054086E5973752CBCFC25C",
+      "nodes": 42,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/shotgun/fp/fp.model_animations",
+      "sha256": "5C9E0D1D5AF25D09DD316BDA42B4B302C4A7CA36AD75B57AEB28693F278818A8",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.model_animations",
+      "sha256": "EAA0A73F519309092A5E9FA0B16560DF85DF55D597342C802A0555AF461E2DB2",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun"
+    }
+  ]
+}

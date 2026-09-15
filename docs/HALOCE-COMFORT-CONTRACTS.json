@@ -1,0 +1,40 @@
+[
+  {
+    "name": "motion_blur_draw",
+    "rva": "0x446580",
+    "signature": "48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 58 FC FF FF 48 81 EC 70 04 00 00 48 C7 45 D0 FE FF FF FF",
+    "function_entry": true,
+    "evidence": "E-CE-COMFORT-1",
+    "runtime_group": "comfort",
+    "instruction_witnesses": [
+      {
+        "rva": "0x4465e7",
+        "signature": "48 8B 05 EA 57 9F 02 80 B8 23 02 00 00 00 0F 84 29 06 00 00 49 8B D1 E8 0D FB FF FF"
+      },
+      {
+        "rva": "0x446603",
+        "signature": "49 63 87 20 02 00 00 48 6B F0 7C"
+      },
+      {
+        "rva": "0x446110",
+        "signature": "48 8B C4 48 89 58 18 48 89 78 20 55 48 8D 6C 24 80 48 81 EC 80 01 00 00"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0x45107a",
+        "instruction_signature": "E8 01 55 FF FF",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x446580"
+      },
+      {
+        "instruction_rva": "0x4465fe",
+        "instruction_signature": "E8 0D FB FF FF",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x446110"
+      }
+    ]
+  }
+]

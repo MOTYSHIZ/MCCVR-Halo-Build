@@ -1,0 +1,66 @@
+[
+  {
+    "name": "first_person_glt_constants",
+    "rva": "0x264080",
+    "signature": "48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B AC 24 E8 00 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-5",
+    "runtime_group": "first_person_projection",
+    "instruction_witnesses": [
+      {
+        "rva": "0x26437d",
+        "signature": "41 F7 45 28 00 00 00 10 74 05 0F 28 C6 EB 03 0F 57 C0 0F C6 C0 00 0F 11 87 70 01 00 00"
+      },
+      {
+        "rva": "0x7adf0",
+        "signature": "48 8B 46 10 48 8B 88 98 01 00 00 48 8B 04 0A 81 48 28 00 00 00 10"
+      }
+    ],
+    "image_pointers": [
+      {
+        "rva": "0x17ffa48",
+        "target_rva": "0x264080"
+      }
+    ]
+  },
+  {
+    "name": "first_person_zfill_constants",
+    "rva": "0x26ff00",
+    "signature": "4D 85 C0 74 1B 41 F7 40 28 00 00 00 10 74 11 F3 0F 10 05 E1 0F 59 01 0F C6 C0 00 0F 11 42 20 C3 0F 57 C0 0F C6 C0 00 0F 11 42 20 C3",
+    "function_entry": false,
+    "evidence": "E-CE-FP-5",
+    "runtime_group": "first_person_projection",
+    "instruction_witnesses": [
+      {
+        "rva": "0x26ff00",
+        "signature": "4D 85 C0 74 1B 41 F7 40 28 00 00 00 10 74 11 F3 0F 10 05 E1 0F 59 01 0F C6 C0 00 0F 11 42 20 C3 0F 57 C0 0F C6 C0 00 0F 11 42 20 C3"
+      }
+    ],
+    "image_pointers": [
+      {
+        "rva": "0x1800cf8",
+        "target_rva": "0x26ff00"
+      }
+    ]
+  },
+  {
+    "name": "first_person_sfx_constants",
+    "rva": "0x26e960",
+    "signature": "40 55 48 8B EC 48 83 EC 10 4C 8B 4D 48 41 0F 10 41 18 0F 11 45 F0 4D 85 C0 0F 84 CE 00 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-FP-5",
+    "runtime_group": "first_person_projection",
+    "instruction_witnesses": [
+      {
+        "rva": "0x26ecc2",
+        "signature": "4D 85 C0 74 0A 41 F7 40 28 00 00 00 10 75 03 0F 57 D2 0F C6 D2 00 0F 11 52 70 48 83 C4 10 5D C3"
+      }
+    ],
+    "image_pointers": [
+      {
+        "rva": "0x1800b38",
+        "target_rva": "0x26e960"
+      }
+    ]
+  }
+]

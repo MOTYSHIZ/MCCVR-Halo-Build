@@ -6,11 +6,53 @@
 #include <limits>
 #include <thread>
 #include <utility>
+#include <fstream>
 
 using namespace halo_ce;
 
-int main()
+// Offline bridge harness: the Python verifier supplies cameras produced by
+// CE's actual instructions. Pass them through the production tracking helper,
+// then return the private staged bytes for native rebuild/consumer emulation.
+// This mode neither loads the engine DLL nor claims to render the game.
+int NativeCameraAdapter(const char* input,const char* output)
 {
+    std::ifstream source(input,std::ios::binary);
+    std::ofstream destination(output,std::ios::binary|std::ios::trunc);
+    uint32_t count{};
+    if (!source.read(reinterpret_cast<char*>(&count),sizeof(count))||!count||count>256||!destination) return 2;
+    destination.write(reinterpret_cast<const char*>(&count),sizeof(count));
+    Tracking tracking{}; tracking.serial=300; tracking.spaceEpoch=7; tracking.generation=5;
+    tracking.headPosition={.21f,.13f,-.17f};
+    tracking.headOrientation={0,.2588190451f,0,.9659258263f};
+    for (int eye=0;eye<2;++eye)
+    {
+        tracking.eyes[eye].offset=Rotate(tracking.headOrientation,{eye?.0355f:-.0355f,0,0});
+        tracking.eyes[eye].orientation=tracking.headOrientation;
+        auto& fov=tracking.eyes[eye].fov;
+        fov[0]=-.91f; fov[1]=.83f; fov[2]=.87f; fov[3]=-.98f;
+    }
+    Reference reference{}; reference.spaceEpoch=7; reference.generation=5;
+    for (uint32_t record=0;record<count;++record)
+    {
+        SaberCamera camera{};
+        if (!source.read(reinterpret_cast<char*>(&camera),sizeof(camera))) return 3;
+        for (int eye=0;eye<2;++eye)
+        {
+            SaberCamera staged{}; Cover cover{};
+            if (!StageSaberEye(camera,tracking,reference,eye,1.0f/3.048f,true,staged,cover)) return 4;
+            destination.write(reinterpret_cast<const char*>(&staged),sizeof(staged));
+            destination.write(reinterpret_cast<const char*>(&cover),sizeof(cover));
+        }
+    }
+    if (source.peek()!=std::char_traits<char>::eof()||!destination) return 5;
+    return 0;
+}
+
+int main(int argc,char** argv)
+{
+    if (argc==4&&std::strcmp(argv[1],"--native-camera-adapter")==0)
+        return NativeCameraAdapter(argv[2],argv[3]);
+    if (argc!=1) return 2;
     int failures=0;
     const auto check=[&](bool ok,const char* what) {
         if (!ok) { std::fprintf(stderr,"CE pair: %s\n",what); ++failures; }
@@ -291,6 +333,10 @@ int main()
         for (uint64_t serial=1000;serial<11000;++serial)
         {
             nextTracking.serial=nextPair.serial=serial;
+            nextTracking.predictedDisplayTimeNs=static_cast<int64_t>(serial*10000000);
+            nextTracking.controllers.primaryAim={true,{float(serial),1,2},{}};
+            nextTracking.controllers.support={true,{-float(serial),3,4},{}};
+            nextTracking.controllers.leftHanded=(serial&1)!=0;
             const auto ticket=handoff.Begin(PreparationOrigin::CopiedList,0x40000,tracking.generation);
             (void)handoff.Publish(ticket,nextTracking,nextPair,committed);
         }
@@ -305,7 +351,11 @@ int main()
         {
             ++reads;
             if (sample.tracking.serial!=sample.pair.serial||sample.tracking.serial<1000||
-                sample.ticket.sourceList!=0x40000||sample.ticket.generation!=tracking.generation)
+                sample.ticket.sourceList!=0x40000||sample.ticket.generation!=tracking.generation||
+                sample.tracking.controllers.primaryAim.position.x!=float(sample.tracking.serial)||
+                sample.tracking.controllers.support.position.x!=-float(sample.tracking.serial)||
+                sample.tracking.controllers.leftHanded!=((sample.tracking.serial&1)!=0)||
+                sample.tracking.predictedDisplayTimeNs!=static_cast<int64_t>(sample.tracking.serial*10000000))
                 ++incoherent;
         }
         std::this_thread::yield();

@@ -1,21 +1,22 @@
-HALO MCC VR - CE ANNIVERSARY STEREO / 6DOF TEST - SEPTEMBER 2026
+HALO MCC VR - CE CLASSIC / ANNIVERSARY BASE VR TEST - SEPTEMBER 2026
 ==========================================================
 
 Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
 and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
-files. This candidate adds CE Anniversary stereo/head tracking/6DoF for testing;
-CE Classic stereo and full motion-controller/HUD parity are unfinished.
+files. This candidate adds CE Classic and Anniversary stereo/head tracking/6DoF,
+tracked hands/weapon, controller aiming and native HUD/reticle for testing.
 This is an alpha mod; the changes in
 this package have passed local checks and still need headset confirmation.
 Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
 exact build identity and file hashes; you do not need to edit it.
 
-For the CE test, use Anniversary graphics and read the exact feature limits in
-RELEASE-NOTES.md. CE currently keeps stock stick aim and weapons. The existing
-left-hand, snap-turn, roomscale-body, melee and collision sections below describe
-the other supported titles; they are not promises of those features in CE.
+For the CE test, begin in Anniversary graphics, then test Classic. The previous
+Anniversary world-render failure has not yet been confirmed fixed in a headset.
+Read RELEASE-NOTES.md for the exact status and test steps. CE physical roomscale
+body following, melee and world collision remain deferred; those sections below
+describe the other supported titles. Ordinary tracked leaning is part of CE 6DoF.
 CE graphics switching: physical left hand beside the left side of the head,
-then click the movement stick. Classic returns to stock flat presentation.
+then click the movement stick. Both graphics modes have a VR path in this test.
 
 BEFORE YOU START
 ----------------

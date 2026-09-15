@@ -284,6 +284,12 @@ add_library(halo3xr SHARED
     src/dll/haloce_native_bindings.cpp
     src/dll/haloce_eye_cache.cpp
     src/dll/haloce_stereo_core.cpp
+    src/dll/haloce_first_person.cpp
+    src/dll/haloce_hud.cpp
+    src/dll/haloce_hud_layout.cpp
+    src/dll/haloce_hud_target.cpp
+    src/dll/haloce_controls.cpp
+    src/dll/haloce_comfort.cpp
     src/dll/halo2_anniversary_stereo.cpp
     src/dll/halo4_adapter.cpp
     src/dll/halo4_cold_observation.cpp)
@@ -411,6 +417,17 @@ if(BUILD_TESTING)
     add_executable(halomccvr_ce_view_pair_tests tests/haloce_view_pair_tests.cpp)
     target_include_directories(halomccvr_ce_view_pair_tests PRIVATE src/common)
     add_test(NAME halomccvr_ce_view_pair_tests COMMAND halomccvr_ce_view_pair_tests)
+    add_executable(halomccvr_ce_classic_view_pair_tests tests/haloce_classic_view_pair_tests.cpp)
+    target_include_directories(halomccvr_ce_classic_view_pair_tests PRIVATE src/common)
+    add_test(NAME halomccvr_ce_classic_view_pair_tests COMMAND halomccvr_ce_classic_view_pair_tests)
+    add_executable(halomccvr_ce_first_person_tests tests/haloce_first_person_tests.cpp src/dll/ik.cpp)
+    target_include_directories(halomccvr_ce_first_person_tests PRIVATE src/common)
+    add_test(NAME halomccvr_ce_first_person_tests COMMAND halomccvr_ce_first_person_tests)
+    # Runs through tools/re/test_ce_fp_shader_native.py with locally extracted,
+    # hash-pinned CE shader bytecode. Proprietary fixtures are not in the repo.
+    add_executable(halomccvr_ce_first_person_shader_tests tests/haloce_first_person_shader_tests.cpp)
+    target_compile_definitions(halomccvr_ce_first_person_shader_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_first_person_shader_tests PRIVATE d3d11 d3dcompiler)
     add_executable(halomccvr_ce_bindings_tests
         tests/haloce_bindings_tests.cpp src/dll/haloce_native_bindings.cpp)
     target_include_directories(halomccvr_ce_bindings_tests PRIVATE src/common src/dll)
@@ -423,11 +440,56 @@ if(BUILD_TESTING)
     target_link_libraries(halomccvr_ce_eye_cache_tests PRIVATE d3d11)
     add_test(NAME halomccvr_ce_eye_cache_tests COMMAND halomccvr_ce_eye_cache_tests)
     add_executable(halomccvr_ce_runtime_tests tests/haloce_runtime_tests.cpp
-        src/dll/haloce_native_bindings.cpp src/dll/haloce_eye_cache.cpp)
+        src/dll/haloce_native_bindings.cpp src/dll/haloce_eye_cache.cpp src/dll/haloce_hud_layout.cpp)
     target_include_directories(halomccvr_ce_runtime_tests PRIVATE src/common src/dll)
     target_compile_definitions(halomccvr_ce_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(halomccvr_ce_runtime_tests PRIVATE d3d11 minhook)
     add_test(NAME halomccvr_ce_runtime_tests COMMAND halomccvr_ce_runtime_tests)
+    add_executable(halomccvr_ce_classic_runtime_tests tests/haloce_classic_runtime_tests.cpp
+        src/dll/haloce_native_bindings.cpp src/dll/haloce_eye_cache.cpp src/dll/haloce_hud_layout.cpp)
+    target_include_directories(halomccvr_ce_classic_runtime_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_classic_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_classic_runtime_tests PRIVATE d3d11 minhook)
+    add_test(NAME halomccvr_ce_classic_runtime_tests COMMAND halomccvr_ce_classic_runtime_tests)
+    add_executable(halomccvr_ce_hud_tests tests/haloce_hud_tests.cpp src/dll/haloce_native_bindings.cpp)
+    target_include_directories(halomccvr_ce_hud_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_hud_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_hud_tests PRIVATE minhook)
+    add_test(NAME halomccvr_ce_hud_tests COMMAND halomccvr_ce_hud_tests)
+    add_executable(halomccvr_ce_hud_layout_tests tests/haloce_hud_layout_tests.cpp src/dll/haloce_native_bindings.cpp)
+    target_include_directories(halomccvr_ce_hud_layout_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_hud_layout_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_hud_layout_tests PRIVATE minhook d3d11)
+    add_test(NAME halomccvr_ce_hud_layout_tests COMMAND halomccvr_ce_hud_layout_tests)
+    add_executable(halomccvr_ce_reticle_redirect_tests tests/haloce_reticle_redirect_tests.cpp)
+    target_compile_definitions(halomccvr_ce_reticle_redirect_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_reticle_redirect_tests PRIVATE d3d11)
+    add_test(NAME halomccvr_ce_reticle_redirect_tests COMMAND halomccvr_ce_reticle_redirect_tests)
+    add_executable(halomccvr_ce_hud_target_tests tests/haloce_hud_target_tests.cpp)
+    target_include_directories(halomccvr_ce_hud_target_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_hud_target_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_hud_target_tests PRIVATE d3d11)
+    add_test(NAME halomccvr_ce_hud_target_tests COMMAND halomccvr_ce_hud_target_tests)
+    add_executable(halomccvr_ce_controls_tests tests/haloce_controls_tests.cpp)
+    target_include_directories(halomccvr_ce_controls_tests PRIVATE src)
+    add_test(NAME halomccvr_ce_controls_tests COMMAND halomccvr_ce_controls_tests)
+    add_executable(halomccvr_ce_controls_runtime_tests tests/haloce_controls_runtime_tests.cpp
+        src/dll/haloce_native_bindings.cpp)
+    target_include_directories(halomccvr_ce_controls_runtime_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_controls_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_controls_runtime_tests PRIVATE minhook)
+    add_test(NAME halomccvr_ce_controls_runtime_tests COMMAND halomccvr_ce_controls_runtime_tests)
+    add_executable(halomccvr_ce_comfort_tests tests/haloce_comfort_tests.cpp src/dll/haloce_native_bindings.cpp)
+    target_include_directories(halomccvr_ce_comfort_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_comfort_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_comfort_tests PRIVATE minhook)
+    add_test(NAME halomccvr_ce_comfort_tests COMMAND halomccvr_ce_comfort_tests)
+    add_executable(halomccvr_ce_first_person_runtime_tests tests/haloce_first_person_runtime_tests.cpp
+        src/dll/haloce_native_bindings.cpp src/dll/ik.cpp)
+    target_include_directories(halomccvr_ce_first_person_runtime_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_first_person_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_first_person_runtime_tests PRIVATE minhook)
+    add_test(NAME halomccvr_ce_first_person_runtime_tests COMMAND halomccvr_ce_first_person_runtime_tests)
     add_executable(halomccvr_menu_slider_tests tests/menu_slider_tests.cpp)
     target_link_libraries(halomccvr_menu_slider_tests PRIVATE imgui_lib)
     add_test(NAME halomccvr_menu_slider_tests COMMAND halomccvr_menu_slider_tests)

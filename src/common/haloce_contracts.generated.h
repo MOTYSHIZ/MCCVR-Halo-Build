@@ -2,6 +2,7 @@
 // Offline identity evidence is not title admission or headset acceptance.
 #pragma once
 #include <cstdint>
+#include <array>
 namespace halo_ce::contract {
 struct Entry { const char* name; uint32_t rva; const char* pattern; bool unwind; };
 struct Witness { uint32_t rva; const char* pattern; };
@@ -9,7 +10,7 @@ struct Relative { uint32_t rva, size, displacement, target; };
 struct Pointer { uint32_t rva, target; };
 inline constexpr uint32_t imageSize=0x3D82000;
 inline constexpr uint32_t timestamp=0x68A0E4CF;
-inline constexpr Entry entries[]={
+inline constexpr std::array<Entry,27> entries={{
     {"native_player_window",0xbbca64,"48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 48 FB FF FF 48 81 EC 90 05 00 00",true},
     {"native_frustum",0xb8f690,"48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 44 0F BF 51 32",true},
     {"native_camera_build",0xac450c,"48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 A1 48 81 EC 90 00 00 00 48 8B FA 48 8B D9 48 85 D2 0F 84 46 01 00 00 F2",true},
@@ -35,8 +36,10 @@ inline constexpr Entry entries[]={
     {"anniversary_texture_import_2d",0x22a1e0,"4C 8B DC 57 41 56 48 81 EC 88 00 00 00 48 8B 05 1C AE 94 01 48 33 C4 48 89 44 24 70 48 8B 02 48 8B F9",true},
     {"anniversary_texture_release_resources",0x22b0a0,"48 89 5C 24 18 55 48 83 EC 20 33 ED 48 89 74 24 30 48 8B D9 48 89 7C 24 38 8B F5 39 A9 F0 00 00 00",true},
     {"anniversary_view_list_reset",0x2eacd0,"40 53 56 48 81 EC 78 04 00 00 48 8B 05 2F A3 88 01 48 33 C4 48 89 84 24 00 04 00 00 48 8B F1 48 89 AC 24 98 04 00 00",true},
-};
-inline constexpr Witness witnesses[]={
+    {"anniversary_camera_upload",0x2eb9f0,"48 89 5C 24 08 55 56 57 48 81 EC E0 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 D0 00 00 00 48 8B 3D ?? ?? ?? ?? 49 8B F0 F3 41 0F 10 88 3C 01 00 00",true},
+    {"anniversary_depth_mesh_pass",0x4577b0,"40 53 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 48 8B 0D ?? ?? ?? ?? 49 63 D9",true},
+}};
+inline constexpr std::array<Witness,119> witnesses={{
     {0xbbccad,"E8 ?? ?? ?? ??"},
     {0xbbcee6,"E8 ?? ?? ?? ??"},
     {0xac483f,"48 8D 15 ?? ?? ?? ??"},
@@ -149,8 +152,15 @@ inline constexpr Witness witnesses[]={
     {0x229fe2,"41 8B 87 D0 00 00 00"},
     {0x22a01e,"4D 8D 8F E0 00 00 00"},
     {0x22a036,"FF 50 28"},
-};
-inline constexpr Relative relatives[]={
+    {0x2eba33,"4C 89 87 98 BE 00 00"},
+    {0x4562ba,"E8 ?? ?? ?? ??"},
+    {0x456a81,"E8 ?? ?? ?? ??"},
+    {0x457c02,"E8 ?? ?? ?? ??"},
+    {0x4575d5,"48 8B 88 18 03 00 00"},
+    {0x22b84e,"48 8B 80 08 01 00 00"},
+    {0x456324,"E8 87 14 00 00"},
+}};
+inline constexpr std::array<Relative,55> relatives={{
     {0xbbccad,5,1,0xbbcf30},
     {0xbbcee6,5,1,0xbbca64},
     {0xac483f,7,3,0x2e9fe80},
@@ -202,10 +212,16 @@ inline constexpr Relative relatives[]={
     {0x204dc5,5,1,0xad5f0},
     {0x4556c1,5,1,0x2e1060},
     {0x4556cd,5,1,0x4aa740},
-};
-inline constexpr Pointer pointers[]={
+    {0x4562ba,5,1,0x2eb9f0},
+    {0x456a81,5,1,0x2eb9f0},
+    {0x457c02,5,1,0x2eb9f0},
+    {0x456324,5,1,0x4577b0},
+}};
+inline constexpr std::array<Pointer,3> pointers={{
     {0x17f9ea0,0x204c40},
-};
+    {0x17fb6e8,0x22b830},
+    {0x17f9e08,0x205e40},
+}};
 inline constexpr uint32_t native_player_window=0xbbca64;
 inline constexpr uint32_t native_frustum=0xb8f690;
 inline constexpr uint32_t native_camera_build=0xac450c;
@@ -231,4 +247,763 @@ inline constexpr uint32_t anniversary_texture_create=0x229b70;
 inline constexpr uint32_t anniversary_texture_import_2d=0x22a1e0;
 inline constexpr uint32_t anniversary_texture_release_resources=0x22b0a0;
 inline constexpr uint32_t anniversary_view_list_reset=0x2eacd0;
+inline constexpr uint32_t anniversary_camera_upload=0x2eb9f0;
+inline constexpr uint32_t anniversary_depth_mesh_pass=0x4577b0;
+namespace anniversary_hud {
+inline constexpr std::array<Entry,4> entries={{
+    {"native_hud_callback",0x740b0,"48 8B C4 57 48 81 EC A0 00 00 00 48 C7 40 98 FE FF FF FF 48 89 58 08 48 89 70 10 0F 29 70 E8 0F 29 78 D8 33 F6 89 35 9D",true},
+    {"native_hud_preamble",0x4255a0,"48 83 EC 28 48 83 3D 34 EA 80 01 00 74 3C E8 2D 6C DB FF E8 38 6D DB FF 48 8B 15 21 68 A1 02 0F 57 C0 48 8B 82 D8 00 00",true},
+    {"native_target_push",0x1dc1e0,"48 8B C4 48 89 58 10 48 89 48 08 57 48 83 EC 60 48 8B 1D E9 FB C5 02 48 63 4B 10 8B 53 14 0F 10 43 18 8D 79 01 3B D7 0F",true},
+    {"native_target_pop",0x1dc2f0,"40 53 48 83 EC 40 48 8B 1D E3 FA C5 02 83 7B 10 00 74 3D 48 8B 03 4C 8B 80 F8 00 00 00 8B 43 10 FF C8 48 98 48 8D 0C C0",true},
+}};
+inline constexpr std::array<Witness,35> witnesses={{
+    {0x740fc,"40 38 70 02"},
+    {0x74361,"83 FB 01"},
+    {0x743e1,"48 8B 0D F8 79 DC 02"},
+    {0x8d088,"48 8D 05 21 70 FE FF"},
+    {0x8d08f,"48 89 05 4A 6F BA 01"},
+    {0x740db,"40 38 35 EF 7C D2 02"},
+    {0x740e8,"40 38 35 11 F6 AA 02"},
+    {0x740f5,"48 8B 05 34 D2 D1 02"},
+    {0x74345,"E8 3E DA AB 00"},
+    {0x4255c2,"48 8B 82 D8 00 00 00"},
+    {0x4255c9,"C6 40 30 01"},
+    {0x4255cd,"48 8B 48 08"},
+    {0x4255d1,"0F 11 81 50 03 00 00"},
+    {0x4255d8,"C6 82 C8 02 00 00 01"},
+    {0x456d24,"8B 88 B0 00 00 00"},
+    {0x4255a4,"48 83 3D 34 EA 80 01 00"},
+    {0x4255ae,"E8 2D 6C DB FF"},
+    {0x4255b3,"E8 38 6D DB FF"},
+    {0x4255b8,"48 8B 15 21 68 A1 02"},
+    {0x4255e3,"48 FF 25 F6 E9 80 01"},
+    {0x456d1d,"48 8B 05 BC 3C 79 01"},
+    {0x1dc1f7,"48 63 4B 10"},
+    {0x1dc1fb,"8B 53 14"},
+    {0x1dc1fe,"0F 10 43 18"},
+    {0x1dc202,"8D 79 01"},
+    {0x1dc205,"3B D7"},
+    {0x1dc2b0,"48 8B 43 08"},
+    {0x1dc1f0,"48 8B 1D E9 FB C5 02"},
+    {0x1dc306,"4C 8B 80 F8 00 00 00"},
+    {0x1dc30d,"8B 43 10"},
+    {0x1dc318,"48 8B 43 08"},
+    {0x1dc31c,"48 8D 14 C8"},
+    {0x1dc323,"41 FF D0"},
+    {0x1dc337,"89 4B 10"},
+    {0x1dc2f6,"48 8B 1D E3 FA C5 02"},
+}};
+inline constexpr std::array<Relative,14> relatives={{
+    {0x8d088,7,3,0x740b0},
+    {0x8d08f,7,3,0x1c33fe0},
+    {0x740db,7,3,0x2d9bdd1},
+    {0x740e8,7,3,0x2b23700},
+    {0x740f5,7,3,0x2d91330},
+    {0x74345,5,1,0xb31d88},
+    {0x4255a4,8,3,0x1c33fe0},
+    {0x4255ae,5,1,0x1dc1e0},
+    {0x4255b3,5,1,0x1dc2f0},
+    {0x4255b8,7,3,0x2e3bde0},
+    {0x4255e3,7,3,0x1c33fe0},
+    {0x456d1d,7,3,0x1bea9e0},
+    {0x1dc1f0,7,3,0x2e3bde0},
+    {0x1dc2f6,7,3,0x2e3bde0},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t native_hud_callback=0x740b0;
+inline constexpr uint32_t native_hud_preamble=0x4255a0;
+inline constexpr uint32_t native_target_push=0x1dc1e0;
+inline constexpr uint32_t native_target_pop=0x1dc2f0;
+}
+namespace classic {
+inline constexpr std::array<Entry,18> entries={{
+    {"classic_view_render",0xbbcf30,"40 55 53 56 57 41 54 41 56 41 57 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 48 8B 05 BF 80 FB 00 48 33 C4 48 89 85 80 01 00 00 48 8B BD F0 01",true},
+    {"classic_render_target_select",0xb51670,"48 89 5C 24 18 55 56 57 41 56 41 57 48 8D 6C 24 D1 48 81 EC B0 00 00 00 48 8B 05 81 39 02 01 48 33 C4 48 89 45 1F 33 FF 45 8B F8 45 8A F1 44 0F",true},
+    {"classic_saber_target_route",0xaeb00,"48 89 5C 24 18 48 89 74 24 20 41 56 48 83 EC 40 48 89 6C 24 50 48 8D 35 F4 CD D8 02 48 89 7C 24 58 45 8B F0 33 FF 48 63 EA 39 3D 55 BF AC 01 48",true},
+    {"classic_postprocess_ping_pong",0xb0d40,"48 8B C4 55 48 8D 68 E8 48 81 EC 10 01 00 00 48 C7 45 80 FE FF FF FF 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 0F 29 70 E8 48 8B 05 9E 42",true},
+    {"classic_outer_output",0xae0df4,"40 53 48 83 EC 30 33 DB 80 3D CD C5 09 01 01 0F 85 E5 00 00 00 38 1D 37 C6 09 01 0F 85 D9 00 00 00 0F B7 05 9C F7 EF 01 33 D2 66 2B 05 8F F7 EF",true},
+    {"saber_target_state_push",0x1dc1e0,"48 8B C4 48 89 58 10 48 89 48 08 57 48 83 EC 60 48 8B 1D E9 FB C5 02 48 63 4B 10 8B 53 14 0F 10 43 18 8D 79 01 3B D7 0F 8D A3 00 00 00 0F 11 40",true},
+    {"saber_target_state_pop",0x1dc2f0,"40 53 48 83 EC 40 48 8B 1D E3 FA C5 02 83 7B 10 00 74 3D 48 8B 03 4C 8B 80 F8 00 00 00 8B 43 10 FF C8 48 98 48 8D 0C C0 48 8B 43 08 48 8D 14 C8",true},
+    {"saber_target_bind_description",0x1dbe50,"48 89 5C 24 10 55 56 57 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 A6 91 99 01 48 33 C4 48 89 44 24 70 41 8B D9 48 8D 74 24 20 4D 8B F8 48 8B EA",true},
+    {"saber_target_unbind_description",0x1dbf20,"48 89 5C 24 08 48 89 6C 24 10 56 57 41 56 48 81 EC 80 00 00 00 48 8B 05 D4 90 99 01 48 33 C4 48 89 44 24 70 48 8B 35 95 FE C5 02 48 8D 5C 24 20",true},
+    {"classic_game_render",0xac47c0,"48 8B C4 48 89 58 08 48 89 68 10 48 89 70 20 57 41 54 41 55 41 56 41 57 48 83 EC 60 0F 29 70 C8 BD 01 00 00 00 01 2D 05 2D 3E 02 0F 28 F1 0F 29",true},
+    {"classic_player_window",0xbbca64,"48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 48 FB FF FF 48 81 EC 90 05 00 00 48 8B 05 7F 85 FB 00 48 33 C4",true},
+    {"classic_final_blit",0xb51a14,"48 89 5C 24 10 48 89 74 24 18 55 57 41 56 48 8D 6C 24 B9 48 81 EC F0 00 00 00 48 8B 05 DB 35 02 01 48 33 C4 48 89 45 37 33 C0 48 8B D9 48 89 45",true},
+    {"classic_bind_native_surface_views",0xae0e0,"48 89 5C 24 18 41 56 48 83 EC 30 4C 63 C1 4C 8D 35 0B 1F F5 FF 4B 8B 9C C6 10 B9 E3 02 48 85 DB 0F 84 E2 00 00 00 83 F9 08 0F 84 D9 00 00 00 48",true},
+    {"classic_surface_rtv_accessor",0x22b7b0,"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 41 8B F9 41 8B F0 0F B6 DA 4C 8B D9 E8 20 1E E8 FF 41 8B 93 88 00 00 00 B9 01 00 00 00 45 0F BE 4B",true},
+    {"classic_final_quad_draw",0xbf5f08,"89 54 24 10 53 48 83 EC 40 83 64 24 60 00 48 8D 54 24 30 48 89 54 24 28 48 8B D9 48 8B 0D 06 CE 2A 02 41 B9 04 00 00 00 48 8B 15 F9 59 2B 02 45",true},
+    {"classic_source_sampler",0xb519a0,"48 89 5C 24 08 4C 89 4C 24 20 57 48 83 EC 30 33 DB 0F B7 F9 66 83 FA 09 77 16 48 0F BF C2 48 8D 1D BB 44 03 01 4C 8D 04 40 4D 03 C0 4A 8B 1C C3",true},
+    {"classic_frustum_bounds",0xb8f144,"48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 0F BF 59 38 48 8B F2 0F BF 79 2C 44 0F BF 51 34 44 0F BF 59 30 44 0F BF 49 32 41 8B C3 44 0F BF 41",true},
+    {"classic_frustum_build",0xb8f690,"48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 44 0F BF 51 32 45 8A F9 0F 29 70 B8 49 8B F8 0F 29 78 A8 48 8B F1 44 0F",true},
+}};
+inline constexpr std::array<Witness,119> witnesses={{
+    {0xbbcf5b,"48 8B BD F0 01 00 00"},
+    {0xbbcf62,"49 8B F0"},
+    {0xbbcf65,"48 8B DA"},
+    {0xbbcf68,"44 0F B7 F9"},
+    {0xbbcf86,"4D 8B F1"},
+    {0xbbcfdc,"41 8D 44 24 02"},
+    {0xbbcfe1,"8D 50 7D"},
+    {0xbbd01a,"48 03 CA"},
+    {0xbbd021,"48 03 F2"},
+    {0xbbd028,"49 2B C4"},
+    {0xbbd02b,"75 B7"},
+    {0xbbd02d,"48 8B 06"},
+    {0xbbd030,"48 89 01"},
+    {0xbbd033,"8B 46 08"},
+    {0xbbd036,"89 41 08"},
+    {0xbbd3aa,"E8 ?? ?? ?? ??"},
+    {0xbbcfa0,"0F 11 05 ?? ?? ?? ??"},
+    {0xbbcf96,"48 8D 0D ?? ?? ?? ??"},
+    {0xb516f6,"E8 ?? ?? ?? ??"},
+    {0xb517de,"48 8B 0D ?? ?? ?? ??"},
+    {0xb5180e,"48 8B 0D ?? ?? ?? ??"},
+    {0xb5183e,"48 8B 0D ?? ?? ?? ??"},
+    {0xb518c3,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0d82,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0e01,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0e10,"39 35 ?? ?? ?? ??"},
+    {0xb0e1d,"48 8B 15 ?? ?? ?? ??"},
+    {0xb0e24,"E8 ?? ?? ?? ??"},
+    {0xb0e2e,"E8 ?? ?? ?? ??"},
+    {0xb0e48,"48 8B 15 ?? ?? ?? ??"},
+    {0xb0e4f,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0e56,"E8 ?? ?? ?? ??"},
+    {0xb0e8c,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0e99,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0eba,"48 8B 15 ?? ?? ?? ??"},
+    {0xb0f53,"48 8B 05 ?? ?? ?? ??"},
+    {0xb0fa0,"48 8B 0D ?? ?? ?? ??"},
+    {0xb0fa7,"48 8B 05 ?? ?? ?? ??"},
+    {0xb0fae,"48 89 05 ?? ?? ?? ??"},
+    {0xb0fb5,"48 89 0D ?? ?? ?? ??"},
+    {0xae0e49,"E8 22 08 07 00"},
+    {0xae0e6a,"E8 55 CA 05 00"},
+    {0xae0e78,"BA 01 00 00 00"},
+    {0xae0e7d,"C7 05 B1 26 17 01 01 00 00 00"},
+    {0xae0e8a,"E8 35 CA 05 00"},
+    {0xae0ea2,"E8 1D CA 05 00"},
+    {0xae0eb7,"B9 CE 00 00 00"},
+    {0xae0ebc,"E8 03 CA 05 00"},
+    {0xae0ec6,"E8 49 0B 07 00"},
+    {0xae0ed3,"BA 02 00 00 00"},
+    {0xae0ee9,"E8 D6 C9 05 00"},
+    {0xae0eee,"E8 E9 0A 0C 00"},
+    {0xae0dfc,"80 3D ?? ?? ?? ?? 01"},
+    {0xae0e09,"38 1D ?? ?? ?? ??"},
+    {0xae0e49,"E8 ?? ?? ?? ??"},
+    {0xae0ec6,"E8 ?? ?? ?? ??"},
+    {0x1dc1f0,"48 8B 1D ?? ?? ?? ??"},
+    {0x1dc2f6,"48 8B 1D ?? ?? ?? ??"},
+    {0x1dc356,"E8 ?? ?? ?? ??"},
+    {0x1dbf44,"48 8B 35 ?? ?? ?? ??"},
+    {0xac47fa,"48 8B 0D ?? ?? ?? ??"},
+    {0xac483f,"48 8D 15 ?? ?? ?? ??"},
+    {0xac4908,"48 8D 15 ?? ?? ?? ??"},
+    {0xbbcc94,"4C 8D 4F 58"},
+    {0xbbcc98,"66 44 89 64 24 28"},
+    {0xbbcc9e,"4C 8D 85 60 01 00 00"},
+    {0xbbcca5,"49 8B D6"},
+    {0xbbcca8,"48 89 44 24 20"},
+    {0xbbcc0f,"40 38 35 ?? ?? ?? ??"},
+    {0xbbcc77,"E8 ?? ?? ?? ??"},
+    {0xbbccad,"E8 ?? ?? ?? ??"},
+    {0xb51a5c,"E8 ?? ?? ?? ??"},
+    {0xb51cb3,"E8 ?? ?? ?? ??"},
+    {0xae0e0,"48 89 5C 24 18"},
+    {0xae0f5,"4B 8B 9C C6 10 B9 E3 02"},
+    {0x22b7b0,"48 89 5C 24 08"},
+    {0x22b7b5,"48 89 74 24 10"},
+    {0x22b7d0,"41 8B 93 88 00 00 00"},
+    {0x22b7dc,"45 0F BE 4B 1A"},
+    {0x22b7e7,"44 8D 41 05"},
+    {0x22b7ef,"48 8B 80 F8 00 00 00"},
+    {0x22b7f8,"48 8B 80 E8 00 00 00"},
+    {0x22b7ff,"48 8B 5C 24 30"},
+    {0x22b80a,"0F AF 4C 24 50"},
+    {0x22b817,"48 8B 74 24 38"},
+    {0x22b81f,"48 8B 04 C8"},
+    {0x2298f9,"48 89 07"},
+    {0x2298f2,"48 8D 05 ?? ?? ?? ??"},
+    {0xbf5f08,"89 54 24 10"},
+    {0xbf5f11,"83 64 24 60 00"},
+    {0xbf5f16,"48 8D 54 24 30"},
+    {0xbf5f1b,"48 89 54 24 28"},
+    {0xbf5f3a,"83 64 24 20 00"},
+    {0xbf5f3f,"48 8B 01"},
+    {0xbf5f42,"FF 50 70"},
+    {0xbf5f49,"44 8B 44 24 58"},
+    {0xbf5f51,"48 8B 4C 24 30"},
+    {0xbf5f70,"48 8B 01"},
+    {0xbf5f73,"FF 50 78"},
+    {0xbf5f7d,"48 8D 54 24 60"},
+    {0xbf5f82,"48 89 54 24 28"},
+    {0xbf5f8e,"48 8D 54 24 58"},
+    {0xbf5f93,"48 89 54 24 20"},
+    {0xbf5f9a,"48 8B 01"},
+    {0xbf5f9d,"44 8D 42 01"},
+    {0xbf5fa1,"FF 90 90 00 00 00"},
+    {0xbf5fb3,"48 8B 01"},
+    {0xbf5fb6,"FF 90 C0 00 00 00"},
+    {0xbf5fd5,"48 8B 01"},
+    {0xbf5fd8,"41 8D 50 04"},
+    {0xbf5fdc,"FF 50 68"},
+    {0xbf5f23,"48 8B 0D ?? ?? ?? ??"},
+    {0xbf5f5f,"48 8B 0D ?? ?? ?? ??"},
+    {0xbf5f76,"48 8B 0D ?? ?? ?? ??"},
+    {0xbf5fa7,"48 8B 0D ?? ?? ?? ??"},
+    {0xbf5fcb,"48 8B 0D ?? ?? ?? ??"},
+    {0xb519be,"48 8D 1D ?? ?? ?? ??"},
+    {0xb519e3,"E8 ?? ?? ?? ??"},
+    {0xb519e8,"48 8B 0D ?? ?? ?? ??"},
+}};
+inline constexpr std::array<Relative,50> relatives={{
+    {0xbbd3aa,5,1,0xb0d40},
+    {0xbbcfa0,7,3,0x29af2c4},
+    {0xbbcf96,7,3,0x29af318},
+    {0xb516f6,5,1,0xaeb00},
+    {0xb517de,7,3,0x2ea2d30},
+    {0xb5180e,7,3,0x2ea2d30},
+    {0xb5183e,7,3,0x2ea2d30},
+    {0xb518c3,7,3,0x2ea2d30},
+    {0xb0d82,7,3,0x2ea2d90},
+    {0xb0e01,7,3,0x2e3bde0},
+    {0xb0e10,6,2,0x1b7aa84},
+    {0xb0e1d,7,3,0x2e3b918},
+    {0xb0e24,5,1,0x1dbf20},
+    {0xb0e2e,5,1,0x1dc1e0},
+    {0xb0e48,7,3,0x2e3b920},
+    {0xb0e4f,7,3,0x2e3bde0},
+    {0xb0e56,5,1,0x1dbe50},
+    {0xb0e8c,7,3,0x2e3b918},
+    {0xb0e99,7,3,0x2e3b918},
+    {0xb0eba,7,3,0x2e3b918},
+    {0xb0f53,7,3,0x2e3bde0},
+    {0xb0fa0,7,3,0x2e3b918},
+    {0xb0fa7,7,3,0x2e3b920},
+    {0xb0fae,7,3,0x2e3b918},
+    {0xb0fb5,7,3,0x2e3b920},
+    {0xae0dfc,7,2,0x1b7d3d0},
+    {0xae0e09,6,2,0x1b7d446},
+    {0xae0e49,5,1,0xb51670},
+    {0xae0ec6,5,1,0xb51a14},
+    {0x1dc1f0,7,3,0x2e3bde0},
+    {0x1dc2f6,7,3,0x2e3bde0},
+    {0x1dc356,5,1,0x1dbe50},
+    {0x1dbf44,7,3,0x2e3bde0},
+    {0xac47fa,7,3,0x2ea2d90},
+    {0xac483f,7,3,0x2e9fe80},
+    {0xac4908,7,3,0x2e9fe80},
+    {0xbbcc0f,7,3,0x1b7d446},
+    {0xbbcc77,5,1,0xbbcf30},
+    {0xbbccad,5,1,0xbbcf30},
+    {0xb51a5c,5,1,0xb519a0},
+    {0xb51cb3,5,1,0xbf5f08},
+    {0x2298f2,7,3,0x17fb608},
+    {0xbf5f23,7,3,0x2ea2d30},
+    {0xbf5f5f,7,3,0x2ea2d30},
+    {0xbf5f76,7,3,0x2ea2d30},
+    {0xbf5fa7,7,3,0x2ea2d30},
+    {0xbf5fcb,7,3,0x2ea2d30},
+    {0xb519be,7,3,0x1b85e80},
+    {0xb519e3,5,1,0xb51670},
+    {0xb519e8,7,3,0x2ea2d30},
+}};
+inline constexpr std::array<Pointer,1> pointers={{
+    {0x17fb6e0,0x22b7b0},
+}};
+inline constexpr uint32_t classic_view_render=0xbbcf30;
+inline constexpr uint32_t classic_render_target_select=0xb51670;
+inline constexpr uint32_t classic_saber_target_route=0xaeb00;
+inline constexpr uint32_t classic_postprocess_ping_pong=0xb0d40;
+inline constexpr uint32_t classic_outer_output=0xae0df4;
+inline constexpr uint32_t saber_target_state_push=0x1dc1e0;
+inline constexpr uint32_t saber_target_state_pop=0x1dc2f0;
+inline constexpr uint32_t saber_target_bind_description=0x1dbe50;
+inline constexpr uint32_t saber_target_unbind_description=0x1dbf20;
+inline constexpr uint32_t classic_game_render=0xac47c0;
+inline constexpr uint32_t classic_player_window=0xbbca64;
+inline constexpr uint32_t classic_final_blit=0xb51a14;
+inline constexpr uint32_t classic_bind_native_surface_views=0xae0e0;
+inline constexpr uint32_t classic_surface_rtv_accessor=0x22b7b0;
+inline constexpr uint32_t classic_final_quad_draw=0xbf5f08;
+inline constexpr uint32_t classic_source_sampler=0xb519a0;
+inline constexpr uint32_t classic_frustum_bounds=0xb8f144;
+inline constexpr uint32_t classic_frustum_build=0xb8f690;
+}
+namespace comfort {
+inline constexpr std::array<Entry,1> entries={{
+    {"motion_blur_draw",0x446580,"48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 58 FC FF FF 48 81 EC 70 04 00 00 48 C7 45 D0 FE FF FF FF",true},
+}};
+inline constexpr std::array<Witness,5> witnesses={{
+    {0x4465e7,"48 8B 05 EA 57 9F 02 80 B8 23 02 00 00 00 0F 84 29 06 00 00 49 8B D1 E8 0D FB FF FF"},
+    {0x446603,"49 63 87 20 02 00 00 48 6B F0 7C"},
+    {0x446110,"48 8B C4 48 89 58 18 48 89 78 20 55 48 8D 6C 24 80 48 81 EC 80 01 00 00"},
+    {0x45107a,"E8 01 55 FF FF"},
+    {0x4465fe,"E8 0D FB FF FF"},
+}};
+inline constexpr std::array<Relative,2> relatives={{
+    {0x45107a,5,1,0x446580},
+    {0x4465fe,5,1,0x446110},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t motion_blur_draw=0x446580;
+}
+namespace controls {
+inline constexpr std::array<Entry,1> entries={{
+    {"input_angle_delta",0xa99c1c,"48 8B C4 48 89 58 10 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 B0 48 81 EC 50 01 00 00 48 8B 3D 2C 62 2F 02",true},
+}};
+inline constexpr std::array<Witness,5> witnesses={{
+    {0xa99648,"F3 0F 10 95 10 08 00 00 41 8B CC F3 0F 10 8D 0C 08 00 00 E8 BC 05 00 00"},
+    {0xa99c91,"44 0F 28 FA 48 63 C1 48 6B D8 58"},
+    {0xa99d3d,"F3 0F 58 74 3B 1C F3 0F 11 74 3B 1C"},
+    {0xa99c3d,"48 8B 3D 2C 62 2F 02"},
+    {0xa9965b,"E8 BC 05 00 00"},
+}};
+inline constexpr std::array<Relative,2> relatives={{
+    {0xa99c3d,7,3,0x2d8fe70},
+    {0xa9965b,5,1,0xa99c1c},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t input_angle_delta=0xa99c1c;
+}
+namespace first_person {
+inline constexpr std::array<Entry,4> entries={{
+    {"first_person_prepare",0xb29698,"48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 41 54 41 55 41 56 41 57 48 81 EC F0 08 00 00 0F 29 70 C8 0F 29 78 B8",true},
+    {"first_person_graph_palette",0xc43c14,"48 89 5C 24 18 48 89 74 24 20 55 57 41 54 41 56 41 57 48 8D 6C 24 E0 48 81 EC 20 01 00 00 48 8B 05 D7 13 F3 00",true},
+    {"first_person_dispatch",0xb27510,"40 53 48 83 EC 20 B9 11 00 00 00 E8 88 AB FF FF 0F B7 0D 91 7D E8 01 84 C0 0F 94 C0 41 83 C9 FF 66 41 3B C9 74 79 84 C0 74 75 48 0F BF C1 48 69",true},
+    {"first_person_cached_tag_get",0xa9b648,"48 8B 05 61 99 19 01 48 0F BF D1 48 C1 E2 05 48 63 4C 02 14 33 C0 85 C9 74 11 48 8B C1 48 2B 05 A4 7D 40 02 48 03 05 9D 17 30 02 C3",false},
+}};
+inline constexpr std::array<Witness,25> witnesses={{
+    {0xb2975d,"48 69 FE 94 1E 00 00"},
+    {0xb29d75,"48 8D 97 88 10 00 00"},
+    {0xb2976f,"48 03 3D 1A 36 27 02"},
+    {0xb29d88,"E8 87 9E 11 00"},
+    {0xb29d81,"4C 8D 0D 3C 55 E8 01"},
+    {0xb29d6a,"48 8D 05 5F 55 E8 01"},
+    {0xb29d57,"48 8D 05 7E 55 E8 01"},
+    {0xc43c74,"44 39 7F 68"},
+    {0xc43ca5,"48 63 47 6C"},
+    {0xc43cbe,"49 C1 E2 06"},
+    {0xc43cd1,"49 0F BF 42 24 48 6B D8 34 48 03 DE"},
+    {0xc43d06,"4D 6B C0 34"},
+    {0xc43d22,"45 0F B7 42 20 66 41 83 F8 FF"},
+    {0xc43d3c,"41 0F B7 4A 22 66 83 F9 FF"},
+    {0xc43c46,"E8 FD 79 E5 FF"},
+    {0xc43ca9,"48 2B 05 60 F7 25 02"},
+    {0xc43cb0,"48 03 05 59 91 15 02"},
+    {0xb2753e,"48 69 D0 94 1E 00 00"},
+    {0xb27520,"0F B7 0D 91 7D E8 01"},
+    {0xb27545,"48 03 15 44 58 27 02"},
+    {0xb275aa,"E8 E9 20 00 00"},
+    {0xa9b64f,"48 0F BF D1 48 C1 E2 05 48 63 4C 02 14"},
+    {0xa9b648,"48 8B 05 61 99 19 01"},
+    {0xa9b665,"48 2B 05 A4 7D 40 02"},
+    {0xa9b66c,"48 03 05 9D 17 30 02"},
+}};
+inline constexpr std::array<Relative,14> relatives={{
+    {0xb2976f,7,3,0x2d9cd90},
+    {0xb29d88,5,1,0xc43c14},
+    {0xb29d81,7,3,0x29af2c4},
+    {0xb29d6a,7,3,0x29af2d0},
+    {0xb29d57,7,3,0x29af2dc},
+    {0xc43c46,5,1,0xa9b648},
+    {0xc43ca9,7,3,0x2ea3410},
+    {0xc43cb0,7,3,0x2d9ce10},
+    {0xb27520,7,3,0x29af2b8},
+    {0xb27545,7,3,0x2d9cd90},
+    {0xb275aa,5,1,0xb29698},
+    {0xa9b648,7,3,0x1c34fb0},
+    {0xa9b665,7,3,0x2ea3410},
+    {0xa9b66c,7,3,0x2d9ce10},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t first_person_prepare=0xb29698;
+inline constexpr uint32_t first_person_graph_palette=0xc43c14;
+inline constexpr uint32_t first_person_dispatch=0xb27510;
+inline constexpr uint32_t first_person_cached_tag_get=0xa9b648;
+}
+namespace first_person_aim {
+inline constexpr std::array<Entry,9> entries={{
+    {"shot_adjust_modern",0xb00880,"48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 C1 48 81 EC D0 00 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88 44 0F 29 90 78 FF FF FF 44 0F 29 5C 24 70",true},
+    {"shot_adjust_legacy",0xb00740,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 30 44 0F B7 D1 49 8B E9 49 8B D8 8B F9 48 8B F2",true},
+    {"shot_weapon_trigger",0xb7a374,"48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 C0 E1 FF FF B8 40 1F 00 00",true},
+    {"shot_weapon_owner",0xb77814,"48 89 5C 24 08 57 48 83 EC 20 0F B7 C9 83 CB FF 48 8D 14 49 48 8B 0D 19 AA 0C 01",true},
+    {"shot_object_try_get",0xb389a4,"40 53 48 83 EC 20 8B DA 8B D1 48 8B 0D 93 98 10 01 E8 16 2F 08 00 4C 8B D8 33 C0 4D 85 DB 74 28 41 0F B6 4B",true},
+    {"shot_local_fp_record",0xb27510,"40 53 48 83 EC 20 B9 11 00 00 00 E8 88 AB FF FF 0F B7 0D 91 7D E8 01 84 C0 0F 94 C0 41 83 C9 FF 66 41 3B C9 74 79 84 C0 74 75 48 0F BF C1 48 69",true},
+    {"shot_unit_origin",0xb04d00,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 81 EC A0 00 00 00 4C 8B 0D 26 D5 13 01 33 DB 48 8B 2D CD 80 29 02",true},
+    {"shot_player_assist",0xb67b00,"48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 A0 48 81 EC 60 01 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88",true},
+    {"shot_assist_director_ray",0xb14f14,"48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 48 83 EC 20 48 8B EA 49 8B F0 48 8D 50 20 8B D9 E8 37 00 00 00",true},
+}};
+inline constexpr std::array<Witness,37> witnesses={{
+    {0xb00900,"80 7D 77 00 74 22 41 83 FF FF 49 8D 86 50 02 00 00 B9 1C 02 00 00 48 0F 44 C1 F2 0F 10 00 F2 0F 11 07 8B 40 08 89 47 08"},
+    {0xb008fb,"E8 00 44 00 00"},
+    {0xb00b38,"E8 4F 31 09 00"},
+    {0xb00b61,"E8 32 78 03 00"},
+    {0xb00775,"80 7C 24 68 00 74 35 4B 63 54 9A 08 B8 1C 02 00 00 48 8B 0D 6B C6 29 02 48 81 C1 50 02 00 00 48 03 CA 43 83 7C 9A 08 FF 48 0F 44 C8 F2 0F 10 01 F2 41 0F 11 00 8B 41 08 41 89 40 08"},
+    {0xb0083e,"F3 0F 10 54 24 24 F3 0F 59 53 04 48 8B 74 24 50 F3 0F 10 4C 24 20 F3 0F 59 0B F3 0F 10 44 24 28 F3 0F 59 43 08 48 8B 5C 24 40 F3 0F 58 D1 F3 0F 58 D0 F3 0F 11 55 00 48 8B 6C 24 48"},
+    {0xb007bf,"E8 3C 45 00 00"},
+    {0xb00839,"E8 5A 7B 03 00"},
+    {0xb7a741,"F7 03 00 40 00 00"},
+    {0xb7a64d,"44 8B B6 F8 01 00 00"},
+    {0xb7a545,"E8 CA D2 FF FF"},
+    {0xb7a608,"E8 97 E3 FB FF"},
+    {0xb7a791,"E8 EA 60 F8 FF"},
+    {0xb7a853,"E8 E8 5E F8 FF"},
+    {0xb77847,"48 81 C2 0C 01 00 00"},
+    {0xb77858,"8B 3A 3B FB 74 10 8D 53 04 8B CF E8 3C 11 FC FF 48 85 C0 0F 45 DF"},
+    {0xb77828,"48 8B 0D 19 AA 0C 01"},
+    {0xb77840,"48 8B 15 B1 55 22 02"},
+    {0xb77863,"E8 3C 11 FC FF"},
+    {0xb389c4,"41 0F B6 4B 03 0F A3 CB 73 1E 4C 8B 05 23 44 26 02 49 63 53 08 49 83 C0 34 4C 03 C2 41 83 7B 08 FF 4C 0F 44 C0"},
+    {0xb389ae,"48 8B 0D 93 98 10 01"},
+    {0xb389b5,"E8 16 2F 08 00"},
+    {0xb389ce,"4C 8B 05 23 44 26 02"},
+    {0xb2753e,"48 69 D0 94 1E 00 00"},
+    {0xb2754c,"44 39 4A 04 74 5D 44 39 4A 08"},
+    {0xb27545,"48 03 15 44 58 27 02"},
+    {0xb04d61,"8B 8E D8 00 00 00"},
+    {0xb04d6a,"41 3B CF 0F 85 A4 00 00 00"},
+    {0xb04d5c,"E8 E7 68 F9 FF"},
+    {0xb67bd3,"8B 4F 64 4C 8D 44 24 50 48 8D 55 88"},
+    {0xb67e9e,"F2 0F 10 44 24 50 8B 44 24 58 F2 0F 11 03 89 43 08"},
+    {0xb67bdf,"E8 30 D3 FA FF"},
+    {0xb14f39,"0F B7 F8 4C 8B C6 48 8B D5 8B CB 66 85 C0 75 07"},
+    {0xb14f5a,"0F B7 C7"},
+    {0xb14f34,"E8 37 00 00 00"},
+    {0xb14f49,"E8 26 D3 13 00"},
+    {0xb14f50,"E8 23 DC 13 00"},
+}};
+inline constexpr std::array<Relative,21> relatives={{
+    {0xb008fb,5,1,0xb04d00},
+    {0xb00b38,5,1,0xb93c8c},
+    {0xb00b61,5,1,0xb38398},
+    {0xb007bf,5,1,0xb04d00},
+    {0xb00839,5,1,0xb38398},
+    {0xb7a545,5,1,0xb77814},
+    {0xb7a608,5,1,0xb389a4},
+    {0xb7a791,5,1,0xb00880},
+    {0xb7a853,5,1,0xb00740},
+    {0xb77828,7,3,0x1c42248},
+    {0xb77840,7,3,0x2d9cdf8},
+    {0xb77863,5,1,0xb389a4},
+    {0xb389ae,7,3,0x1c42248},
+    {0xb389b5,5,1,0xbbb8d0},
+    {0xb389ce,7,3,0x2d9cdf8},
+    {0xb27545,7,3,0x2d9cd90},
+    {0xb04d5c,5,1,0xa9b648},
+    {0xb67bdf,5,1,0xb14f14},
+    {0xb14f34,5,1,0xb14f70},
+    {0xb14f49,5,1,0xc52274},
+    {0xb14f50,5,1,0xc52b78},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t shot_adjust_modern=0xb00880;
+inline constexpr uint32_t shot_adjust_legacy=0xb00740;
+inline constexpr uint32_t shot_weapon_trigger=0xb7a374;
+inline constexpr uint32_t shot_weapon_owner=0xb77814;
+inline constexpr uint32_t shot_object_try_get=0xb389a4;
+inline constexpr uint32_t shot_local_fp_record=0xb27510;
+inline constexpr uint32_t shot_unit_origin=0xb04d00;
+inline constexpr uint32_t shot_player_assist=0xb67b00;
+inline constexpr uint32_t shot_assist_director_ray=0xb14f14;
+}
+namespace first_person_projection {
+inline constexpr std::array<Entry,3> entries={{
+    {"first_person_glt_constants",0x264080,"48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B AC 24 E8 00 00 00",true},
+    {"first_person_zfill_constants",0x26ff00,"4D 85 C0 74 1B 41 F7 40 28 00 00 00 10 74 11 F3 0F 10 05 E1 0F 59 01 0F C6 C0 00 0F 11 42 20 C3 0F 57 C0 0F C6 C0 00 0F 11 42 20 C3",false},
+    {"first_person_sfx_constants",0x26e960,"40 55 48 8B EC 48 83 EC 10 4C 8B 4D 48 41 0F 10 41 18 0F 11 45 F0 4D 85 C0 0F 84 CE 00 00 00",true},
+}};
+inline constexpr std::array<Witness,4> witnesses={{
+    {0x26437d,"41 F7 45 28 00 00 00 10 74 05 0F 28 C6 EB 03 0F 57 C0 0F C6 C0 00 0F 11 87 70 01 00 00"},
+    {0x7adf0,"48 8B 46 10 48 8B 88 98 01 00 00 48 8B 04 0A 81 48 28 00 00 00 10"},
+    {0x26ff00,"4D 85 C0 74 1B 41 F7 40 28 00 00 00 10 74 11 F3 0F 10 05 E1 0F 59 01 0F C6 C0 00 0F 11 42 20 C3 0F 57 C0 0F C6 C0 00 0F 11 42 20 C3"},
+    {0x26ecc2,"4D 85 C0 74 0A 41 F7 40 28 00 00 00 10 75 03 0F 57 D2 0F C6 D2 00 0F 11 52 70 48 83 C4 10 5D C3"},
+}};
+inline constexpr std::array<Relative,0> relatives={{
+}};
+inline constexpr std::array<Pointer,3> pointers={{
+    {0x17ffa48,0x264080},
+    {0x1800cf8,0x26ff00},
+    {0x1800b38,0x26e960},
+}};
+inline constexpr uint32_t first_person_glt_constants=0x264080;
+inline constexpr uint32_t first_person_zfill_constants=0x26ff00;
+inline constexpr uint32_t first_person_sfx_constants=0x26e960;
+}
+namespace first_person_skin {
+inline constexpr std::array<Entry,1> entries={{
+    {"first_person_saber_bone_convert",0x77e70,"48 83 EC 68 F3 0F 10 69 14 33 C0 F3 0F 10 59 20 F3 0F 10 49 24 F3 0F 10 51 10 F3 0F 10 61 18",true},
+}};
+inline constexpr std::array<Witness,4> witnesses={{
+    {0x8b96f,"48 6B C8 34 48 81 C1 0C 02 00 00 49 03 CF"},
+    {0x77f19,"F3 0F 11 32"},
+    {0x77f5c,"C7 42 3C 00 00 80 3F"},
+    {0x8b97d,"E8 EE C4 FE FF"},
+}};
+inline constexpr std::array<Relative,1> relatives={{
+    {0x8b97d,5,1,0x77e70},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t first_person_saber_bone_convert=0x77e70;
+}
+namespace gameplay_bridge {
+inline constexpr std::array<Entry,1> entries={{
+    {"gameplay_saber_camera_producer",0x7b480,"48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 81 EC C0 00 00 00 80 3D DF 03 DC 02 00 49 8B F1 49 8B E8",true},
+}};
+inline constexpr std::array<Witness,8> witnesses={{
+    {0x7b5cc,"48 83 B8 30 01 00 00 00 0F 85 E8 01 00 00"},
+    {0x7b4e9,"80 3D 36 03 DC 02 00 0F 29 B4 24 B0 00 00 00 C6 05 9B 78 E2 02 00 0F 84 C0 00 00 00"},
+    {0x7b5da,"F3 0F 10 25 3E 9B A8 02"},
+    {0x7b5ef,"F3 0F 10 15 41 02 DC 02"},
+    {0x7b696,"F3 0F 58 35 7A 9A A8 02"},
+    {0x7b6a3,"F3 0F 58 2D 71 9A A8 02"},
+    {0x7b4e9,"80 3D 36 03 DC 02 00"},
+    {0x7b5c5,"48 8B 05 4C 0E DC 02"},
+}};
+inline constexpr std::array<Relative,6> relatives={{
+    {0x7b5da,8,4,0x2b05120},
+    {0x7b5ef,8,4,0x2e3b838},
+    {0x7b696,8,4,0x2b05118},
+    {0x7b6a3,8,4,0x2b0511c},
+    {0x7b4e9,7,2,0x2e3b826},
+    {0x7b5c5,7,3,0x2e3c418},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t gameplay_saber_camera_producer=0x7b480;
+}
+namespace hud {
+inline constexpr std::array<Entry,1> entries={{
+    {"hud_crosshair_draw",0xb3ffa0,"48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 A8 FE FF FF 48 81 EC 20 02 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88 44 0F 29 90 78 FF FF FF 44 0F 29 98 68 FF FF FF 48 8B 05 27 50 03 01",true},
+}};
+inline constexpr std::array<Witness,3> witnesses={{
+    {0xb40007,"44 84 B2 E0 01 00 00"},
+    {0xb3eee9,"E8 B2 10 00 00"},
+    {0xb3ef55,"E8 46 10 00 00"},
+}};
+inline constexpr std::array<Relative,2> relatives={{
+    {0xb3eee9,5,1,0xb3ffa0},
+    {0xb3ef55,5,1,0xb3ffa0},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t hud_crosshair_draw=0xb3ffa0;
+}
+namespace hud_layout {
+inline constexpr std::array<Entry,1> entries={{
+    {"hud_gameplay_draw",0xb12b08,"48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 57 41 55 41 56 48 83 EC 30 48 0F BF 3D 90 C7 E9 01 83 CE FF",true},
+}};
+inline constexpr std::array<Witness,8> witnesses={{
+    {0xb12b3a,"8B B4 B8 B8 00 00 00"},
+    {0xb12b65,"83 FE FF 0F 84 11 03 00 00 84 C9 0F 84 09 03 00 00"},
+    {0xb32106,"E8 FD 09 FE FF"},
+    {0xb12b20,"48 0F BF 3D 90 C7 E9 01"},
+    {0xb12b33,"48 8B 05 56 02 39 02"},
+    {0xb12dc4,"E8 5B BF 02 00"},
+    {0xb12df0,"E8 47 DB 13 00"},
+    {0xb12dfc,"E8 2F 1A 06 00"},
+}};
+inline constexpr std::array<Relative,6> relatives={{
+    {0xb32106,5,1,0xb12b08},
+    {0xb12b20,8,4,0x29af2b8},
+    {0xb12b33,7,3,0x2ea2d90},
+    {0xb12dc4,5,1,0xb3ed24},
+    {0xb12df0,5,1,0xc5093c},
+    {0xb12dfc,5,1,0xb74830},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t hud_gameplay_draw=0xb12b08;
+}
+namespace hud_target {
+inline constexpr std::array<Entry,9> entries={{
+    {"hud_target_bind",0x205e40,"40 53 56 57 41 56 41 57 48 83 EC 40 0F 10 02 4C 8B FA 45 33 C0 48 8B D9 0F 11 41 18 0F 10 4A 10",true},
+    {"hud_target_surface_select",0xad5f0,"4C 8B 91 A8 00 00 00 4C 8B C1 4D 85 D2 74 45 48 8B 05 B2 D0 B3 01 44 8B 88 D0 01 00 00 41 8B C1",false},
+    {"hud_target_viewport",0x206160,"40 53 48 83 EC 50 48 8B 05 A3 EE 96 01 48 33 C4 48 89 44 24 48 41 8D 04 11 66 0F 6E C2 0F 5B C0",true},
+    {"hud_target_rtv_accessor",0x22b7b0,"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 41 8B F9 41 8B F0 0F B6 DA 4C 8B D9 E8 20 1E E8 FF",true},
+    {"hud_target_dsv_accessor",0x22b830,"48 83 EC 28 44 0F B6 DA E8 B3 1D E8 FF 45 84 DB 74 0C 48 8B 80 10 01 00 00 48 83 C4 28 C3 48 8B",true},
+    {"hud_target_dimensions",0x1dc120,"F3 0F 10 0D D0 4D 62 01 4C 8B C9 89 51 50 0F 28 D1 44 89 41 54 85 D2 7E 0B 66 0F 6E C2 0F 5B C0",false},
+    {"hud_target_conflicts",0x2059b0,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 20 45 33 FF 48 8D 99 28 10",true},
+    {"hud_target_alias_check",0x22b700,"40 53 48 83 EC 20 4C 8B DA 48 8B D9 E8 DF 1E E8 FF 4C 8B C0 4C 3B 98 18 01 00 00 0F 84 7E 00 00",true},
+    {"hud_target_release",0x22b0a0,"48 89 5C 24 18 55 48 83 EC 20 33 ED 48 89 74 24 30 48 8B D9 48 89 7C 24 38 8B F5 39 A9 F0 00 00",true},
+}};
+inline constexpr std::array<Witness,14> witnesses={{
+    {0x205e58,"0F 11 41 18"},
+    {0x205e7b,"F2 0F 11 41 58"},
+    {0x20611c,"48 8B 8B E0 0C 00 00"},
+    {0x206123,"4C 8D 83 00 0D 00 00"},
+    {0x20612a,"4C 8B 8B 20 0D 00 00"},
+    {0x206131,"8B 93 F8 0C 00 00"},
+    {0x20613a,"FF 90 08 01 00 00"},
+    {0x206148,"B0 01"},
+    {0x205e80,"E8 9B 62 FD FF"},
+    {0x205f25,"E8 C6 76 EA FF"},
+    {0x205fc9,"E8 E2 F9 FF FF"},
+    {0x2060e3,"E8 38 60 FD FF"},
+    {0x203643,"48 8D 05 C6 66 5F 01"},
+    {0x1efa3d,"48 89 05 9C C3 C4 02"},
+}};
+inline constexpr std::array<Relative,6> relatives={{
+    {0x205e80,5,1,0x1dc120},
+    {0x205f25,5,1,0xad5f0},
+    {0x205fc9,5,1,0x2059b0},
+    {0x2060e3,5,1,0x1dc120},
+    {0x203643,7,3,0x17f9d10},
+    {0x1efa3d,7,3,0x2e3bde0},
+}};
+inline constexpr std::array<Pointer,6> pointers={{
+    {0x17f9e08,0x205e40},
+    {0x17f9e30,0x206160},
+    {0x17fb6e0,0x22b7b0},
+    {0x17fb6e8,0x22b830},
+    {0x17fb620,0x1f4b80},
+    {0x17fb628,0x1f4bc0},
+}};
+inline constexpr uint32_t hud_target_bind=0x205e40;
+inline constexpr uint32_t hud_target_surface_select=0xad5f0;
+inline constexpr uint32_t hud_target_viewport=0x206160;
+inline constexpr uint32_t hud_target_rtv_accessor=0x22b7b0;
+inline constexpr uint32_t hud_target_dsv_accessor=0x22b830;
+inline constexpr uint32_t hud_target_dimensions=0x1dc120;
+inline constexpr uint32_t hud_target_conflicts=0x2059b0;
+inline constexpr uint32_t hud_target_alias_check=0x22b700;
+inline constexpr uint32_t hud_target_release=0x22b0a0;
+}
+namespace player_state {
+inline constexpr std::array<Entry,13> entries={{
+    {"state_datum_get",0xbbb8d0,"45 33 C0 4C 8B D1 83 FA FF 74 3D 44 8B CA 41 C1 F9 10 66 85 D2 78 31 66 3B 51 20 7D 2B 0F B7 49 22 0F BF C2 0F AF C1 49 63 4A 34 48 98 49 03 C2 48 03 C8 66 44 39 01 74 0F 66 45 85 C9 74 06 66 44 39 09 75 03 4C 8B C1 49 8B C0 C3",false},
+    {"state_output_player",0xa999e8,"41 83 C9 FF 4C 8B D2 41 3B C9 74 12 48 8B 05 95 93 40 02 4C 63 C1 46 8B 8C 80 B8 00 00 00",false},
+    {"state_player_unit",0xad0304,"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B 05 66 01 17 01 49 8B F0 F3 0F 10 42",true},
+    {"state_control_user_loop",0xa997b8,"48 8B C4 48 89 58 08 48 89 68 18 48 89 70 20 57 41 54 41 56 48 81 EC 10 01 00 00 0F 29 70 D8 48",true},
+    {"state_control_admission",0xa9915c,"48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 88 F7 FF FF 48 81 EC 40 09 00 00 0F 29 70 B8 48 8B 05 89 BE 0D 01 48 33 C4 48 89 85 20 08 00",true},
+    {"state_control_output_copy",0xa9ab00,"48 8B 15 69 53 2F 02 48 63 C1 4C 6B C0 58 41 83 7C 10 10 FF 74 46 48 8D 8A 70 01 00 00 41 B9 04 00 00 00",false},
+    {"state_user_perspective",0xb14ea4,"48 0F BF C1 4C 8D 05 B1 6A 28 02 48 69 C8 F8 00 00 00 48 8D 15 7F D7 13 00 4A 8B 44 01 10 48 3B C2",false},
+    {"state_fp_visibility",0xb275b8,"48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 E8 F2 FF FF 48 81 EC F0 0D 00 00 0F",true},
+    {"state_object_try_get",0xb389a4,"40 53 48 83 EC 20 8B DA 8B D1 48 8B 0D 93 98 10 01 E8 16 2F 08 00 4C 8B D8 33 C0 4D 85 DB 74 28 41 0F B6 4B",true},
+    {"state_weapon_owner",0xb77814,"48 89 5C 24 08 57 48 83 EC 20 0F B7 C9 83 CB FF 48 8D 14 49 48 8B 0D 19 AA 0C 01",true},
+    {"state_equipped_record",0xb27510,"40 53 48 83 EC 20 B9 11 00 00 00 E8 88 AB FF FF 0F B7 0D 91 7D E8 01 84 C0 0F 94 C0 41 83 C9 FF 66 41 3B C9 74 79 84 C0 74 75 48 0F BF C1 48 69",true},
+    {"state_unit_player_backlink",0xb7a374,"48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 C0 E1 FF FF B8 40 1F 00 00",true},
+    {"state_unit_parent",0xb04d00,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 81 EC A0 00 00 00 4C 8B 0D 26 D5 13 01 33 DB 48 8B 2D CD 80 29 02",true},
+}};
+inline constexpr std::array<Witness,62> witnesses={{
+    {0xbbb8e2,"66 85 D2 78 31 66 3B 51 20 7D 2B 0F B7 49 22"},
+    {0xbbb8f1,"0F BF C2 0F AF C1 49 63 4A 34 48 98 49 03 C2 48 03 C8 66 44 39 01 74 0F 66 45 85 C9 74 06 66 44 39 09 75 03 4C 8B C1 49 8B C0 C3"},
+    {0xa999fb,"4C 63 C1 46 8B 8C 80 B8 00 00 00"},
+    {0xa99a0d,"48 0F BF C1 48 81 C2 7C 01 00 00 4C 6B C0 38 41 8B C9 49 03 D0"},
+    {0xa999f4,"48 8B 05 95 93 40 02"},
+    {0xa99a06,"48 8B 15 63 64 2F 02"},
+    {0xa99a25,"E9 DA 68 03 00"},
+    {0xad0325,"0F B7 C9 4C 69 C9 20 0C 00 00"},
+    {0xad037b,"74 10 8B 4F 64 83 F9 FF 74 08 48 8B D6 E8 BF 54 03 00"},
+    {0xad0313,"48 8B 05 66 01 17 01"},
+    {0xa9983c,"4C 63 F3 43 8B 4C B0 04 83 F9 FF"},
+    {0xa99863,"49 6B CE 58"},
+    {0xa99835,"4C 8B 05 54 95 40 02"},
+    {0xa9985e,"E8 F9 F8 FF FF"},
+    {0xa99877,"48 8B 05 F2 65 2F 02"},
+    {0xa9988f,"E8 6C 12 00 00"},
+    {0xa991f4,"48 0F BF C3 48 8D 0D 01 6E 56 FF 48 69 C0 F8 00 00 00 48 89 44 24 58 44 38 BC 08 B9 B9 D9 02"},
+    {0xa99215,"44 39 3D AC BD 19 01 75 09 83 3D 3B C5 0E 01 FF 75 09 0F B7 9D 1C 08 00 00 EB 20"},
+    {0xa994c7,"44 38 78 02 0F 85 48 01 00 00"},
+    {0xa994e7,"44 38 78 0A 0F 85 28 01 00 00"},
+    {0xa9963e,"46 38 BC 00 B8 B9 D9 02 75 18"},
+    {0xa992df,"46 8B 5C 36 10 41 83 C8 FF 45 3B D8 0F 84 06 04 00 00"},
+    {0xa9919b,"4C 8B 35 CE 6C 2F 02"},
+    {0xa99215,"44 39 3D AC BD 19 01"},
+    {0xa9921e,"83 3D 3B C5 0E 01 FF"},
+    {0xa994c0,"48 8B 05 A1 68 40 02"},
+    {0xa994e0,"48 8B 05 21 6D 40 02"},
+    {0xa9965b,"E8 BC 05 00 00"},
+    {0xa9ab07,"48 63 C1 4C 6B C0 58 41 83 7C 10 10 FF 74 46 48"},
+    {0xa9ab23,"41 8B 44 10 10 39 01 75 26 41 0F 10 44 10 14"},
+    {0xa9ab00,"48 8B 15 69 53 2F 02"},
+    {0xb14eaf,"48 69 C8 F8 00 00 00"},
+    {0xb14edd,"42 0F B7 44 01 5C C3"},
+    {0xb14f0d,"66 42 89 44 01 5C C3"},
+    {0xb14ea8,"4C 8D 05 B1 6A 28 02"},
+    {0xb14eb6,"48 8D 15 7F D7 13 00"},
+    {0xb14ee4,"48 8D 15 B9 DD 13 00"},
+    {0xb14ef7,"48 8D 15 26 F2 0C 00"},
+    {0xb27626,"48 69 D8 94 1E 00 00"},
+    {0xb2765c,"44 8A 03 41 8D 44 24 01 44 84 C0"},
+    {0xb27631,"48 03 1D 58 57 27 02"},
+    {0xb389c4,"41 0F B6 4B 03 0F A3 CB 73 1E 4C 8B 05 23 44 26 02 49 63 53 08 49 83 C0 34 4C 03 C2 41 83 7B 08 FF 4C 0F 44 C0"},
+    {0xb389ae,"48 8B 0D 93 98 10 01"},
+    {0xb389b5,"E8 16 2F 08 00"},
+    {0xb389ce,"4C 8B 05 23 44 26 02"},
+    {0xb77847,"48 81 C2 0C 01 00 00"},
+    {0xb77858,"8B 3A 3B FB 74 10 8D 53 04 8B CF E8 3C 11 FC FF 48 85 C0 0F 45 DF"},
+    {0xb77828,"48 8B 0D 19 AA 0C 01"},
+    {0xb77840,"48 8B 15 B1 55 22 02"},
+    {0xb77863,"E8 3C 11 FC FF"},
+    {0xb2753e,"48 69 D0 94 1E 00 00"},
+    {0xb2754c,"44 39 4A 04 74 5D 44 39 4A 08"},
+    {0xb27545,"48 03 15 44 58 27 02"},
+    {0xb7a741,"F7 03 00 40 00 00"},
+    {0xb7a64d,"44 8B B6 F8 01 00 00"},
+    {0xb7a545,"E8 CA D2 FF FF"},
+    {0xb7a608,"E8 97 E3 FB FF"},
+    {0xb7a791,"E8 EA 60 F8 FF"},
+    {0xb7a853,"E8 E8 5E F8 FF"},
+    {0xb04d61,"8B 8E D8 00 00 00"},
+    {0xb04d6a,"41 3B CF 0F 85 A4 00 00 00"},
+    {0xb04d5c,"E8 E7 68 F9 FF"},
+}};
+inline constexpr std::array<Relative,32> relatives={{
+    {0xa999f4,7,3,0x2ea2d90},
+    {0xa99a06,7,3,0x2d8fe70},
+    {0xa99a25,5,1,0xad0304},
+    {0xad0313,7,3,0x1c40480},
+    {0xa99835,7,3,0x2ea2d90},
+    {0xa9985e,5,1,0xa9915c},
+    {0xa99877,7,3,0x2d8fe70},
+    {0xa9988f,5,1,0xa9ab00},
+    {0xa9919b,7,3,0x2d8fe70},
+    {0xa99215,7,3,0x1c34fc8},
+    {0xa9921e,7,2,0x1b85760},
+    {0xa994c0,7,3,0x2e9fd68},
+    {0xa994e0,7,3,0x2ea0208},
+    {0xa9965b,5,1,0xa99c1c},
+    {0xa9ab00,7,3,0x2d8fe70},
+    {0xb14ea8,7,3,0x2d9b960},
+    {0xb14eb6,7,3,0xc5263c},
+    {0xb14ee4,7,3,0xc52ca4},
+    {0xb14ef7,7,3,0xbe4124},
+    {0xb27631,7,3,0x2d9cd90},
+    {0xb389ae,7,3,0x1c42248},
+    {0xb389b5,5,1,0xbbb8d0},
+    {0xb389ce,7,3,0x2d9cdf8},
+    {0xb77828,7,3,0x1c42248},
+    {0xb77840,7,3,0x2d9cdf8},
+    {0xb77863,5,1,0xb389a4},
+    {0xb27545,7,3,0x2d9cd90},
+    {0xb7a545,5,1,0xb77814},
+    {0xb7a608,5,1,0xb389a4},
+    {0xb7a791,5,1,0xb00880},
+    {0xb7a853,5,1,0xb00740},
+    {0xb04d5c,5,1,0xa9b648},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t state_datum_get=0xbbb8d0;
+inline constexpr uint32_t state_output_player=0xa999e8;
+inline constexpr uint32_t state_player_unit=0xad0304;
+inline constexpr uint32_t state_control_user_loop=0xa997b8;
+inline constexpr uint32_t state_control_admission=0xa9915c;
+inline constexpr uint32_t state_control_output_copy=0xa9ab00;
+inline constexpr uint32_t state_user_perspective=0xb14ea4;
+inline constexpr uint32_t state_fp_visibility=0xb275b8;
+inline constexpr uint32_t state_object_try_get=0xb389a4;
+inline constexpr uint32_t state_weapon_owner=0xb77814;
+inline constexpr uint32_t state_equipped_record=0xb27510;
+inline constexpr uint32_t state_unit_player_backlink=0xb7a374;
+inline constexpr uint32_t state_unit_parent=0xb04d00;
+}
 }

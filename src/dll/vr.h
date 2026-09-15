@@ -717,6 +717,15 @@ AuthoredReticlePreparationResult VR_PrepareAuthoredReticleResources();
 // an authored no-crosshair state cannot inherit an earlier attempt's texture.
 void VR_InvalidatePreparedAuthoredReticleCapture();
 bool VR_BeginPreparedAuthoredReticleCapture();
+// CE's native HUD must draw on the shared immediate context and the same XR
+// serial before borrowing prepared capture resources; no context discovery.
+bool VR_CeAuthoredReticleFrameMatches(ID3D11DeviceContext* context,uint64_t serial);
+bool VR_CeRedirectAuthoredReticleTargets(ID3D11DeviceContext*,UINT,
+    ID3D11RenderTargetView* const*,ID3D11DepthStencilView*,UINT&,
+    ID3D11RenderTargetView**,ID3D11DepthStencilView*&);
+bool VR_CeRedirectAuthoredReticleViewports(ID3D11DeviceContext*,UINT,const D3D11_VIEWPORT*,D3D11_VIEWPORT&);
+bool VR_CeRedirectAuthoredReticleScissors(ID3D11DeviceContext*,UINT,const D3D11_RECT*,D3D11_RECT&);
+void VR_CeInvalidateAuthoredReticleState(ID3D11DeviceContext*);
 bool VR_EndPreparedAuthoredReticleCapture();
 // Halo 4 must still execute the opposite-eye CUI reticle subtree while keeping
 // its pixels out of both the eye and the selected-eye authored capture. These

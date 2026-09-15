@@ -93,6 +93,34 @@ struct Eye
     Quat orientation;
     float fov[4]{}; // left/right/up/down, radians
 };
+struct ControllerPose
+{
+    bool valid{};
+    Vec3 position;
+    Quat orientation;
+};
+struct ControllerRig
+{
+    // Role-routed just like the other titles: primary is the weapon hand,
+    // support is the other hand. Physical indices stay left=0, right=1.
+    ControllerPose primaryAim,independentPrimaryAim,support,physical[2];
+    bool leftHanded{},handAlignment{},twoHandAimActive{},padValid{};
+    bool armIk{true},floatingHands{true},shoulderLevel{true};
+    float gunScale{0.96f},supportScale{0.96f};
+    float visualPitchDeg{},visualYawDeg{},visualRollDeg{};
+    float supportMountPitchDeg{},supportMountYawDeg{},supportMountRollDeg{};
+    float gunForwardM{-0.14f},gunRightM{},gunUpM{};
+    float supportForwardM{-0.063f};
+    float shoulderBackM{},primaryShoulderDrop{0.06f};
+    float turnX{},moveX{},moveY{};
+    bool turnSmooth{true},controlsPresentationBlocked{true};
+    bool roomscaleEnabled{};
+    float turnSnapDeg{30.0f},turnSmoothDegS{120.0f};
+};
+struct HudSettings
+{
+    float size{0.75f},aspect{1.0f},curvature{0.5f},verticalOffset{16.0f};
+};
 struct Tracking
 {
     uint64_t serial{}, spaceEpoch{};
@@ -100,6 +128,10 @@ struct Tracking
     Vec3 headPosition;
     Quat headOrientation;
     Eye eyes[2];
+    int64_t predictedDisplayTimeNs{};
+    ControllerRig controllers;
+    HudSettings hud;
+    bool motionBlur{};
 };
 struct Reference
 {
@@ -194,6 +226,24 @@ inline bool BuildSaberPose(const Camera& camera,Vec3 worldOffset,
     if (!Finite(position)) return false;
     SaberPose candidate{{right.x,right.y,right.z,0,up.x,up.y,up.z,0,
         forward.x,forward.y,forward.z,0,position.x,position.y,position.z,1}};
+    out=candidate;
+    return true;
+}
+
+// E-CE-3/E-CE-FP-7: NativeCameraFromSaber maps the complete rendered origin
+// back into CE axes/units. That origin still includes Saber's world offset
+// and forward bias. Gameplay positions must remove both once; per-eye scene
+// staging deliberately retains them to stay in the native renderer's space.
+inline bool RecoverNativeCameraFromSaberBridge(const Camera& mappedCamera,
+    Vec3 saberWorldOffset,float saberForwardBias,Camera& out)
+{
+    if (!Valid(mappedCamera)||!Finite(saberWorldOffset)||!std::isfinite(saberForwardBias))
+        return false;
+    const Vec3 nativeOffset{saberWorldOffset.x,-saberWorldOffset.z,saberWorldOffset.y};
+    Camera candidate=mappedCamera;
+    candidate.position=mappedCamera.position-
+        (nativeOffset+mappedCamera.forward*saberForwardBias)*(1.0f/kSaberUnitsPerNativeUnit);
+    if (!Valid(candidate)) return false;
     out=candidate;
     return true;
 }

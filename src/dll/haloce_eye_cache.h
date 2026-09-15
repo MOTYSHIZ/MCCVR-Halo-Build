@@ -2,6 +2,7 @@
 #include <d3d11.h>
 #include <atomic>
 #include "../common/haloce_prepared_handoff.h"
+#include "../common/haloce_classic_view_pair.h"
 
 namespace halo_ce
 {
@@ -38,6 +39,7 @@ public:
         const D3D11_TEXTURE2D_DESC& source,uint32_t generation,uint64_t resourceEpoch) noexcept;
     bool Reset() noexcept; // busy means retry on a later cold poll; never wait
     bool Begin(const PreparedReceipt& receipt,Key& key) noexcept;
+    bool Begin(const ClassicViewPair& pair,Key& key) noexcept;
     bool Capture(Key key,int eye,ID3D11DeviceContext* context,
         ID3D11Resource* liveSource,const D3D11_TEXTURE2D_DESC& provenSource) noexcept;
     bool Finish(Key key) noexcept; // call AFTER the native frame has returned

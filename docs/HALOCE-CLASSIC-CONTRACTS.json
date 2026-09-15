@@ -1,0 +1,903 @@
+{
+  "title": "MCC Halo CE Original / Classic",
+  "status": "Classic render/output signatures and body witnesses verified offline; final runtime adapter under local validation",
+  "approved_runtime_bindings": [],
+  "offline_render_contracts": [
+    {
+      "name": "classic_view_render",
+      "rva": "0xbbcf30",
+      "signature": "40 55 53 56 57 41 54 41 56 41 57 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 48 8B 05 BF 80 FB 00 48 33 C4 48 89 85 80 01 00 00 48 8B BD F0 01",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xbbd3aa",
+          "target_rva": "0xb0d40",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbbcfa0",
+          "target_rva": "0x29af2c4",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "0F 11 05 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbbcf96",
+          "target_rva": "0x29af318",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 0D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0xbbcf5b",
+          "signature": "48 8B BD F0 01 00 00",
+          "meaning": "mov rdi, qword ptr [rbp + 0x1f0]"
+        },
+        {
+          "rva": "0xbbcf62",
+          "signature": "49 8B F0",
+          "meaning": "mov rsi, r8"
+        },
+        {
+          "rva": "0xbbcf65",
+          "signature": "48 8B DA",
+          "meaning": "mov rbx, rdx"
+        },
+        {
+          "rva": "0xbbcf68",
+          "signature": "44 0F B7 F9",
+          "meaning": "movzx r15d, cx"
+        },
+        {
+          "rva": "0xbbcf86",
+          "signature": "4D 8B F1",
+          "meaning": "mov r14, r9"
+        },
+        {
+          "rva": "0xbbcfdc",
+          "signature": "41 8D 44 24 02",
+          "meaning": "lea eax, [r12 + 2]"
+        },
+        {
+          "rva": "0xbbcfe1",
+          "signature": "8D 50 7D",
+          "meaning": "lea edx, [rax + 0x7d]"
+        },
+        {
+          "rva": "0xbbd01a",
+          "signature": "48 03 CA",
+          "meaning": "add rcx, rdx"
+        },
+        {
+          "rva": "0xbbd021",
+          "signature": "48 03 F2",
+          "meaning": "add rsi, rdx"
+        },
+        {
+          "rva": "0xbbd028",
+          "signature": "49 2B C4",
+          "meaning": "sub rax, r12"
+        },
+        {
+          "rva": "0xbbd02b",
+          "signature": "75 B7",
+          "meaning": "jne 0xbbcfe4"
+        },
+        {
+          "rva": "0xbbd02d",
+          "signature": "48 8B 06",
+          "meaning": "mov rax, qword ptr [rsi]"
+        },
+        {
+          "rva": "0xbbd030",
+          "signature": "48 89 01",
+          "meaning": "mov qword ptr [rcx], rax"
+        },
+        {
+          "rva": "0xbbd033",
+          "signature": "8B 46 08",
+          "meaning": "mov eax, dword ptr [rsi + 8]"
+        },
+        {
+          "rva": "0xbbd036",
+          "signature": "89 41 08",
+          "meaning": "mov dword ptr [rcx + 8], eax"
+        }
+      ]
+    },
+    {
+      "name": "classic_render_target_select",
+      "rva": "0xb51670",
+      "signature": "48 89 5C 24 18 55 56 57 41 56 41 57 48 8D 6C 24 D1 48 81 EC B0 00 00 00 48 8B 05 81 39 02 01 48 33 C4 48 89 45 1F 33 FF 45 8B F8 45 8A F1 44 0F",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb516f6",
+          "target_rva": "0xaeb00",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb517de",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb5180e",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb5183e",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb518c3",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_saber_target_route",
+      "rva": "0xaeb00",
+      "signature": "48 89 5C 24 18 48 89 74 24 20 41 56 48 83 EC 40 48 89 6C 24 50 48 8D 35 F4 CD D8 02 48 89 7C 24 58 45 8B F0 33 FF 48 63 EA 39 3D 55 BF AC 01 48",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_postprocess_ping_pong",
+      "rva": "0xb0d40",
+      "signature": "48 8B C4 55 48 8D 68 E8 48 81 EC 10 01 00 00 48 C7 45 80 FE FF FF FF 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 0F 29 70 E8 48 8B 05 9E 42",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb0d82",
+          "target_rva": "0x2ea2d90",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e01",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e10",
+          "target_rva": "0x1b7aa84",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "39 35 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e1d",
+          "target_rva": "0x2e3b918",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e24",
+          "target_rva": "0x1dbf20",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e2e",
+          "target_rva": "0x1dc1e0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e48",
+          "target_rva": "0x2e3b920",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e4f",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e56",
+          "target_rva": "0x1dbe50",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e8c",
+          "target_rva": "0x2e3b918",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0e99",
+          "target_rva": "0x2e3b918",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0eba",
+          "target_rva": "0x2e3b918",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 15 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0f53",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0fa0",
+          "target_rva": "0x2e3b918",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0fa7",
+          "target_rva": "0x2e3b920",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0fae",
+          "target_rva": "0x2e3b918",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 89 05 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb0fb5",
+          "target_rva": "0x2e3b920",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 89 0D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_outer_output",
+      "rva": "0xae0df4",
+      "signature": "40 53 48 83 EC 30 33 DB 80 3D CD C5 09 01 01 0F 85 E5 00 00 00 38 1D 37 C6 09 01 0F 85 D9 00 00 00 0F B7 05 9C F7 EF 01 33 D2 66 2B 05 8F F7 EF",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xae0dfc",
+          "target_rva": "0x1b7d3d0",
+          "instruction_bytes": 7,
+          "displacement_offset": 2,
+          "instruction_signature": "80 3D ?? ?? ?? ?? 01"
+        },
+        {
+          "instruction_rva": "0xae0e09",
+          "target_rva": "0x1b7d446",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "38 1D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xae0e49",
+          "target_rva": "0xb51670",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xae0ec6",
+          "target_rva": "0xb51a14",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0xae0e49",
+          "signature": "E8 22 08 07 00",
+          "meaning": "call 0xb51670"
+        },
+        {
+          "rva": "0xae0e6a",
+          "signature": "E8 55 CA 05 00",
+          "meaning": "call 0xb3d8c4"
+        },
+        {
+          "rva": "0xae0e78",
+          "signature": "BA 01 00 00 00",
+          "meaning": "mov edx, 1"
+        },
+        {
+          "rva": "0xae0e7d",
+          "signature": "C7 05 B1 26 17 01 01 00 00 00",
+          "meaning": "mov dword ptr [rip + 0x11726b1], 1"
+        },
+        {
+          "rva": "0xae0e8a",
+          "signature": "E8 35 CA 05 00",
+          "meaning": "call 0xb3d8c4"
+        },
+        {
+          "rva": "0xae0ea2",
+          "signature": "E8 1D CA 05 00",
+          "meaning": "call 0xb3d8c4"
+        },
+        {
+          "rva": "0xae0eb7",
+          "signature": "B9 CE 00 00 00",
+          "meaning": "mov ecx, 0xce"
+        },
+        {
+          "rva": "0xae0ebc",
+          "signature": "E8 03 CA 05 00",
+          "meaning": "call 0xb3d8c4"
+        },
+        {
+          "rva": "0xae0ec6",
+          "signature": "E8 49 0B 07 00",
+          "meaning": "call 0xb51a14"
+        },
+        {
+          "rva": "0xae0ed3",
+          "signature": "BA 02 00 00 00",
+          "meaning": "mov edx, 2"
+        },
+        {
+          "rva": "0xae0ee9",
+          "signature": "E8 D6 C9 05 00",
+          "meaning": "call 0xb3d8c4"
+        },
+        {
+          "rva": "0xae0eee",
+          "signature": "E8 E9 0A 0C 00",
+          "meaning": "call 0xba19dc"
+        }
+      ]
+    },
+    {
+      "name": "saber_target_state_push",
+      "rva": "0x1dc1e0",
+      "signature": "48 8B C4 48 89 58 10 48 89 48 08 57 48 83 EC 60 48 8B 1D E9 FB C5 02 48 63 4B 10 8B 53 14 0F 10 43 18 8D 79 01 3B D7 0F 8D A3 00 00 00 0F 11 40",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x1dc1f0",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 1D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "saber_target_state_pop",
+      "rva": "0x1dc2f0",
+      "signature": "40 53 48 83 EC 40 48 8B 1D E3 FA C5 02 83 7B 10 00 74 3D 48 8B 03 4C 8B 80 F8 00 00 00 8B 43 10 FF C8 48 98 48 8D 0C C0 48 8B 43 08 48 8D 14 C8",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x1dc2f6",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 1D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x1dc356",
+          "target_rva": "0x1dbe50",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "saber_target_bind_description",
+      "rva": "0x1dbe50",
+      "signature": "48 89 5C 24 10 55 56 57 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 A6 91 99 01 48 33 C4 48 89 44 24 70 41 8B D9 48 8D 74 24 20 4D 8B F8 48 8B EA",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "saber_target_unbind_description",
+      "rva": "0x1dbf20",
+      "signature": "48 89 5C 24 08 48 89 6C 24 10 56 57 41 56 48 81 EC 80 00 00 00 48 8B 05 D4 90 99 01 48 33 C4 48 89 44 24 70 48 8B 35 95 FE C5 02 48 8D 5C 24 20",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x1dbf44",
+          "target_rva": "0x2e3bde0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 35 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_game_render",
+      "rva": "0xac47c0",
+      "signature": "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 20 57 41 54 41 55 41 56 41 57 48 83 EC 60 0F 29 70 C8 BD 01 00 00 00 01 2D 05 2D 3E 02 0F 28 F1 0F 29",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xac47fa",
+          "target_rva": "0x2ea2d90",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xac483f",
+          "target_rva": "0x2e9fe80",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 15 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xac4908",
+          "target_rva": "0x2e9fe80",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 15 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_player_window",
+      "rva": "0xbbca64",
+      "signature": "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 48 FB FF FF 48 81 EC 90 05 00 00 48 8B 05 7F 85 FB 00 48 33 C4",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xbbcc0f",
+          "target_rva": "0x1b7d446",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "40 38 35 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbbcc77",
+          "target_rva": "0xbbcf30",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbbccad",
+          "target_rva": "0xbbcf30",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0xbbcc94",
+          "signature": "4C 8D 4F 58",
+          "meaning": "lea r9, [rdi + 0x58]"
+        },
+        {
+          "rva": "0xbbcc98",
+          "signature": "66 44 89 64 24 28",
+          "meaning": "mov word ptr [rsp + 0x28], r12w"
+        },
+        {
+          "rva": "0xbbcc9e",
+          "signature": "4C 8D 85 60 01 00 00",
+          "meaning": "lea r8, [rbp + 0x160]"
+        },
+        {
+          "rva": "0xbbcca5",
+          "signature": "49 8B D6",
+          "meaning": "mov rdx, r14"
+        },
+        {
+          "rva": "0xbbcca8",
+          "signature": "48 89 44 24 20",
+          "meaning": "mov qword ptr [rsp + 0x20], rax"
+        }
+      ]
+    },
+    {
+      "name": "classic_final_blit",
+      "rva": "0xb51a14",
+      "signature": "48 89 5C 24 10 48 89 74 24 18 55 57 41 56 48 8D 6C 24 B9 48 81 EC F0 00 00 00 48 8B 05 DB 35 02 01 48 33 C4 48 89 45 37 33 C0 48 8B D9 48 89 45",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb51a5c",
+          "target_rva": "0xb519a0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb51cb3",
+          "target_rva": "0xbf5f08",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_bind_native_surface_views",
+      "rva": "0xae0e0",
+      "signature": "48 89 5C 24 18 41 56 48 83 EC 30 4C 63 C1 4C 8D 35 0B 1F F5 FF 4B 8B 9C C6 10 B9 E3 02 48 85 DB 0F 84 E2 00 00 00 83 F9 08 0F 84 D9 00 00 00 48",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [],
+      "instruction_witnesses": [
+        {
+          "rva": "0xae0e0",
+          "signature": "48 89 5C 24 18",
+          "meaning": "mov qword ptr [rsp + 0x18], rbx"
+        },
+        {
+          "rva": "0xae0f5",
+          "signature": "4B 8B 9C C6 10 B9 E3 02",
+          "meaning": "mov rbx, qword ptr [r14 + r8*8 + 0x2e3b910]"
+        }
+      ]
+    },
+    {
+      "name": "classic_surface_rtv_accessor",
+      "rva": "0x22b7b0",
+      "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 41 8B F9 41 8B F0 0F B6 DA 4C 8B D9 E8 20 1E E8 FF 41 8B 93 88 00 00 00 B9 01 00 00 00 45 0F BE 4B",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x2298f2",
+          "target_rva": "0x17fb608",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 05 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x22b7b0",
+          "signature": "48 89 5C 24 08",
+          "meaning": "mov qword ptr [rsp + 8], rbx"
+        },
+        {
+          "rva": "0x22b7b5",
+          "signature": "48 89 74 24 10",
+          "meaning": "mov qword ptr [rsp + 0x10], rsi"
+        },
+        {
+          "rva": "0x22b7d0",
+          "signature": "41 8B 93 88 00 00 00",
+          "meaning": "mov edx, dword ptr [r11 + 0x88]"
+        },
+        {
+          "rva": "0x22b7dc",
+          "signature": "45 0F BE 4B 1A",
+          "meaning": "movsx r9d, byte ptr [r11 + 0x1a]"
+        },
+        {
+          "rva": "0x22b7e7",
+          "signature": "44 8D 41 05",
+          "meaning": "lea r8d, [rcx + 5]"
+        },
+        {
+          "rva": "0x22b7ef",
+          "signature": "48 8B 80 F8 00 00 00",
+          "meaning": "mov rax, qword ptr [rax + 0xf8]"
+        },
+        {
+          "rva": "0x22b7f8",
+          "signature": "48 8B 80 E8 00 00 00",
+          "meaning": "mov rax, qword ptr [rax + 0xe8]"
+        },
+        {
+          "rva": "0x22b7ff",
+          "signature": "48 8B 5C 24 30",
+          "meaning": "mov rbx, qword ptr [rsp + 0x30]"
+        },
+        {
+          "rva": "0x22b80a",
+          "signature": "0F AF 4C 24 50",
+          "meaning": "imul ecx, dword ptr [rsp + 0x50]"
+        },
+        {
+          "rva": "0x22b817",
+          "signature": "48 8B 74 24 38",
+          "meaning": "mov rsi, qword ptr [rsp + 0x38]"
+        },
+        {
+          "rva": "0x22b81f",
+          "signature": "48 8B 04 C8",
+          "meaning": "mov rax, qword ptr [rax + rcx*8]"
+        },
+        {
+          "rva": "0x2298f9",
+          "signature": "48 89 07",
+          "meaning": "install texture wrapper vtable"
+        }
+      ],
+      "image_pointers": [
+        {
+          "rva": "0x17fb6e0",
+          "target_rva": "0x22b7b0"
+        }
+      ]
+    },
+    {
+      "name": "classic_final_quad_draw",
+      "rva": "0xbf5f08",
+      "signature": "89 54 24 10 53 48 83 EC 40 83 64 24 60 00 48 8D 54 24 30 48 89 54 24 28 48 8B D9 48 8B 0D 06 CE 2A 02 41 B9 04 00 00 00 48 8B 15 F9 59 2B 02 45",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xbf5f23",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbf5f5f",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbf5f76",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbf5fa7",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xbf5fcb",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0xbf5f08",
+          "signature": "89 54 24 10",
+          "meaning": "mov dword ptr [rsp + 0x10], edx"
+        },
+        {
+          "rva": "0xbf5f11",
+          "signature": "83 64 24 60 00",
+          "meaning": "and dword ptr [rsp + 0x60], 0"
+        },
+        {
+          "rva": "0xbf5f16",
+          "signature": "48 8D 54 24 30",
+          "meaning": "lea rdx, [rsp + 0x30]"
+        },
+        {
+          "rva": "0xbf5f1b",
+          "signature": "48 89 54 24 28",
+          "meaning": "mov qword ptr [rsp + 0x28], rdx"
+        },
+        {
+          "rva": "0xbf5f3a",
+          "signature": "83 64 24 20 00",
+          "meaning": "and dword ptr [rsp + 0x20], 0"
+        },
+        {
+          "rva": "0xbf5f3f",
+          "signature": "48 8B 01",
+          "meaning": "mov rax, qword ptr [rcx]"
+        },
+        {
+          "rva": "0xbf5f42",
+          "signature": "FF 50 70",
+          "meaning": "call qword ptr [rax + 0x70]"
+        },
+        {
+          "rva": "0xbf5f49",
+          "signature": "44 8B 44 24 58",
+          "meaning": "mov r8d, dword ptr [rsp + 0x58]"
+        },
+        {
+          "rva": "0xbf5f51",
+          "signature": "48 8B 4C 24 30",
+          "meaning": "mov rcx, qword ptr [rsp + 0x30]"
+        },
+        {
+          "rva": "0xbf5f70",
+          "signature": "48 8B 01",
+          "meaning": "mov rax, qword ptr [rcx]"
+        },
+        {
+          "rva": "0xbf5f73",
+          "signature": "FF 50 78",
+          "meaning": "call qword ptr [rax + 0x78]"
+        },
+        {
+          "rva": "0xbf5f7d",
+          "signature": "48 8D 54 24 60",
+          "meaning": "lea rdx, [rsp + 0x60]"
+        },
+        {
+          "rva": "0xbf5f82",
+          "signature": "48 89 54 24 28",
+          "meaning": "mov qword ptr [rsp + 0x28], rdx"
+        },
+        {
+          "rva": "0xbf5f8e",
+          "signature": "48 8D 54 24 58",
+          "meaning": "lea rdx, [rsp + 0x58]"
+        },
+        {
+          "rva": "0xbf5f93",
+          "signature": "48 89 54 24 20",
+          "meaning": "mov qword ptr [rsp + 0x20], rdx"
+        },
+        {
+          "rva": "0xbf5f9a",
+          "signature": "48 8B 01",
+          "meaning": "mov rax, qword ptr [rcx]"
+        },
+        {
+          "rva": "0xbf5f9d",
+          "signature": "44 8D 42 01",
+          "meaning": "lea r8d, [rdx + 1]"
+        },
+        {
+          "rva": "0xbf5fa1",
+          "signature": "FF 90 90 00 00 00",
+          "meaning": "call qword ptr [rax + 0x90]"
+        },
+        {
+          "rva": "0xbf5fb3",
+          "signature": "48 8B 01",
+          "meaning": "mov rax, qword ptr [rcx]"
+        },
+        {
+          "rva": "0xbf5fb6",
+          "signature": "FF 90 C0 00 00 00",
+          "meaning": "call qword ptr [rax + 0xc0]"
+        },
+        {
+          "rva": "0xbf5fd5",
+          "signature": "48 8B 01",
+          "meaning": "mov rax, qword ptr [rcx]"
+        },
+        {
+          "rva": "0xbf5fd8",
+          "signature": "41 8D 50 04",
+          "meaning": "lea edx, [r8 + 4]"
+        },
+        {
+          "rva": "0xbf5fdc",
+          "signature": "FF 50 68",
+          "meaning": "call qword ptr [rax + 0x68]"
+        }
+      ]
+    },
+    {
+      "name": "classic_source_sampler",
+      "rva": "0xb519a0",
+      "signature": "48 89 5C 24 08 4C 89 4C 24 20 57 48 83 EC 30 33 DB 0F B7 F9 66 83 FA 09 77 16 48 0F BF C2 48 8D 1D BB 44 03 01 4C 8D 04 40 4D 03 C0 4A 8B 1C C3",
+      "function_entry": true,
+      "evidence": "HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "runtime_group": "classic",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb519be",
+          "target_rva": "0x1b85e80",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8D 1D ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb519e3",
+          "target_rva": "0xb51670",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xb519e8",
+          "target_rva": "0x2ea2d30",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": []
+    },
+    {
+      "name": "classic_frustum_bounds",
+      "rva": "0xb8f144",
+      "signature": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 0F BF 59 38 48 8B F2 0F BF 79 2C 44 0F BF 51 34 44 0F BF 59 30 44 0F BF 49 32 41 8B C3 44 0F BF 41",
+      "function_entry": true,
+      "runtime_group": "classic",
+      "evidence": "E-CE-1; HALOCE-CLASSIC-EVIDENCE-2026-09-15.md"
+    },
+    {
+      "name": "classic_frustum_build",
+      "rva": "0xb8f690",
+      "signature": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 44 0F BF 51 32 45 8A F9 0F 29 70 B8 49 8B F8 0F 29 78 A8 48 8B F1 44 0F",
+      "function_entry": true,
+      "runtime_group": "classic",
+      "evidence": "E-CE-1; HALOCE-CLASSIC-EVIDENCE-2026-09-15.md"
+    }
+  ]
+}

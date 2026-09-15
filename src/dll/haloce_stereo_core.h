@@ -1,5 +1,6 @@
 #pragma once
 #include "haloce_eye_cache.h"
+#include "../common/haloce_frame_context.h"
 
 // CE Anniversary builds two views before culling. No whole-frame replay.
 // Classic, weapon IK, melee, collision and HUD extraction remain separate.
@@ -12,6 +13,19 @@ bool HaloCE_AcquirePair(ID3D11DeviceContext* context,uint64_t currentSerial,
     uint64_t spaceEpoch,halo_ce::EyeCache::Completed& pair) noexcept;
 void HaloCE_ReleasePair(uint64_t borrowId) noexcept;
 bool HaloCE_OwnsPresentation() noexcept;
+// Optional native features receive one coherent tracking/reference/context.
+// Native first-person callers supply the current STOCK center camera before
+// their camera adaptation; Classic's active eye scope substitutes its source.
+bool HaloCE_GetRenderContext(const halo_ce::Camera& stockCamera,
+    halo_ce::RenderContext& context) noexcept;
+// Gameplay hooks never read the renderer's temporary camera globals. This
+// receipt retains a verified stock center and pairs it with fresh XR input.
+bool HaloCE_GetGameplayContext(halo_ce::RenderContext& context) noexcept;
+bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& context) noexcept;
+// Native per-eye post effects may use the exact rendered frame's immutable
+// settings only while its primary camera still owns the current scene.
+bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
+    halo_ce::Tracking& tracking) noexcept;
 // Successful creation owns this texture, even before CE loads. Metadata only.
 void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     const D3D11_TEXTURE2D_DESC& descriptor) noexcept;

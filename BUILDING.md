@@ -1,8 +1,8 @@
 # Building Halo MCC VR
 
 The cumulative Release preset includes H2 Classic/Anniversary, H3, ODST, Reach
-and H4, plus the unaccepted CE Anniversary stereo/6DoF candidate (Classic remains
-stock). Both MCC editions use the same binaries. Local build/test/package commands
+and H4, plus the unaccepted CE Classic/Anniversary base VR candidate.
+Both MCC editions use the same binaries. Local build/test/package commands
 write under ignored `out/`; packaging without `-Install` does not deploy or launch.
 
 ## Requirements

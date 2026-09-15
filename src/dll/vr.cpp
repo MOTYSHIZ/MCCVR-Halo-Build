@@ -25,6 +25,9 @@
 #include "menu.h"
 #include "game.h"
 #include "haloce_stereo_core.h"
+#include "haloce_first_person.h"
+#include "haloce_hud.h"
+#include "haloce_hud_layout.h"
 #include "d3d11_hook.h"
 #include "d3d_state.h"
 #include "smaa_resource.h"
@@ -286,6 +289,10 @@ namespace
         UINT scissorCount = 0;
         bool active = false;
         bool publishesAuthored = false;
+        bool cePrivateRaster = false;
+        bool ceRestoring = false;
+        bool ceStateValid = false;
+        CeHudTargetSnapshot ceTarget;
         // The ONE viewport/scissor this capture was opened with. Halo 4 rebinds
         // its scene target up to 3 times inside a single captured replay, and
         // each rebind can carry whatever viewport the engine's OWN prior pass
@@ -9188,8 +9195,72 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 ce.serial=g_preparedFrame.serial;
                 ce.generation=TitleAdapter_GetGeneration(GameTitle::HaloCE);
                 ce.spaceEpoch=g_contactSpaceEpoch.load(std::memory_order_acquire);
+                ce.predictedDisplayTimeNs=frameState.predictedDisplayTime;
+                ce.motionBlur=g_config.motion_blur;
+                ce.hud={g_config.hud_size,g_config.hud_aspect,g_config.hud_curvature,
+                    g_config.hud_vertical_offset};
                 ce.headPosition={g_headPose.position.x,g_headPose.position.y,g_headPose.position.z};
                 ce.headOrientation={g_headPose.orientation.x,g_headPose.orientation.y,g_headPose.orientation.z,g_headPose.orientation.w};
+                // Same action-sync, role routing, mount calibration and support
+                // grip as H2/Reach/H4, frozen with the eyes for native hot hooks.
+                // Missing controller tracking affects hands/aim only.
+                auto& rig=ce.controllers;
+                rig.leftHanded=g_capturedLeftHanded.load(std::memory_order_acquire);
+                rig.handAlignment=rig.leftHanded&&g_config.experimental_hand_alignment;
+                rig.turnSmooth=g_config.turn_smooth;
+                rig.turnSnapDeg=g_config.turn_snap_deg;
+                rig.turnSmoothDegS=g_config.turn_smooth_deg_s;
+                // CE bring-up: physical body following is deferred until the
+                // basic VR implementation has passed the user's headset test.
+                rig.roomscaleEnabled=false;
+                rig.controlsPresentationBlocked=!Game_CeControllerFeaturesRequested()||
+                    Menu_IsOpen()||VR_IsPausePresentation()||VR_IsPausePresentationTarget()||
+                    VR_IsCutsceneTheaterActive();
+                rig.armIk=g_config.arm_ik;
+                rig.floatingHands=g_config.floating_hands;
+                rig.shoulderLevel=g_config.shoulder_level;
+                rig.gunScale=g_config.gun_scale;
+                rig.supportScale=g_config.left_hand_scale;
+                rig.supportForwardM=g_config.left_hand_forward_m;
+                rig.visualPitchDeg=g_config.barrel_pitch_deg;
+                rig.visualYawDeg=g_config.barrel_yaw_deg;
+                rig.visualRollDeg=g_config.barrel_roll_deg;
+                rig.supportMountPitchDeg=g_config.gun_pitch_deg;
+                rig.supportMountYawDeg=g_config.gun_yaw_deg;
+                rig.supportMountRollDeg=g_config.gun_roll_deg;
+                rig.gunForwardM=g_config.gun_forward_m;
+                rig.gunRightM=g_config.gun_right_m;
+                rig.gunUpM=g_config.gun_up_m;
+                rig.shoulderBackM=g_config.shoulder_back_m;
+                rig.primaryShoulderDrop=g_config.right_shoulder_drop;
+                const auto pose=[](const XrPosef& source,bool valid) {
+                    halo_ce::ControllerPose result{};
+                    if (!valid) return result;
+                    result.position={source.position.x,source.position.y,source.position.z};
+                    result.orientation={source.orientation.x,source.orientation.y,source.orientation.z,source.orientation.w};
+                    result.valid=halo_ce::Finite(result.position)&&halo_ce::Valid(result.orientation);
+                    return result;
+                };
+                auto aimInputs=CurrentAimPoseInputs(
+                    upcomingPadFresh&&g_rightAimPoseValid,g_rightAimPose,
+                    upcomingPadFresh&&g_leftAimPoseValid,g_leftAimPose);
+                const auto aim=ComputeAimPose(aimInputs);
+                rig.primaryAim=pose(aim.pose,aim.valid);
+                rig.twoHandAimActive=rig.primaryAim.valid&&aim.twoHandActive;
+                aimInputs.twoHandEnabled=false;
+                const auto independent=ComputeAimPose(aimInputs);
+                rig.independentPrimaryAim=pose(independent.pose,independent.valid);
+                rig.support=pose(g_leftAimPose,upcomingPadFresh&&g_leftAimPoseValid);
+                for (int hand=0;hand<2;++hand)
+                    rig.physical[hand]=pose(g_physicalControllerPose[hand],
+                        upcomingPadFresh&&g_physicalControllerValid[hand]);
+                rig.padValid=upcomingPadFresh&&g_padState.valid;
+                if (rig.padValid)
+                {
+                    rig.turnX=g_padState.turnX;
+                    rig.moveX=g_padState.moveX;
+                    rig.moveY=g_padState.moveY;
+                }
                 for (int eye=0;eye<2;++eye)
                 {
                     const auto& pose=g_views[eye].pose; const auto& fov=g_views[eye].fov;
@@ -9920,7 +9991,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     swi.timeout = 1000000000;
                     XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                     bool reachStereoUploadComplete = !reachTitle;
-                    const D3D11_TEXTURE2D_DESC& capturedEyeDesc = reachTitle
+                    const D3D11_TEXTURE2D_DESC& capturedEyeDesc = ceImages
+                        ? ceLease.pair.descriptor : reachTitle
                         ? g_reachCaptureDesc : g_eyeCacheDesc;
                     const bool theaterDirectSampling = theaterPresentation &&
                         TheaterProjectionCanSampleDirectly(capturedEyeDesc);
@@ -10289,6 +10361,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         const bool reticleTitleAdmitted =
                             Game_HasTitleCapability(
                                 TitleCapability_ControllerAim) ||
+                            (ceImages && HaloCEFirstPerson_AimArmed() && HaloCEHud_CapturedCrosshair()) ||
                             Game_OwnsReachAuthoredReticle();
                         const bool titlePositionsNativeReticle =
                             Game_TitlePositionsNativeCrosshair();
@@ -10337,6 +10410,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             reticleTitle == GameTitle::HaloReach ||
                             reticleTitle == GameTitle::Halo4 ||
                             reticleTitle == GameTitle::Halo2 ||
+                            reticleTitle == GameTitle::HaloCE ||
                             halo3AnimatesReticle
                                 ? AuthoredReticleRefreshPolicy::BoundedAnimation
                                 : reticleTitle == GameTitle::Halo3ODST
@@ -14998,6 +15072,14 @@ static bool BeginAuthoredReticleCaptureInternal(
     if (!redirectRtv)
         return false;
 
+    const GameTitle captureTitle = TitleAdapter_GetActiveTitle();
+    auto& saved = g_reticleCaptureState;
+    const bool ceCapture=captureTitle==GameTitle::HaloCE;
+    if (ceCapture&&(!HaloCEHudLayout_CopyState(g_context,&saved.viewportCount,
+        saved.viewports,&saved.scissorCount,saved.scissors)||saved.viewportCount!=1||
+        !HaloCEHud_ReadTarget(g_context,saved.ceTarget)||!saved.ceTarget.count))
+        return false;
+
     const uint64_t serial = g_preparedFrame.serial;
     if (publishAuthored && g_authoredReticleSerial != serial)
     {
@@ -15010,18 +15092,19 @@ static bool BeginAuthoredReticleCaptureInternal(
         Game_ResetAuthoredCrosshairKey();
     }
 
-    auto& saved = g_reticleCaptureState;
-    g_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT,
-                                  saved.rtvs, &saved.dsv);
-    saved.viewportCount =
-        D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
-    g_context->RSGetViewports(&saved.viewportCount, saved.viewports);
-    saved.scissorCount =
-        D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
-    g_context->RSGetScissorRects(&saved.scissorCount, saved.scissors);
+    if (!ceCapture)
+    {
+        g_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT,
+                                      saved.rtvs, &saved.dsv);
+        saved.viewportCount =
+            D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+        g_context->RSGetViewports(&saved.viewportCount, saved.viewports);
+        saved.scissorCount =
+            D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+        g_context->RSGetScissorRects(&saved.scissorCount, saved.scissors);
+    }
 
     D3D11_VIEWPORT captureViewport{};
-    const GameTitle captureTitle = TitleAdapter_GetActiveTitle();
     // Halo 3/ODST/Reach hook a widget-scoped draw, so the viewport already
     // live when their capture begins IS that widget's own viewport - it is a
     // meaningful, consistent quantity. Halo 4 has no such narrow hook (its
@@ -15091,6 +15174,10 @@ static bool BeginAuthoredReticleCaptureInternal(
     saved.captureScissor = captureScissor;
     saved.framingCaptured = true;
     saved.active = true;
+    saved.cePrivateRaster=ceCapture;
+    saved.ceRestoring=false;
+    saved.ceStateValid=ceCapture;
+    if (saved.cePrivateRaster) HaloCEHudLayout_BeginPrivateRaster();
     // Publish the complete capture mode before the OM hook observes this bind;
     // otherwise its exact selected-target comparison would use the preceding
     // capture's authored/discard mode and miss the first required draw pin.
@@ -15178,6 +15265,15 @@ bool VR_BeginPreparedAuthoredReticleCapture()
 {
     return BeginAuthoredReticleCaptureInternal(true, false, true);
 }
+bool VR_CeAuthoredReticleFrameMatches(ID3D11DeviceContext* context,uint64_t serial)
+{
+    return TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&context&&context==g_context&&
+        serial&&serial==g_preparedFrame.serial&&g_preparedFrame.begun&&
+        g_preparedFrame.state.shouldRender&&g_stereoEnabled.load(std::memory_order_acquire)&&
+        !g_pausePresentation.load(std::memory_order_acquire);
+}
+
+#include "haloce_reticle_redirect.inl"
 
 static bool EndAuthoredReticleCaptureInternal(
     bool allowFirstCaptureLog, bool expectAuthored)
@@ -15186,22 +15282,50 @@ static bool EndAuthoredReticleCaptureInternal(
     if (!saved.active || !g_context)
         return false;
 
-    g_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT,
-                                  saved.rtvs, saved.dsv);
-    if (saved.viewportCount)
-        g_context->RSSetViewports(saved.viewportCount, saved.viewports);
-    if (saved.scissorCount)
-        g_context->RSSetScissorRects(saved.scissorCount, saved.scissors);
-
-    for (auto*& rtv : saved.rtvs)
+    const bool ceCapture=saved.cePrivateRaster;
+    bool restored=true;
+    bool restoreEntryRaster=true;
+    if (ceCapture)
     {
-        if (rtv) rtv->Release();
-        rtv = nullptr;
+        // The native descriptor owns its views. Replay the verified binder
+        // while this HUD callback still retains CE; no borrowed COM release.
+        saved.ceRestoring=true;
+        // The binder's native setters now publish its real numeric state.
+        // Crosshair suspension prevents the outer HUD affine during restore.
+        HaloCEHudLayout_EndPrivateRaster();
+        const auto result=HaloCEHudTarget_Restore(saved.ceTarget);
+        restored=result==CeHudTargetRestoreResult::Unchanged&&saved.ceStateValid;
+        restoreEntryRaster=result==CeHudTargetRestoreResult::Unchanged;
+        if (result==CeHudTargetRestoreResult::Unavailable)
+        {
+            g_context->OMSetRenderTargets(0,nullptr,nullptr);
+            HaloCEHudLayout_InvalidateState(g_context);
+        }
     }
-    if (saved.dsv)
+    else
+        g_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT,
+                                      saved.rtvs, saved.dsv);
+    if (restoreEntryRaster&&(saved.viewportCount||ceCapture))
+        g_context->RSSetViewports(saved.viewportCount, saved.viewports);
+    if (restoreEntryRaster&&(saved.scissorCount||ceCapture))
+        g_context->RSSetScissorRects(saved.scissorCount, saved.scissors);
+    saved.cePrivateRaster=false;
+    saved.ceRestoring=false;
+    saved.ceStateValid=false;
+    saved.ceTarget={};
+
+    if (!ceCapture)
     {
-        saved.dsv->Release();
-        saved.dsv = nullptr;
+        for (auto*& rtv : saved.rtvs)
+        {
+            if (rtv) rtv->Release();
+            rtv = nullptr;
+        }
+        if (saved.dsv)
+        {
+            saved.dsv->Release();
+            saved.dsv = nullptr;
+        }
     }
     saved.viewportCount = 0;
     saved.scissorCount = 0;
@@ -15210,15 +15334,16 @@ static bool EndAuthoredReticleCaptureInternal(
     const bool publishedAuthored = saved.publishesAuthored;
     saved.active = false;
     saved.publishesAuthored = false;
-    if (publishedAuthored)
+    if (publishedAuthored&&restored)
         g_authoredReticleReady = true;
+    if (ceCapture&&!restored) VR_InvalidatePreparedAuthoredReticleCapture();
     static bool logged = false;
     if (allowFirstCaptureLog && !logged)
     {
         LOG("M3: Halo authored per-weapon crosshair redirected to VR aim quad");
         logged = true;
     }
-    return modeMatches;
+    return modeMatches&&restored;
 }
 
 void VR_EndAuthoredReticleCapture()

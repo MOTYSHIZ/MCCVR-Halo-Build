@@ -110,6 +110,30 @@ bool EyeCache::Begin(const PreparedReceipt& receipt,Key& key) noexcept
     }
     Leave(); return valid;
 }
+bool EyeCache::Begin(const ClassicViewPair& pair,Key& key) noexcept
+{
+    if (!Enter()) return false;
+    ClearFrame();
+    const auto& t=pair.tracking;
+    bool valid=context_&&eyes_[0]&&eyes_[1]&&t.serial&&t.serial>lastSerial_&&
+        t.generation==generation_&&t.spaceEpoch&&pair.rendererEpoch&&ValidPrimary(pair.source)&&
+        std::isfinite(pair.cover.halfX)&&pair.cover.halfX>0&&pair.cover.halfX<1.55f&&
+        std::isfinite(pair.cover.halfY)&&pair.cover.halfY>0&&pair.cover.halfY<1.55f;
+    for (int eye=0;eye<2&&valid;++eye)
+    {
+        const auto& w=pair.eyes[eye];
+        valid=ValidPrimary(w)&&w.raster.viewport.left==0&&w.raster.viewport.top==0&&
+            static_cast<uint32_t>(w.raster.viewport.right)==source_.Width&&
+            static_cast<uint32_t>(w.raster.viewport.bottom)==source_.Height;
+    }
+    if (t.generation==generation_&&t.serial>lastSerial_) lastSerial_=t.serial;
+    if (valid)
+    {
+        key_={generation_,t.spaceEpoch,t.serial,resourceEpoch_};
+        tracking_=t; covers_[0]=covers_[1]=pair.cover; key=key_;
+    }
+    Leave(); return valid;
+}
 bool EyeCache::Capture(Key key,int eye,ID3D11DeviceContext* context,
     ID3D11Resource* liveSource,const D3D11_TEXTURE2D_DESC& provenSource) noexcept
 {

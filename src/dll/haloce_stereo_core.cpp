@@ -1,13 +1,16 @@
 #include "haloce_stereo_core.h"
 #include "haloce_native_bindings.h"
+#include "haloce_hud_layout.h"
 #include "../common/haloce_contracts.generated.h"
 #include "../common/haloce_resource_registry.h"
 #include "../common/haloce_surface_transfer.h"
 #include "../common/haloce_view_construction.h"
+#include "../common/haloce_classic_view_pair.h"
 #include "../common/log.h"
 #include "game.h"
 #include "title_adapter.h"
 #include "hook_quiescence.h"
+#include "roomscale.h"
 #include "../common/minhook_lifecycle.h"
 #include <windows.h>
 #include <intrin.h>
@@ -25,6 +28,13 @@ constexpr bool kRejectedCeInitialStereoEnabled=false;
 constexpr bool kCeSourceRasterStereoEnabled=false;
 // b9662cd retained the same displaced right/flat left headset failure.
 constexpr bool kCeConstructTrackedViewsEnabled=false;
+// September 15 integrated candidate: Classic rendering, independently owned
+// native consumers/depth, HUD replay, FP shader projection and motion-blur
+// handling replace the camera-only experiments above. Headset test pending.
+constexpr bool kCeIntegratedBaseVrEnabled=true;
+// Preserve the unfinished body-following adapter, but keep experimental CE
+// locomotion out of the core VR candidate (September 15 user priority).
+constexpr bool kCeExperimentalRoomscaleEnabled=false;
 using PrepareFn=void(__fastcall*)(uintptr_t);
 using BuilderFn=uintptr_t(__fastcall*)(uintptr_t,SaberViewPair*,uint8_t,float*);
 // The first four append arguments are integer/pointer registers. Preserve all
@@ -33,6 +43,8 @@ using AppendFn=uintptr_t(__fastcall*)(uintptr_t,const SaberCamera*,uint32_t,int3
     uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,
     uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 using FrameFn=void(__fastcall*)(uintptr_t,uint32_t);
+using CameraUploadFn=void(__fastcall*)(uintptr_t,uintptr_t,const SaberCamera*);
+using DepthMeshFn=void(__fastcall*)(uintptr_t,uintptr_t,uintptr_t,int32_t);
 using OutputFn=void(__fastcall*)(int);
 using TransferFn=uintptr_t(__fastcall*)(uintptr_t,SurfaceTransfer*);
 using CreateFn=uintptr_t(__fastcall*)(uintptr_t,uintptr_t);
@@ -40,11 +52,12 @@ using ReleaseFn=void(__fastcall*)(uintptr_t);
 using CopyFn=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,ID3D11Resource*,UINT,
     UINT,UINT,UINT,ID3D11Resource*,UINT,const D3D11_BOX*);
 struct Hook { void* target{}; void* original{}; bool enabled{}; };
-enum HookIndex { Prepare,Builder,Frame,Output,Transfer,Create,Import,Release,ResetList,Copy,Append,Count };
+enum HookIndex { Prepare,Builder,Frame,Output,Transfer,Create,Import,Release,ResetList,Copy,Append,CameraUpload,DepthMesh,Count };
 std::array<Hook,Count> hooks;
 NativeBindings bindings;
 HMODULE moduleReference{};
 std::atomic<bool> installed{},active{},armed{},retiring{},trackingEnabled{};
+std::atomic<bool> gameplayBridgeVerified{};
 std::atomic<uint32_t> callbacks{},generation{};
 std::atomic<uint64_t> firstCameraMs{},lastCameraMs{},lastOwnedMs{},trackingAtMs{};
 std::atomic<bool> recenter{true};
@@ -53,7 +66,7 @@ std::atomic<uintptr_t> copyTarget{};
 std::atomic<uintptr_t> activeListAddress{};
 std::atomic<uint64_t> built{},captured{},dropped{},stock{},descriptorMiss{},previewFolded{};
 std::atomic<uint32_t> lastPairStage{0xffffffffu};
-enum class FrameFailure : uint32_t { None,NoReceipt,InvalidReceipt,CameraChanged,CacheBegin,CopyShape,RasterChanged,EyeCopy,Destination,IncompletePair };
+enum class FrameFailure : uint32_t { None,NoReceipt,InvalidReceipt,CameraChanged,CacheBegin,CopyShape,RasterChanged,EyeCopy,Destination,IncompletePair,RenderConsumer,DepthResource };
 struct FrameDiagnostic
 {
     FrameFailure failure{};
@@ -63,6 +76,12 @@ struct FrameDiagnostic
     float position[2][3]{};
     float origin[2][3]{},nearPlane[2]{},farPlane[2]{};
     uint32_t originMask{};
+    uint32_t consumedDepth{},consumedScene{},consumedShading{},consumerFailure{};
+    int32_t consumedPlayer[2]{-1,-1};
+    uintptr_t consumedCamera[2]{},sourceWrapper[2]{},sourceResource[2]{},copyContext[2]{};
+    uint32_t sourceSelectorFlags[2]{};
+    uintptr_t depthResource[2]{},depthView[2]{};
+    uint32_t depthMask{},depthFailure{};
 };
 Snapshot<FrameDiagnostic> frameDiagnostic;
 uint32_t rejectedGeneration{};
@@ -76,6 +95,9 @@ Snapshot<CompletedFrame> completedFrame;
 struct Wanted { D3D11_TEXTURE2D_DESC descriptor{}; uint32_t generation{}; uintptr_t context{}; };
 Snapshot<Wanted> wanted,allocated;
 Reference reference;
+struct ReferenceSample { Reference value; uint64_t revision{}; };
+Snapshot<ReferenceSample> publishedReference;
+bool ClassicGetRenderContext(RenderContext& context) noexcept;
 struct Prepared
 {
     uintptr_t sourceList{};
@@ -93,12 +115,21 @@ thread_local BuildScope* buildScope{};
 struct FrameScope
 {
     bool synthetic{},capture{};
+    uint32_t renderFlags{},hudAttempted{};
     int eye{-1};
     EyeCache::Key key;
     Prepared prepared;
     const SurfaceTransfer* transfer{};
     uintptr_t selectedSource{},selectedDestination{};
+    uintptr_t renderer{};
+    int lastSceneEye{-1};
     FrameDiagnostic diagnostic;
+    struct DepthReceipt
+    {
+        uintptr_t root{},surface{},resource{},view{},backend{},context{};
+        uint64_t revision{};
+        D3D11_TEXTURE2D_DESC descriptor{};
+    } depth[2];
 };
 thread_local FrameScope* frameScope{};
 struct Callback
@@ -163,6 +194,67 @@ bool LiveGame() noexcept
     return Read(bindings.base+0x2e9fd68,clock)&&Read(clock,initialized)&&initialized==1&&
         Read(clock+0xc,tick)&&tick>0;
 }
+struct GameplayCameraSample
+{
+    RenderContext context;
+    uint64_t capturedAtMs{};
+};
+Snapshot<GameplayCameraSample> gameplayCamera;
+void PublishGameplayContext(const RenderContext& context) noexcept
+{
+    if (Valid(context.camera)&&HaloCE_RenderContextCurrent(context))
+        gameplayCamera.Publish({context,GetTickCount64()});
+}
+void FollowRoomscale(const Camera& source,const Tracking& tracking,Reference& frozen,
+    float scale,bool positional,uint64_t revision) noexcept
+{
+    if (!kCeExperimentalRoomscaleEnabled||!tracking.controllers.roomscaleEnabled||!Valid(source)||!Valid(frozen.orientation)||
+        !Valid(tracking.headOrientation)||!Finite(tracking.headPosition)||!Finite(frozen.position)||
+        !std::isfinite(scale)||scale<=0||tracking.generation!=frozen.generation||
+        tracking.spaceEpoch!=frozen.spaceEpoch||revision!=referenceRevision.load()||recenter.load()) return;
+    // Match H3/H2: measure the unmodified native center camera, ask ordinary
+    // native walking to follow the physical step, and consume only observed
+    // native motion from the tracking reference. No unit-position write.
+    const Vec3 heading=ToNative(source,Rotate(Multiply(Conjugate(frozen.orientation),
+        tracking.headOrientation),{0,0,-1}));
+    if (!Finite(heading)) return;
+    const float body[]{source.position.x,source.position.y,source.position.z};
+    const float head[]{tracking.headPosition.x,tracking.headPosition.y,tracking.headPosition.z};
+    const float orientation[]{tracking.headOrientation.x,tracking.headOrientation.y,
+        tracking.headOrientation.z,tracking.headOrientation.w};
+    const float forward[]{heading.x,heading.y,heading.z};
+    float position[]{frozen.position.x,frozen.position.y,frozen.position.z};
+    Roomscale_Camera(GameTitle::HaloCE,positional&&!tracking.controllers.controlsPresentationBlocked&&
+        Game_RoomscaleCameraAllowed(GameTitle::HaloCE),body,head,orientation,forward,position,scale);
+    const Vec3 next{position[0],position[1],position[2]};
+    if (!Finite(next)||!Current()||revision!=referenceRevision.load()||recenter.load()) return;
+    frozen.position=next;
+    reference=frozen;
+    publishedReference.Publish({frozen,revision});
+}
+#include "haloce_classic_runtime.inl"
+void PublishAnniversaryGameplayContext(const SaberCamera& nativeCenter,
+    const Tracking& tracking,const Reference& frozen,uint64_t revision,
+    float scale,bool positional) noexcept
+{
+    if (!Current()||CeObserveRendererMode()!=1) return;
+    gameplayCamera.Publish({});
+    if (!gameplayBridgeVerified.load(std::memory_order_acquire)||
+        !std::isfinite(scale)||scale<=0||scale>10) return;
+    Camera mapped{},center{}; Vec3 worldOffset{}; float forwardBias{};
+    uint8_t freeCamera{}; uintptr_t scene{},externalCamera{};
+    if (!Read(bindings.base+0x2e3b826,freeCamera)||freeCamera||
+        !Read(bindings.base+0x2e3c418,scene)||!scene||scene>UINTPTR_MAX-0x138||
+        !Read(scene+0x130,externalCamera)||externalCamera||
+        !Read(bindings.base+0x2b05118,worldOffset)||!Read(bindings.base+0x2e3b838,forwardBias)||
+        !NativeCameraFromSaber(nativeCenter,mapped)||
+        !RecoverNativeCameraFromSaberBridge(mapped,worldOffset,forwardBias,center)) return;
+    // The original primary append input is the engine's center camera. The
+    // rendered eyes already contain HMD rotation/translation and must never
+    // become the control/shot reference (that would apply tracking twice).
+    PublishGameplayContext({tracking,frozen,center,scale,positional,revision,
+        ceRendererEpoch.load(std::memory_order_acquire)});
+}
 uintptr_t AppendBody(uintptr_t list,const SaberCamera* source,uint32_t flags,int32_t index,
     uint64_t a5,uint64_t a6,uint64_t a7,uint64_t a8,uint64_t a9,uint64_t a10,
     uint64_t a11,uint64_t a12,uint64_t a13,uint64_t a14,uint64_t a15,uint64_t a16,uintptr_t caller)
@@ -221,8 +313,10 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
         uint64_t zero=0; firstCameraMs.compare_exchange_strong(zero,now);
     }
     const bool force=eligible&&armed.load()&&TrackingNow(tracking);
+    constexpr bool constructTrackedViews=kCeConstructTrackedViewsEnabled||kCeIntegratedBaseVrEnabled;
+    const uint64_t revisionBeforeBuild=referenceRevision.load(std::memory_order_acquire);
     BuildScope construction{};
-    if (force&&kCeConstructTrackedViewsEnabled)
+    if (force&&constructTrackedViews)
     {
         if (recenter.exchange(false)||reference.generation!=gen||reference.spaceEpoch!=tracking.spaceEpoch)
             reference={tracking.headPosition,tracking.headOrientation,tracking.spaceEpoch,gen};
@@ -234,21 +328,23 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
         construction.views.positional=Game_IsPositionalTracking();
         construction.views.width=raster.descriptor.Width; construction.views.height=raster.descriptor.Height;
     }
-    const uint64_t revisionBeforeBuild=referenceRevision.load(std::memory_order_acquire);
     const auto nativeResult=ConstructViews(original,arg,list,force?1:secondary,settings,
-        force&&kCeConstructTrackedViewsEnabled?&construction:nullptr);
+        force&&constructTrackedViews?&construction:nullptr);
     if (!scoped) return nativeResult;
     Prepared result{address,gen,force,false,{}};
     result.referenceRevision=revisionBeforeBuild;
     if (force)
     {
         SaberViewPair source{},rasterSource{},committed{}; StagedViewPair staged{};
-        if (!kCeConstructTrackedViewsEnabled&&
+        if (!constructTrackedViews&&
             (recenter.exchange(false)||reference.generation!=gen||reference.spaceEpoch!=tracking.spaceEpoch))
             reference={tracking.headPosition,tracking.headOrientation,tracking.spaceEpoch,gen};
+        if (!recenter.load(std::memory_order_acquire)&&
+            revisionBeforeBuild==referenceRevision.load(std::memory_order_acquire))
+            publishedReference.Publish({reference,revisionBeforeBuild});
         Wanted raster{};
         const bool rasterReady=allocated.Read(raster)&&raster.generation==gen;
-        const auto stage=kCeConstructTrackedViewsEnabled?
+        const auto stage=constructTrackedViews?
             (!construction.enabled?PairStageResult::AwaitingRaster:
                 !construction.failed&&Read(address,source)&&construction.views.Finish(source,
                     [](SaberCamera& camera) { return RebuildNativeCamera(bindings,camera); },staged)
@@ -265,7 +361,13 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
             handoff.Publish(ticket,tracking,staged,committed)&&
             handoff.Read(origin,address,committed,gen,tracking.spaceEpoch,result.receipt)&&
             result.referenceRevision==referenceRevision.load(std::memory_order_acquire))
-        { result.valid=true; built.fetch_add(1,std::memory_order_relaxed); }
+        {
+            result.valid=true; built.fetch_add(1,std::memory_order_relaxed);
+            PublishAnniversaryGameplayContext(constructTrackedViews?construction.views.stock[0]:
+                source.views[0].camera,tracking,reference,revisionBeforeBuild,
+                constructTrackedViews?construction.views.unitsPerMeter:Game_GetWorldScale(),
+                constructTrackedViews?construction.views.positional:Game_IsPositionalTracking());
+        }
         else dropped.fetch_add(1,std::memory_order_relaxed);
     }
     preparedLists[slot].Publish(result);
@@ -305,11 +407,172 @@ void PrepareBody(uintptr_t job)
     }
 }
 void __fastcall PrepareHook(uintptr_t job) { Callback callback; PrepareBody(job); }
+// Native455A10 completes both depth views before later depth-derived passes
+// and shading. Distinct final color copies cannot prove independent depth.
+// Read only existing native ownership and creation-time descriptor receipts.
+bool ReadDepthReceipt(FrameScope::DepthReceipt& out,bool requireBound) noexcept
+{
+    using SelectFn=uintptr_t(__fastcall*)(uintptr_t);
+    FrameScope::DepthReceipt result{};uintptr_t config{},vtable{};uint32_t flags{};
+    if (!bindings.surfaceSelector||!Read(bindings.base+0x2e3bdd8,config)||!config||
+        !Read(config+0x318,result.root)||!result.root||
+        !Read(result.root,vtable)||vtable!=bindings.base+0x17fb608||
+        !Read(result.root+0x88,flags)||!(flags&(1u<<9))) return false;
+    __try { result.surface=reinterpret_cast<SelectFn>(bindings.surfaceSelector)(result.root); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+    if (!result.surface||!Read(result.surface,vtable)||vtable!=bindings.base+0x17fb608||
+        !Read(result.surface+0xe0,result.resource)||!result.resource||
+        !Read(result.surface+0x108,result.view)||!result.view||
+        !Read(bindings.base+0x2e3bde0,result.backend)||!result.backend||
+        !Read(result.backend,vtable)||vtable!=bindings.base+0x17f9d10||
+        !Read(result.backend+0xce0,result.context)||!result.context) return false;
+    uintptr_t immediate{};
+    ResourceRegistry::Record record{};
+    if (!Read(bindings.base+0x2ea2d30,immediate)||immediate!=result.context||
+        !resources.Read(result.resource,result.resource,record)) return false;
+    const auto& d=record.descriptor;
+    if (!(d.BindFlags&D3D11_BIND_DEPTH_STENCIL)||!d.Width||!d.Height||
+        d.Width>16384||d.Height>16384||d.MipLevels!=1||d.ArraySize!=1||
+        d.SampleDesc.Count!=1||d.SampleDesc.Quality||d.Usage!=D3D11_USAGE_DEFAULT||
+        d.CPUAccessFlags||d.MiscFlags) return false;
+    if (requireBound)
+    {
+        uintptr_t bound{},described{};uint8_t readOnly{};
+        // The depth pass uses the ordinary writable DSV and native descriptor.
+        if (!Read(result.backend+0xd20,bound)||bound!=result.view||
+            !Read(result.backend+0x18+0x30,described)||described!=result.root||
+            !Read(result.backend+0x18+0x44,readOnly)||readOnly) return false;
+    }
+    result.revision=record.revision;result.descriptor=d;
+    out=result;return true;
+}
+bool SameDepthReceipt(const FrameScope::DepthReceipt& a,const FrameScope::DepthReceipt& b) noexcept
+{
+    return a.root==b.root&&a.surface==b.surface&&a.resource==b.resource&&a.view==b.view&&
+        a.backend==b.backend&&a.context==b.context&&a.revision==b.revision&&
+        std::memcmp(&a.descriptor,&b.descriptor,sizeof(a.descriptor))==0;
+}
+void RejectDepth(FrameScope& scope,uint32_t failure) noexcept
+{
+    scope.diagnostic.depthFailure=failure;scope.diagnostic.failure=FrameFailure::DepthResource;
+    scope.capture=false;
+}
+void DepthMeshBody(uintptr_t a,uintptr_t b,uintptr_t c,int32_t eye,uintptr_t caller)
+{
+    reinterpret_cast<DepthMeshFn>(hooks[DepthMesh].original)(a,b,c,eye);
+    auto* scope=frameScope;
+    if (!scope||!scope->capture||caller!=bindings.base+0x456329) return;
+    FrameScope::DepthReceipt receipt{};
+    if (!ReadDepthReceipt(receipt,true)) { RejectDepth(*scope,1);return; }
+    if (eye<0||eye>1)
+    {
+        // Auxiliary depth may not overwrite either completed primary depth.
+        for (int primary=0;primary<2;++primary)
+            if ((scope->diagnostic.depthMask&(1u<<primary))&&
+                scope->depth[primary].resource==receipt.resource) RejectDepth(*scope,6);
+        return;
+    }
+    auto& diagnostic=scope->diagnostic;
+    diagnostic.depthResource[eye]=receipt.resource;diagnostic.depthView[eye]=receipt.view;
+    const auto& camera=scope->prepared.receipt.pair.cameras[eye];
+    if (diagnostic.depthMask!=(eye?1u:0u)||!(diagnostic.consumedDepth&(1u<<eye)))
+    { RejectDepth(*scope,2);return; }
+    if (receipt.descriptor.Width!=camera.viewportWidth||receipt.descriptor.Height!=camera.viewportHeight)
+    { RejectDepth(*scope,3);return; }
+    if (eye&&(receipt.resource==scope->depth[0].resource||receipt.view==scope->depth[0].view))
+    { RejectDepth(*scope,4);return; }
+    scope->depth[eye]=receipt;diagnostic.depthMask|=1u<<eye;
+}
+__declspec(noinline) void __fastcall DepthMeshHook(uintptr_t a,uintptr_t b,uintptr_t c,int32_t eye)
+{
+    Callback callback;DepthMeshBody(a,b,c,eye,reinterpret_cast<uintptr_t>(_ReturnAddress()));
+}
+// The frame-entry list is preparation evidence only. Verify that the native
+// depth, scene and shading camera upload calls actually consume those same
+// primary records before lending their later GPU output. No native mutation.
+void CameraUploadBody(uintptr_t arg,uintptr_t backend,const SaberCamera* camera,uintptr_t caller)
+{
+    auto* scope=frameScope;
+    const unsigned stage=caller==bindings.base+0x4562bf?1u:
+        caller==bindings.base+0x456a86?2u:caller==bindings.base+0x457c07?3u:0u;
+    const auto address=reinterpret_cast<uintptr_t>(camera);
+    int eye=-1;
+    SaberCamera before{};
+    uint32_t failure=0;
+    if (stage&&scope&&scope->capture)
+    {
+        const uintptr_t first=scope->renderer+0xf0;
+        if (address>=first&&(address-first)%sizeof(SaberView)==0&&
+            (address-first)/sizeof(SaberView)<scope->diagnostic.nativeCount)
+        {
+            const auto index=(address-first)/sizeof(SaberView);
+            if (index<2) eye=static_cast<int>(index);
+            // Auxiliary views occupy the same native list. They cannot grant
+            // primary-eye identity, but their normal uploads are not failures.
+        }
+        else failure=1; // supplied address is outside the proven native list
+        if (eye>=0)
+        {
+            const auto& expected=scope->prepared.receipt.pair.cameras[eye];
+            int32_t player{},expectedPlayer{},primaryPlayer{};
+            std::memcpy(&expectedPlayer,reinterpret_cast<const uint8_t*>(&expected)+0x220,4);
+            std::memcpy(&primaryPlayer,reinterpret_cast<const uint8_t*>(&scope->prepared.receipt.pair.cameras[0])+0x220,4);
+            if (!Read(address,before)||!SamePreparedCamera(before,expected)) failure=2;
+            else
+            {
+                std::memcpy(&player,reinterpret_cast<const uint8_t*>(&before)+0x220,4);
+                if (player!=expectedPlayer||player!=primaryPlayer) failure=3;
+                scope->diagnostic.consumedPlayer[eye]=player;
+            }
+        }
+    }
+    reinterpret_cast<CameraUploadFn>(hooks[CameraUpload].original)(arg,backend,camera);
+    if (stage&&scope&&scope->capture)
+    {
+        if (eye>=0&&!failure)
+        {
+            SaberCamera after{}; uintptr_t selected{};
+            if (!Read(address,after)||!SamePreparedCamera(before,after)||
+                std::memcmp(reinterpret_cast<const uint8_t*>(&before)+0x220,
+                    reinterpret_cast<const uint8_t*>(&after)+0x220,4)) failure=4;
+            else if (!Read(scope->renderer+0xbe98,selected)||selected!=address) failure=6;
+            else
+            {
+                scope->diagnostic.consumedCamera[eye]=address;
+                if (stage==1) scope->diagnostic.consumedDepth|=1u<<eye;
+                if (stage==2)
+                { scope->diagnostic.consumedScene|=1u<<eye; scope->lastSceneEye=eye; }
+                if (stage==3) scope->diagnostic.consumedShading|=1u<<eye;
+                if (stage==2||stage==3)
+                {
+                    FrameScope::DepthReceipt depth{};
+                    if (scope->diagnostic.depthMask!=3||!ReadDepthReceipt(depth,false)||
+                        !SameDepthReceipt(scope->depth[eye],depth)) RejectDepth(*scope,5);
+                }
+            }
+        }
+        if (failure)
+        {
+            scope->diagnostic.consumerFailure=failure;
+            scope->diagnostic.failure=FrameFailure::RenderConsumer;
+            scope->capture=false;
+        }
+    }
+}
+void __fastcall CameraUploadHook(uintptr_t arg,uintptr_t backend,const SaberCamera* camera)
+{
+    Callback callback;
+    CameraUploadBody(arg,backend,camera,reinterpret_cast<uintptr_t>(_ReturnAddress()));
+}
 void FrameBody(uintptr_t arg,uint32_t flags)
 {
     const auto original=reinterpret_cast<FrameFn>(hooks[Frame].original);
     FrameScope scope{}; uintptr_t renderer{}; SaberViewPair rendered{};
-    if (!frameScope) completedFrame.Publish({});
+    // The native Anniversary worker can still run in Original mode. Its
+    // stock work owns no Classic eye receipt, even when old synthetic lists
+    // still need their packed-copy bounds protection during a switch.
+    const bool anniversaryFrame=Current()&&Anniversary();
+    if (!frameScope&&anniversaryFrame) completedFrame.Publish({});
     // Preparation can signal native completion before its wrapper returns.
     // The builder's already-published marker protects the packed GPU copy in
     // that window. Only the fully frozen receipt below permits VR submission.
@@ -320,8 +583,9 @@ void FrameBody(uintptr_t arg,uint32_t flags)
         Read(bindings.base+0x1bea9e0,renderer)&&Read(renderer+0xb0,rendered)&&
         rendered.flags==1&&rendered.count>=2)
     {
+        scope.renderer=renderer;
         scope.synthetic=true;
-        lastOwnedMs.store(GetTickCount64(),std::memory_order_release);
+        if (anniversaryFrame) lastOwnedMs.store(GetTickCount64(),std::memory_order_release);
         auto& diagnostic=scope.diagnostic;
         diagnostic.nativeCount=rendered.count; diagnostic.nativeFlags=rendered.flags;
         for (int eye=0;eye<2;++eye)
@@ -340,7 +604,7 @@ void FrameBody(uintptr_t arg,uint32_t flags)
         }
         diagnostic.cameraWidth=scope.prepared.receipt.pair.cameras[0].viewportWidth;
         diagnostic.cameraHeight=scope.prepared.receipt.pair.cameras[0].viewportHeight;
-        const bool receiptCurrent=Current()&&armed.load()&&trackingEnabled.load()&&scope.prepared.valid&&
+        const bool receiptCurrent=anniversaryFrame&&Current()&&armed.load()&&trackingEnabled.load()&&scope.prepared.valid&&
             scope.prepared.referenceRevision==referenceRevision.load(std::memory_order_acquire);
         const bool sameCameras=MatchesPreparedViews(rendered,scope.prepared.receipt);
         if (scope.prepared.valid&&!sameCameras)
@@ -363,7 +627,8 @@ void FrameBody(uintptr_t arg,uint32_t flags)
     {
         if (!previous)
         {
-            if (returned&&scope.capture&&cache.Finish(scope.key))
+            if (returned&&scope.capture&&Current()&&Anniversary()&&
+                scope.prepared.referenceRevision==referenceRevision.load(std::memory_order_acquire)&&cache.Finish(scope.key))
             { completedFrame.Publish({scope.key,scope.prepared.referenceRevision,GetTickCount64()}); captured.fetch_add(1,std::memory_order_relaxed); }
             else if (scope.synthetic)
             {
@@ -377,11 +642,16 @@ void FrameBody(uintptr_t arg,uint32_t flags)
     }
 }
 void __fastcall FrameHook(uintptr_t arg,uint32_t flags) { Callback callback; FrameBody(arg,flags); }
+#include "haloce_anniversary_hud.inl"
 void OutputBody(int eye)
 {
     auto* scope=frameScope; const int previous=scope?scope->eye:-1;
     if (scope&&scope->synthetic&&eye>=0&&eye<2) scope->eye=eye;
-    __try { reinterpret_cast<OutputFn>(hooks[Output].original)(eye); }
+    __try
+    {
+        if (scope) AnniversaryHud_ReplayEye(*scope,eye);
+        reinterpret_cast<OutputFn>(hooks[Output].original)(eye);
+    }
     __finally { if (scope) scope->eye=previous; }
 }
 void __fastcall OutputHook(int eye) { Callback callback; OutputBody(eye); }
@@ -419,9 +689,28 @@ void CopyBody(ID3D11DeviceContext* context,ID3D11Resource* destination,
             y==static_cast<UINT>(transfer.destinationY);
         if (shape)
         {
+            const int eye=scope->eye;
+            scope->diagnostic.sourceWrapper[eye]=static_cast<uintptr_t>(transfer.sourceSurface);
+            scope->diagnostic.sourceResource[eye]=sourceId;
+            scope->diagnostic.copyContext[eye]=reinterpret_cast<uintptr_t>(context);
+            uintptr_t selector{};
+            if (Read(bindings.base+0x1bea6b8,selector)&&selector)
+                Read(selector+0x1d0,scope->diagnostic.sourceSelectorFlags[eye]);
             scope->diagnostic.sourceWidth=src.descriptor.Width;
             scope->diagnostic.sourceHeight=src.descriptor.Height;
             wanted.Publish({src.descriptor,generation.load(),reinterpret_cast<uintptr_t>(context)});
+            if (scope->capture)
+            {
+                const uint32_t mask=1u<<eye;
+                const auto& seen=scope->diagnostic;
+                if ((seen.consumedDepth&mask)==0||(seen.consumedScene&mask)==0||
+                    (seen.consumedShading&mask)==0||scope->lastSceneEye!=eye)
+                {
+                    scope->capture=false;
+                    scope->diagnostic.consumerFailure=5; // missing/out-of-order camera consumption
+                    scope->diagnostic.failure=FrameFailure::RenderConsumer;
+                }
+            }
             if (scope->capture)
             {
                 const auto& camera=scope->prepared.receipt.pair.cameras[scope->eye];
@@ -519,6 +808,8 @@ uintptr_t __fastcall ResetListHook(uintptr_t list)
 bool Remove() noexcept
 {
     retiring.store(true,std::memory_order_release);
+    gameplayBridgeVerified.store(false,std::memory_order_release);
+    if (!AnniversaryHud_Remove()||!Classic_Remove()) return false;
     // Keep copy protection installed until native reset/stock preparation has
     // retired every manufactured list. An inactive title may retain these
     // dormant hooks until its next reset; never remove them under a queued eye.
@@ -533,7 +824,8 @@ bool Remove() noexcept
     const void* functions[Count]={reinterpret_cast<void*>(&PrepareHook),reinterpret_cast<void*>(&BuilderHook),
         reinterpret_cast<void*>(&FrameHook),reinterpret_cast<void*>(&OutputHook),reinterpret_cast<void*>(&TransferHook),
         reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void*>(&ImportHook),reinterpret_cast<void*>(&ReleaseHook),
-        reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),reinterpret_cast<void*>(&AppendHook)};
+        reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),reinterpret_cast<void*>(&AppendHook),
+        reinterpret_cast<void*>(&CameraUploadHook),reinterpret_cast<void*>(&DepthMeshHook)};
     const void* originals[Count]{};
     for (size_t i=0;i<Count;++i) originals[i]=hooks[i].original;
     // The shared verifier accepts at most eight ranges. Entries are disabled,
@@ -563,18 +855,25 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,reinterpret_cast<LPCWSTR>(base),&moduleReference)) return false;
     if (!ResolveNativeBindings(base,size,gen,bindings,failure))
     { LOG("CE core stock fallback: %s",failure); Remove(); return false; }
+    const NativeContractSet gameplayContracts{contract::gameplay_bridge::entries,
+        contract::gameplay_bridge::witnesses,contract::gameplay_bridge::relatives,
+        contract::gameplay_bridge::pointers};
+    gameplayBridgeVerified=VerifyNativeFeatureBindings(base,size,gen,gameplayContracts,failure);
+    if (!gameplayBridgeVerified.load())
+        LOG("CE Anniversary control-camera stock fallback: %s; camera core retained",failure?failure:"bridge verification");
     generation=gen; retiring=false;
     preparedLists[0].Publish({}); preparedLists[1].Publish({}); renderReady.Publish({});
     const uintptr_t addresses[Count]={bindings.prepare,bindings.pairBuilder,bindings.frame,
         bindings.output,bindings.transfer,
         base+contract::anniversary_texture_create,base+contract::anniversary_texture_import_2d,
         base+contract::anniversary_texture_release_resources,base+contract::anniversary_view_list_reset,copyTarget.load(),
-        base+contract::anniversary_view_append};
+        base+contract::anniversary_view_append,base+contract::anniversary_camera_upload,
+        base+contract::anniversary_depth_mesh_pass};
     void* detours[Count]={reinterpret_cast<void*>(&PrepareHook),reinterpret_cast<void*>(&BuilderHook),
         reinterpret_cast<void*>(&FrameHook),reinterpret_cast<void*>(&OutputHook),reinterpret_cast<void*>(&TransferHook),
         reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void*>(&ImportHook),
         reinterpret_cast<void*>(&ReleaseHook),reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),
-        reinterpret_cast<void*>(&AppendHook)};
+        reinterpret_cast<void*>(&AppendHook),reinterpret_cast<void*>(&CameraUploadHook),reinterpret_cast<void*>(&DepthMeshHook)};
     for (size_t i=0;i<Count;++i)
     {
         if (!addresses[i]) { Remove(); return false; }
@@ -591,7 +890,9 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
         hook.enabled=true;
     }
     installed=true;
-    LOG("CE core installed: native two-view preparation, source lifetime and GPU output hooks; waiting for fresh Anniversary camera");
+    (void)Classic_Install();
+    if (!AnniversaryHud_Install()) LOG("CE Anniversary HUD stock fallback: optional installation failed; camera retained");
+    LOG("CE integrated base VR candidate installed: Classic/Anniversary native eyes, consumed-camera/depth checks and optional hands/HUD; waiting for fresh camera; headset result pending");
     return true;
 }
 }
@@ -606,11 +907,12 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         if (!Remove()) return false;
     }
     if (!isActive||!base||!gen) return false;
-    if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled&&!kCeConstructTrackedViewsEnabled)
+    if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled&&!kCeConstructTrackedViewsEnabled&&
+        !kCeIntegratedBaseVrEnabled)
     {
         if (gen!=rejectedGeneration)
         {
-            LOG("CE core disabled by HaloCE_Poll: e17a664 stereo rejected by headset test; controller input and graphics gesture retained");
+            LOG("CE core disabled by HaloCE_Poll: full renderer/hand/HUD integration unfinished after rejected b9662cd; input and graphics gesture retained");
             rejectedGeneration=gen;
         }
         TitleAdapter_PublishLifecycle(GameTitle::HaloCE,gen,{false,false,false,0});
@@ -618,10 +920,11 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     }
     if (!installed.load()&&gen!=rejectedGeneration&&copyTarget.load())
         if (!Install(base,size,gen)) rejectedGeneration=gen;
+    if (installed.load()) (void)CeObserveRendererMode();
     const uint64_t now=GetTickCount64(),first=firstCameraMs.load(),last=lastCameraMs.load();
     const bool fresh=last&&now>=last&&now-last<500;
     if (installed.load()&&fresh&&first&&now-first>=1000&&!armed.exchange(true))
-        LOG("CE core armed: Anniversary stereo and positional 6DoF; Classic, tracked weapons, HUD extraction, melee and world collision remain stock/deferred");
+        LOG("CE camera heartbeat ready; stereo outputs and optional hands/aim/HUD report their own validation; physical melee/world collision deferred");
     if (!fresh&&armed.exchange(false))
     { recenter=true; LOG("CE core disarmed by HaloCE_Poll: camera heartbeat expired; hooks retained for re-entry"); firstCameraMs=0; }
     constexpr uint32_t capabilities=TitleCapability_Stereo|TitleCapability_RoomScale|
@@ -633,11 +936,17 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         lastReport=now;
         LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u",
             gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load());
+        LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u",
+            gen,classicInstalled.load(),classicPairs.load(),classicDrops.load(),classicStock.load(),
+            classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()));
+        LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u",
+            gen,anniversaryHudInstalled.load(),anniversaryHudDraws.load(),
+            anniversaryHudFallbacks.load(),anniversaryHudFailure.load());
         FrameDiagnostic diagnostic{};
         if (frameDiagnostic.Read(diagnostic))
         {
             constexpr const char* reasons[]={"none","no-receipt","invalid-receipt","camera-changed","cache-begin",
-                "copy-shape","raster-changed","eye-copy","destination","incomplete-pair"};
+                "copy-shape","raster-changed","eye-copy","destination","incomplete-pair","render-consumer","depth-resource"};
             const auto reason=static_cast<uint32_t>(diagnostic.failure);
             LOG("CE FRAME failure=%s(%u) nativeViews=%u flags=0x%X cameraDiff=0x%X eyeMask=%u raster=%.0fx%.0f source=%ux%u eye0=(%.3f,%.3f,%.3f) eye1=(%.3f,%.3f,%.3f)",
                 reason<std::size(reasons)?reasons[reason]:"unknown",reason,diagnostic.nativeCount,diagnostic.nativeFlags,
@@ -649,6 +958,18 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
                 diagnostic.originMask,diagnostic.origin[0][0],diagnostic.origin[0][1],diagnostic.origin[0][2],
                 diagnostic.origin[1][0],diagnostic.origin[1][1],diagnostic.origin[1][2],
                 diagnostic.nearPlane[0],diagnostic.farPlane[0],diagnostic.nearPlane[1],diagnostic.farPlane[1]);
+            LOG("CE DEPTH mask=%u reject=%u resources=%p/%p views=%p/%p",
+                diagnostic.depthMask,diagnostic.depthFailure,
+                reinterpret_cast<void*>(diagnostic.depthResource[0]),reinterpret_cast<void*>(diagnostic.depthResource[1]),
+                reinterpret_cast<void*>(diagnostic.depthView[0]),reinterpret_cast<void*>(diagnostic.depthView[1]));
+            LOG("CE CONSUMERS depth=%u scene=%u shading=%u reject=%u players=%d/%d cameras=%p/%p sourceWrappers=%p/%p sourceResources=%p/%p contexts=%p/%p selectors=0x%X/0x%X",
+                diagnostic.consumedDepth,diagnostic.consumedScene,diagnostic.consumedShading,diagnostic.consumerFailure,
+                diagnostic.consumedPlayer[0],diagnostic.consumedPlayer[1],
+                reinterpret_cast<void*>(diagnostic.consumedCamera[0]),reinterpret_cast<void*>(diagnostic.consumedCamera[1]),
+                reinterpret_cast<void*>(diagnostic.sourceWrapper[0]),reinterpret_cast<void*>(diagnostic.sourceWrapper[1]),
+                reinterpret_cast<void*>(diagnostic.sourceResource[0]),reinterpret_cast<void*>(diagnostic.sourceResource[1]),
+                reinterpret_cast<void*>(diagnostic.copyContext[0]),reinterpret_cast<void*>(diagnostic.copyContext[1]),
+                diagnostic.sourceSelectorFlags[0],diagnostic.sourceSelectorFlags[1]);
         }
     }
     return armed.load();
@@ -687,6 +1008,7 @@ void HaloCE_PresentResources(ID3D11Device* device,ID3D11DeviceContext* context) 
 bool HaloCE_AcquirePair(ID3D11DeviceContext* context,uint64_t currentSerial,uint64_t spaceEpoch,
     halo_ce::EyeCache::Completed& pair) noexcept
 {
+    if (Current()) (void)CeObserveRendererMode();
     CompletedFrame frame{};
     const uint64_t now=GetTickCount64();
     if (!HaloCE_Armed()||recenter.load()||!completedFrame.Read(frame)||
@@ -699,17 +1021,105 @@ bool HaloCE_AcquirePair(ID3D11DeviceContext* context,uint64_t currentSerial,uint
     return cache.AcquireCompleted(key,context,pair);
 }
 void HaloCE_ReleasePair(uint64_t borrowId) noexcept { cache.ReleaseCompleted(borrowId); }
+bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& context) noexcept
+{
+    Tracking tracking{};
+    return HaloCE_Armed()&&!recenter.load(std::memory_order_acquire)&&
+        context.referenceRevision==referenceRevision.load(std::memory_order_acquire)&&
+        context.rendererEpoch==ceRendererEpoch.load(std::memory_order_acquire)&&
+        context.tracking.generation==generation.load(std::memory_order_acquire)&&
+        context.reference.generation==context.tracking.generation&&
+        context.reference.spaceEpoch==context.tracking.spaceEpoch&&
+        TrackingNow(tracking)&&tracking.spaceEpoch==context.tracking.spaceEpoch&&
+        context.tracking.serial&&context.tracking.serial<=tracking.serial&&
+        tracking.serial-context.tracking.serial<=8;
+}
+bool HaloCE_GetGameplayContext(halo_ce::RenderContext& context) noexcept
+{
+    if (Current()) (void)CeObserveRendererMode();
+    GameplayCameraSample sample{};
+    const uint64_t now=GetTickCount64();
+    if (!gameplayCamera.Read(sample)||!sample.capturedAtMs||now<sample.capturedAtMs||
+        now-sample.capturedAtMs>=250||!HaloCE_RenderContextCurrent(sample.context)) return false;
+    RenderContext next=sample.context;
+    if (!TrackingNow(next.tracking)||!HaloCE_RenderContextCurrent(next)) return false;
+    context=next;
+    return true;
+}
 bool HaloCE_OwnsPresentation() noexcept
 {
     const uint64_t last=lastOwnedMs.load(std::memory_order_acquire),now=GetTickCount64();
     return Current()&&last&&now>=last&&now-last<500;
+}
+bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
+    halo_ce::Tracking& tracking) noexcept
+{
+    tracking={};
+    const auto* scope=frameScope;
+    if (!camera||!scope||!scope->synthetic||!scope->capture||!scope->prepared.valid||
+        !HaloCE_Armed()||!Anniversary()||recenter.load(std::memory_order_acquire)) return false;
+    const int eye=scope->lastSceneEye;
+    if (eye<0||eye>1) return false;
+    const uintptr_t address=reinterpret_cast<uintptr_t>(camera);
+    const uint32_t mask=1u<<eye;
+    const auto& receipt=scope->prepared.receipt;
+    const auto& frozen=receipt.tracking;
+    const uint64_t revision=referenceRevision.load(std::memory_order_acquire);
+    if (address!=scope->renderer+0xf0+eye*sizeof(SaberView)||
+        scope->diagnostic.consumedCamera[eye]!=address||
+        !(scope->diagnostic.consumedDepth&mask)||!(scope->diagnostic.consumedScene&mask)||
+        !(scope->diagnostic.consumedShading&mask)||scope->prepared.referenceRevision!=revision||
+        scope->prepared.generation!=generation.load(std::memory_order_acquire)||
+        !handoff.Current(receipt.ticket)) return false;
+    Tracking current{}; SaberCamera consumed{}; uintptr_t selected{};
+    if (!TrackingNow(current)||frozen.generation!=current.generation||
+        frozen.spaceEpoch!=current.spaceEpoch||!frozen.serial||frozen.serial>current.serial||
+        current.serial-frozen.serial>8||!Read(address,consumed)||
+        !SamePreparedCamera(consumed,receipt.pair.cameras[eye])||
+        std::memcmp(reinterpret_cast<const uint8_t*>(&consumed)+0x220,
+            reinterpret_cast<const uint8_t*>(&receipt.pair.cameras[eye])+0x220,4)||
+        !Read(scope->renderer+0xbe98,selected)||selected!=address||
+        !Current()||!Anniversary()||recenter.load(std::memory_order_acquire)||
+        referenceRevision.load(std::memory_order_acquire)!=revision) return false;
+    tracking=frozen;
+    return true;
+}
+bool HaloCE_GetRenderContext(const halo_ce::Camera& stockCamera,
+    halo_ce::RenderContext& context) noexcept
+{
+    if (Current()) (void)CeObserveRendererMode();
+    if (!HaloCE_Armed()||recenter.load(std::memory_order_acquire)) return false;
+    if (ClassicGetRenderContext(context)) return true;
+    if (anniversaryHudReplay)
+    {
+        if (!Valid(stockCamera)||!HaloCE_RenderContextCurrent(anniversaryHudReplay->owner)) return false;
+        context=anniversaryHudReplay->owner; context.camera=stockCamera;
+        return true;
+    }
+    // A native FP callback supplies the center BEFORE its temporary first-
+    // person camera changes. Never derive a center by averaging tracked eyes.
+    if (!Anniversary()||!Valid(stockCamera)) return false;
+    const uint64_t revision=referenceRevision.load(std::memory_order_acquire);
+    RenderContext next{}; ReferenceSample sample{};
+    if (!TrackingNow(next.tracking)||!publishedReference.Read(sample)||sample.revision!=revision||
+        sample.value.generation!=next.tracking.generation||sample.value.spaceEpoch!=next.tracking.spaceEpoch)
+        return false;
+    next.reference=sample.value; next.referenceRevision=revision;
+    next.rendererEpoch=ceRendererEpoch.load(std::memory_order_acquire);
+    next.camera=stockCamera;
+    next.unitsPerMeter=Game_GetWorldScale(); next.positional=Game_IsPositionalTracking();
+    if (!std::isfinite(next.unitsPerMeter)||next.unitsPerMeter<=0||next.unitsPerMeter>10||
+        !Current()||recenter.load(std::memory_order_acquire)||
+        revision!=referenceRevision.load(std::memory_order_acquire)) return false;
+    context=next;
+    return true;
 }
 void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     const D3D11_TEXTURE2D_DESC& descriptor) noexcept
 {
     const auto identity=reinterpret_cast<uintptr_t>(texture);
     resources.Forget(identity);
-    if (!identity||!(descriptor.BindFlags&D3D11_BIND_RENDER_TARGET)) return;
+    if (!identity||!(descriptor.BindFlags&(D3D11_BIND_RENDER_TARGET|D3D11_BIND_DEPTH_STENCIL))) return;
     const auto revision=resources.Revoke(identity);
     resources.Publish(identity,identity,revision,descriptor);
 }

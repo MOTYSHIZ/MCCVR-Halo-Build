@@ -1,0 +1,64 @@
+[
+  {
+    "name": "gameplay_saber_camera_producer",
+    "rva": "0x7b480",
+    "signature": "48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 81 EC C0 00 00 00 80 3D DF 03 DC 02 00 49 8B F1 49 8B E8",
+    "function_entry": true,
+    "evidence": "E-CE-FP-7",
+    "runtime_group": "gameplay_bridge",
+    "relative_operands": [
+      {
+        "instruction_rva": "0x7b5da",
+        "target_rva": "0x2b05120",
+        "instruction_bytes": 8,
+        "displacement_offset": 4,
+        "instruction_signature": "F3 0F 10 25 3E 9B A8 02"
+      },
+      {
+        "instruction_rva": "0x7b5ef",
+        "target_rva": "0x2e3b838",
+        "instruction_bytes": 8,
+        "displacement_offset": 4,
+        "instruction_signature": "F3 0F 10 15 41 02 DC 02"
+      },
+      {
+        "instruction_rva": "0x7b696",
+        "target_rva": "0x2b05118",
+        "instruction_bytes": 8,
+        "displacement_offset": 4,
+        "instruction_signature": "F3 0F 58 35 7A 9A A8 02"
+      },
+      {
+        "instruction_rva": "0x7b6a3",
+        "target_rva": "0x2b0511c",
+        "instruction_bytes": 8,
+        "displacement_offset": 4,
+        "instruction_signature": "F3 0F 58 2D 71 9A A8 02"
+      },
+      {
+        "instruction_rva": "0x7b4e9",
+        "target_rva": "0x2e3b826",
+        "instruction_bytes": 7,
+        "displacement_offset": 2,
+        "instruction_signature": "80 3D 36 03 DC 02 00"
+      },
+      {
+        "instruction_rva": "0x7b5c5",
+        "target_rva": "0x2e3c418",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 4C 0E DC 02"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0x7b5cc",
+        "signature": "48 83 B8 30 01 00 00 00 0F 85 E8 01 00 00"
+      },
+      {
+        "rva": "0x7b4e9",
+        "signature": "80 3D 36 03 DC 02 00 0F 29 B4 24 B0 00 00 00 C6 05 9B 78 E2 02 00 0F 84 C0 00 00 00"
+      }
+    ]
+  }
+]
