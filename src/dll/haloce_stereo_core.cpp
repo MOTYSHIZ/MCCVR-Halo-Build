@@ -23,7 +23,8 @@ using namespace halo_ce;
 constexpr bool kRejectedCeInitialStereoEnabled=false;
 // 6e31b25 captured pairs but failed stereo/6DoF headset testing.
 constexpr bool kCeSourceRasterStereoEnabled=false;
-constexpr bool kCeConstructTrackedViewsEnabled=true;
+// b9662cd retained the same displaced right/flat left headset failure.
+constexpr bool kCeConstructTrackedViewsEnabled=false;
 using PrepareFn=void(__fastcall*)(uintptr_t);
 using BuilderFn=uintptr_t(__fastcall*)(uintptr_t,SaberViewPair*,uint8_t,float*);
 // The first four append arguments are integer/pointer registers. Preserve all

@@ -1,3 +1,26 @@
+# Latest user override - September 15: b9662cd FAILED; full CE package hold
+
+User confirms b9662cd has the SAME displaced right eye / flat left appearance.
+Log records 557 builds, 555 captured pairs and 6 drops, coherent origins and clips.
+Those diagnostics did not establish correct native rendering. Preserved report/log:
+out/test-runs/b9662cd-ce-failed-20260915/. Do not redeliver or accept this build.
+
+NEW packaging instruction supersedes every incremental handoff below: no ZIP
+until BOTH CE Original/Classic and Anniversary implement proper stereo/6DoF,
+two independently tracked visible hands, dominant-hand weapon and controller aim,
+shared input/graphics switching, HUD/reticle and comparable existing-title behavior.
+Continue implementation and substantive verification; no camera-only or one-renderer
+milestone package. Local tests cannot establish flawless headset behavior.
+Both editions and ALL standing/deferred work remain required. Physical melee/world
+collision remain deferred until functional CE injection confirmation. Accepted
+pointer remains 4e01f28. No install, MCC launch, game-folder changes or publishing.
+
+b9662cd tracked-view experiment is disabled in its own commit before replacement;
+retain code and evidence. Parallel work now covers actual Anniversary render/source
+consumers, native Classic render path, and CE hands/weapon/aim bindings. Root handles
+shared integration, HUD/input/lifecycle and end-to-end checks. Read current git state
+and latest chat on resume; the prior package-ready paragraphs below are HISTORICAL.
+
 # Latest - September 15: tracked-view construction correction
 
 User tested 6e31b25: 803 captured pairs and faster visible Anniversary switching,
