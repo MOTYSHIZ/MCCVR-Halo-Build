@@ -1,3 +1,19 @@
+# Latest - September 15: 6e31b25 tested, partial progress but FAILED VR
+
+Recovered prior delivery chat and new user log. Anniversary now captures 803
+pairs (805 built, 6 drops) and switches without black VR, but right eye is
+displaced/noclipped and left looks flat with head-attached gun. Classic remains
+flat by current implementation. Do not redeliver 6e31b25 or call it accepted.
+Full test record: out/test-runs/6e31b25-ce-partial-failed-20260915/.
+Failed CE rendering disabled in a separate commit before correction; retain
+all code, working input/graphics gesture and earlier capture/raster fixes.
+Next: verify actual render-consumed cameras and per-eye source identity, then
+correct stereo/6DoF. Both CE renderers and independent controller hands/aim,
+HUD/crosshair remain required. Prior deferred tasks preserved. Physical melee
+and world collision still await functional VR confirmation. Package only a
+credible correction with build/source ZIPs; no install/launch/game writes/PR.
+Accepted source remains 4e01f28; both MCC editions supported.
+
 # LATEST - September 14 late: correction after the ALREADY TESTED CE failure
 
 Recovered the actual prior chat and attachment after the initial resume wrongly

@@ -20,7 +20,8 @@ using namespace halo_ce;
 // frames, zero captured pairs, black VR and mismatched stacked desktop views.
 // Keep the failed implementation intact for diagnosis, but do not install it.
 constexpr bool kRejectedCeInitialStereoEnabled=false;
-constexpr bool kCeSourceRasterStereoEnabled=true;
+// 6e31b25 captured pairs but failed stereo/6DoF headset testing.
+constexpr bool kCeSourceRasterStereoEnabled=false;
 using PrepareFn=void(__fastcall*)(uintptr_t);
 using BuilderFn=uintptr_t(__fastcall*)(uintptr_t,SaberViewPair*,uint8_t,float*);
 using FrameFn=void(__fastcall*)(uintptr_t,uint32_t);
