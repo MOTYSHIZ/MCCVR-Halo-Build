@@ -285,13 +285,16 @@ inline constexpr uint32_t anniversary_scene_refresh_consumer=0x543cb0;
 inline constexpr uint32_t anniversary_scene_static_visibility_rebuild=0x543af0;
 inline constexpr uint32_t anniversary_scene_region_visibility_apply=0x542f00;
 namespace anniversary_hud {
-inline constexpr std::array<Entry,4> entries={{
+inline constexpr std::array<Entry,7> entries={{
     {"native_hud_callback",0x740b0,"48 8B C4 57 48 81 EC A0 00 00 00 48 C7 40 98 FE FF FF FF 48 89 58 08 48 89 70 10 0F 29 70 E8 0F 29 78 D8 33 F6 89 35 9D",true},
     {"native_hud_preamble",0x4255a0,"48 83 EC 28 48 83 3D 34 EA 80 01 00 74 3C E8 2D 6C DB FF E8 38 6D DB FF 48 8B 15 21 68 A1 02 0F 57 C0 48 8B 82 D8 00 00",true},
     {"native_target_push",0x1dc1e0,"48 8B C4 48 89 58 10 48 89 48 08 57 48 83 EC 60 48 8B 1D E9 FB C5 02 48 63 4B 10 8B 53 14 0F 10 43 18 8D 79 01 3B D7 0F",true},
     {"native_target_pop",0x1dc2f0,"40 53 48 83 EC 40 48 8B 1D E3 FA C5 02 83 7B 10 00 74 3D 48 8B 03 4C 8B 80 F8 00 00 00 8B 43 10 FF C8 48 98 48 8D 0C C0",true},
+    {"native_late_hud_sequence",0x4572a5,"48 8B 05 34 37 79 01 83 B8 B8 00 00 00 00 0F 8E E9 00 00 00 F6 44 24 54 10 0F 84 DE 00 00 00 48 83 3D AC 5A 9E 02 00",false},
+    {"native_hud_scissor_state",0x202d70,"48 89 5C 24 18 48 89 74 24 20 55 57 41 56 48 8D AC 24 60 FF FF FF 48 81 EC A0 01 00 00 48 8B 05 7C 22 97 01 48 33 C4 48",true},
+    {"native_hud_backend_clear_state",0x203c00,"48 89 5C 24 08 57 48 83 EC 30 48 8B F9 48 8B 89 E0 0C 00 00 48 8B 01 FF 90 70 03 00 00 33 DB C7 87 C0 0F 06 00 FF FF FF FF",true},
 }};
-inline constexpr std::array<Witness,35> witnesses={{
+inline constexpr std::array<Witness,70> witnesses={{
     {0x740fc,"40 38 70 02"},
     {0x74361,"83 FB 01"},
     {0x743e1,"48 8B 0D F8 79 DC 02"},
@@ -327,8 +330,43 @@ inline constexpr std::array<Witness,35> witnesses={{
     {0x1dc323,"41 FF D0"},
     {0x1dc337,"89 4B 10"},
     {0x1dc2f6,"48 8B 1D E3 FA C5 02"},
+    {0x4572ac,"83 B8 B8 00 00 00 00"},
+    {0x4572b9,"F6 44 24 54 10"},
+    {0x4572d2,"8B 80 B0 00 00 00"},
+    {0x4572d8,"D1 E8"},
+    {0x4572da,"A8 01"},
+    {0x4572dc,"0F 85 C0 00 00 00"},
+    {0x45e35d,"89 44 24 44"},
+    {0x7413b,"48 0F 45 C8"},
+    {0x7441d,"41 FF D2"},
+    {0x456ee5,"4C 8B 80 18 03 00 00"},
+    {0x4572a5,"48 8B 05 34 37 79 01"},
+    {0x4572c4,"48 83 3D AC 5A 9E 02 00"},
+    {0x4572f0,"E8 AB E2 FC FF"},
+    {0x4572fa,"E8 51 71 00 00"},
+    {0x45735a,"E8 71 9F FF FF"},
+    {0x457381,"E8 DA E2 FC FF"},
+    {0x4573c7,"E8 C4 70 00 00"},
+    {0x45e2eb,"48 89 05 DE ED 9D 02"},
+    {0x7412a,"48 8B 0D 97 8F DC 02"},
+    {0x74131,"48 8B 05 98 8F DC 02"},
+    {0x7413f,"48 89 0D D2 77 DC 02"},
+    {0xb32106,"E8 FD 09 FE FF"},
+    {0x456ece,"E8 0D 53 D8 FF"},
+    {0x456eec,"48 8B 15 DD 61 9E 02"},
+    {0x456efa,"E8 51 4F D8 FF"},
+    {0x2034b6,"C7 85 8C 00 00 00 01 00 00 00"},
+    {0x2034ea,"48 8D 55 70"},
+    {0x2034f1,"FF 90 B0 00 00 00"},
+    {0x205ca9,"48 8B 57 58"},
+    {0x205cc7,"FF 90 58 01 00 00"},
+    {0x744ac,"FF 50 28"},
+    {0x203c17,"FF 90 70 03 00 00"},
+    {0x2043a4,"89 9F F8 0C 00 00"},
+    {0x2043aa,"48 89 9F 20 0D 00 00"},
+    {0x20443e,"E9 1D 77 FD FF"},
 }};
-inline constexpr std::array<Relative,14> relatives={{
+inline constexpr std::array<Relative,29> relatives={{
     {0x8d088,7,3,0x740b0},
     {0x8d08f,7,3,0x1c33fe0},
     {0x740db,7,3,0x2d9bdd1},
@@ -343,13 +381,32 @@ inline constexpr std::array<Relative,14> relatives={{
     {0x456d1d,7,3,0x1bea9e0},
     {0x1dc1f0,7,3,0x2e3bde0},
     {0x1dc2f6,7,3,0x2e3bde0},
+    {0x4572a5,7,3,0x1bea9e0},
+    {0x4572c4,8,3,0x2e3cd78},
+    {0x4572f0,5,1,0x4255a0},
+    {0x4572fa,5,1,0x45e450},
+    {0x45735a,5,1,0x4512d0},
+    {0x457381,5,1,0x425660},
+    {0x4573c7,5,1,0x45e490},
+    {0x45e2eb,7,3,0x2e3d0d0},
+    {0x7412a,7,3,0x2e3d0c8},
+    {0x74131,7,3,0x2e3d0d0},
+    {0x7413f,7,3,0x2e3b918},
+    {0xb32106,5,1,0xb12b08},
+    {0x456ece,5,1,0x1dc1e0},
+    {0x456eec,7,3,0x2e3d0d0},
+    {0x456efa,5,1,0x1dbe50},
 }};
-inline constexpr std::array<Pointer,0> pointers={{
+inline constexpr std::array<Pointer,1> pointers={{
+    {0x17f9d38,0x203c00},
 }};
 inline constexpr uint32_t native_hud_callback=0x740b0;
 inline constexpr uint32_t native_hud_preamble=0x4255a0;
 inline constexpr uint32_t native_target_push=0x1dc1e0;
 inline constexpr uint32_t native_target_pop=0x1dc2f0;
+inline constexpr uint32_t native_late_hud_sequence=0x4572a5;
+inline constexpr uint32_t native_hud_scissor_state=0x202d70;
+inline constexpr uint32_t native_hud_backend_clear_state=0x203c00;
 }
 namespace classic {
 inline constexpr std::array<Entry,19> entries={{
@@ -888,6 +945,82 @@ inline constexpr std::array<Relative,1> relatives={{
 inline constexpr std::array<Pointer,0> pointers={{
 }};
 inline constexpr uint32_t first_person_saber_bone_convert=0x77e70;
+}
+namespace first_person_visibility {
+inline constexpr std::array<Entry,4> entries={{
+    {"first_person_visibility_prepare",0x2cfe50,"48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 D8 FE FF FF 48 81 EC F0 01 00 00 48 C7 44 24 78 FE FF FF FF",true},
+    {"first_person_visibility_scheduler",0x7b2e0,"48 83 EC 28 0F B6 05 06 06 DC 02 84 C0 0F 85 79 01 00 00 48 89 7C 24 20 33 FF 8B CF 39 0D EE 9D A8 02 7E 2B 8B D7 66 66 0F 1F 84 00 00 00 00 00 48 8B",true},
+    {"first_person_visibility_bridge_branch",0x7afb1,"48 8B 05 20 0E DC 02 83 B8 38 02 00 00 00 0F 84 BB 00 00 00 C6 46 1C 00 C6 46 1E 00",false},
+    {"first_person_visibility_submit",0x4aa740,"40 55 56 41 56 41 57 48 8D 6C 24 D8 48 81 EC 28 01 00 00 48 8B 05 B6 A8 6C 01 48 33 C4 48 89 45 10",true},
+}};
+inline constexpr std::array<Witness,49> witnesses={{
+    {0x2cfeac,"4D 8B E9"},
+    {0x2cfeb4,"44 0F 28 D2"},
+    {0x2cfeb8,"44 8B E2"},
+    {0x2cfebb,"4C 8B F9"},
+    {0x2cff94,"8B 83 B8 FD FF FF"},
+    {0x2cff9e,"41 F6 45 18 02"},
+    {0x2cffa9,"41 F6 45 08 80"},
+    {0x2cffbb,"41 F6 45 18 04"},
+    {0x2cffcb,"41 F7 45 08 00 01 00 00"},
+    {0x2cffee,"49 8B 8D 20 02 00 00"},
+    {0x2cfff5,"48 0F AB C1"},
+    {0x45527e,"41 B8 E8 BD 00 00"},
+    {0x77688,"81 4B 04 00 44 00 00"},
+    {0x7b397,"48 8B 54 06 10"},
+    {0x7b451,"48 83 C6 20"},
+    {0x7b3d6,"81 62 08 7F FF FF FF"},
+    {0x7b3e6,"09 42 08"},
+    {0x7b41d,"81 62 08 FF FE FF FF"},
+    {0x7b42d,"09 42 08"},
+    {0x7adb4,"44 89 3E"},
+    {0x7adb7,"89 7E 04"},
+    {0x7add2,"48 89 46 10"},
+    {0x7b2fc,"39 0D EE 9D A8 02"},
+    {0x7b310,"48 8B 05 D1 9D A8 02"},
+    {0x7b32f,"8B 0D 53 F7 AF 01"},
+    {0x7b33c,"8B 0D 56 F7 AF 01"},
+    {0x7b390,"48 8B 05 51 9D A8 02"},
+    {0x7afb8,"83 B8 38 02 00 00 00"},
+    {0x7afc5,"C6 46 1C 00"},
+    {0x7afc9,"C6 46 1E 00"},
+    {0x7b080,"45 85 FF"},
+    {0x7b089,"44 88 7E 1C"},
+    {0x7afb1,"48 8B 05 20 0E DC 02"},
+    {0x4aa761,"48 8B 0D 70 16 99 02"},
+    {0x4aa768,"4C 8B FA"},
+    {0x4aa772,"44 88 44 24 40"},
+    {0x4aa791,"45 84 C0"},
+    {0x455252,"41 39 B6 5C BE 00 00"},
+    {0x455273,"49 8D 56 70"},
+    {0x455277,"48 81 C1 B0 00 00 00"},
+    {0x45527e,"41 B8 E8 BD 00 00"},
+    {0x455500,"41 B0 01"},
+    {0x455503,"49 8B D1"},
+    {0x4554e7,"41 8B 81 E4 BD 00 00 41 89 41 08"},
+    {0x4aa98a,"0F B6 44 24 40 49 8B CE 88 44 24 30"},
+    {0x4aaa1a,"48 81 C4 28 01 00 00 41 5F 41 5E 5E 5D C3"},
+    {0x45526c,"48 8B 0D 6D 57 79 01"},
+    {0x455284,"E8 28 1D 1B 01"},
+    {0x455506,"E8 35 52 05 00"},
+}};
+inline constexpr std::array<Relative,9> relatives={{
+    {0x7b2fc,6,2,0x2b050f0},
+    {0x7b310,7,3,0x2b050e8},
+    {0x7b32f,6,2,0x1b7aa88},
+    {0x7b33c,6,2,0x1b7aa98},
+    {0x7b390,7,3,0x2b050e8},
+    {0x7afb1,7,3,0x2e3bdd8},
+    {0x45526c,7,3,0x1bea9e0},
+    {0x455284,5,1,0x1606fb1},
+    {0x455506,5,1,0x4aa740},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t first_person_visibility_prepare=0x2cfe50;
+inline constexpr uint32_t first_person_visibility_scheduler=0x7b2e0;
+inline constexpr uint32_t first_person_visibility_bridge_branch=0x7afb1;
+inline constexpr uint32_t first_person_visibility_submit=0x4aa740;
 }
 namespace gameplay_bridge {
 inline constexpr std::array<Entry,1> entries={{

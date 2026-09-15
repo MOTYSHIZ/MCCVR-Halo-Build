@@ -1,4 +1,4 @@
-"""Execute pinned CE first-person GLT lens selection and the production adapter.
+"""Execute pinned CE material preparation/GLT lens selection and adapters.
 
 Synthetic material records in an isolated x64 emulator; no game process,
 shader/GPU execution, native registration services or headset rendering.
@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT / "out/pydeps"))
 import pefile
 from unicorn import Uc, UC_ARCH_X86, UC_MODE_64, UC_HOOK_CODE, UC_PROT_READ, UC_PROT_EXEC
 from unicorn.x86_const import (UC_X86_REG_RSP, UC_X86_REG_RIP, UC_X86_REG_RCX,
-    UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_RSI)
+    UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9, UC_X86_REG_RSI,
+    UC_X86_REG_RAX, UC_X86_REG_GS_BASE)
 
 SHA = "0A12DC561780F449D3F4D0DF10BB8D3BC7BE7840A5BEB2B236F672EB6CD42E6C"
 BASE, HEAP, STACK, STOP = 0x180000000, 0x60000000, 0x70000000, 0x71000000
@@ -28,6 +29,8 @@ def main():
     parser.add_argument("--image", type=Path, default=ROOT/"out/deps/re-tools/inputs/halo1.dll")
     parser.add_argument("--adapter-exe", type=Path,
         default=ROOT/"out/build/release/Release/halomccvr_ce_first_person_tests.exe")
+    parser.add_argument("--worker-adapter-exe", type=Path,
+        default=ROOT/"out/build/release/Release/halomccvr_ce_first_person_runtime_tests.exe")
     args = parser.parse_args()
     raw = args.image.read_bytes()
     if hashlib.sha256(raw).hexdigest().upper() != SHA:
@@ -41,15 +44,37 @@ def main():
     uc.mem_map(STACK, 0x20000)
     uc.mem_map(STOP, 0x1000)
     instructions = 0
+    services = {"size": 0, "allocation": 0, "thread_index": 0}
+
+    def native_return(value):
+        sp = uc.reg_read(UC_X86_REG_RSP)
+        target = struct.unpack("<Q", uc.mem_read(sp, 8))[0]
+        uc.reg_write(UC_X86_REG_RAX, value)
+        uc.reg_write(UC_X86_REG_RSP, sp+8)
+        uc.reg_write(UC_X86_REG_RIP, target)
 
     def instruction(machine, address, size, _):
         nonlocal instructions
         if address in (STOP, BASE+0x7AE1A):
             machine.emu_stop()
             return
+        if address == STOP+0x100:
+            services["size"] += 1
+            native_return(384)
+            return
+        if address == BASE+0x20A190:
+            assert machine.reg_read(UC_X86_REG_R8) == 384
+            services["allocation"] += 1
+            native_return(HEAP+0x2000)
+            return
+        if address == BASE+0x1DDF50:
+            services["thread_index"] += 1
+            native_return(0)
+            return
         if not (BASE+0x264080 <= address < BASE+0x2646D5 or
                 BASE+0x26FF00 <= address < BASE+0x26FF2C or
                 BASE+0x26E960 <= address < BASE+0x26ECE2 or
+                BASE+0x2F3460 <= address < BASE+0x2F35AC or
                 BASE+0x7ADF0 <= address < BASE+0x7AE1A):
             raise RuntimeError(f"Unexpected native instruction {address:#x}")
         instructions += 1
@@ -86,21 +111,39 @@ def main():
     write(instance+0x28, "<I", 0xFFFFFFFF)
     for offset in (0x9C, 0xDC, 0x11C):
         write(material+offset, "<b", -1)
+    # Actual dispatch 0x2F3460 obtains material class through +0x4C, allocates
+    # constants, and calls class vtable+0x98 with the model and all eight args.
+    # Only allocation, size and thread-ID services are fixtures. No camera or
+    # render stage exists here. Native TLS stores the preparation view index.
+    record, material_class, vtable = HEAP+0x8000, HEAP+0x8200, HEAP+0x8400
+    write(BASE+0x1BEA8B0, "<Q", material_class)
+    write(BASE+0x1C33E30, "<Q", HEAP+0x9000)
+    write(BASE+0x1BD57D8, "<I", 0)
+    write(material_class, "<Q", vtable)
+    write(vtable+0x90, "<Q", STOP+0x100)
+    write(record+0x38, "<Q", variants)
+    write(record+0x40, "<Q", params)
+    write(record+0x58, "<Q", model)
+    write(record+0x80, "<Q", material)
+    write(HEAP+0xE058, "<Q", HEAP+0xE100)
+    write(HEAP+0xE100, "<Q", HEAP+0xE200)
+    uc.reg_write(UC_X86_REG_GS_BASE, HEAP+0xE000)
     sp = STACK+0x1FE08
     results = []
     with tempfile.TemporaryDirectory(prefix="ce-native-fp-lens-", dir=ROOT/"out") as scratch:
         before, after = Path(scratch)/"input.bin", Path(scratch)/"output.bin"
         for writer,rva,selector_offset in [("GLT",0x264080,0x170),("ZFILL",0x26FF00,0x20),("SFX",0x26E960,0x70)]:
-          for model_flags in [0, 1, 0x80000000, *flags]:
+          for model_flags,prepared_view in [(f,v) for f in [0,1,0x80000000,*flags] for v in (0,1)]:
             write(model+0x28, "<I", model_flags)
             uc.mem_write(constants, b"\xcd"*384)
             write(sp, "<Q", STOP)
-            write(sp+0x28, "<4Q", HEAP+0x7000, material, 0, params)
-            for reg, value in [(UC_X86_REG_RSP, sp), (UC_X86_REG_RCX, 0),
-                    (UC_X86_REG_RDX, constants), (UC_X86_REG_R8, model), (UC_X86_REG_R9, variants)]:
+            write(vtable+0x98, "<Q", BASE+rva)
+            for reg, value in [(UC_X86_REG_RSP, sp), (UC_X86_REG_RCX, HEAP+0xA000),
+                    (UC_X86_REG_RDX, record), (UC_X86_REG_R8, 0), (UC_X86_REG_R9, prepared_view)]:
                 uc.reg_write(reg, value)
-            uc.emu_start(BASE+rva, STOP, count=10000)
+            uc.emu_start(BASE+0x2F3460, STOP, count=10000)
             assert uc.reg_read(UC_X86_REG_RIP) == STOP
+            assert struct.unpack("<I",uc.mem_read(HEAP+0xE208,4))[0] == prepared_view
             native = bytes(uc.mem_read(constants, 384))
             first_person = bool(model_flags & 0x10000000)
             assert struct.unpack_from("<4f", native,selector_offset) == (float(first_person),)*4
@@ -113,10 +156,15 @@ def main():
             assert struct.unpack_from("<4f", corrected,selector_offset) == (0.0,)*4
             if not first_person:
                 assert corrected == native
-            results.append(dict(writer=writer,model_flags=hex(model_flags), native_fixed_lens=first_person,
-                adapter_world_lens=True, unrelated_constants_preserved=True))
-    print(json.dumps(dict(status="PASS_NATIVE_FP_GLT_ZFILL_SFX_SELECTION_ONLY", image_sha256=SHA,
+            subprocess.run([str(args.worker_adapter_exe.resolve()), "--saber-worker-native-projection-fixture",
+                str(before), str(after)], check=True, capture_output=True)
+            assert after.read_bytes() == corrected, "Worker production adapter differed from native selection"
+            results.append(dict(writer=writer,model_flags=hex(model_flags),prepared_view=prepared_view,native_fixed_lens=first_person,
+                adapter_world_lens=True, worker_without_eye_scope=True, unrelated_constants_preserved=True))
+    print(json.dumps(dict(status="PASS_NATIVE_FP_MATERIAL_PREPARATION_GLT_ZFILL_SFX", image_sha256=SHA,
         adapter_sha256=hashlib.sha256(args.adapter_exe.read_bytes()).hexdigest().upper(),
+        worker_adapter_sha256=hashlib.sha256(args.worker_adapter_exe.read_bytes()).hexdigest().upper(),
+        native_dispatch_services=services,
         native_registration_models=3, native_material_calls=len(results), instructions=instructions,
         cases=results, limit="Synthetic native records and compiled helper; no GPU, game or headset."), indent=2))
 

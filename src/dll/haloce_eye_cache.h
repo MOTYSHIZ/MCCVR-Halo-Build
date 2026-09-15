@@ -42,6 +42,11 @@ public:
     bool Begin(const ClassicViewPair& pair,Key& key) noexcept;
     bool Capture(Key key,int eye,ID3D11DeviceContext* context,
         ID3D11Resource* liveSource,const D3D11_TEXTURE2D_DESC& provenSource) noexcept;
+    // Optional late native HUD output: replace an already captured world pair
+    // from its full-width, top/bottom packed surface before Finish. Refusal
+    // retains that valid world pair. The adapter proves source lifetime/layout.
+    bool CapturePacked(Key key,ID3D11DeviceContext* context,
+        ID3D11Resource* liveSource,const D3D11_TEXTURE2D_DESC& provenPackedSource) noexcept;
     bool Finish(Key key) noexcept; // call AFTER the native frame has returned
     bool Drop(Key key) noexcept;
     bool AcquireCompleted(Key key,ID3D11DeviceContext* submissionContext,Completed& out) noexcept;

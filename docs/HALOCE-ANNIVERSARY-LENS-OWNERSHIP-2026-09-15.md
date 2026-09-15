@@ -1,5 +1,11 @@
 # CE Anniversary lens ownership - September 15, 2026
 
+**Superseded for material preparation:** the `fba9ee6` headset log shows every
+material correction refused. Native writers execute on preparation workers,
+before render-eye ownership exists. See
+`HALOCE-ANNIVERSARY-MATERIAL-WORKER-2026-09-15.md` for the reproduced failure and
+replacement. The stage reader remains appropriate for draw-time particle work.
+
 Halo 3 behavior being matched: native first-person depth, color and effect
 materials use the current eye's world lens consistently. Controller placement
 and material lens selection are independent features.

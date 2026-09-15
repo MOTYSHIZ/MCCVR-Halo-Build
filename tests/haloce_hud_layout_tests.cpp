@@ -20,6 +20,8 @@ static bool Near(float a,float b) { return std::fabs(a-b)<0.001f; }
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
 uint32_t TitleAdapter_GetGeneration(GameTitle) { return testGeneration; }
 bool HaloCE_Armed() noexcept { return testTitle==GameTitle::HaloCE; }
+bool HaloCE_BeginAnniversaryHudGameplay(ID3D11DeviceContext*,UINT&,UINT&) noexcept { return false; }
+void HaloCE_EndAnniversaryHudGameplay(bool) noexcept {}
 bool HaloCEHud_HasCrosshairScope() noexcept { return crosshairScopeAvailable; }
 bool HaloCE_GetRenderContext(const halo_ce::Camera&,halo_ce::RenderContext& out) noexcept
 { out=testOwner;return ownerValid; }
@@ -249,6 +251,25 @@ int main()
     Seed();
     Check(HaloCEHudLayout_BeginEyeReplay(testDeviceContext,1000,800,1000,400)&&
         HaloCEHudLayout_EndEyeReplay(),"next eye transaction recovers from invalidation");
+    for (UINT eye=0;eye<2;++eye) for (LONG displacement: {-600L,0L,600L})
+    {
+        Seed();bool cleanup=true;
+        Check(HaloCEHudLayout_BeginEyeReplay(testDeviceContext,1000,800,1000,400,&cleanup,eye*400,true),
+            "natural packed HUD admits independently bounded upper/lower raster");
+        NativeSetScissor({-100,displacement,1200,800+displacement});
+        auto clipped=ActualScissor();
+        Check(clipped.left==0&&clipped.right==1000&&clipped.top>=LONG(eye*400)&&
+            clipped.bottom<=LONG((eye+1)*400)&&clipped.top<=clipped.bottom,
+            "large native/HUD offsets cannot expand packed scissors into the other eye");
+        NativeSetScissor({3,3,3,3});clipped=ActualScissor();
+        Check(clipped.left==clipped.right&&clipped.top==clipped.bottom,"packed clipping retains empty scissors");
+        HaloCEHudLayout_Suspend();NativeSetScissor({0,-1000,1000,2000});HaloCEHudLayout_Resume();
+        clipped=ActualScissor();
+        Check(clipped.top==LONG(eye*400)&&clipped.bottom==LONG((eye+1)*400),
+            "authored reticle suspension keeps its own packed eye bounds");
+        Check(HaloCEHudLayout_EndEyeReplay()&&ActualScissor().top==initialScissor.top&&
+            Near(ActualViewport().TopLeftY,initialViewport.TopLeftY),"packed raster restores exact native entry state");
+    }
     testDeviceContext->Release();device->Release();
     return failureCount?1:0;
 }

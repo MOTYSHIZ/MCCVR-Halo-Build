@@ -139,6 +139,29 @@ int main()
     context.reference.spaceEpoch=context.tracking.spaceEpoch;
     context.reference.orientation={};context.tracking.headOrientation={.707106781f,0,0,.707106781f};
     CHECK(!HeadRelativeMovement(context,0,1,x,y));CHECK(x==savedX&&y==savedY);
+    {
+        // Recenter tilt must not rotate a forward step sideways, and native
+        // camera pitch must not change the movement/eye/controller frame.
+        const Quat yaw{0,std::sin(.35f),0,std::cos(.35f)};
+        for (float nativePitch:{-1.5707963268f,-.8f,.6f,1.5707963268f})
+            for (float referencePitch:{-.6f,0.0f,.5f})
+                for (float heading:{-.9f,0.0f,1.1f})
+                {
+                    auto tilted=context;
+                    tilted.camera.forward={std::cos(nativePitch),0,std::sin(nativePitch)};
+                    tilted.camera.up={-std::sin(nativePitch),0,std::cos(nativePitch)};
+                    tilted.reference.orientation=Multiply(yaw,Multiply(
+                        {std::sin(referencePitch/2),0,0,std::cos(referencePitch/2)},
+                        {0,0,std::sin(.2f),std::cos(.2f)}));
+                    tilted.tracking.headOrientation=Multiply(yaw,Multiply(
+                        {0,std::sin(heading/2),0,std::cos(heading/2)},
+                        {std::sin(.25f),0,0,std::cos(.25f)}));
+                    CHECK(HeadRelativeMovement(tilted,.3f,.4f,x,y));
+                    CHECK(Near(x,.3f*std::cos(heading)-.4f*std::sin(heading)));
+                    CHECK(Near(y,.3f*std::sin(heading)+.4f*std::cos(heading)));
+                    CHECK(Near(std::sqrt(x*x+y*y),.5f));
+                }
+    }
     std::puts("CE controls: native admission, shared snap transitions, smooth elapsed time, head-relative movement and stale rejection passed");
     return 0;
 }

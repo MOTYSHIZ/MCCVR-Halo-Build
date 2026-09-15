@@ -107,6 +107,29 @@ bool SameIntent(const CeHudTargetSnapshot& a,const CeHudTargetSnapshot& b) noexc
         !std::memcmp(a.surfaces,b.surfaces,sizeof(a.surfaces))&&
         !std::memcmp(a.resources,b.resources,sizeof(a.resources));
 }
+bool CaptureSourceCurrentBody(const CeHudTargetSnapshot& saved,SelectFn select) noexcept
+{
+    if (!saved.moduleBase||!saved.backend||!saved.context||saved.count!=1||
+        !saved.wrappers[0]||!saved.surfaces[0]||!saved.resources[0]||
+        ReadValue<uintptr_t>(saved.moduleBase+0x2e3bde0)!=saved.backend||
+        ReadValue<uintptr_t>(saved.backend)!=saved.moduleBase+0x17f9d10||
+        ReadValue<ID3D11DeviceContext*>(saved.moduleBase+0x2ea2d30)!=saved.context||
+        ReadValue<ID3D11DeviceContext*>(saved.backend+0xce0)!=saved.context||
+        std::memcmp(saved.descriptor.data(),reinterpret_cast<const void*>(saved.backend+0x18),0x48)) return false;
+    // 740B0 restores target-kind globals and clears the output-merger cache.
+    // Follow the saved descriptor's wrapper, not either restored kind global.
+    uintptr_t surface{},resource{};
+    if (!OwnedSurface(saved.moduleBase,saved.wrappers[0],1u<<8,surface,resource,select)||
+        surface!=saved.surfaces[0]||resource!=saved.resources[0]) return false;
+    const uintptr_t descriptor=reinterpret_cast<uintptr_t>(saved.descriptor.data());
+    const bool defaultTarget=!ReadValue<uintptr_t>(descriptor+0x10)&&(ReadValue<uint32_t>(descriptor)&2);
+    if (defaultTarget&&ReadValue<uintptr_t>(saved.backend+0xcf0)!=saved.wrappers[0]) return false;
+    return ReadValue<uintptr_t>(saved.moduleBase+0x2e3bde0)==saved.backend&&
+        ReadValue<ID3D11DeviceContext*>(saved.moduleBase+0x2ea2d30)==saved.context&&
+        ReadValue<ID3D11DeviceContext*>(saved.backend+0xce0)==saved.context&&
+        ReadValue<uintptr_t>(surface+0xe0)==resource&&
+        !std::memcmp(saved.descriptor.data(),reinterpret_cast<const void*>(saved.backend+0x18),0x48);
+}
 CeHudTargetRestoreResult RestoreBody(const CeHudTargetSnapshot& saved,SelectFn select,BindFn bind) noexcept
 {
     CeHudTargetSnapshot latest{};
@@ -125,6 +148,12 @@ bool HaloCEHudTarget_Read(uintptr_t base,ID3D11DeviceContext* expected,CeHudTarg
 {
     const auto select=reinterpret_cast<SelectFn>(base+halo_ce::contract::hud_target::hud_target_surface_select);
     __try { return ReadBody(base,expected,out,select); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool HaloCEHudTarget_CaptureSourceCurrent(const CeHudTargetSnapshot& saved) noexcept
+{
+    const auto select=reinterpret_cast<SelectFn>(saved.moduleBase+halo_ce::contract::hud_target::hud_target_surface_select);
+    __try { return CaptureSourceCurrentBody(saved,select); }
     __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 CeHudTargetRestoreResult HaloCEHudTarget_Restore(const CeHudTargetSnapshot& saved) noexcept

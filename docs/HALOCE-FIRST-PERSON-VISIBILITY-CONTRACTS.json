@@ -1,0 +1,314 @@
+{
+  "entries": [
+    {
+      "name": "first_person_visibility_prepare",
+      "rva": "0x2cfe50",
+      "signature": "48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 D8 FE FF FF 48 81 EC F0 01 00 00 48 C7 44 24 78 FE FF FF FF",
+      "function_entry": true,
+      "runtime_group": "first_person_visibility",
+      "evidence": "HALOCE-FIRST-PERSON-VISIBILITY-2026-09-15.md",
+      "instruction_witnesses": [
+        {
+          "rva": "0x2cfeac",
+          "signature": "4D 8B E9",
+          "meaning": "R9 is native model container"
+        },
+        {
+          "rva": "0x2cfeb4",
+          "signature": "44 0F 28 D2",
+          "meaning": "XMM2 is native elapsed interval"
+        },
+        {
+          "rva": "0x2cfeb8",
+          "signature": "44 8B E2",
+          "meaning": "EDX is native update serial"
+        },
+        {
+          "rva": "0x2cfebb",
+          "signature": "4C 8B F9",
+          "meaning": "RCX is complete native view-list base"
+        },
+        {
+          "rva": "0x2cff94",
+          "signature": "8B 83 B8 FD FF FF",
+          "meaning": "View source-player selector read from list+1C+viewStride"
+        },
+        {
+          "rva": "0x2cff9e",
+          "signature": "41 F6 45 18 02",
+          "meaning": "Source player zero requires inclusion bit2"
+        },
+        {
+          "rva": "0x2cffa9",
+          "signature": "41 F6 45 08 80",
+          "meaning": "Source player zero excludes container flag80"
+        },
+        {
+          "rva": "0x2cffbb",
+          "signature": "41 F6 45 18 04",
+          "meaning": "Source player one requires inclusion bit4"
+        },
+        {
+          "rva": "0x2cffcb",
+          "signature": "41 F7 45 08 00 01 00 00",
+          "meaning": "Source player one excludes container flag100"
+        },
+        {
+          "rva": "0x2cffee",
+          "signature": "49 8B 8D 20 02 00 00",
+          "meaning": "Read per-view result mask"
+        },
+        {
+          "rva": "0x2cfff5",
+          "signature": "48 0F AB C1",
+          "meaning": "Set result by loop eye ordinal, independent of source-player selector"
+        },
+        {
+          "rva": "0x45527e",
+          "signature": "41 B8 E8 BD 00 00",
+          "meaning": "Existing native complete view-list copy length is0xBDE8"
+        },
+        {
+          "rva": "0x77688",
+          "signature": "81 4B 04 00 44 00 00",
+          "meaning": "First-person constructor marks container flags4400"
+        }
+      ],
+      "relative_operands": []
+    },
+    {
+      "name": "first_person_visibility_scheduler",
+      "rva": "0x7b2e0",
+      "signature": "48 83 EC 28 0F B6 05 06 06 DC 02 84 C0 0F 85 79 01 00 00 48 89 7C 24 20 33 FF 8B CF 39 0D EE 9D A8 02 7E 2B 8B D7 66 66 0F 1F 84 00 00 00 00 00 48 8B",
+      "function_entry": true,
+      "runtime_group": "first_person_visibility",
+      "evidence": "HALOCE-FIRST-PERSON-VISIBILITY-2026-09-15.md",
+      "instruction_witnesses": [
+        {
+          "rva": "0x7b397",
+          "signature": "48 8B 54 06 10",
+          "meaning": "FP record container pointer is+10"
+        },
+        {
+          "rva": "0x7b451",
+          "signature": "48 83 C6 20",
+          "meaning": "FP registration record stride20"
+        },
+        {
+          "rva": "0x7b3d6",
+          "signature": "81 62 08 7F FF FF FF",
+          "meaning": "Clear native source-player zero exclusion"
+        },
+        {
+          "rva": "0x7b3e6",
+          "signature": "09 42 08",
+          "meaning": "Apply source-player zero exclusion"
+        },
+        {
+          "rva": "0x7b41d",
+          "signature": "81 62 08 FF FE FF FF",
+          "meaning": "Clear source-player one exclusion"
+        },
+        {
+          "rva": "0x7b42d",
+          "signature": "09 42 08",
+          "meaning": "Apply source-player one exclusion"
+        },
+        {
+          "rva": "0x7adb4",
+          "signature": "44 89 3E",
+          "meaning": "Record source-player index stored at0"
+        },
+        {
+          "rva": "0x7adb7",
+          "signature": "89 7E 04",
+          "meaning": "Record native current model tag stored at4"
+        },
+        {
+          "rva": "0x7add2",
+          "signature": "48 89 46 10",
+          "meaning": "Record exact created container stored at10"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0x7b2fc",
+          "target_rva": "0x2b050f0",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "39 0D EE 9D A8 02"
+        },
+        {
+          "instruction_rva": "0x7b310",
+          "target_rva": "0x2b050e8",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 D1 9D A8 02"
+        },
+        {
+          "instruction_rva": "0x7b32f",
+          "target_rva": "0x1b7aa88",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "8B 0D 53 F7 AF 01"
+        },
+        {
+          "instruction_rva": "0x7b33c",
+          "target_rva": "0x1b7aa98",
+          "instruction_bytes": 6,
+          "displacement_offset": 2,
+          "instruction_signature": "8B 0D 56 F7 AF 01"
+        },
+        {
+          "instruction_rva": "0x7b390",
+          "target_rva": "0x2b050e8",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 51 9D A8 02"
+        }
+      ]
+    },
+    {
+      "name": "first_person_visibility_bridge_branch",
+      "rva": "0x7afb1",
+      "signature": "48 8B 05 20 0E DC 02 83 B8 38 02 00 00 00 0F 84 BB 00 00 00 C6 46 1C 00 C6 46 1E 00",
+      "function_entry": false,
+      "runtime_group": "first_person_visibility",
+      "evidence": "HALOCE-FIRST-PERSON-VISIBILITY-2026-09-15.md",
+      "instruction_witnesses": [
+        {
+          "rva": "0x7afb8",
+          "signature": "83 B8 38 02 00 00 00",
+          "meaning": "Native stereo option is backend+238"
+        },
+        {
+          "rva": "0x7afc5",
+          "signature": "C6 46 1C 00",
+          "meaning": "Native stereo clears both exclusion request bytes"
+        },
+        {
+          "rva": "0x7afc9",
+          "signature": "C6 46 1E 00",
+          "meaning": "Source-player one exclusion request byte1E"
+        },
+        {
+          "rva": "0x7b080",
+          "signature": "45 85 FF",
+          "meaning": "Ordinary branch checks source-player index"
+        },
+        {
+          "rva": "0x7b089",
+          "signature": "44 88 7E 1C",
+          "meaning": "Ordinary player zero clears only request byte1C"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0x7afb1",
+          "target_rva": "0x2e3bdd8",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 20 0E DC 02"
+        }
+      ]
+    },
+    {
+      "name": "first_person_visibility_submit",
+      "rva": "0x4aa740",
+      "signature": "40 55 56 41 56 41 57 48 8D 6C 24 D8 48 81 EC 28 01 00 00 48 8B 05 B6 A8 6C 01 48 33 C4 48 89 45 10",
+      "function_entry": true,
+      "runtime_group": "first_person_visibility",
+      "evidence": "HALOCE-FIRST-PERSON-VISIBILITY-2026-09-15.md",
+      "instruction_witnesses": [
+        {
+          "rva": "0x4aa761",
+          "signature": "48 8B 0D 70 16 99 02",
+          "meaning": "Incoming RCX is replaced by the native global context before being read"
+        },
+        {
+          "rva": "0x4aa768",
+          "signature": "4C 8B FA",
+          "meaning": "RDX is the complete native view-list pointer retained in R15"
+        },
+        {
+          "rva": "0x4aa772",
+          "signature": "44 88 44 24 40",
+          "meaning": "Only R8B is the native phase argument; upper R8 bits are not part of its ABI"
+        },
+        {
+          "rva": "0x4aa791",
+          "signature": "45 84 C0",
+          "meaning": "Native phase branch tests R8B only"
+        },
+        {
+          "rva": "0x455252",
+          "signature": "41 39 B6 5C BE 00 00",
+          "meaning": "Render-job copied preparation selected by job+BE5C"
+        },
+        {
+          "rva": "0x455273",
+          "signature": "49 8D 56 70",
+          "meaning": "Complete-list copy source is job+70"
+        },
+        {
+          "rva": "0x455277",
+          "signature": "48 81 C1 B0 00 00 00",
+          "meaning": "Complete-list copy destination is active renderer+B0"
+        },
+        {
+          "rva": "0x45527e",
+          "signature": "41 B8 E8 BD 00 00",
+          "meaning": "Native copy spans BDE8 bytes"
+        },
+        {
+          "rva": "0x455500",
+          "signature": "41 B0 01",
+          "meaning": "Phase one caller initializes R8B without clearing upper R8"
+        },
+        {
+          "rva": "0x455503",
+          "signature": "49 8B D1",
+          "meaning": "Phase one submits active renderer list in RDX"
+        },
+        {
+          "rva": "0x4554e7",
+          "signature": "41 8B 81 E4 BD 00 00 41 89 41 08",
+          "meaning": "Auxiliary-view branch replaces live count from copied list+BDE4 before phase one"
+        },
+        {
+          "rva": "0x4aa98a",
+          "signature": "0F B6 44 24 40 49 8B CE 88 44 24 30",
+          "meaning": "Native type-one dispatch forwards the saved byte-sized phase as its seventh argument"
+        },
+        {
+          "rva": "0x4aaa1a",
+          "signature": "48 81 C4 28 01 00 00 41 5F 41 5E 5E 5D C3",
+          "meaning": "Submit restores its frame and returns after the cookie service without producing a return value"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0x45526c",
+          "target_rva": "0x1bea9e0",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 0D 6D 57 79 01"
+        },
+        {
+          "instruction_rva": "0x455284",
+          "target_rva": "0x1606fb1",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 28 1D 1B 01"
+        },
+        {
+          "instruction_rva": "0x455506",
+          "target_rva": "0x4aa740",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 35 52 05 00"
+        }
+      ]
+    }
+  ]
+}

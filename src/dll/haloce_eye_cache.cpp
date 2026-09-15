@@ -32,6 +32,21 @@ bool SameSource(const D3D11_TEXTURE2D_DESC& a,const D3D11_TEXTURE2D_DESC& b) noe
         a.Usage==b.Usage&&a.BindFlags==b.BindFlags&&
         a.CPUAccessFlags==b.CPUAccessFlags&&a.MiscFlags==b.MiscFlags;
 }
+DXGI_FORMAT CopyFormatFamily(DXGI_FORMAT format) noexcept
+{
+    switch (format)
+    {
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        return DXGI_FORMAT_R8G8B8A8_TYPELESS;
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+        return DXGI_FORMAT_B8G8R8A8_TYPELESS;
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+    default:return format;
+    }
+}
 }
 bool EyeCache::Enter() noexcept
 {
@@ -149,6 +164,28 @@ bool EyeCache::Capture(Key key,int eye,ID3D11DeviceContext* context,
     }
     else ClearFrame();
     Leave(); return valid;
+}
+bool EyeCache::CapturePacked(Key key,ID3D11DeviceContext* context,
+    ID3D11Resource* liveSource,const D3D11_TEXTURE2D_DESC& provenPackedSource) noexcept
+{
+    if (!Enter()) return false;
+    const bool valid=key.serial&&key==key_&&mask_==3&&!complete_&&
+        context&&context==context_&&eyes_[0]&&eyes_[1]&&eyes_[0]!=eyes_[1]&&
+        liveSource&&liveSource!=eyes_[0]&&liveSource!=eyes_[1]&&
+        Supported(provenPackedSource)&&provenPackedSource.Width==source_.Width&&
+        provenPackedSource.Height==2*source_.Height&&
+        CopyFormatFamily(provenPackedSource.Format)==CopyFormatFamily(source_.Format);
+    if (valid)
+    {
+        // Check the whole transaction before either copy. No partial HUD
+        // replacement can occur because one eye failed a later shape guard.
+        const D3D11_BOX left{0,0,0,source_.Width,source_.Height,1};
+        const D3D11_BOX right{0,source_.Height,0,source_.Width,2*source_.Height,1};
+        context->CopySubresourceRegion(eyes_[0],0,0,0,0,liveSource,0,&left);
+        context->CopySubresourceRegion(eyes_[1],0,0,0,0,liveSource,0,&right);
+    }
+    // HUD is optional: a refused late source must not invalidate world stereo.
+    Leave();return valid;
 }
 bool EyeCache::Finish(Key key) noexcept
 {

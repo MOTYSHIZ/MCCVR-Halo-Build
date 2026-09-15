@@ -8,11 +8,13 @@
 static unsigned failures{},bindCalls{};
 static bool bindAllowed=true;
 static ID3D11DeviceContext* context{};
+static uintptr_t selectedSurfaceOverride{};
 static void Check(bool value,const char* text)
 { if (!value) { ++failures;std::fprintf(stderr,"CE HUD target: %s\n",text); } }
 template<class T> static void Put(uintptr_t address,T value)
 { std::memcpy(reinterpret_cast<void*>(address),&value,sizeof(value)); }
-static uintptr_t __fastcall SelectNativeSurface(uintptr_t wrapper) { return wrapper; }
+static uintptr_t __fastcall SelectNativeSurface(uintptr_t wrapper)
+{ return selectedSurfaceOverride?selectedSurfaceOverride:wrapper; }
 static bool __fastcall BindNativeTarget(uintptr_t backend,const void* source)
 {
     ++bindCalls;
@@ -84,6 +86,27 @@ int main()
     CeHudTargetSnapshot saved{};
     Check(ReadSnapshot(base,context,saved)&&saved.count==1&&saved.rtvs[0]==views[0]&&saved.dsv==depthView,
         "snapshot matches native descriptor-owned color and depth views");
+    context->ClearState();Put(backend+0xcf8,uint32_t(0));Put(backend+0xd20,uintptr_t(0));
+    Check(!ReadSnapshot(base,context,saved)&&CaptureSourceCurrentBody(saved,&SelectNativeSurface)&&BoundTo(nullptr,nullptr),
+        "native ClearState invalidates live target bindings while saved packed color remains captureable");
+    for (unsigned field=0;field<6;++field)
+    {
+        switch (field)
+        {
+        case 0:Put(base+0x2e3bde0,uintptr_t(0));break;
+        case 1:Put(base+0x2ea2d30,uintptr_t(0));break;
+        case 2:Put(backend+0xce0,uintptr_t(0));break;
+        case 3:Put(backend+0x18+0x10,alternate);break;
+        case 4:Put(color+0xe0,textures[1]);break;
+        case 5:selectedSurfaceOverride=alternate;break;
+        }
+        Check(!CaptureSourceCurrentBody(saved,&SelectNativeSurface),
+            "post-clear capture refuses changed backend/context/descriptor/resource/selected surface");
+        Put(base+0x2e3bde0,backend);Put(base+0x2ea2d30,context);Put(backend+0xce0,context);
+        Put(backend+0x18+0x10,color);Put(color+0xe0,textures[0]);selectedSurfaceOverride=0;
+    }
+    Check(CaptureSourceCurrentBody(saved,&SelectNativeSurface),"matching saved source recovers after rejected late mutation");
+    BindNativeTarget(backend,reinterpret_cast<const void*>(backend+0x18));
     context->OMSetRenderTargets(1,&views[2],nullptr);
     Check(BoundTo(views[2],nullptr),"private target fixture replaces actual D3D outputs");
     Check(RestoreSnapshot(saved)==CeHudTargetRestoreResult::Unchanged&&BoundTo(views[0],depthView),

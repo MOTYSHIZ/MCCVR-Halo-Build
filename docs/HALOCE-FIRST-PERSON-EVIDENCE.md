@@ -1,5 +1,12 @@
 # CE tracked first person and controller shot evidence
 
+Latest material scheduling correction:
+`HALOCE-ANNIVERSARY-MATERIAL-WORKER-2026-09-15.md`. Native GLT/ZFILL/SFX selectors
+are built during mesh preparation; neither the newest palette receipt nor
+render-thread eye TLS authorizes that cached policy. The current correction
+uses fresh Anniversary VR gameplay/reference ownership. Historical E-CE-FP-5
+admission descriptions below are superseded by that evidence.
+
 Latest September 15 Anniversary muzzle refinement: see
 [HALOCE-ANNIVERSARY-MUZZLE-PROJECTION-2026-09-15.md](HALOCE-ANNIVERSARY-MUZZLE-PROJECTION-2026-09-15.md)
 for E-CE-FP-9, the separate particle lens selector, private native constant

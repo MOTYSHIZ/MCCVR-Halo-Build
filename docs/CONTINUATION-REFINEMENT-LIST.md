@@ -1,4 +1,28 @@
-# Latest continuation - September 15: Anniversary freeze and muzzle alignment
+# Latest continuation - September 15: CE horizon, Anniversary hands and HUD
+
+The resumed worker handoff is completed: the actual native submission publishes
+the copied-list receipt before workers run; reset, reuse and retirement revoke
+it. Native hidden-weapon rules remain active. The late HUD capture honors the
+real native ClearState cleanup and checks its saved source before copying.
+Visibility/HUD native exceptions restore callback accounting. Dedicated evidence
+and final candidate verification are linked in ACTIVE-WORK-CHECKPOINT.md.
+
+Latest actual test is fba9ee6: Original's hands, weapon scale, HUD and injection
+are good; both modes have tilted recentering; Anniversary renders but has absent
+right-eye hands, wrong weapon scale and no HUD. User explicitly requires ALL
+these fixes before new build/source ZIP delivery. Preserve Original and every
+standing/deferred item below. Do not divert into other-title features, CE melee,
+collision or body following. Read the current ACTIVE-WORK-CHECKPOINT.md and
+HALOCE-FBA9EE6-TEST-2026-09-15.md; the actual interrupted chat was recovered.
+
+Continue autonomously through a NEW build ZIP and matching source ZIP, package
+without `-Install`, deliver both here, then WAIT for the user's headset test.
+No install, MCC launch, game-folder writes, PR or publication. Both editions
+remain supported; accepted source 4e01f28 unchanged. Local checks are not headset
+acceptance. The old manual HUD callback remains disabled; its native late
+replacement must preserve world rendering if its optional work declines.
+
+# Historical continuation - September 15: Anniversary freeze and muzzle alignment
 
 User tested `884de13`: Original injection, hands and muzzle flashes work.
 Anniversary freezes on graphics switch; its muzzle flashes were also reported

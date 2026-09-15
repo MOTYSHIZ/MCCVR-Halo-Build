@@ -1,4 +1,74 @@
-# Current continuation - September 15: Anniversary freeze and muzzle alignment
+# Current continuation - September 15: level horizon, Anniversary hands and HUD
+
+The user resumed at the quoted right-eye omission / worker handoff update.
+The exact interrupted root chat was recovered from
+`rollout-2026-09-15T17-03-33-01a0a6e1-d50a-71f0-a36b-a68ad49bc6b1.jsonl`.
+The missing production submission hook is now wired before native workers,
+with exact copied-list ownership, old active-ticket revocation, and atomic
+reset/retirement invalidation. Native hidden-weapon policy remains intact.
+See `HALOCE-FIRST-PERSON-VISIBILITY-2026-09-15.md`. A reproduced native SEH
+callback-count leak was corrected with explicit cleanup in both new visibility
+hooks and the natural HUD callback. The production tests exercise those wrappers.
+
+HUD capture now revalidates its saved source after the native callback's real
+ClearState epilogue, without requiring the cleared render-target cache to remain
+bound. Native cleanup instruction execution and WARP ClearState/source-change
+regressions cover this addition. The outer native callback still runs once.
+
+Recovered the actual prior root chat through the user's supplied quotation from
+`rollout-2026-09-15T16-56-23-01a0a6db-4442-78b0-bb6a-5abd27da2dac.jsonl`.
+The newest headset result is **fba9ee6**, not 884de13. Original injection,
+hands/weapon scale and HUD are good. BOTH modes recenter with an unwanted
+vertical world angle. Anniversary world renders again but its right-eye hands
+are missing, left-eye weapon scale is wrong and HUD absent. The user explicitly
+requires correcting all three areas before a NEW build AND matching source ZIP.
+Read `HALOCE-FBA9EE6-TEST-2026-09-15.md` for the exact preserved input/log.
+
+Package `tools/package-candidate.ps1` WITHOUT `-Install`, deliver both ZIPs in
+chat, then WAIT for testing/instructions. No install, game launch, game-folder
+writes, PR or publication. Both CE graphics modes and both MCC editions remain
+supported. All standing/deferred requests remain retained; focus this candidate
+on CE. Accepted source remains `4e01f28`.
+
+The interrupted recenter WIP is preserved at
+`out/checkpoints/20260915-170506-ce-horizon-hud-resume`. The level tracking-frame
+correction now covers eyes, controller palette/shot direction and head-relative
+movement. H3's actual yaw-only recenter behavior was checked in source. See
+`HALOCE-LEVEL-RECENTER-2026-09-15.md`.
+
+Native material writers run before render-eye TLS exists. Their old gate was
+reproduced failing; the material-worker policy correction passes production
+and native-dispatch/shader checks. See
+`HALOCE-ANNIVERSARY-MATERIAL-WORKER-2026-09-15.md`. Native FP source-player
+exclusion separately hides synthetic view 1; its correction and exact native
+evidence are part of this continuation, not a generic world-visibility override.
+
+The HUD runs NATURALLY late in the same frame, after both early eye copies.
+The normal callback remains native-owned and runs once. The gameplay draw is
+framed into both packed eye regions; live target/revision/frozen-frame proof
+precedes copying their final pixels into the eye cache. Failed optional work
+keeps the world pair. The previous manually invoked callback remains disabled.
+Read `HALOCE-LATE-HUD-NATIVE-SEQUENCE-2026-09-15.md`; native sequence/scissor
+proof and production WARP routing/guard/recovery tests are preserved.
+
+Candidate notes: `HALOCE-HORIZON-HANDS-HUD-CANDIDATE-2026-09-15.md`.
+Final cumulative Release and all 20 CTest suites pass, including worker
+handoff/reuse, both visibility hook exceptions, real HUD ClearState and its
+callback exception. All 111 pinned contracts, generated contracts, 17 production
+mapped-image groups and Reach consistency pass. The native material dispatcher
+passes 36 cases; the actual three skinned shaders pass 48 WARP draws. Native
+visibility passes 32 producer/consumer plus six copy/submission cases; native
+HUD passes five sequence cases, 48 scissor constructions and its ClearState
+epilogue. Records are under `out/ce-horizon-resume-*20260915.*`, with dedicated
+visibility/HUD native records linked in their evidence docs. Packaging repeats
+required checks for the final committed identity. Exact NEW
+build/source archives and hashes belong in `out/ce-current-handoff.json` only
+after full archive/source verification. Do not redeliver its old fba9ee6 pair.
+No local test advances headset acceptance. Both CE modes, graphics switching,
+native HUD side effects and the CE shared-callsite Halo 3 regression still need
+the user's headset test. No CE body-following/melee/collision expansion.
+
+# Historical continuation - September 15: Anniversary freeze and muzzle alignment
 
 Latest user tested `884de13`: Original injects successfully, hands look correct,
 and Original muzzle flashes work. Preserve these positive headset results.

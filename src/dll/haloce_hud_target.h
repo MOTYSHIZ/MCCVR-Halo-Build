@@ -19,4 +19,8 @@ enum class CeHudTargetRestoreResult : uint8_t { Unchanged,Changed,Unavailable };
 // Render owner/title/generation validation remains the caller's responsibility.
 bool HaloCEHudTarget_Read(uintptr_t moduleBase,ID3D11DeviceContext* expectedContext,
     CeHudTargetSnapshot& out) noexcept;
+// The natural callback clears D3D bindings before returning. Validate the
+// saved color source and native descriptor without requiring those cleared
+// bindings to remain live. Registry lifetime/revision stays with the caller.
+bool HaloCEHudTarget_CaptureSourceCurrent(const CeHudTargetSnapshot&) noexcept;
 CeHudTargetRestoreResult HaloCEHudTarget_Restore(const CeHudTargetSnapshot&) noexcept;

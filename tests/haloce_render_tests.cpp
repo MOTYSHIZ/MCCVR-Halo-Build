@@ -140,6 +140,127 @@ int main(int argc,char** argv)
           "staged Anniversary eye preserves every non-owned field");
     check(near(saberEye.pose.matrix[14],-20*3.048f-0.032f*0.33f*3.048f),
           "Saber binocular translation uses independently verified scale and axes");
+    {
+        // H3 parity: recenter owns yaw/position; physical pitch and roll remain
+        // absolute against world up, independent of the stock look pitch.
+        const auto nearVector=[](Vec3 a,Vec3 b) { return Dot(a-b,a-b)<0.000001f; };
+        const Quat headYaw{0,std::sin(.35f),0,std::cos(.35f)};
+        for (float nativePitch:{-.8f,0.0f,.6f})
+            for (float referencePitch:{-.55f,0.0f,.45f})
+                for (float referenceRoll:{-.3f,0.0f,.4f})
+                {
+                    Camera source=stock;
+                    source.forward={std::cos(nativePitch),0,std::sin(nativePitch)};
+                    source.up={-std::sin(nativePitch),0,std::cos(nativePitch)};
+                    Tracking sample=tracking;
+                    Reference origin=reference;
+                    origin.orientation=Multiply(headYaw,Multiply(
+                        {std::sin(referencePitch/2),0,0,std::cos(referencePitch/2)},
+                        {0,0,std::sin(referenceRoll/2),std::cos(referenceRoll/2)}));
+                    sample.headOrientation=headYaw;
+                    sample.headPosition=origin.position+Vec3{0,.25f,0};
+                    for (int eye=0;eye<2;++eye)
+                    {
+                        sample.eyes[eye].orientation=headYaw;
+                        sample.eyes[eye].offset=Rotate(headYaw,{eye?.032f:-.032f,0,0});
+                        Camera classic{};
+                        check(BuildEye(source,sample,origin,eye,.33f,true,cover,classic)&&
+                            nearVector(classic.forward,{1,0,0})&&nearVector(classic.up,{0,0,1})&&
+                            near(classic.position.z,source.position.z+.25f*.33f)&&
+                            near(classic.position.x,source.position.x),
+                            "tilted recenter and native pitch cannot tilt the level world or physical height");
+                        SaberCamera nativeSaber=saberStock,anniversary{};
+                        Camera anniversaryCamera{};Cover anniversaryCover{};
+                        check(BuildSaberPose(source,{},0,nativeSaber.pose)&&
+                            StageSaberEye(nativeSaber,sample,origin,eye,.33f,true,anniversary,anniversaryCover)&&
+                            NativeCameraFromSaber(anniversary,anniversaryCamera)&&
+                            nearVector(anniversaryCamera.forward,classic.forward)&&
+                            nearVector(anniversaryCamera.up,classic.up)&&
+                            nearVector(anniversaryCamera.position,classic.position),
+                            "Original and Anniversary use the same level recenter frame in both eyes");
+                    }
+                    // Recenter while still tilted must retain physical tilt,
+                    // rather than baking the tilted pose into a neutral room.
+                    sample.headOrientation=origin.orientation;
+                    sample.eyes[0].orientation=origin.orientation;
+                    Camera physical{};
+                    const Quat tilt=Multiply(
+                        {std::sin(referencePitch/2),0,0,std::cos(referencePitch/2)},
+                        {0,0,std::sin(referenceRoll/2),std::cos(referenceRoll/2)});
+                    check(BuildEye(source,sample,origin,0,.33f,false,cover,physical)&&
+                        nearVector(physical.forward,ToNative(stock,Rotate(tilt,{0,0,-1})))&&
+                        nearVector(physical.up,ToNative(stock,Rotate(tilt,{0,1,0}))),
+                        "recenter preserves current physical pitch and roll instead of zeroing them");
+                }
+    }
+    {
+        // The same horizontal frame must also preserve binocular separation
+        // through native bank, near-vertical look, and the exact pitch poles.
+        constexpr float halfPi=1.5707963267948966f;
+        const auto nearVector=[](Vec3 a,Vec3 b) { return Dot(a-b,a-b)<0.000001f; };
+        for (float nativeYaw:{-2.4f,.7f})
+            for (float nativePitch:{-halfPi,-halfPi+.00001f,-.8f,.6f,halfPi-.00001f,halfPi})
+                for (float headPitch:{-halfPi,-halfPi+.001f,-.6f,.5f,halfPi-.001f,halfPi})
+                {
+                    Camera source=stock;
+                    const float cy=std::cos(nativeYaw),sy=std::sin(nativeYaw);
+                    const float cp=std::cos(nativePitch),sp=std::sin(nativePitch);
+                    source.forward={cp*cy,cp*sy,sp};source.up={-sp*cy,-sp*sy,cp};
+                    Tracking sample=tracking;Reference origin=reference;
+                    const Quat yaw{0,std::sin(-.4f),0,std::cos(-.4f)};
+                    origin.orientation=Multiply(yaw,{std::sin(.25f),0,0,std::cos(.25f)});
+                    sample.headOrientation=Multiply(yaw,Multiply(
+                        {std::sin(headPitch/2),0,0,std::cos(headPitch/2)},
+                        {0,0,std::sin(.2f),std::cos(.2f)}));
+                    sample.headPosition=origin.position;
+                    Camera eyes[2]{};
+                    for (int eye=0;eye<2;++eye)
+                    {
+                        sample.eyes[eye].orientation=sample.headOrientation;
+                        sample.eyes[eye].offset=Rotate(sample.headOrientation,{eye?.032f:-.032f,0,0});
+                        check(BuildEye(source,sample,origin,eye,.33f,true,cover,eyes[eye]),
+                            "physical and native pitch poles retain a finite tracked eye");
+                    }
+                    const Vec3 separation=eyes[1].position-eyes[0].position;
+                    check(nearVector((eyes[0].position+eyes[1].position)*.5f,source.position)&&
+                        std::fabs(std::sqrt(Dot(separation,separation))-.064f*.33f)<.00001f&&
+                        std::fabs(Dot(separation,eyes[0].forward))<.00001f&&
+                        std::fabs(Dot(separation,eyes[0].up))<.00001f&&
+                        nearVector(eyes[0].forward,eyes[1].forward)&&nearVector(eyes[0].up,eyes[1].up),
+                        "rolled IPD stays symmetric and perpendicular to physical eye orientation at all pitches");
+                    if (std::fabs(cp)>.01f)
+                    {
+                        // Authored bank cannot bank the room or its displacement.
+                        source.up=Rotate({source.forward.x*std::sin(.3f),
+                            source.forward.y*std::sin(.3f),source.forward.z*std::sin(.3f),std::cos(.3f)},source.up);
+                        Camera banked{};
+                        check(BuildEye(source,sample,origin,0,.33f,true,cover,banked)&&
+                            nearVector(banked.position,eyes[0].position)&&
+                            nearVector(banked.forward,eyes[0].forward)&&nearVector(banked.up,eyes[0].up),
+                            "native bank does not alter world-locked eye pose");
+                    }
+                    // At exact vertical HMD reference there is no forward yaw.
+                    // Its right-axis fallback must remain finite and q/-q invariant.
+                    origin.orientation=sample.headOrientation;
+                    Camera pole{};Quat inverse{};
+                    check(BuildTrackingFrame(source,origin,pole,inverse)&&Valid(pole)&&Valid(inverse),
+                        "recenter at physical pitch pole has a finite horizontal fallback");
+                    origin.orientation={-origin.orientation.x,-origin.orientation.y,
+                        -origin.orientation.z,-origin.orientation.w};
+                    Camera negative{};Quat negativeInverse{};
+                    check(BuildTrackingFrame(source,origin,negative,negativeInverse)&&
+                        nearVector(pole.forward,negative.forward)&&
+                        nearVector(Rotate(inverse,{0,0,-1}),Rotate(negativeInverse,{0,0,-1})),
+                        "equivalent quaternion signs cannot change recentered heading");
+                }
+        Camera sentinel=stock;Quat inverse{.1f,.2f,.3f,.4f};
+        const Quat savedInverse=inverse;Reference invalid=reference;
+        invalid.orientation.w=std::numeric_limits<float>::quiet_NaN();
+        check(!BuildTrackingFrame(stock,invalid,sentinel,inverse)&&
+            std::memcmp(&sentinel,&stock,sizeof(stock))==0&&
+            std::memcmp(&inverse,&savedInverse,sizeof(inverse))==0,
+            "invalid tracking frame leaves both outputs untouched");
+    }
     const SaberCamera savedEye=saberEye;
     saberStock.viewportWidth=std::numeric_limits<float>::infinity();
     check(!StageSaberEye(saberStock,tracking,reference,0,0.33f,true,saberEye,cover)&&

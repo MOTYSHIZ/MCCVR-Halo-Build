@@ -7,6 +7,8 @@
 
 using Microsoft::WRL::ComPtr;
 void ConfigureCeHudLayoutRuntimeFixture(uint32_t generation,bool enabled,bool installed=true);
+void RunCeHudGameplayRuntimeFixture(uintptr_t base,void(__fastcall* draw)());
+static bool naturalHudFrame{};
 static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
@@ -16,7 +18,7 @@ bool TitleAdapter_PublishHeartbeat(GameTitle,uint32_t,uint64_t) { return true; }
 float Game_GetWorldScale() { return 1.0f/3.048f; }
 bool Game_IsPositionalTracking() { return true; }
 bool Game_RoomscaleCameraAllowed(GameTitle) { return false; }
-bool HaloCEHud_HasCrosshairScope() noexcept { return false; }
+bool HaloCEHud_HasCrosshairScope() noexcept { return naturalHudFrame; }
 void Roomscale_Camera(GameTitle,bool,const float*,const float*,const float*,const float*,float*,float) noexcept {}
 void Logf(const char*,...) { }
 bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t count,
@@ -56,8 +58,9 @@ std::array<std::array<uint8_t,0x118>,2> depthSurfaces{};
 ID3D11DepthStencilView* depthViews[2]{};
 ID3D11Resource* depthTextures[2]{};
 uintptr_t hudRoot{};
+uintptr_t packedHudRoot{};
 uintptr_t __fastcall NativeDepthSelect(uintptr_t root)
-{ return root==hudRoot?root:root==depthRoot?reinterpret_cast<uintptr_t>(depthSurfaces[depthEye].data()):0; }
+{ return root==hudRoot||root==packedHudRoot?root:root==depthRoot?reinterpret_cast<uintptr_t>(depthSurfaces[depthEye].data()):0; }
 void SelectDepth(int eye)
 {
     depthEye=eye;
@@ -134,6 +137,74 @@ void __fastcall NativeHudPreamble()
     NativeHudPush();NativeHudPop();
     if (hudFault==HudFault::PreambleException) RaiseException(0xe042ce02,0,0,nullptr);
     AnniversaryHudCallbackBody();
+}
+unsigned naturalCallbacks{},naturalGameplayCalls{};
+bool naturalRevokeSource{},naturalInvalidateRaster{},naturalOmitGameplay{},naturalWrongTarget{};
+bool naturalForeignCaller{},naturalUnobservedRaster{},naturalRepeatGameplay{};
+bool naturalSwapSelectedSource{},naturalRetireContext{};
+bool naturalFrozen{},naturalNativeReset{},naturalRasterRestored{true};
+uint64_t expectedNaturalSerial{};
+ID3D11RenderTargetView* packedHudView{};
+D3D11_BOX hudRegions[2]{};
+void __fastcall NaturalGameplayHud()
+{
+    RenderContext owner{};Camera camera{};Read(bindings.base+0x29af2c4,camera);
+    naturalFrozen&=HaloCE_GetRenderContext(camera,owner)&&owner.tracking.serial==expectedNaturalSerial;
+    if (naturalNativeReset)
+        ObserveRaster({0,0,float(testDesc.Width),float(2*testDesc.Height),0,1},
+            {0,0,LONG(testDesc.Width),LONG(2*testDesc.Height)});
+    D3D11_VIEWPORT v{};UINT count=1;testContext->RSGetViewports(&count,&v);
+    D3D11_BOX box{UINT(v.TopLeftX),UINT(v.TopLeftY),0,
+        UINT(v.TopLeftX+v.Width/4),UINT(v.TopLeftY+v.Height/2),1};
+    if (naturalGameplayCalls<2) hudRegions[naturalGameplayCalls]=box;
+    ++naturalGameplayCalls;
+    if (box.right>box.left&&box.bottom>box.top&&box.bottom<=2*testDesc.Height)
+    {
+        std::vector<uint32_t> pixels((box.right-box.left)*(box.bottom-box.top),hudColor);
+        testContext->UpdateSubresource(testDestination,0,&box,pixels.data(),(box.right-box.left)*4,0);
+    }
+    if (naturalInvalidateRaster) HaloCEHudLayout_InvalidateState(testContext);
+}
+void __fastcall NaturalHudCallback()
+{
+    ++naturalCallbacks;
+    std::memcpy(reinterpret_cast<void*>(packedHudRoot+0xe0),&testDestination,8);
+    auto* backend=reinterpret_cast<uint8_t*>(depthBackend);
+    std::memset(backend+0x18,0,0x48);
+    std::memcpy(backend+0x28,&packedHudRoot,8);
+    const uint32_t count=1;std::memcpy(backend+0xcf8,&count,4);
+    std::memcpy(backend+0xd00,&packedHudView,8);
+    std::memset(backend+0xd08,0,0x20);
+    testContext->OMSetRenderTargets(1,&packedHudView,nullptr);
+    const D3D11_VIEWPORT full{0,0,float(testDesc.Width),float(2*testDesc.Height),0,1};
+    const D3D11_RECT rect{0,0,LONG(testDesc.Width),LONG(2*testDesc.Height)};
+    ObserveRaster(full,rect);
+    if (naturalWrongTarget) std::memset(backend+0xd00,0,8);
+    if (naturalUnobservedRaster) HaloCEHudLayout_InvalidateState(testContext);
+    if (!naturalOmitGameplay) RunCeHudGameplayRuntimeFixture(bindings.base,&NaturalGameplayHud);
+    if (naturalRepeatGameplay) RunCeHudGameplayRuntimeFixture(bindings.base,&NaturalGameplayHud);
+    D3D11_VIEWPORT after{};UINT n=1;testContext->RSGetViewports(&n,&after);
+    naturalRasterRestored&=n==1&&!std::memcmp(&after,&full,sizeof(full));
+    ObserveRaster(full,rect); // Native callback's own final full-height viewport.
+    if (naturalRevokeSource)
+    {
+        auto packed=testDesc;packed.Height*=2;
+        HaloCE_RecordTextureCreated(testDestination,packed);
+    }
+    // The real native callback's backend+0x28 epilogue calls D3D ClearState
+    // and clears the cached output count. It retains the native descriptor.
+    testContext->ClearState();HaloCEHudLayout_InvalidateState(testContext);
+    std::memset(backend+0xcf8,0,4);std::memset(backend+0xd20,0,8);
+    if (naturalSwapSelectedSource)
+        std::memcpy(reinterpret_cast<void*>(packedHudRoot+0xe0),&testSource,8);
+    if (naturalRetireContext) std::memset(reinterpret_cast<void*>(bindings.base+0x2ea2d30),0,8);
+}
+void __fastcall NativeHudHookFault() { RaiseException(0xe042ce04,0,0,nullptr); }
+bool InvokeActualHudHookFault()
+{
+    __try { AnniversaryHudCallbackHook(); }
+    __except(GetExceptionCode()==0xe042ce04?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH) { return true; }
+    return false;
 }
 bool InstallFixtureJump(uintptr_t at,uintptr_t destination)
 {
@@ -222,8 +293,9 @@ void ConsumeCamera(int eye,uintptr_t caller)
     *camera=saved;
 }
 Prepared MakePrepared(uint64_t serial,uintptr_t list,PreparationOrigin origin);
-void __fastcall NativeFrame(uintptr_t,uint32_t)
+void __fastcall NativeFrame(uintptr_t,uint32_t flags)
 {
+    if (naturalHudFrame) std::memcpy(reinterpret_cast<void*>(depthBackend+0x48),&depthRoot,8);
     if (nestedMaterialProbe)
     {
         Tracking owner{};
@@ -256,6 +328,7 @@ void __fastcall NativeFrame(uintptr_t,uint32_t)
         if (!omitShading) ConsumeCamera(eye,0x457c07);
         Paint(testSource,eye?rightColor:leftColor); OutputBody(eye);
     }
+    if (naturalHudFrame&&(flags&0x10)) AnniversaryHudCallbackBody(bindings.base+0x4572f5+(naturalForeignCaller?1:0));
 }
 bool InvokeNestedMaterialFault()
 {
@@ -274,8 +347,21 @@ uintptr_t __fastcall NativeBuilder(uintptr_t,SaberViewPair* list,uint8_t seconda
     *list={};
     return 0xceba1234;
 }
+bool workerSubmissionProbe{},workerBeforeUnowned{},workerAfterOwned{};
+uint64_t workerObservedSerial{};
 void __fastcall NativePrepare(uintptr_t job)
-{ std::memcpy(reinterpret_cast<void*>(rendererAddress+0xb0),reinterpret_cast<void*>(job+0x70),sizeof(SaberViewPair)); }
+{
+    Tracking owner{};
+    if (workerSubmissionProbe)
+        workerBeforeUnowned=!HaloCE_GetAnniversaryPreparedListTracking(rendererAddress+0xb0,owner);
+    std::memcpy(reinterpret_cast<void*>(rendererAddress+0xb0),reinterpret_cast<void*>(job+0x70),sizeof(SaberViewPair));
+    if (workerSubmissionProbe)
+    {
+        HaloCE_RecordAnniversaryVisibilitySubmission(rendererAddress+0xb0,1,bindings.base+0x45550b);
+        workerAfterOwned=HaloCE_GetAnniversaryPreparedListTracking(rendererAddress+0xb0,owner);
+        workerObservedSerial=owner.serial;
+    }
+}
 bool Pixels(ID3D11Device* device,ID3D11Texture2D* texture,uint32_t expected)
 {
     auto d=testDesc; d.Usage=D3D11_USAGE_STAGING; d.BindFlags=0; d.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
@@ -297,6 +383,9 @@ Prepared MakePrepared(uint64_t serial,uintptr_t list,PreparationOrigin origin)
     auto& native=*reinterpret_cast<SaberViewPair*>(list);
     native={}; native.flags=1; native.count=2;
     Tracking tracking{}; tracking.serial=serial; tracking.generation=3; tracking.spaceEpoch=7;
+    // This fixture represents active gameplay. The zero-initialized policy
+    // deliberately defaults to blocked until a real caller establishes it.
+    tracking.controllers.controlsPresentationBlocked=false;
     tracking.headPosition={.1f,1.6f,.2f};
     tracking.eyes[0].offset={-.032f,0,0}; tracking.eyes[1].offset={.032f,0,0};
     Camera stockCamera{};
@@ -711,6 +800,73 @@ int main()
         if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId);pair={}; }
     }
     {
+        publish(133);Prepared p{};renderReady.Read(p);HaloCE_PublishTracking(p.receipt.tracking,true);
+        recenter=false;Tracking owner{};const uintptr_t list=rendererAddress+0xb0;
+        check(!frameScope&&HaloCE_GetAnniversaryPreparedListTracking(list,owner)&&owner.serial==133,
+            "native material worker borrows exact pre-culling list before any drawing-eye scope");
+        SaberViewPair foreign{};Read(list,foreign);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(reinterpret_cast<uintptr_t>(&foreign),owner)&&!owner.serial,
+            "identical camera bytes at a foreign list never grant worker ownership");
+        auto* player=reinterpret_cast<int32_t*>(list+0x10+sizeof(SaberView)+0x30+0x220);
+        *player=1;
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"true second native player is excluded from VR source-player remapping");
+        *player=0;referenceRevision.fetch_add(1);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"recenter revokes pending worker list receipts");
+        referenceRevision.fetch_sub(1);
+        check(HaloCE_GetAnniversaryPreparedListTracking(list,owner),"restored matching list/reference recovers before culling");
+        handoff.Invalidate(PreparationOrigin::ActiveList);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"recycled native list ticket cannot inherit previous worker ownership");
+        const auto copied=MakePrepared(133,jobAddress+0x70,PreparationOrigin::CopiedList);
+        preparedLists[1].Publish(copied);copiedWorkerList.Publish({});
+        check(HaloCE_GetAnniversaryPreparedListTracking(jobAddress+0x70,owner),"copied job source has its own exact worker receipt");
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),
+            "stationary old renderer cannot borrow a matching new copied-source receipt before the native handoff");
+        const auto previousJob=jobScope;jobScope={jobAddress,list,true,true};
+        activeListAddress=list;
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,0,bindings.base+0x45550b);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"phase zero cannot publish a copied destination");
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,1,bindings.base+0x455378);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"other native submission caller cannot publish a copy");
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,1,bindings.base+0x45550b);
+        check(HaloCE_GetAnniversaryPreparedListTracking(list,owner)&&owner.serial==133,
+            "exact post-copy phase-one submission publishes the source ticket before native worker execution");
+        *reinterpret_cast<int32_t*>(jobAddress+0xbe5c)=0;
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,1,bindings.base+0x45550b);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),
+            "failed new copy publication revokes an otherwise matching previous destination");
+        *reinterpret_cast<int32_t*>(jobAddress+0xbe5c)=1;
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,1,bindings.base+0x45550b);
+        check(HaloCE_GetAnniversaryPreparedListTracking(list,owner),"fresh valid submission recovers after failed copy publication");
+        RevokeCopiedWorkerList();
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),
+            "atomic revocation defeats a retained matching snapshot without depending on snapshot publication");
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,1,bindings.base+0x45550b);
+        auto blocked=copied.receipt.tracking;blocked.controllers.controlsPresentationBlocked=true;
+        HaloCE_PublishTracking(blocked,true);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"newly blocked presentation revokes older unblocked worker tracking");
+        HaloCE_PublishTracking(copied.receipt.tracking,true);
+        check(HaloCE_GetAnniversaryPreparedListTracking(list,owner),"resumed fresh presentation recovers current worker list");
+        SaberViewPair beforeReset{};Read(list,beforeReset);ResetListHook(list);
+        std::memcpy(reinterpret_cast<void*>(list),&beforeReset,sizeof(beforeReset));
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),
+            "destination reset revokes copied ownership even when identical stationary camera bytes return");
+        HaloCE_RecordAnniversaryVisibilitySubmission(list,1,bindings.base+0x45550b);
+        check(HaloCE_GetAnniversaryPreparedListTracking(list,owner),"fresh native copy publication recovers after destination reset");
+        handoff.Invalidate(PreparationOrigin::CopiedList);
+        check(!HaloCE_GetAnniversaryPreparedListTracking(list,owner),"reused copied source revokes its worker destination marker");
+        jobScope=previousJob;copiedWorkerList.Publish({});
+        const auto oldActive=MakePrepared(133,list,PreparationOrigin::ActiveList);
+        preparedLists[0].Publish(oldActive);
+        const auto nextCopied=MakePrepared(134,jobAddress+0x70,PreparationOrigin::CopiedList);
+        preparedLists[1].Publish(nextCopied);HaloCE_PublishTracking(nextCopied.receipt.tracking,true);
+        check(HaloCE_GetAnniversaryPreparedListTracking(list,owner)&&owner.serial==133,
+            "fixture retains a valid old active-list receipt with identical stationary cameras");
+        workerSubmissionProbe=true;PrepareBody(jobAddress);workerSubmissionProbe=false;
+        check(workerBeforeUnowned&&workerAfterOwned&&workerObservedSerial==134,
+            "real job scope retires overwritten active-list receipt before copy and admits only its fresh copied ticket before workers");
+        check(!jobScope.owned&&HaloCE_Armed(),"worker handoff leaves camera armed and clears job scope");
+    }
+    {
         // Cover the complete frame -> per-eye replay -> native callback ->
         // actual GPU capture chain. be2140f lost the render flags before this
         // boundary, which all earlier standalone layout/target tests missed.
@@ -862,6 +1018,112 @@ int main()
         hudFault=HudFault::None;
         anniversaryHudInstalled=false;anniversaryHudHook={};hudRoot=0;
         ConfigureCeHudLayoutRuntimeFixture(3,false);
+    }
+    {
+        // Native order regression: both worlds copy first; the single normal
+        // callback then reaches the production gameplay/layout adapter. GPU
+        // pixels must reach both eye caches before the native frame returns.
+        auto packedDesc=testDesc;packedDesc.Height*=2;
+        ComPtr<ID3D11Texture2D> packedTexture;ComPtr<ID3D11RenderTargetView> packedView;
+        check(SUCCEEDED(device->CreateTexture2D(&packedDesc,nullptr,&packedTexture))&&
+            SUCCEEDED(device->CreateRenderTargetView(packedTexture.Get(),nullptr,&packedView)),"packed native HUD target created");
+        testDestination=packedTexture.Get();packedHudView=packedView.Get();
+        HaloCE_RecordTextureCreated(testDestination,packedDesc);
+        std::array<uint8_t,0x118> wrapper{};uintptr_t table=reinterpret_cast<uintptr_t>(&packedHudView);
+        std::array<uint8_t,0xb8> players{};
+        const uintptr_t playersAddress=reinterpret_cast<uintptr_t>(players.data());
+        const int16_t playerCount=1;
+        std::memcpy(mapped.data()+0x2ea2d90,&playersAddress,8);std::memcpy(players.data()+0xb4,&playerCount,2);
+        packedHudRoot=reinterpret_cast<uintptr_t>(wrapper.data());
+        std::memcpy(wrapper.data(),&textureVtable,8);
+        const uint32_t colorFlag=1u<<8;const int32_t viewCount=1;const int8_t mipCount=1;
+        std::memcpy(wrapper.data()+0x88,&colorFlag,4);std::memcpy(wrapper.data()+0x1a,&mipCount,1);
+        std::memcpy(wrapper.data()+0xe0,&testDestination,8);std::memcpy(wrapper.data()+0xe8,&table,8);
+        std::memcpy(wrapper.data()+0xf0,&viewCount,4);
+        check(InstallFixtureJump(bindings.base+contract::hud_target::hud_target_surface_select,
+            reinterpret_cast<uintptr_t>(&NativeDepthSelect)),"verified native surface selector fixture");
+        Camera camera{};camera.position={10,20,30};camera.forward={1,0,0};camera.up={0,0,1};
+        camera.verticalFov=1;camera.nearPlane=.01f;camera.farPlane=1000;
+        camera.window=camera.viewport={0,0,static_cast<int16_t>(packedDesc.Height),static_cast<int16_t>(packedDesc.Width)};
+        std::memcpy(mapped.data()+0x2d9cb34,&camera,sizeof(camera));
+        std::memcpy(mapped.data()+0x29af2c4,&camera,sizeof(camera));
+        const int16_t player=0;std::memcpy(mapped.data()+0x29af2b8,&player,2);
+        anniversaryHudHook.original=reinterpret_cast<void*>(&NaturalHudCallback);
+        anniversaryHudInstalled=false;naturalHudFrame=true;hudTargetBindingsVerified=true;
+        ConfigureCeHudLayoutRuntimeFixture(3,true);
+        auto pixelsMatch=[&](ID3D11Texture2D* texture,int eye,bool hud) {
+            auto desc=testDesc;desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Texture2D> staging;
+            if (FAILED(device->CreateTexture2D(&desc,nullptr,&staging))) return false;
+            context->CopyResource(staging.Get(),texture);D3D11_MAPPED_SUBRESOURCE read{};
+            if (FAILED(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&read))) return false;
+            bool same=true;const auto& region=hudRegions[eye];
+            for (UINT y=0;y<desc.Height;++y) for (UINT x=0;x<desc.Width;++x)
+            {
+                const UINT packedY=y+eye*desc.Height;
+                const bool inside=hud&&x>=region.left&&x<region.right&&packedY>=region.top&&packedY<region.bottom;
+                const uint32_t expected=inside?hudColor:(eye?rightColor:leftColor);
+                const auto* row=reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(read.pData)+y*read.RowPitch);
+                same&=row[x]==expected;
+            }
+            context->Unmap(staging.Get(),0);return same;
+        };
+        auto naturalFrame=[&](uint64_t serial,bool expectedHud,unsigned expectedDraws,float size=1.0f,uint32_t flags=0x10) {
+            publish(serial);Prepared p{};renderReady.Read(p);p.receipt.tracking.hud.size=size;
+            p.receipt.tracking.hud.aspect=1;p.receipt.tracking.hud.verticalOffset=0;
+            renderReady.Publish(p);auto newer=p.receipt.tracking;++newer.serial;
+            HaloCE_PublishTracking(newer,true);recenter=false;
+            publishedReference.Publish({{p.receipt.tracking.headPosition,{},7,3},referenceRevision.load()});
+            expectedNaturalSerial=serial;naturalFrozen=true;naturalRasterRestored=true;
+            const auto before=naturalCallbacks;naturalGameplayCalls=0;hudRegions[0]={};hudRegions[1]={};
+            FrameBody(0,flags);
+            std::memcpy(mapped.data()+0x2ea2d30,&testContext,8);
+            FrameDiagnostic diag{};frameDiagnostic.Read(diag);
+            if (diag.failure!=FrameFailure::None||naturalGameplayCalls!=expectedDraws)
+                std::fprintf(stderr,"natural serial=%llu frame=%u consumer=%u depth=%u eyes=%u HUD=%u calls=%u expected=%u\n",
+                    serial,unsigned(diag.failure),diag.consumerFailure,diag.depthFailure,diag.eyeMask,
+                    anniversaryHudFailure.load(),naturalGameplayCalls,expectedDraws);
+            check(naturalCallbacks-before==((flags&0x10)?1u:0u),"native callback runs only once and only from ordinary frame tail");
+            check(naturalGameplayCalls==expectedDraws,"only admitted native gameplay HUD is framed into both eyes");
+            check(HaloCE_AcquirePair(context.Get(),serial+1,7,pair),"late HUD keeps complete world pair available");
+            if (pair.borrowId)
+            {
+                check(pixelsMatch(pair.eyes[0],0,expectedHud)&&pixelsMatch(pair.eyes[1],1,expectedHud),
+                    "late native HUD pixels reach both eyes while distinct world pixels survive around them");
+                HaloCE_ReleasePair(pair.borrowId);pair={};
+            }
+            if (expectedHud) check(naturalFrozen&&naturalRasterRestored&&anniversaryHudFailure==0,
+                "both HUD draws use frozen frame tracking and restore full native viewport");
+            check(!anniversaryNaturalHud&&HaloCE_Armed(),"natural HUD scope clears and keeps camera armed");
+        };
+        anniversaryHudNaturalInstalled=false;naturalFrame(151,false,1); // Reproduce prior early-capture omission.
+        anniversaryHudNaturalInstalled=true;naturalFrame(152,true,2);
+        naturalFrame(153,true,2,.5f);
+        naturalNativeReset=true;naturalFrame(154,true,2,.5f);naturalNativeReset=false;
+        naturalRevokeSource=true;naturalFrame(155,false,2);naturalRevokeSource=false;
+        naturalFrame(156,true,2);
+        naturalWrongTarget=true;naturalFrame(157,false,1);naturalWrongTarget=false;
+        naturalFrame(158,true,2);
+        naturalOmitGameplay=true;naturalFrame(159,false,0);naturalOmitGameplay=false;
+        naturalFrame(160,false,0,1,0);
+        naturalInvalidateRaster=true;naturalFrame(161,false,1);naturalInvalidateRaster=false;
+        naturalFrame(162,true,2);
+        naturalForeignCaller=true;naturalFrame(163,false,1);naturalForeignCaller=false;
+        naturalUnobservedRaster=true;naturalFrame(164,false,1);naturalUnobservedRaster=false;
+        naturalRepeatGameplay=true;naturalFrame(165,false,3);naturalRepeatGameplay=false;
+        const int16_t twoPlayers=2;std::memcpy(players.data()+0xb4,&twoPlayers,2);
+        naturalFrame(166,false,1);std::memcpy(players.data()+0xb4,&playerCount,2);
+        naturalFrame(167,true,2);
+        naturalSwapSelectedSource=true;naturalFrame(168,false,2);naturalSwapSelectedSource=false;
+        naturalRetireContext=true;naturalFrame(169,false,2);naturalRetireContext=false;
+        naturalFrame(170,true,2);
+        const auto callbacksBefore=callbacks.load();
+        anniversaryHudHook.original=reinterpret_cast<void*>(&NativeHudHookFault);
+        check(InvokeActualHudHookFault()&&callbacks.load()==callbacksBefore&&!anniversaryNaturalHud,
+            "actual HUD detour preserves native exception and retires its callback count under SEH");
+        anniversaryHudNaturalInstalled=false;naturalHudFrame=false;anniversaryHudHook={};
+        packedHudRoot=0;packedHudView=nullptr;testDestination=destination.Get();
+        context->OMSetRenderTargets(0,nullptr,nullptr);ConfigureCeHudLayoutRuntimeFixture(3,false);
     }
     {
         // The Anniversary native builder must publish its untouched center

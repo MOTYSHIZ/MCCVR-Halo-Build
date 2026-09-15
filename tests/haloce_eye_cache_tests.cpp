@@ -138,6 +138,113 @@ int main()
             "delayed old borrow release cannot free a newer submission");
         check(cache.ReleaseCompleted(complete.borrowId),"new borrow remains releasable");
     }
+    {
+        auto packedDescriptor=d;packedDescriptor.Height*=2;
+        ComPtr<ID3D11Texture2D> packed;
+        check(SUCCEEDED(device->CreateTexture2D(&packedDescriptor,nullptr,&packed)),
+            "create real native packed output surface");
+        std::vector<uint32_t> packedPixels(packedDescriptor.Width*packedDescriptor.Height);
+        const auto paintPacked=[&](uint32_t left,uint32_t right) {
+            std::fill(packedPixels.begin(),packedPixels.begin()+pixels.size(),left);
+            std::fill(packedPixels.begin()+pixels.size(),packedPixels.end(),right);
+            context->UpdateSubresource(packed.Get(),0,nullptr,packedPixels.data(),packedDescriptor.Width*4,0);
+        };
+        const auto captureWorld=[&](uint64_t serial) {
+            bool ok=cache.Begin(Receipt(serial,d.Width,d.Height),key);
+            paint(0xff102030);ok=cache.Capture(key,0,context.Get(),source.Get(),d)&&ok;
+            paint(0xff405060);return cache.Capture(key,1,context.Get(),source.Get(),d)&&ok;
+        };
+        const auto worldIntact=[&] {
+            if (!cache.Finish(key)||!cache.AcquireCompleted(key,context.Get(),complete)) return false;
+            const bool ok=Pixels(device.Get(),context.Get(),complete.eyes[0],complete.descriptor,0xff102030)&&
+                Pixels(device.Get(),context.Get(),complete.eyes[1],complete.descriptor,0xff405060);
+            return cache.ReleaseCompleted(complete.borrowId)&&ok;
+        };
+        paintPacked(0xffa1b2c3,0xffd4e5f6);
+        check(cache.Begin(Receipt(200,d.Width,d.Height),key),"start incomplete late-HUD case");
+        paint(0xff102030);
+        check(cache.Capture(key,0,context.Get(),source.Get(),d),"capture first world eye before optional HUD");
+        check(!cache.CapturePacked(key,context.Get(),packed.Get(),packedDescriptor),
+            "late HUD cannot replace an incomplete world pair");
+        paint(0xff405060);
+        check(cache.Capture(key,1,context.Get(),source.Get(),d)&&worldIntact(),
+            "premature HUD refusal preserves first eye and permits normal world completion");
+
+        check(captureWorld(201),"capture world pair for rejected packed sources");
+        for (int field=0;field<4;++field)
+        {
+            auto stale=key;
+            switch (field)
+            {
+            case 0:++stale.generation;break;case 1:++stale.spaceEpoch;break;
+            case 2:++stale.serial;break;case 3:++stale.resourceEpoch;break;
+            }
+            check(!cache.CapturePacked(stale,context.Get(),packed.Get(),packedDescriptor),
+                "each stale packed receipt identity component is rejected");
+        }
+        for (int field=0;field<12;++field)
+        {
+            auto rejected=packedDescriptor;
+            switch (field)
+            {
+            case 0:++rejected.Width;break;case 1:--rejected.Height;break;
+            case 2:rejected.Height=32768;break;case 3:rejected.MipLevels=2;break;
+            case 4:rejected.ArraySize=2;break;case 5:rejected.SampleDesc.Count=2;break;
+            case 6:rejected.SampleDesc.Quality=1;break;case 7:rejected.Format=DXGI_FORMAT_B8G8R8A8_UNORM;break;
+            case 8:rejected.Usage=D3D11_USAGE_STAGING;break;case 9:rejected.CPUAccessFlags=D3D11_CPU_ACCESS_READ;break;
+            case 10:rejected.BindFlags|=D3D11_BIND_DEPTH_STENCIL;break;case 11:rejected.MiscFlags=1;break;
+            }
+            check(!cache.CapturePacked(key,context.Get(),packed.Get(),rejected),
+                "incompatible packed layout is refused before either eye copy");
+        }
+        check(!cache.CapturePacked(key,deferred.Get(),packed.Get(),packedDescriptor)&&
+            !cache.CapturePacked(key,nullptr,packed.Get(),packedDescriptor)&&
+            !cache.CapturePacked(key,context.Get(),nullptr,packedDescriptor)&&
+            !cache.CapturePacked(key,context.Get(),complete.eyes[0],packedDescriptor)&&
+            !cache.CapturePacked(key,context.Get(),complete.eyes[1],packedDescriptor),
+            "wrong context, absent source and aliases of either eye are rejected");
+        check(cache.Finish(key),"refused HUD operations retain a publishable world pair");
+        check(!cache.CapturePacked(key,context.Get(),packed.Get(),packedDescriptor),
+            "finished frame cannot accept late replacement");
+        borrowed=cache.AcquireCompleted(key,context.Get(),complete);
+        check(borrowed,"late replacement refusal leaves completed world pair available");
+        if (borrowed)
+        {
+            check(!cache.CapturePacked(key,context.Get(),packed.Get(),packedDescriptor),
+                "submission borrow excludes optional packed writes");
+            check(Pixels(device.Get(),context.Get(),complete.eyes[0],complete.descriptor,0xff102030)&&
+                Pixels(device.Get(),context.Get(),complete.eyes[1],complete.descriptor,0xff405060),
+                "all rejected optional replacements leave both world eye pixels intact");
+            check(cache.ReleaseCompleted(complete.borrowId),"release unchanged world pair");
+        }
+        uint64_t serial=202;
+        for (const auto format:{DXGI_FORMAT_R8G8B8A8_UNORM,DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+            DXGI_FORMAT_R8G8B8A8_TYPELESS})
+        {
+            packed.Reset();packedDescriptor.Format=format;
+            packedDescriptor.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+            check(SUCCEEDED(device->CreateTexture2D(&packedDescriptor,nullptr,&packed)),
+                "create actual compatible native packed format");
+            paintPacked(0xffa1b2c3,0xffd4e5f6);
+            check(captureWorld(serial++),"capture world pair before native late-HUD finish");
+            check(cache.CapturePacked(key,context.Get(),packed.Get(),packedDescriptor),
+                "capture both packed native output halves with compatible format and distinct bind flags");
+            paintPacked(0xff000000,0xff000000);packed.Reset();
+            check(cache.Finish(key),"finish after packed copies and native source release");
+            borrowed=cache.AcquireCompleted(key,context.Get(),complete);
+            check(borrowed,"HUD-complete packed pair available for submission");
+            if (borrowed)
+            {
+                check(complete.tracking.serial==serial-1&&complete.tracking.spaceEpoch==7&&
+                    complete.covers[0].halfX==1.0f&&complete.covers[1].halfY==.9f,
+                    "packed capture retains world preparation tracking and eye covers");
+                check(Pixels(device.Get(),context.Get(),complete.eyes[0],complete.descriptor,0xffa1b2c3)&&
+                    Pixels(device.Get(),context.Get(),complete.eyes[1],complete.descriptor,0xffd4e5f6),
+                    "packed top/bottom copies replace both world eyes and survive source recycling");
+                check(cache.ReleaseCompleted(complete.borrowId),"release packed native HUD pair");
+            }
+        }
+    }
     changed=d; changed.SampleDesc.Count=2;
     check(!cache.Prepare(device.Get(),context.Get(),changed,3,3),"MSAA needs a separate verified resolve path");
     check(!cache.Begin(Receipt(107,d.Width,d.Height),key),"failed preparation retains no old admission");

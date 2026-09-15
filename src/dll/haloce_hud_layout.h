@@ -27,5 +27,5 @@ void HaloCEHudLayout_EndPrivateRaster() noexcept;
 // from an attempted replay whose cleanup could not be verified. On success
 // it is false until the caller completes EndEyeReplay.
 bool HaloCEHudLayout_BeginEyeReplay(ID3D11DeviceContext*,UINT nativeWidth,UINT nativeHeight,
-    UINT eyeWidth,UINT eyeHeight,bool* cleanupVerified=nullptr) noexcept;
+    UINT eyeWidth,UINT eyeHeight,bool* cleanupVerified=nullptr,UINT outputTop=0,bool clipToEye=false) noexcept;
 bool HaloCEHudLayout_EndEyeReplay() noexcept;

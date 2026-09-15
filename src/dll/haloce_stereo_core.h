@@ -29,6 +29,12 @@ bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& context) noexcep
 // receipt retains a verified stock center and pairs it with fresh XR input.
 bool HaloCE_GetGameplayContext(halo_ce::RenderContext& context) noexcept;
 bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& context) noexcept;
+// The ordinary late Anniversary HUD callback owns the native setup. Its
+// gameplay draw can frame the two already rendered packed eye regions; it
+// never invokes that callback or changes the native target stack itself.
+bool HaloCE_BeginAnniversaryHudGameplay(ID3D11DeviceContext* context,
+    UINT& packedWidth,UINT& packedHeight) noexcept;
+void HaloCE_EndAnniversaryHudGameplay(bool complete) noexcept;
 // Native per-eye post effects may use the exact rendered frame's immutable
 // settings only while its primary camera still owns the current scene.
 bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
@@ -37,6 +43,11 @@ bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
 // complete. Only the currently selected, verified primary camera may lend its
 // frozen eye settings; auxiliary uploads and per-eye output revoke this scope.
 bool HaloCE_GetAnniversaryPrimaryEyeTracking(halo_ce::Tracking& tracking) noexcept;
+// Pre-culling/material workers use the explicitly published native list,
+// before render-eye TLS exists. Source/copied-list identity and its current
+// ticket, both cameras, source player, reference and XR lifetime must match.
+bool HaloCE_GetAnniversaryPreparedListTracking(uintptr_t list,halo_ce::Tracking& tracking) noexcept;
+void HaloCE_RecordAnniversaryVisibilitySubmission(uintptr_t list,int32_t phase,uintptr_t caller) noexcept;
 // Successful creation owns this texture, even before CE loads. Metadata only.
 void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     const D3D11_TEXTURE2D_DESC& descriptor) noexcept;

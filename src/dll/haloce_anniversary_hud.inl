@@ -9,6 +9,7 @@ Hook anniversaryHudHook;
 // restore. See HALOCE-ANNIVERSARY-REPLAY-ROLLBACK-2026-09-15.md.
 constexpr bool kCeAnniversaryManualHudReplayEnabled=false;
 std::atomic<bool> anniversaryHudInstalled{};
+std::atomic<bool> anniversaryHudNaturalInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
 std::atomic<uint32_t> anniversaryHudFailure{};
 const char* AnniversaryHudFailureName(uint32_t value) noexcept
@@ -45,6 +46,10 @@ const char* AnniversaryHudFailureName(uint32_t value) noexcept
     case 38:return "eye-camera-changed";
     case 39:return "eye-selected-camera";
     case 40:return "eye-ownership-changed";
+    case 50:return "natural-HUD-frame";
+    case 51:return "natural-HUD-packed-target";
+    case 52:return "natural-HUD-gameplay-or-raster";
+    case 53:return "natural-HUD-source-changed";
     default:return "unknown";
     }
 }
@@ -57,11 +62,105 @@ struct AnniversaryHudReplay
 };
 thread_local AnniversaryHudReplay* anniversaryHudReplay{};
 
-void AnniversaryHudCallbackBody()
+// The normal native callback runs once, late in the frame, after the native
+// copies have packed the two worlds. Only its gameplay HUD draw is framed
+// twice. No callback, preamble, target push/pop or lock is invoked manually.
+struct AnniversaryNaturalHud
+{
+    FrameScope* frame{};
+    RenderContext owner;
+    CeHudTargetSnapshot target;
+    ID3D11DeviceContext* context{};
+    bool entered{},complete{};
+};
+thread_local AnniversaryNaturalHud* anniversaryNaturalHud{};
+
+bool AnniversaryHud_NaturalCurrent(const AnniversaryNaturalHud& hud) noexcept
+{
+    const auto* f=hud.frame;
+    return !anniversaryMaterialMasked&&f&&f==frameScope&&f->capture&&f->synthetic&&f->prepared.valid&&
+        f->diagnostic.eyeMask==3&&f->packedEyeMask==3&&f->packedResource&&
+        f->prepared.referenceRevision==referenceRevision.load(std::memory_order_acquire)&&
+        Current()&&Anniversary()&&HaloCE_RenderContextCurrent(hud.owner);
+}
+bool AnniversaryHud_BeginGameplay(ID3D11DeviceContext* context,UINT& width,UINT& height) noexcept
+{
+    auto* hud=anniversaryNaturalHud;
+    if (!hud) return false;
+    if (hud->entered) { hud->complete=false;return false; }
+    if (!context||!AnniversaryHud_NaturalCurrent(*hud)) return false;
+    auto& f=*hud->frame;
+    anniversaryHudFailure=51;
+    ResourceRegistry::Record resource{};
+    if (!hudTargetBindingsVerified.load()||
+        reinterpret_cast<uintptr_t>(context)!=f.diagnostic.copyContext[0]||
+        f.diagnostic.copyContext[0]!=f.diagnostic.copyContext[1]||
+        !resources.Read(f.packedResource,f.packedResource,resource)||resource.revision!=f.packedRevision||
+        !HaloCEHudTarget_Read(bindings.base,context,hud->target)||hud->target.count!=1||
+        hud->target.resources[0]!=f.packedResource||
+        std::memcmp(&resource.descriptor,&f.packedDescriptor,sizeof(resource.descriptor))) return false;
+    const auto& d=f.packedDescriptor;
+    if (!d.Width||!d.Height||d.Height%2||d.Width!=f.diagnostic.sourceWidth||
+        d.Height!=2*f.diagnostic.sourceHeight) return false;
+    hud->context=context;hud->entered=true;
+    width=d.Width;height=d.Height;
+    anniversaryHudFailure=52;
+    return true;
+}
+void AnniversaryHud_EndGameplay(bool complete) noexcept
+{
+    auto* hud=anniversaryNaturalHud;
+    if (!hud||!hud->entered) return;
+    CeHudTargetSnapshot after{};
+    hud->complete=complete&&AnniversaryHud_NaturalCurrent(*hud)&&
+        HaloCEHudTarget_Read(bindings.base,hud->context,after)&&
+        after.backend==hud->target.backend&&after.descriptor==hud->target.descriptor&&
+        after.count==hud->target.count&&after.resources[0]==hud->target.resources[0]&&
+        after.rtvs[0]==hud->target.rtvs[0]&&after.dsv==hud->target.dsv;
+}
+void AnniversaryHud_NaturalBody(AnniversaryHudFn original,uintptr_t caller)
+{
+    auto* f=frameScope;
+    if (!anniversaryHudNaturalInstalled.load()||anniversaryNaturalHud||anniversaryMaterialMasked||
+        caller!=bindings.base+0x4572f5||!f||
+        !f->capture||!(f->renderFlags&0x10)||f->diagnostic.eyeMask!=3)
+    { original();return; }
+    AnniversaryNaturalHud local{};local.frame=f;
+    ReferenceSample sample{};
+    uintptr_t players{};int16_t playerCount{};
+    if (!Read(bindings.base+0x2ea2d90,players)||!Read(players+0xb4,playerCount)||playerCount!=1||
+        !Read(bindings.base+0x2d9cb34,local.owner.camera)||!Valid(local.owner.camera)||
+        !publishedReference.Read(sample)||sample.revision!=f->prepared.referenceRevision)
+    { anniversaryHudFailure=50;anniversaryHudFallbacks.fetch_add(1);original();return; }
+    local.owner.tracking=f->prepared.receipt.tracking;
+    local.owner.reference=sample.value;local.owner.referenceRevision=sample.revision;
+    local.owner.rendererEpoch=ceRendererEpoch.load();
+    local.owner.unitsPerMeter=Game_GetWorldScale();local.owner.positional=Game_IsPositionalTracking();
+    if (!AnniversaryHud_NaturalCurrent(local))
+    { anniversaryHudFailure=50;anniversaryHudFallbacks.fetch_add(1);original();return; }
+    anniversaryHudFailure=52;
+    anniversaryNaturalHud=&local;
+    bool returned=false;
+    __try { original();returned=true; }
+    __finally
+    {
+        anniversaryNaturalHud=nullptr;
+        ResourceRegistry::Record after{};
+        const bool committed=returned&&local.complete&&AnniversaryHud_NaturalCurrent(local)&&
+            HaloCEHudTarget_CaptureSourceCurrent(local.target)&&
+            resources.Read(f->packedResource,f->packedResource,after)&&after.revision==f->packedRevision&&
+            !std::memcmp(&after.descriptor,&f->packedDescriptor,sizeof(after.descriptor))&&
+            cache.CapturePacked(f->key,local.context,reinterpret_cast<ID3D11Resource*>(f->packedResource),after.descriptor);
+        if (committed) { anniversaryHudFailure=0;anniversaryHudDraws.fetch_add(2,std::memory_order_relaxed); }
+        else { if (local.complete) anniversaryHudFailure=53;anniversaryHudFallbacks.fetch_add(1,std::memory_order_relaxed); }
+    }
+}
+
+void AnniversaryHudCallbackBody(uintptr_t caller=0)
 {
     const auto original=reinterpret_cast<AnniversaryHudFn>(anniversaryHudHook.original);
     auto* replay=anniversaryHudReplay;
-    if (!replay) { original(); return; }
+    if (!replay) { AnniversaryHud_NaturalBody(original,caller); return; }
     if (replay->entered||!HaloCE_RenderContextCurrent(replay->owner)) return;
     if (!HaloCEHudLayout_BeginEyeReplay(replay->context,replay->width,replay->height,
         replay->eyeWidth,replay->eyeHeight,&replay->rasterRestored)) return;
@@ -70,11 +169,16 @@ void AnniversaryHudCallbackBody()
     __finally { replay->rasterRestored=HaloCEHudLayout_EndEyeReplay(); }
 }
 void __fastcall AnniversaryHudCallbackHook()
-{ Callback callback; AnniversaryHudCallbackBody(); }
+{
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try { AnniversaryHudCallbackBody(reinterpret_cast<uintptr_t>(_ReturnAddress())); }
+    __finally { callbacks.fetch_sub(1,std::memory_order_release); }
+}
 
 bool AnniversaryHud_Remove() noexcept
 {
     anniversaryHudInstalled=false;
+    anniversaryHudNaturalInstalled=false;
     if (anniversaryHudHook.enabled)
     {
         const auto result=MCCVR_DisableHookForRetirement(anniversaryHudHook.target);
@@ -109,6 +213,23 @@ bool AnniversaryHud_Install() noexcept
     if (MH_EnableHook(target)!=MH_OK) { (void)AnniversaryHud_Remove(); return false; }
     anniversaryHudHook.enabled=true; anniversaryHudInstalled=true;
     LOG("CE Anniversary HUD installed: per-eye native callback before exact source copy; independent target/raster restoration, visible result unverified");
+    return true;
+}
+
+bool AnniversaryHud_InstallNatural() noexcept
+{
+    const NativeContractSet set{contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,
+        contract::anniversary_hud::relatives,contract::anniversary_hud::pointers};
+    const char* failure{};
+    if (!hudTargetBindingsVerified.load()||
+        !VerifyNativeFeatureBindings(bindings.base,bindings.size,generation.load(),set,failure))
+    { LOG("CE Anniversary HUD stock fallback: %s; camera retained",failure?failure:"cold target proof");return false; }
+    auto* target=reinterpret_cast<void*>(bindings.base+contract::anniversary_hud::native_hud_callback);
+    if (MH_CreateHook(target,reinterpret_cast<void*>(&AnniversaryHudCallbackHook),&anniversaryHudHook.original)!=MH_OK) return false;
+    anniversaryHudHook.target=target;
+    if (MH_EnableHook(target)!=MH_OK) { (void)AnniversaryHud_Remove();return false; }
+    anniversaryHudHook.enabled=true;anniversaryHudNaturalInstalled=true;
+    LOG("CE Anniversary HUD installed: ordinary late native callback, gameplay HUD in both packed eyes; manual callback replay remains disabled");
     return true;
 }
 

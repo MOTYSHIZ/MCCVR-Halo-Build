@@ -65,7 +65,8 @@ struct ControlTurnState
 
 // Project both headings onto CE's independently established world-Z-up plane.
 // Preserve stick magnitude while expressing head-relative input in the native
-// body-camera heading. A vertical/invalid heading leaves the caller untouched.
+// body-camera heading. A vertical/invalid physical heading leaves the caller
+// untouched; a native camera at its pitch pole uses the shared frame fallback.
 inline bool HeadRelativeMovement(const RenderContext& context,float x,float y,
     float& outputX,float& outputY) noexcept
 {
@@ -75,9 +76,11 @@ inline bool HeadRelativeMovement(const RenderContext& context,float x,float y,
         std::fabs(x)>1.001f||std::fabs(y)>1.001f||
         context.tracking.generation!=context.reference.generation||
         context.tracking.spaceEpoch!=context.reference.spaceEpoch) return false;
-    const Vec3 head=ToNative(context.camera,Rotate(Multiply(Conjugate(context.reference.orientation),
+    Camera frame{};Quat inverse{};
+    if (!BuildTrackingFrame(context.camera,context.reference,frame,inverse)) return false;
+    const Vec3 head=ToNative(frame,Rotate(Multiply(inverse,
         context.tracking.headOrientation),{0,0,-1}));
-    Vec3 forward{context.camera.forward.x,context.camera.forward.y,0},heading{head.x,head.y,0};
+    Vec3 forward=frame.forward,heading{head.x,head.y,0};
     const float fLength=std::sqrt(Dot(forward,forward)),hLength=std::sqrt(Dot(heading,heading));
     if (!std::isfinite(fLength)||!std::isfinite(hLength)||fLength<0.001f||hLength<0.001f) return false;
     forward=forward*(1/fLength);heading=heading*(1/hLength);

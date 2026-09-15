@@ -248,6 +248,49 @@ int main(int argc,char** argv)
     CHECK(Near(target.position,{0.2f,-0.2f,0}));
     controller.valid=false;
     CHECK(!BuildControllerMatrix(camera,tracking,reference,controller,1,true,target));
+    {
+        // BuildControllerMatrix also supplies the native controller shot ray.
+        // Tilted recenter/native look must keep rendered hands, eye poses and
+        // that ray in one world-level frame, for either positional setting.
+        const Quat yaw{0,std::sin(.35f),0,std::cos(.35f)};
+        const Quat pitch{std::sin(.2f),0,0,std::cos(.2f)};
+        for (float nativePitch:{-1.5707963268f,-.8f,0.0f,.6f,1.5707963268f})
+            for (float referencePitch:{-.6f,0.0f,.5f})
+                for (float referenceRoll:{-.4f,0.0f,.5f})
+                {
+                    Camera source=camera;
+                    source.position={3,4,5};
+                    source.forward={0,std::cos(nativePitch),std::sin(nativePitch)};
+                    source.up={0,-std::sin(nativePitch),std::cos(nativePitch)};
+                    auto origin=reference;auto sample=tracking;
+                    origin.position={.6f,1.2f,-.2f};
+                    origin.orientation=Multiply(yaw,Multiply(
+                        {std::sin(referencePitch/2),0,0,std::cos(referencePitch/2)},
+                        {0,0,std::sin(referenceRoll/2),std::cos(referenceRoll/2)}));
+                    sample.headPosition=origin.position+Rotate(yaw,{.1f,.1f,-.2f});
+                    ControllerPose hand{};hand.valid=true;hand.orientation=Multiply(yaw,pitch);
+                    hand.position=origin.position+Rotate(yaw,{.2f,.3f,-.6f});
+                    NodeMatrix aim{};
+                    CHECK(BuildControllerMatrix(source,sample,origin,hand,.33f,true,aim));
+                    CHECK(Near(aim.position,source.position+Vec3{.2f,.6f,.3f}*.33f));
+                    CHECK(Near(aim.forward,{0,std::cos(.4f),std::sin(.4f)}));
+                    CHECK(Near(aim.up,{0,-std::sin(.4f),std::cos(.4f)}));
+                    sample.headPosition=hand.position;
+                    sample.headOrientation=sample.eyes[0].orientation=hand.orientation;
+                    sample.eyes[0].offset={};
+                    Camera eye{};Cover eyeCover{1,.5f,.5f};
+                    CHECK(BuildEye(source,sample,origin,0,.33f,true,eyeCover,eye));
+                    CHECK(Near(eye.position,aim.position)&&Near(eye.forward,aim.forward)&&Near(eye.up,aim.up));
+                    sample.headPosition=origin.position+Rotate(yaw,{.1f,.1f,-.2f});
+                    CHECK(BuildControllerMatrix(source,sample,origin,hand,.33f,false,aim));
+                    CHECK(Near(aim.position,source.position+Vec3{.1f,.4f,.2f}*.33f));
+                    CHECK(Near(aim.forward,{0,std::cos(.4f),std::sin(.4f)}));
+                    const NodeMatrix unchanged=aim;
+                    ++origin.spaceEpoch;
+                    CHECK(!BuildControllerMatrix(source,sample,origin,hand,.33f,false,aim));
+                    CHECK(std::memcmp(&aim,&unchanged,sizeof(aim))==0);
+                }
+    }
 
     // Exercise the production builder with a complete CE arm chain. The
     // hand target must stay exact outside reach; shoulders must stay planted.

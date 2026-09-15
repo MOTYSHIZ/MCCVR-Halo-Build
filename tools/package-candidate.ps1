@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-anniversary-recovery-muzzle',
+        'ce-horizon-hands-hud',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1135,23 +1135,27 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
-            previous_headset_result = '884de13-Original-injection-hands-and-muzzle-confirmed; Anniversary-freezes-on-graphics-switch; Anniversary-muzzle-offset-reported'
-            rejected_previous_candidate = '884de13-Anniversary-first-HUD-replay-unverified-cleanup-then-frame-stall; Original-positive-results-preserved'
-            correction = 'failed-Anniversary-manual-HUD-replay-disabled-before-native-entry; private-native-particle-upload-selects-current-eye-world-lens; successful-Original-hands-startup-and-effects-preserved'
+            previous_headset_result = 'fba9ee6-Original-hands-scale-and-injection-confirmed; Anniversary-renders-but-right-eye-FP-missing-scale-wrong-HUD-absent; both-modes-recenter-tilts-world'
+            rejected_previous_candidate = 'fba9ee6-first-person-projection-zero-applications-and-HUD-disabled; successful-Original-results-preserved'
+            correction = 'horizontal-tracking-reference; native-material-worker-lens-policy; native-source-player-FP-visibility; natural-late-HUD-framed-and-captured-for-both-eyes'
             graphics = 'Classic-and-Anniversary-stereo-6DoF-test'
             native_views = 'Anniversary-prepared-before-culling; Classic-native-render-only-eye-replay'
             submitted_pose = 'exact-native-preparation-receipt'
             source_storage = 'owned-D3D11-per-eye-textures'
             graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
-            controller_aim_hands_hud_parity = 'Original-hands-and-effects-headset-confirmed; Anniversary-particle-lens-corrected-locally; Anniversary-HUD-replay-disabled-and-visibility-unresolved'
-            world_render_failure = '884de13-Original-confirmed-Anniversary-freezes; failed-manual-HUD-replay-disabled-before-entry; recovery-awaits-headset'
+            controller_aim_hands_hud_parity = 'Original-success-preserved; Anniversary-material-worker-lens-and-native-HUD-corrected-locally; right-eye-native-player-admission-corrected; headset-test-required'
+            world_render_failure = 'fba9ee6-both-worlds-visible; level-recenter-and-Anniversary-FP-HUD-corrections-await-headset'
             scene_refresh = 'native-request-only-at-one-two-camera-transition; authored-hidden-and-geometric-culling-preserved'
             desktop_mirror = 'one-completed-eye-aspect-and-gamma-correct; both-eye-submissions-preserved'
             native_scene_refresh_verifier = 'tools/re/test_ce_scene_refresh_native.py'
-            anniversary_hud_replay = 'disabled-after-unverified-native-cleanup-and-freeze; camera-retained; Anniversary-HUD-visibility-unresolved'
+            anniversary_hud_replay = 'manual-outer-callback-disabled; ordinary-late-native-gameplay-HUD-framed-in-both-packed-eye-regions; live-target-proved-and-copied-before-frame-finish'
             floating_hands = 'official-CE-arm-geometry-collapses-at-own-tracked-wrist; old-camera-origin-collapse-disabled-in-separate-commit'
             anniversary_skin_scale = 'native-copied-bone-source-owns-its-scale-through-next-prepare; stock-scale-one-byte-identical'
-            anniversary_weapon_lens = 'independent-primary-eye-depth-scene-shading-scope; native-FP-model-flag-and-exact-selector; not-latest-palette-dependent'
+            anniversary_weapon_lens = 'native-material-worker-policy; current-generation-reference-gameplay-and-native-FP-selector-proof; each-eye-later-selects-own-world-matrix'
+            anniversary_first_person_visibility = 'private-full-list-source-player-remap; exact-active-or-native-post-copy-worker-receipt; native-hidden-and-auxiliary-view-rules-preserved'
+            native_first_person_visibility_verifier = 'tools/re/test_ce_first_person_visibility_native.py'
+            native_late_hud_sequence_verifier = 'tools/re/test_ce_late_hud_sequence_native.py'
+            recenter = 'yaw-and-position-only-reference; native-world-up; consistent-eyes-hands-movement-and-shot-direction'
             anniversary_muzzle = 'native-first-person-particle-selectors-use-same-primary-eye-world-lens-as-gun; full-capacity-private-upload-copy; native-attachments-and-shot-origin-retained; headset-alignment-pending'
             native_particle_commit_verifier = 'tools/re/test_ce_particle_commit_native.py'
             native_particle_shader_verifier = 'tools/re/test_ce_particle_shader_native.py'
@@ -1160,7 +1164,7 @@ try {
             native_pause = 'native-pause-retained; CE-ownership-loss-clears-head-lock-even-with-resident-module; shared-YB-shortcut'
             classic_weapon_effect_lens = 'optional-proven-first-person-consumers-retain-tracked-world-lens; native-depth-and-restore-preserved'
             performance = 'measured-previous-log-misses-90Hz; no-unmeasured-optimization-or-parity-claim'
-            transition_crashes = '884de13-switch-stall-follows-unverified-HUD-cleanup; replay-disabled; native-stall-instruction-and-broader-recovery-unproven'
+            transition_crashes = 'failed-manual-HUD-replay-remains-disabled; fba9ee6-Anniversary-rendering-restored; broad-long-session-recovery-unproven'
             physical_melee_world_collision = 'deferred-until-basic-VR-confirmed'
             physical_roomscale_body_following = 'disabled-for-CE-deferred'
             headset_accepted = $false
@@ -1169,11 +1173,11 @@ try {
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE Anniversary recovery/muzzle candidate: failed manual HUD replay disabled; native FP particles select the same current-eye lens as the tracked gun through an isolated upload snapshot. Successful Original injection, hands and effects preserved. Anniversary HUD remains unresolved; graphics-switch recovery and muzzle alignment need headset testing. Keep existing config. Both editions; package only; accepted pointer unchanged.'
+        note = 'CE Original/Anniversary horizon-hands-HUD candidate: horizontal recenter, native material-worker weapon lens, source-player first-person visibility and natural late native HUD in both eyes. Original successful behavior preserved. Build/native/GPU checks do not establish headset acceptance. Keep existing config. Both editions; package only; accepted pointer unchanged.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-ANNIVERSARY-RECOVERY-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-HORIZON-HANDS-HUD-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

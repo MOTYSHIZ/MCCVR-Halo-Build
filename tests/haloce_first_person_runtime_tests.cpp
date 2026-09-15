@@ -8,6 +8,9 @@ static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 static halo_ce::RenderContext testContext{};
 static halo_ce::RenderContext anniversaryEyeContext{};
+static halo_ce::RenderContext gameplayContext{};
+static bool gameplayValid=true;
+static unsigned gameplayReads{},revokeGameplayOnRead{};
 static bool anniversaryEyeValid=true;
 static bool anniversaryPrimaryValid=true;
 static halo_ce::SaberCamera particleCamera{};
@@ -17,6 +20,16 @@ static float lensArgument{};
 static unsigned prepareCalls{};
 static unsigned quiescenceCalls{},quiescenceRanges{};
 static size_t blockedQuiescenceCount{};
+static uintptr_t visibilityListAddress{},visibilityModelAddress{};
+static bool visibilityListValid=true,visibilityExpectPrivate{},visibilityNativeChecks=true,visibilityFault{};
+static unsigned visibilityListReads{},visibilityRevokeOnRead{},visibilityNativeCalls{};
+static FirstPersonVisibilityList visibilityNativeList{};
+static std::array<uint8_t,0x400> visibilityNativeModel{};
+static uint32_t visibilityNativeFlags{};
+static uintptr_t visibilitySubmittedList{},visibilitySubmittedCaller{};
+static uint8_t visibilitySubmittedPhase{};
+static unsigned visibilitySubmitRecords{},visibilitySubmitCalls{};
+static bool visibilitySubmitChecks=true,visibilitySubmitExpected=true;
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
 uint32_t TitleAdapter_GetGeneration(GameTitle) { return testGeneration; }
 bool HaloCE_Armed() noexcept { return testTitle==GameTitle::HaloCE; }
@@ -25,7 +38,11 @@ bool HaloCE_GetRenderContext(const halo_ce::Camera&,halo_ce::RenderContext& resu
 bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& result) noexcept
 { result=testContext;return contextValid&&renderContextValid; }
 bool HaloCE_GetGameplayContext(halo_ce::RenderContext& result) noexcept
-{ result=testContext;return contextValid; }
+{
+    ++gameplayReads;
+    if (revokeGameplayOnRead&&gameplayReads==revokeGameplayOnRead) gameplayValid=false;
+    result=gameplayContext;return gameplayValid&&HaloCE_RenderContextCurrent(result);
+}
 bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& candidate) noexcept
 {
     return contextValid&&testTitle==GameTitle::HaloCE&&candidate.tracking.generation==testGeneration&&
@@ -45,6 +62,21 @@ bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,halo_ce
     tracking={};
     if (camera!=&particleCamera||!anniversaryEyeValid||!renderContextValid||!HaloCE_RenderContextCurrent(anniversaryEyeContext)) return false;
     tracking=anniversaryEyeContext.tracking;return true;
+}
+bool HaloCE_GetAnniversaryPreparedListTracking(uintptr_t list,halo_ce::Tracking& tracking) noexcept
+{
+    ++visibilityListReads;
+    if (visibilityRevokeOnRead&&visibilityListReads==visibilityRevokeOnRead) visibilityListValid=false;
+    tracking={};
+    if (!visibilityListValid||list!=visibilityListAddress||
+        *reinterpret_cast<int32_t*>(moduleBase+0x1b7aa84)!=1||
+        !HaloCE_RenderContextCurrent(testContext)) return false;
+    tracking=testContext.tracking;return true;
+}
+void HaloCE_RecordAnniversaryVisibilitySubmission(uintptr_t list,int32_t phase,uintptr_t caller) noexcept
+{
+    ++visibilitySubmitRecords;visibilitySubmittedList=list;
+    visibilitySubmittedPhase=static_cast<uint8_t>(phase);visibilitySubmittedCaller=caller;
 }
 bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState&) noexcept { return false; }
 void Logf(const char*,...) {}
@@ -67,6 +99,43 @@ void __fastcall NativeLensFixture(float fov,bool rebuild)
 bool InvokeLensFaultFixture()
 {
     __try { ClassicLensHook(.9671381116f,true); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
+    return false;
+}
+void __fastcall NativeVisibilityFixture(uintptr_t list,int32_t serial,float elapsed,uintptr_t container)
+{
+    ++visibilityNativeCalls;
+    visibilityNativeChecks&=serial==37&&elapsed==.0125f&&container==visibilityModelAddress;
+    visibilityNativeChecks&=visibilityExpectPrivate?list!=visibilityListAddress:list==visibilityListAddress;
+    const auto* actual=reinterpret_cast<const uint8_t*>(list);
+    const auto* source=reinterpret_cast<const uint8_t*>(&visibilityNativeList);
+    constexpr size_t changed=offsetof(SaberViewPair,views)+sizeof(SaberView)+offsetof(SaberView,viewIndex);
+    for (size_t index=0;index<kNativeVisibilityListBytes;++index)
+        visibilityNativeChecks&=actual[index]==((visibilityExpectPrivate&&index>=changed&&index<changed+4)?0:source[index]);
+    uint32_t flags{};std::memcpy(&flags,visibilityNativeModel.data()+8,4);
+    visibilityNativeChecks&=flags==visibilityNativeFlags;
+    if (visibilityFault) RaiseException(0xE000CEA3,0,0,nullptr);
+}
+bool InvokeVisibilityFaultFixture()
+{
+    __try { VisibilityPrepareHook(visibilityListAddress,37,.0125f,visibilityModelAddress); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
+    return false;
+}
+void __fastcall NativeVisibilitySubmitFixture(uintptr_t nativeContext,uintptr_t list,uint8_t phase)
+{
+    ++visibilitySubmitCalls;
+    visibilitySubmitChecks&=nativeContext==0x123456789abcdef0ull&&list==visibilityListAddress&&phase==1;
+    // The production bridge must publish before entering the native routine,
+    // whose worker may execute immediately on this thread or another thread.
+    visibilitySubmitChecks&=visibilitySubmitExpected?
+        visibilitySubmitRecords==visibilitySubmitCalls&&visibilitySubmittedList==list&&
+        visibilitySubmittedPhase==phase&&visibilitySubmittedCaller!=0:visibilitySubmitRecords==0;
+    if (visibilityFault) RaiseException(0xE000CEA4,0,0,nullptr);
+}
+bool InvokeVisibilitySubmitFaultFixture()
+{
+    __try { VisibilitySubmitHook(0x123456789abcdef0ull,visibilityListAddress,1); }
     __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
     return false;
 }
@@ -113,7 +182,7 @@ bool InvokeParticleFaultFixture()
     return false;
 }
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr,"CE FP transaction failed at %d: %s\n",__LINE__,#x); return 1; } } while(false)
-int main()
+int main(int argc,char** argv)
 {
     using namespace halo_ce;
     installed=true;active=true;retiring=false;generation=testGeneration;
@@ -129,9 +198,28 @@ int main()
         const uint64_t now=GetTickCount64()-age;
         const bool success=paletteReceipt.Publish({testContext,now});
         anniversaryEyeContext=testContext;
+        gameplayContext=testContext;
         lastApplied.store(now,std::memory_order_release);return success;
     };
     CHECK(publish());CHECK(HaloCEFirstPerson_Armed());
+    if (argc==4&&std::strcmp(argv[1],"--saber-worker-native-projection-fixture")==0)
+    {
+        uint32_t materialFlags{},selectorOffset{};std::array<float,96> data{};
+        FILE* file{};CHECK(!fopen_s(&file,argv[2],"rb")&&file);
+        CHECK(std::fread(&materialFlags,4,1,file)==1&&std::fread(&selectorOffset,4,1,file)==1&&
+            std::fread(data.data(),sizeof(data),1,file)==1&&std::fgetc(file)==EOF);
+        CHECK(!std::fclose(file));
+        CHECK(selectorOffset==0x170||selectorOffset==0x20||selectorOffset==0x70);
+        std::array<uint8_t,0x40> nativeModel{};
+        std::memcpy(nativeModel.data()+0x28,&materialFlags,4);
+        renderer=1;anniversaryEyeValid=false;anniversaryPrimaryValid=false;lastApplied=0;
+        const bool result=ApplyTrackedProjection(data.data(),reinterpret_cast<uintptr_t>(nativeModel.data()),selectorOffset);
+        CHECK(result==bool(materialFlags&0x10000000u));
+        CHECK(!fopen_s(&file,argv[3],"wb")&&file);
+        CHECK(std::fwrite(data.data(),sizeof(data),1,file)==1&&!std::fclose(file));
+        CHECK(VirtualFree(native,0,MEM_RELEASE));
+        return 0;
+    }
     float classicFov=.9671381116f;
     CHECK(ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==-2);
     renderContextValid=false;classicFov=.9671381116f;
@@ -174,6 +262,7 @@ int main()
         }
     }
     source.scale=.3f;CHECK(publish());
+    renderer=1;
     std::array<uint8_t,0x40> model{};
     uint32_t flags=0x10000000u;std::memcpy(model.data()+0x28,&flags,sizeof(flags));
     float constants[96]{};for (size_t index=92;index<96;++index) constants[index]=1;
@@ -195,9 +284,11 @@ int main()
         CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data()),offset));
         CHECK(std::memcmp(before,constants,sizeof(before))==0);
     }
-    // The next CPU palette rebuild cannot switch any current-eye material
-    // back to the fixed weapon lens between depth/color/effect consumers.
+    // Native material constants are constructed on preparation workers before
+    // the render thread enters either eye. A fresh gameplay policy must work
+    // with no eye TLS and no latest-palette receipt.
     CHECK(publish());lastApplied.store(0,std::memory_order_release);
+    anniversaryEyeValid=false;anniversaryPrimaryValid=false;
     CHECK(!HaloCEFirstPerson_Armed());
     for (size_t offset:{size_t(0x170),size_t(0x20),size_t(0x70)})
     {
@@ -205,11 +296,25 @@ int main()
         CHECK(ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data()),offset));
         for (size_t index=offset/4;index<offset/4+4;++index) CHECK(constants[index]==0);
     }
-    anniversaryEyeValid=false;
+    gameplayValid=false;
     for (size_t index=92;index<96;++index) constants[index]=1;
     CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
     for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
-    anniversaryEyeValid=true;
+    gameplayValid=true;anniversaryEyeValid=true;anniversaryPrimaryValid=true;
+    // Fresh policy still rejects Classic, missing gameplay ownership, and a
+    // policy revoked between reading native constants and publishing them.
+    for (unsigned fault=0;fault<3;++fault)
+    {
+        for (size_t index=92;index<96;++index) constants[index]=1;
+        if (fault==0) renderer=0;
+        if (fault==1) gameplayValid=false;
+        if (fault==2) { gameplayReads=0;revokeGameplayOnRead=2; }
+        const auto changed=projectionChangedRefused.load();
+        CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
+        for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
+        if (fault==2) CHECK(projectionChangedRefused.load()==changed+1);
+        renderer=1;gameplayValid=true;revokeGameplayOnRead=0;
+    }
     testContext.tracking.controllers.controlsPresentationBlocked=true;CHECK(publish());
     classicFov=.9671381116f;CHECK(!ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==.9671381116f);
     for (size_t index=92;index<96;++index) constants[index]=1;
@@ -244,7 +349,7 @@ int main()
     CHECK(publish(251));CHECK(!HaloCEFirstPerson_Armed());
     CHECK(publish());contextValid=false;CHECK(!HaloCEFirstPerson_Armed());contextValid=true;
     // Failed new preparation cannot claim a Classic tracked-palette receipt.
-    // A current Anniversary draw still owns its own world lens; a copied bone
+    // Fresh Anniversary material policy still selects the world lens; a copied bone
     // retains its explicit scale, and stock scale one stays byte-identical.
     CHECK(publish());PrepareHook(0);CHECK(prepareCalls==1&&nativeSawInvalidated);
     CHECK(!HaloCEFirstPerson_Armed());output=initial;
@@ -255,10 +360,11 @@ int main()
     CHECK(ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
     for (size_t index=92;index<96;++index) CHECK(constants[index]==0);
     anniversaryEyeValid=false;
+    gameplayValid=false;
     for (size_t index=92;index<96;++index) constants[index]=1;
     CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
     for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
-    anniversaryEyeValid=true;
+    anniversaryEyeValid=true;gameplayValid=true;
     // Other output users cannot invalidate the locally owned user's receipt.
     CHECK(publish());PrepareHook(1);CHECK(HaloCEFirstPerson_Armed()&&prepareCalls==2);
     CHECK(callbacks.load()==0);
@@ -328,14 +434,83 @@ int main()
         CHECK(particleNativeChecks&&particleBacking==particleBaseline);
     }
     CHECK(particleNativeCalls>=14);
-    blockedQuiescenceCount=4;
+    // Actual optional visibility transaction: only the secondary source-player
+    // selector changes in a borrowed complete list; native flags, all cameras,
+    // auxiliary views and opaque tail bytes remain byte-identical.
+    renderer=1;CHECK(publish());visibilityInstalled=true;
+    visibilityPrepareHook.original=reinterpret_cast<void*>(&NativeVisibilityFixture);
+    visibilitySubmitHook.original=reinterpret_cast<void*>(&NativeVisibilitySubmitFixture);
+    visibilityListAddress=reinterpret_cast<uintptr_t>(&visibilityNativeList);
+    visibilityModelAddress=reinterpret_cast<uintptr_t>(visibilityNativeModel.data());
+    FirstPersonVisibilityRecord registration{0,0x1234,7,0,visibilityModelAddress};
+    const uintptr_t registrations=reinterpret_cast<uintptr_t>(&registration);
+    const int32_t one=1;const uint32_t modelTag=0x1234,modelFlags=0x4400;
+    std::memcpy(reinterpret_cast<void*>(moduleBase+0x2b050e8),&registrations,8);
+    std::memcpy(reinterpret_cast<void*>(moduleBase+0x2b050f0),&one,4);
+    std::memcpy(reinterpret_cast<void*>(moduleBase+0x1b7aa88),&modelTag,4);
+    std::memcpy(visibilityNativeModel.data()+4,&modelFlags,4);
+    for (size_t index=0;index<sizeof(visibilityNativeList);++index)
+        reinterpret_cast<uint8_t*>(&visibilityNativeList)[index]=uint8_t(index*37+11);
+    visibilityNativeList.primary.count=4;
+    visibilityNativeList.primary.views[0].viewIndex=0;
+    visibilityNativeList.primary.views[1].viewIndex=1;
+    const auto listBefore=visibilityNativeList;
+    auto visibilityCall=[&](bool expected)
+    {
+        visibilityExpectPrivate=expected;const auto calls=visibilityNativeCalls;
+        VisibilityPrepareHook(visibilityListAddress,37,.0125f,visibilityModelAddress);
+        return visibilityNativeChecks&&visibilityNativeCalls==calls+1&&callbacks.load()==0&&
+            !std::memcmp(&visibilityNativeList,&listBefore,sizeof(listBefore));
+    };
+    for (uint32_t flags:{0u,0x80u,0x100u,0x180u,0x98760180u})
+    {
+        visibilityNativeFlags=flags;std::memcpy(visibilityNativeModel.data()+8,&flags,4);
+        CHECK(visibilityCall(true)); // Hidden-weapon flags remain native consumer policy.
+    }
+    visibilityFault=true;visibilityExpectPrivate=true;
+    CHECK(InvokeVisibilityFaultFixture());visibilityFault=false;
+    if (!visibilityNativeChecks||callbacks.load()||std::memcmp(&visibilityNativeList,&listBefore,sizeof(listBefore)))
+        std::fprintf(stderr,"visibility exception cleanup: native=%d callbacks=%u sourceChanged=%d\n",
+            visibilityNativeChecks,callbacks.load(),std::memcmp(&visibilityNativeList,&listBefore,sizeof(listBefore))!=0);
+    CHECK(visibilityNativeChecks&&callbacks.load()==0&&!std::memcmp(&visibilityNativeList,&listBefore,sizeof(listBefore)));
+    visibilityListValid=false;CHECK(visibilityCall(false));visibilityListValid=true;
+    visibilityListReads=0;visibilityRevokeOnRead=2;CHECK(visibilityCall(false));
+    visibilityRevokeOnRead=0;visibilityListValid=true;CHECK(visibilityCall(true));
+    registration.player=1;CHECK(visibilityCall(false));registration.player=0;
+    registration.model=0x5555;CHECK(visibilityCall(false));registration.model=modelTag;
+    registration.container=0;CHECK(visibilityCall(false));registration.container=visibilityModelAddress;
+    *reinterpret_cast<int32_t*>(moduleBase+0x2b050f0)=257;CHECK(visibilityCall(false));
+    *reinterpret_cast<int32_t*>(moduleBase+0x2b050f0)=1;
+    std::memset(visibilityNativeModel.data()+4,0,4);CHECK(visibilityCall(false));
+    std::memcpy(visibilityNativeModel.data()+4,&modelFlags,4);
+    renderer=0;CHECK(visibilityCall(false));renderer=1;
+    testContext.tracking.controllers.controlsPresentationBlocked=true;CHECK(visibilityCall(false));
+    testContext.tracking.controllers.controlsPresentationBlocked=false;
+    testTitle=GameTitle::Halo3;CHECK(visibilityCall(false));testTitle=GameTitle::HaloCE;
+    visibilityInstalled=false;CHECK(visibilityCall(false));visibilityInstalled=true;
+    CHECK(visibilityCall(true));
+    VisibilitySubmitHook(0x123456789abcdef0ull,visibilityListAddress,1);
+    CHECK(visibilitySubmitChecks&&visibilitySubmitRecords==1&&visibilitySubmitCalls==1&&callbacks.load()==0);
+    visibilityFault=true;CHECK(InvokeVisibilitySubmitFaultFixture());visibilityFault=false;
+    CHECK(visibilitySubmitChecks&&visibilitySubmitRecords==2&&visibilitySubmitCalls==2&&callbacks.load()==0);
+    visibilityInstalled=false;visibilitySubmitExpected=false;visibilitySubmitRecords=visibilitySubmitCalls=0;
+    VisibilitySubmitHook(0x123456789abcdef0ull,visibilityListAddress,1);
+    CHECK(visibilitySubmitChecks&&visibilitySubmitCalls==1&&callbacks.load()==0);
+    // Failed optional cleanup retains its trampolines and working camera/core.
+    blockedQuiescenceCount=2;
+    CHECK(!RemoveVisibility()&&visibilityRetiring&&installed.load()&&generation.load()==testGeneration);
+    CHECK(visibilityPrepareHook.original&&visibilitySubmitHook.original);
+    blockedQuiescenceCount=0;CHECK(RemoveVisibility()&&!visibilityRetiring&&installed.load());
+    CHECK(!visibilityPrepareHook.original&&!visibilitySubmitHook.original);
+    quiescenceCalls=quiescenceRanges=0;
+    blockedQuiescenceCount=6;
     CHECK(!Remove());CHECK(retiring.load()&&generation.load()==testGeneration);
     CHECK(prepareHook.original==reinterpret_cast<void*>(&NativePrepareFixture));
-    CHECK(quiescenceCalls==2&&quiescenceRanges==12);
+    CHECK(quiescenceCalls==2&&quiescenceRanges==14);
     blockedQuiescenceCount=0;quiescenceCalls=quiescenceRanges=0;
     CHECK(Remove());CHECK(!retiring.load()&&!generation.load()&&!prepareHook.original);
-    CHECK(quiescenceCalls==2&&quiescenceRanges==12);
+    CHECK(quiescenceCalls==2&&quiescenceRanges==14);
     CHECK(VirtualFree(native,0,MEM_RELEASE));
-    std::puts("PASS production CE first-person receipt: Classic/Anniversary scale/projection, isolated particle uploads, nested/exception admission, recovery and twelve-hook retirement");
+    std::puts("PASS production CE first-person receipt: Classic/Anniversary scale/projection, isolated particle uploads, source-player visibility, pre-worker submission, recovery and fourteen-hook retirement");
     return 0;
 }

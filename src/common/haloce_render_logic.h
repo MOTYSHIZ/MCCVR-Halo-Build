@@ -170,6 +170,45 @@ inline Vec3 ToNative(const Camera& native,Vec3 local)
     return Cross(native.forward,native.up)*local.x+native.up*local.y-native.forward*local.z;
 }
 
+// H3 parity: recenter changes heading and position only. Pitch/roll belong to
+// the current physical pose, and room up remains CE world +Z. Keeping either
+// the captured HMD tilt or the stock camera's look pitch tilts the entire room.
+// The reference retains its complete sampled pose for receipt identity; every
+// tracked eye/controller consumer derives this same horizontal mapping.
+inline bool BuildTrackingFrame(const Camera& native,const Reference& reference,
+    Camera& frame,Quat& inverseYaw) noexcept
+{
+    if (!Valid(native)||!Valid(reference.orientation)) return false;
+    Vec3 forward{native.forward.x,native.forward.y,0};
+    float length=std::sqrt(Dot(forward,forward));
+    if (length<0.0001f)
+    {
+        // At the native pitch pole its up axis still records the heading.
+        const float direction=native.forward.z>=0?-1.0f:1.0f;
+        forward={native.up.x*direction,native.up.y*direction,0};
+        length=std::sqrt(Dot(forward,forward));
+    }
+    if (!std::isfinite(length)||length<0.0001f) return false;
+    const Vec3 headForward=Rotate(reference.orientation,{0,0,-1});
+    float yaw{};
+    if (headForward.x*headForward.x+headForward.z*headForward.z>=0.00000001f)
+        yaw=std::atan2(-headForward.x,-headForward.z);
+    else
+    {
+        // Exactly vertical HMD forward has no yaw. Its horizontal right axis
+        // supplies a finite heading without canceling physical pitch/roll.
+        const Vec3 right=Rotate(reference.orientation,{1,0,0});
+        yaw=std::atan2(-right.z,right.x);
+    }
+    if (!std::isfinite(yaw)) return false;
+    Camera horizontal=native;
+    horizontal.forward=forward*(1.0f/length);horizontal.up={0,0,1};
+    if (!Valid(horizontal)) return false;
+    frame=horizontal;
+    inverseYaw={0,-std::sin(yaw*.5f),0,std::cos(yaw*.5f)};
+    return true;
+}
+
 // Output is untouched on rejection. Only pose/FOV change; native rectangles,
 // flags, near/far and plane retain their exact original bits. The user-facing
 // shared world-scale value is supplied by the caller, not an inherited offset.
@@ -187,7 +226,8 @@ inline bool BuildEye(const Camera& native,const Tracking& tracking,
         !std::isfinite(unitsPerMeter)||unitsPerMeter<=0||unitsPerMeter>10||
         !std::isfinite(cover.verticalFov)||cover.verticalFov<=0||cover.verticalFov>=3.10f)
         return false;
-    const Quat inverse=Conjugate(reference.orientation);
+    Camera frame{}; Quat inverse{};
+    if (!BuildTrackingFrame(native,reference,frame,inverse)) return false;
     const Quat orientation=Multiply(inverse,tracking.eyes[eye].orientation);
     Vec3 delta=tracking.headPosition-reference.position;
     if (!Finite(delta)) return false;
@@ -195,10 +235,10 @@ inline bool BuildEye(const Camera& native,const Tracking& tracking,
            std::clamp(delta.z,-4.0f,4.0f)};
     if (!positional) delta={};
     Camera candidate=native;
-    candidate.position=native.position+ToNative(native,
+    candidate.position=native.position+ToNative(frame,
         Rotate(inverse,delta+tracking.eyes[eye].offset))*unitsPerMeter;
-    candidate.forward=ToNative(native,Rotate(orientation,{0,0,-1}));
-    candidate.up=ToNative(native,Rotate(orientation,{0,1,0}));
+    candidate.forward=ToNative(frame,Rotate(orientation,{0,0,-1}));
+    candidate.up=ToNative(frame,Rotate(orientation,{0,1,0}));
     candidate.verticalFov=cover.verticalFov;
     if (!Valid(candidate)) return false;
     out=candidate;

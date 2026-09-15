@@ -62,9 +62,22 @@ struct EyeReplayRaster
     RasterState* state{};
     RasterState saved;
     bool live{},valid{};
+    HudLayoutAffine affine{1.0f,0.5f,0.0f,0.0f};
+    bool clipToEye{};
+    D3D11_RECT bounds{};
 };
 thread_local EyeReplayRaster eyeReplay;
-constexpr HudLayoutAffine eyeRasterAffine{1.0f,0.5f,0.0f,0.0f};
+void ClipEyeScissors(D3D11_RECT* values,UINT count) noexcept
+{
+    if (!eyeReplay.clipToEye) return;
+    const auto& b=eyeReplay.bounds;
+    for (UINT i=0;i<count;++i)
+    {
+        auto& r=values[i];
+        r.left=std::clamp(r.left,b.left,b.right);r.right=std::clamp(r.right,b.left,b.right);
+        r.top=std::clamp(r.top,b.top,b.bottom);r.bottom=std::clamp(r.bottom,b.top,b.bottom);
+    }
+}
 
 bool Current() noexcept
 {
@@ -157,9 +170,10 @@ bool WriteState(RasterState& state,const HudLayoutAffine* affine) noexcept
     const D3D11_RECT* rects=affine?r:state.scissors;
     if (eyeReplay.live&&eyeReplay.state==&state&&!privateRasterDepth)
     {
-        if (!Transform(eyeRasterAffine,views,state.viewportCount,v)||
-            !Transform(eyeRasterAffine,rects,state.scissorCount,r))
+        if (!Transform(eyeReplay.affine,views,state.viewportCount,v)||
+            !Transform(eyeReplay.affine,rects,state.scissorCount,r))
         { eyeReplay.valid=false; return false; }
+        ClipEyeScissors(r,state.scissorCount);
         views=v; rects=r;
     }
     writing=true;
@@ -203,7 +217,7 @@ bool NativeOwner(RenderContext& out,ID3D11DeviceContext*& context) noexcept
     return player==0&&context&&HaloCE_GetRenderContext(source,out)&&
         HaloCE_RenderContextCurrent(out);
 }
-void MainBody()
+void MainLayoutBody()
 {
     LayoutScope local{};
     ID3D11DeviceContext* context{};
@@ -239,6 +253,33 @@ void MainBody()
         }
         scope=nullptr;
     }
+}
+void MainBody()
+{
+    RenderContext owner{};ID3D11DeviceContext* context{};UINT width{},height{};
+    if (scope||suspensions||!Current()||!NativeOwner(owner,context)||
+        !HaloCE_BeginAnniversaryHudGameplay(context,width,height))
+    { MainLayoutBody();return; }
+    bool complete=false,drew=false;
+    __try
+    {
+        complete=true;
+        for (UINT eye=0;eye<2;++eye)
+        {
+            bool restored=true;
+            if (!HaloCEHudLayout_BeginEyeReplay(context,width,height,width,height/2,&restored,eye*(height/2),true))
+            {
+                complete=false;
+                if (!drew&&restored) MainLayoutBody();
+                break;
+            }
+            bool returned=false;
+            __try { drew=true;MainLayoutBody();returned=true; }
+            __finally { restored=HaloCEHudLayout_EndEyeReplay();if (!returned) complete=false; }
+            if (!returned||!restored) { complete=false;break; }
+        }
+    }
+    __finally { HaloCE_EndAnniversaryHudGameplay(complete); }
 }
 void __fastcall MainHook()
 {
@@ -317,7 +358,7 @@ bool HaloCEHudLayout_PrepareViewports(ID3D11DeviceContext* context,UINT count,
     }
     if (eyeReplay.live&&eyeReplay.state==state)
     {
-        if (!Transform(eyeRasterAffine,changed?out:values,count,out))
+        if (!Transform(eyeReplay.affine,changed?out:values,count,out))
         { eyeReplay.valid=false; return changed; }
         changed=true;
     }
@@ -345,8 +386,9 @@ bool HaloCEHudLayout_PrepareScissors(ID3D11DeviceContext* context,UINT count,
     }
     if (eyeReplay.live&&eyeReplay.state==state)
     {
-        if (!Transform(eyeRasterAffine,changed?out:values,count,out))
+        if (!Transform(eyeReplay.affine,changed?out:values,count,out))
         { eyeReplay.valid=false; return changed; }
+        ClipEyeScissors(out,count);
         changed=true;
     }
     return changed;
@@ -410,16 +452,19 @@ bool HaloCEHudLayout_CopyState(ID3D11DeviceContext* context,UINT* viewportCount,
 void HaloCEHudLayout_BeginPrivateRaster() noexcept { ++privateRasterDepth; }
 void HaloCEHudLayout_EndPrivateRaster() noexcept { if (privateRasterDepth) --privateRasterDepth; }
 bool HaloCEHudLayout_BeginEyeReplay(ID3D11DeviceContext* context,UINT nativeWidth,UINT nativeHeight,
-    UINT eyeWidth,UINT eyeHeight,bool* cleanupVerified) noexcept
+    UINT eyeWidth,UINT eyeHeight,bool* cleanupVerified,UINT outputTop,bool clipToEye) noexcept
 {
     if (cleanupVerified) *cleanupVerified=true;
     if (!Current()||scope||suspensions||writing||privateRasterDepth||eyeReplay.live||!context||
         !eyeWidth||!eyeHeight||eyeWidth>16384||eyeHeight>8192||
-        nativeWidth!=eyeWidth||nativeHeight!=eyeHeight*2) return false;
+        nativeWidth!=eyeWidth||nativeHeight!=eyeHeight*2||(outputTop!=0&&outputTop!=eyeHeight)) return false;
     auto* state=Find(context,false);
     if (!state||!StateCurrent(*state)||!state->viewportsKnown||!state->scissorsKnown) return false;
     if (cleanupVerified) *cleanupVerified=false;
     eyeReplay={state,*state,true,true};
+    eyeReplay.affine.offsetY=float(outputTop);
+    eyeReplay.clipToEye=clipToEye;
+    eyeReplay.bounds={0,LONG(outputTop),LONG(eyeWidth),LONG(outputTop+eyeHeight)};
     state->viewportCount=state->scissorCount=1;
     state->viewports[0]={0,0,float(nativeWidth),float(nativeHeight),0,1};
     state->scissors[0]={0,0,LONG(nativeWidth),LONG(nativeHeight)};

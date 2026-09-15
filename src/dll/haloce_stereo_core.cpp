@@ -1,6 +1,7 @@
 #include "haloce_stereo_core.h"
 #include "haloce_native_bindings.h"
 #include "haloce_hud_layout.h"
+#include "haloce_hud_target.h"
 #include "../common/haloce_contracts.generated.h"
 #include "../common/haloce_resource_registry.h"
 #include "../common/haloce_surface_transfer.h"
@@ -117,6 +118,14 @@ struct Prepared
     uint64_t referenceRevision{};
 };
 Snapshot<Prepared> preparedLists[2],renderReady;
+struct CopiedWorkerList { Prepared source;uintptr_t destination{};uint64_t rendererEpoch{},revision{}; };
+Snapshot<CopiedWorkerList> copiedWorkerList;
+std::atomic<uint64_t> copiedWorkerRevision{1};
+void RevokeCopiedWorkerList() noexcept
+{
+    // Revocation must succeed even if a bounded snapshot publication is busy.
+    copiedWorkerRevision.fetch_add(1,std::memory_order_acq_rel);
+}
 std::atomic_flag preparationBusy=ATOMIC_FLAG_INIT;
 std::atomic_flag jobPreparationBusy=ATOMIC_FLAG_INIT;
 struct JobScope { uintptr_t job{},activeList{}; bool owned{},cameraOwned{}; };
@@ -137,6 +146,10 @@ struct FrameScope
     int primaryDrawEye{-1};
     unsigned primaryDrawStage{};
     FrameDiagnostic diagnostic;
+    uintptr_t packedResource{};
+    uint64_t packedRevision{};
+    unsigned packedEyeMask{};
+    D3D11_TEXTURE2D_DESC packedDescriptor{};
     struct DepthReceipt
     {
         uintptr_t root{},surface{},resource{},view{},backend{},context{};
@@ -413,7 +426,14 @@ void PrepareBody(uintptr_t job)
         Read(job+0xbe58,renderJob)&&Read(job+0xbe5c,copyPrepared);
     jobScope={job,renderer?renderer+0xb0:0,scoped,cameraClaimed};
     if (scoped) activeListAddress.store(renderer+0xb0,std::memory_order_release);
-    if (scoped&&renderJob) renderReady.Publish({});
+    if (scoped&&renderJob)
+    {
+        renderReady.Publish({});RevokeCopiedWorkerList();
+        // This native copy overwrites the active list without calling its
+        // builder. Retire that old source ticket before identical stationary
+        // cameras can accidentally grant it the preceding frame's identity.
+        if (copyPrepared) handoff.Invalidate(PreparationOrigin::ActiveList);
+    }
     __try { original(job); }
     __finally
     {
@@ -765,6 +785,24 @@ void CopyBody(ID3D11DeviceContext* context,ID3D11Resource* destination,
         if (shape)
         {
             const int eye=scope->eye;
+            // Both actual native copies must share the same live packed
+            // destination before the later ordinary HUD may augment them.
+            if (destinationKnown&&dst.descriptor.Width==src.descriptor.Width&&
+                dst.descriptor.Height==2*src.descriptor.Height&&dst.descriptor.MipLevels==1&&
+                dst.descriptor.ArraySize==1&&dst.descriptor.SampleDesc.Count==1)
+            {
+                if (eye==0)
+                {
+                    scope->packedResource=destinationId;scope->packedRevision=dst.revision;
+                    scope->packedDescriptor=dst.descriptor;scope->packedEyeMask=1;
+                }
+                else if (scope->packedEyeMask==1&&scope->packedResource==destinationId&&
+                    scope->packedRevision==dst.revision&&
+                    !std::memcmp(&scope->packedDescriptor,&dst.descriptor,sizeof(dst.descriptor)))
+                    scope->packedEyeMask=3;
+                else scope->packedEyeMask=0;
+            }
+            else scope->packedEyeMask=0;
             scope->diagnostic.sourceWrapper[eye]=static_cast<uintptr_t>(transfer.sourceSurface);
             scope->diagnostic.sourceResource[eye]=sourceId;
             scope->diagnostic.copyContext[eye]=reinterpret_cast<uintptr_t>(context);
@@ -868,6 +906,9 @@ uintptr_t __fastcall ResetListHook(uintptr_t list)
     Callback callback;
     // Native reset owns the list and destroys its native resources. This is
     // also the retirement barrier for a manufactured secondary view.
+    CopiedWorkerList copied{};
+    if (!copiedWorkerList.Read(copied)||copied.destination==list||copied.source.sourceList==list)
+        RevokeCopiedWorkerList();
     for (size_t index=0;index<2;++index)
     {
         Prepared previous{};
@@ -883,6 +924,7 @@ uintptr_t __fastcall ResetListHook(uintptr_t list)
 bool Remove() noexcept
 {
     retiring.store(true,std::memory_order_release);
+    RevokeCopiedWorkerList();
     gameplayBridgeVerified.store(false,std::memory_order_release);
     hudTargetBindingsVerified.store(false,std::memory_order_release);
     if (!AnniversaryHud_Remove()||!Classic_Remove()) return false;
@@ -978,7 +1020,7 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     }
     installed=true;
     (void)Classic_Install();
-    if (!AnniversaryHud_Install()) LOG("CE Anniversary HUD stock fallback: optional installation failed; camera retained");
+    if (!AnniversaryHud_InstallNatural()) LOG("CE Anniversary HUD stock fallback: optional installation failed; camera retained");
     LOG("CE refinement candidate installed: both native renderers, graphics-toggle camera continuity and independent weapon/HUD features; waiting for fresh camera; new headset result pending");
     return true;
 }
@@ -1036,7 +1078,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
             static_cast<unsigned>(classicSourceFailure.load()));
         const uint32_t hudFailure=anniversaryHudFailure.load();
         LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u reason=%s",
-            gen,anniversaryHudInstalled.load(),anniversaryHudDraws.load(),
+            gen,anniversaryHudNaturalInstalled.load(),anniversaryHudDraws.load(),
             anniversaryHudFallbacks.load(),hudFailure,AnniversaryHudFailureName(hudFailure));
         FrameDiagnostic diagnostic{};
         if (frameDiagnostic.Read(diagnostic))
@@ -1210,6 +1252,82 @@ bool HaloCE_GetAnniversaryPrimaryEyeTracking(halo_ce::Tracking& tracking) noexce
     const auto* camera=reinterpret_cast<const SaberCamera*>(scope->renderer+0xf0+eye*sizeof(SaberView));
     return AnniversaryEyeTrackingForCamera(camera,tracking,eye,1u<<(scope->primaryDrawStage-1))==0;
 }
+bool HaloCE_GetAnniversaryPreparedListTracking(uintptr_t list,halo_ce::Tracking& tracking) noexcept
+{
+    tracking={};
+    Tracking now{};SaberViewPair live{};
+    if (!list||!HaloCE_Armed()||!Anniversary()||recenter.load(std::memory_order_acquire)||
+        !TrackingNow(now)||now.controllers.controlsPresentationBlocked||!Read(list,live)) return false;
+    const uint64_t revision=referenceRevision.load(std::memory_order_acquire);
+    const uint64_t epoch=ceRendererEpoch.load(std::memory_order_acquire);
+    const uint64_t workerRevision=copiedWorkerRevision.load(std::memory_order_acquire);
+    for (const auto& slot:preparedLists)
+    {
+        Prepared prepared{};
+        if (!slot.Read(prepared)||!prepared.valid||!prepared.synthetic||
+            prepared.generation!=generation.load()||prepared.referenceRevision!=revision) continue;
+        const auto& receipt=prepared.receipt;
+        const auto& t=receipt.tracking;
+        if (prepared.sourceList!=receipt.ticket.sourceList) continue;
+        const bool exactSource=list==prepared.sourceList&&list==receipt.ticket.sourceList;
+        CopiedWorkerList copied{};
+        const bool copiedTarget=receipt.ticket.origin==PreparationOrigin::CopiedList&&
+            copiedWorkerList.Read(copied)&&copied.destination==list&&copied.rendererEpoch==epoch&&copied.revision==workerRevision&&
+            copied.source.sourceList==prepared.sourceList&&copied.source.referenceRevision==revision&&
+            copied.source.receipt.ticket.revision==receipt.ticket.revision&&
+            copied.source.receipt.ticket.generation==receipt.ticket.generation&&
+            list==activeListAddress.load(std::memory_order_acquire);
+        if ((!exactSource&&!copiedTarget)||!handoff.Current(receipt.ticket)||
+            !MatchesPreparedViews(live,receipt)||t.generation!=now.generation||
+            t.spaceEpoch!=now.spaceEpoch||!t.serial||t.serial>now.serial||now.serial-t.serial>8) continue;
+        int32_t players[2]{};
+        std::memcpy(&players[0],reinterpret_cast<const uint8_t*>(&live.views[0].camera)+0x220,4);
+        std::memcpy(&players[1],reinterpret_cast<const uint8_t*>(&live.views[1].camera)+0x220,4);
+        if (players[0]!=0||players[1]!=0) continue;
+        SaberViewPair after{};Tracking finalNow{};
+        if (!Read(list,after)||!MatchesPreparedViews(after,receipt)||
+            std::memcmp(reinterpret_cast<const uint8_t*>(&after.views[0].camera)+0x220,&players[0],4)||
+            std::memcmp(reinterpret_cast<const uint8_t*>(&after.views[1].camera)+0x220,&players[1],4)||
+            !handoff.Current(receipt.ticket)||referenceRevision.load()!=revision||ceRendererEpoch.load()!=epoch||
+            !HaloCE_Armed()||!Anniversary()||recenter.load()||!TrackingNow(finalNow)||
+            finalNow.controllers.controlsPresentationBlocked||finalNow.generation!=t.generation||
+            finalNow.spaceEpoch!=t.spaceEpoch||finalNow.serial<t.serial||finalNow.serial-t.serial>8) return false;
+        if (copiedTarget&&!exactSource)
+        {
+            CopiedWorkerList final{};
+            if (!copiedWorkerList.Read(final)||final.destination!=list||final.rendererEpoch!=epoch||final.revision!=workerRevision||
+                final.source.sourceList!=prepared.sourceList||final.source.referenceRevision!=revision||
+                final.source.receipt.ticket.revision!=receipt.ticket.revision||
+                list!=activeListAddress.load()||copiedWorkerRevision.load()!=workerRevision) return false;
+        }
+        tracking=t;return true;
+    }
+    return false;
+}
+void HaloCE_RecordAnniversaryVisibilitySubmission(uintptr_t list,int32_t phase,uintptr_t caller) noexcept
+{
+    // This native phase-1 call follows the exact job+70 -> renderer+B0 copy.
+    // A matching stationary camera at the renderer alone is never copy proof.
+    if (caller!=bindings.base+0x45550b||phase!=1||!jobScope.owned||!jobScope.cameraOwned||
+        list!=jobScope.activeList||!HaloCE_Armed()||!Anniversary()||recenter.load()) return;
+    RevokeCopiedWorkerList();
+    int32_t rendering{},copied{};uintptr_t renderer{};
+    Prepared p{};SaberViewPair live{};Tracking tracking{};
+    const uint64_t revision=referenceRevision.load(),epoch=ceRendererEpoch.load(),workerRevision=copiedWorkerRevision.load();
+    if (!Read(jobScope.job+0xbe58,rendering)||!rendering||
+        !Read(jobScope.job+0xbe5c,copied)||!copied||
+        !Read(bindings.base+0x1bea9e0,renderer)||renderer+0xb0!=list||
+        !preparedLists[1].Read(p)||!p.valid||!p.synthetic||p.generation!=generation.load()||
+        p.sourceList!=jobScope.job+0x70||p.sourceList!=p.receipt.ticket.sourceList||
+        p.receipt.ticket.origin!=PreparationOrigin::CopiedList||p.referenceRevision!=revision||
+        !handoff.Current(p.receipt.ticket)||!TrackingNow(tracking)||tracking.controllers.controlsPresentationBlocked||
+        p.receipt.tracking.generation!=tracking.generation||p.receipt.tracking.spaceEpoch!=tracking.spaceEpoch||
+        !p.receipt.tracking.serial||p.receipt.tracking.serial>tracking.serial||tracking.serial-p.receipt.tracking.serial>8||
+        !Read(list,live)||!MatchesPreparedViews(live,p.receipt)||!handoff.Current(p.receipt.ticket)||
+        referenceRevision.load()!=revision||ceRendererEpoch.load()!=epoch) return;
+    if (copiedWorkerRevision.load()==workerRevision)
+        copiedWorkerList.Publish({p,list,epoch,workerRevision});
+}
 bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& context) noexcept
 {
     const auto* primary=classicPrimaryViewScope;
@@ -1224,6 +1342,12 @@ bool HaloCE_GetRenderContext(const halo_ce::Camera& stockCamera,
     if (Current()) (void)CeObserveRendererMode();
     if (!HaloCE_Armed()||recenter.load(std::memory_order_acquire)) return false;
     if (ClassicGetRenderContext(context)) return true;
+    if (anniversaryNaturalHud)
+    {
+        if (!Valid(stockCamera)||!AnniversaryHud_NaturalCurrent(*anniversaryNaturalHud)) return false;
+        context=anniversaryNaturalHud->owner;context.camera=stockCamera;
+        return true;
+    }
     if (anniversaryHudReplay)
     {
         if (!Valid(stockCamera)||!HaloCE_RenderContextCurrent(anniversaryHudReplay->owner)) return false;
@@ -1248,6 +1372,10 @@ bool HaloCE_GetRenderContext(const halo_ce::Camera& stockCamera,
     context=next;
     return true;
 }
+bool HaloCE_BeginAnniversaryHudGameplay(ID3D11DeviceContext* context,UINT& width,UINT& height) noexcept
+{ return AnniversaryHud_BeginGameplay(context,width,height); }
+void HaloCE_EndAnniversaryHudGameplay(bool complete) noexcept
+{ AnniversaryHud_EndGameplay(complete); }
 void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     const D3D11_TEXTURE2D_DESC& descriptor) noexcept
 {

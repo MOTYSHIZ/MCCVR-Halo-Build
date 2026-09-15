@@ -142,3 +142,10 @@ Validation records:
 These checks establish bindings and restoration behavior locally. Actual HUD
 visibility and the Anniversary world stereo/6DoF failure still require headset
 testing; no accepted-build pointer is advanced by this work.
+# Superseding native sequence correction - September 15
+
+The forced list skips the early per-eye HUD but enters a separate late natural
+HUD callback after both eye copies. The earlier omission claim below was
+incomplete. See `HALOCE-LATE-HUD-NATIVE-SEQUENCE-2026-09-15.md` for native proof
+and the ordinary-callback packed HUD replacement. The manually invoked outer
+callback documented below remains disabled after its headset failure.

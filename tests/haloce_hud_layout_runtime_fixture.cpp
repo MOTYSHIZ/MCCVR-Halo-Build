@@ -7,3 +7,7 @@ void ConfigureCeHudLayoutRuntimeFixture(uint32_t gen,bool enabledForTest,bool in
     installed=enabledForTest&&installedForTest; active=enabledForTest; retiring=false;
     generation=gen; observationAvailable=enabledForTest;
 }
+void RunCeHudGameplayRuntimeFixture(uintptr_t base,void(__fastcall* draw)())
+{
+    moduleBase=base;original=draw;MainBody();
+}

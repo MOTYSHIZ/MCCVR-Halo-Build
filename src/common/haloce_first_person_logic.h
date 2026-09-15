@@ -283,12 +283,13 @@ inline bool BuildControllerMatrix(const Camera& native,const Tracking& tracking,
     Vec3 delta=controller.position-reference.position;
     if (!positional) delta=controller.position-tracking.headPosition;
     if (!Finite(delta)||Dot(delta,delta)>64) return false;
-    const Quat inverse=Conjugate(reference.orientation);
+    Camera frame{};Quat inverse{};
+    if (!BuildTrackingFrame(native,reference,frame,inverse)) return false;
     const Quat orientation=Multiply(inverse,controller.orientation);
     NodeMatrix candidate{};
-    candidate.position=native.position+ToNative(native,Rotate(inverse,delta))*unitsPerMeter;
-    candidate.forward=ToNative(native,Rotate(orientation,{0,0,-1}));
-    candidate.up=ToNative(native,Rotate(orientation,{0,1,0}));
+    candidate.position=native.position+ToNative(frame,Rotate(inverse,delta))*unitsPerMeter;
+    candidate.forward=ToNative(frame,Rotate(orientation,{0,0,-1}));
+    candidate.up=ToNative(frame,Rotate(orientation,{0,1,0}));
     candidate.left=Cross(candidate.up,candidate.forward);
     if (!Valid(candidate)) return false;
     out=candidate;
