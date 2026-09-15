@@ -1,5 +1,9 @@
 # CE Anniversary stereo / 6DoF test candidate
 
+**Historical: e17a664 FAILED the user's September 14 headset test.** Input and
+graphics gesture worked; Anniversary VR was black with mismatched desktop views.
+Use HALOCE-REPAIR-2026-09-14.md and the current checkpoint for the follow-up.
+
 This is the first connected CE Anniversary VR candidate, not completed CE parity
 or a headset-accepted release. It retains the cumulative H2 Classic/Anniversary,
 H3, ODST, Reach and H4 work. Both Steam and Microsoft Store use the same build.

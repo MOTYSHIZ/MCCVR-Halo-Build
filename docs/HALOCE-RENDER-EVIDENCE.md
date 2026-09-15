@@ -412,6 +412,72 @@ immediate context after native rendering completes. The component does not
 claim that returning from a void D3D copy proves physical GPU completion or
 that it alone permits OpenXR submission.
 
+## E-CE-11: rejected e17a664 and primary-eye receipt/raster correction
+
+Recovered actual previous-chat feedback at 2026-09-15 03:07 UTC. User reports
+working buttons/sticks and graphics gesture; flat Classic; black Anniversary VR
+and mismatched stacked desktop views. Preserved log/report are under
+`out/test-runs/e17a664-ce-anniversary-failed-20260914/`. Log SHA-256:
+`6D283B2FD811A5A587AD5F0EB192F6505C60EAF8FBCE18CF62B5BB7B133EDF57`.
+Source e17a664, Steam, SteamVR/OpenXR 2.17.9, Oculus-family, 90 Hz. The log
+records 734 builds, zero pairs, 734 drops, stage=0, descriptorMiss=0, and source
+cache 2912x1050 format=90. Backbuffer is 2912x2100. No mission/model was supplied.
+Failed rendering was disabled separately in `736f0c5`; input/gesture retained.
+
+### Verified code-level rejection conditions
+
+1. The initial `MatchesPreparedViews` required total view count exactly two.
+   Culling `0x4AA740` calls `0x4ADA70`, `0x4AEC10`, `0x4AB4E0` at
+   `0x4AA97C/0x4AA983/0x4AA9A4`. Those helpers append through `0x2EA720` at
+   `0x4AE0DF`, `0x4AF40F/0x4AFA58`, `0x4AB8C6/0x4ABC88`. The exact append
+   increments list+8 (`0x2EAB22/29`) and uses record stride 0x3C8. Culling loops
+   against the resulting total (`0x4AA9E4`). Thus a prepared primary pair can be
+   intact in a larger native list. Rejecting it solely for total count is wrong.
+   Storage starts at list+0x10; the next array count starts at +0xBD20, followed
+   by origins at +0xBD24 (`0x2EAB09/12`), bounding the view region to 50 records.
+   New exact witnesses/call edges are in the manifest/generated contracts.
+2. The initial GPU cache correctly required camera raster to equal actual source
+   dimensions, but the adapter never selected that source raster before camera
+   rebuild. A desktop-sized camera with a half-height source can therefore never
+   begin capture. `0x415200` independently shows CE setting camera width/height
+   and raster scales with full/half-height modes. No constant half-height guess
+   or call to that mode-changing function is added: the corrected adapter stages
+   only private cameras for dimensions of its generation-bound allocated cache,
+   obtained from the witnessed native source. Actual copy-time raster/resource
+   checks remain mandatory. Unknown dimensions bootstrap without a VR receipt.
+
+The old log did not record total native view count or prepared camera dimensions.
+These are reproduced implementation defects consistent with the runtime failure,
+not proof of which guard rejected all 734 native frames. The displaced-view
+report is not conclusively explained. New bounded `CE FRAME` snapshots report
+reason, native count/flags, first differing camera byte, copy mask, raster/source
+dimensions, and both actual primary positions. Logging remains on the worker.
+
+### Correction and validation
+
+Initial publication still requires exactly two primary records. Later receipt
+matching accepts total count 2..50, compares only the exact two primary records,
+and leaves all auxiliary views native. Pose/FOV/raster byte checks are retained;
+a changed/displaced eye is rejected. No new native hook or shared-title behavior
+was introduced. Existing native preparation/render scheduling remains in use.
+
+The added pair and production-scope GPU regressions fail against the old count
+guard (`out/ce-failure-regression-red.txt`) and pass after correction. GPU tests
+now use actual camera staging with a full-height stock raster/half-height source,
+plus auxiliary-view copied-list handoff, changed-camera rejection and explicit
+incomplete-pair diagnostics. They still use fixture callbacks, not game code.
+Release/eight suites and Reach consistency pass (`out/ce-repair-*`). Pinned SHA,
+instruction/call witnesses and mapped-data loaded-image checks accompany delivery.
+No headset success, accepted-pointer change, installation or launch is claimed.
+
+Extra offline traces: `out/ce-failure-{view-storage-disasm,culling-complete-disasm,
+prepare-disasm,view-consumer,domain-raster,camera-handoff}.txt`. The initial
+`ce-failure-culling-disasm.txt` covered only the first unwind fragment; use the
+complete file for the later calls. A first disassembly at 0x4AA960 began inside
+an instruction; it is not evidence for that initial decoded instruction.
+Domain-object constructor/visibility callback investigation did not establish a
+new runtime binding; it is retained as investigation only.
+
 ## E-CE-10: connected Anniversary runtime and source metadata (September 14)
 
 Recovered runtime WIP is now connected in `haloce_stereo_core.cpp`, the title

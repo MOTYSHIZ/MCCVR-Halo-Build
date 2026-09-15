@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-anniversary-stereo-6dof',
+        'ce-primary-eye-repair',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1135,6 +1135,8 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
+            rejected_previous_candidate = 'e17a664-black-vr-zero-pairs'
+            correction = 'primary-eye-receipt-survives-native-auxiliary-views; projection-staged-for-proven-source-raster'
             graphics = 'Anniversary-stereo-6DoF; Classic-stock'
             native_views = 'prepared-before-culling-no-full-frame-replay'
             submitted_pose = 'exact-native-preparation-receipt'
@@ -1152,7 +1154,7 @@ try {
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-CANDIDATE-2026-09-14.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-REPAIR-2026-09-14.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

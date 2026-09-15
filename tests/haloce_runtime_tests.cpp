@@ -84,19 +84,34 @@ Prepared MakePrepared(uint64_t serial,uintptr_t list,PreparationOrigin origin)
     native={}; native.flags=1; native.count=2;
     Tracking tracking{}; tracking.serial=serial; tracking.generation=3; tracking.spaceEpoch=7;
     tracking.headPosition={.1f,1.6f,.2f};
-    StagedViewPair pair{}; pair.serial=serial; pair.generation=3; pair.spaceEpoch=7;
+    tracking.eyes[0].offset={-.032f,0,0}; tracking.eyes[1].offset={.032f,0,0};
+    Camera stockCamera{};
+    stockCamera.position={10,20,30}; stockCamera.forward={1,0,0}; stockCamera.up={0,0,1};
+    stockCamera.verticalFov=1.2f; stockCamera.nearPlane=.01f; stockCamera.farPlane=1000;
+    stockCamera.viewport=stockCamera.window={0,0,32,32};
+    StagedViewPair pair{};
     for (int eye=0;eye<2;++eye)
     {
         native.views[eye].flags=eye?0x20b:0x10b; native.views[eye].viewIndex=eye;
         auto& camera=native.views[eye].camera;
-        camera.viewportWidth=static_cast<float>(testDesc.Width); camera.viewportHeight=static_cast<float>(testDesc.Height);
-        camera.pose.matrix[12]=static_cast<float>(eye); pair.cameras[eye]=camera;
-        pair.covers[eye]={1.8f,1.0f,.9f};
+        // Reproduce the test log's full-desktop camera / half-height eye source.
+        camera.viewportWidth=static_cast<float>(testDesc.Width); camera.viewportHeight=static_cast<float>(2*testDesc.Height);
+        BuildSaberPose(stockCamera,{},0,camera.pose);
+        camera.verticalFovDegrees=70; camera.horizontalFovDegrees=100;
+        camera.nearPlane=.03f; camera.farPlane=3000;
+        tracking.eyes[eye].fov[0]=-.9f; tracking.eyes[eye].fov[1]=.8f;
+        tracking.eyes[eye].fov[2]=.85f; tracking.eyes[eye].fov[3]=-.95f;
     }
+    SaberViewPair raster{};
+    const Reference originReference{tracking.headPosition,tracking.headOrientation,7,3};
+    const bool staged=SelectNativeEyeRaster(native,testDesc.Width,testDesc.Height,raster)&&
+        StageNativeViewPair(raster,tracking,originReference,Game_GetWorldScale(),true,
+            [](SaberCamera&) { return true; },pair)==PairStageResult::Staged;
+    if (staged) for (int eye=0;eye<2;++eye) native.views[eye].camera=pair.cameras[eye];
     const auto ticket=handoff.Begin(origin,list,3);
     Prepared result{list,3,true,false,{}};
     result.referenceRevision=referenceRevision.load();
-    result.valid=handoff.Publish(ticket,tracking,pair,native)&&handoff.Read(origin,list,native,3,7,result.receipt);
+    result.valid=staged&&handoff.Publish(ticket,tracking,pair,native)&&handoff.Read(origin,list,native,3,7,result.receipt);
     return result;
 }
 }
@@ -131,7 +146,16 @@ int main()
     hooks[Frame].original=reinterpret_cast<void*>(&NativeFrame);
     hooks[Prepare].original=reinterpret_cast<void*>(&NativePrepare);
     hooks[ResetList].original=reinterpret_cast<void*>(&NativeReset);
-    check(cache.Prepare(device.Get(),context.Get(),testDesc,3,1),"preallocate actual GPU caches");
+    auto bootstrap=MakePrepared(99,rendererAddress+0xb0,PreparationOrigin::ActiveList);
+    bootstrap.valid=false; // native two-view bootstrap has no compatible cache yet
+    preparedLists[0].Publish(bootstrap); renderReady.Publish(bootstrap);
+    FrameBody(0,0);
+    HaloCE_PresentResources(device.Get(),context.Get());
+    Wanted selectedRaster{};
+    check(allocated.Read(selectedRaster)&&selectedRaster.generation==3&&
+        selectedRaster.descriptor.Width==testDesc.Width&&selectedRaster.descriptor.Height==testDesc.Height,
+        "native bootstrap copies discover the actual raster and cold Present prepares compatible eye caches");
+    nativeCopies=0; previewFolded=0;
     const auto publish=[&](uint64_t serial) {
         const auto p=MakePrepared(serial,rendererAddress+0xb0,PreparationOrigin::ActiveList);
         check(p.valid,"fixture uses the production receipt ledger"); preparedLists[0].Publish(p); renderReady.Publish(p);
@@ -166,10 +190,11 @@ int main()
     const auto jobAddress=reinterpret_cast<uintptr_t>(job.data());
     *reinterpret_cast<int*>(job.data()+0xbe58)=1; *reinterpret_cast<int*>(job.data()+0xbe5c)=1;
     const auto copied=MakePrepared(107,jobAddress+0x70,PreparationOrigin::CopiedList);
+    reinterpret_cast<SaberViewPair*>(jobAddress+0x70)->count=4;
     preparedLists[1].Publish(copied); PrepareBody(jobAddress);
     Prepared frozen{};
     check(renderReady.Read(frozen)&&frozen.valid&&frozen.receipt.tracking.serial==107&&
-        frozen.sourceList==jobAddress+0x70,"production prepare wrapper freezes the explicit copied-list receipt");
+        frozen.sourceList==jobAddress+0x70,"copied-list receipt survives native auxiliary culling views");
     FrameBody(0,0);
     check(HaloCE_AcquirePair(context.Get(),107,7,pair),"copied native preparation reaches the real GPU pair");
     if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
@@ -191,6 +216,24 @@ int main()
     publish(112); FrameBody(0,0);
     CompletedFrame aged{}; completedFrame.Read(aged); aged.capturedAtMs=GetTickCount64()-300; completedFrame.Publish(aged);
     check(!HaloCE_AcquirePair(context.Get(),112,7,pair),"elapsed time rejects old pixels even when the XR serial stops");
+    publish(113);
+    reinterpret_cast<SaberViewPair*>(rendererAddress+0xb0)->count=3;
+    FrameBody(0,0);
+    check(HaloCE_AcquirePair(context.Get(),113,7,pair),
+        "native auxiliary culling views must not black out both primary eye images");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+    FrameDiagnostic diagnostic{};
+    check(frameDiagnostic.Read(diagnostic)&&diagnostic.failure==FrameFailure::None&&
+        diagnostic.nativeCount==3&&diagnostic.eyeMask==3&&diagnostic.cameraHeight==testDesc.Height&&
+        diagnostic.sourceHeight==testDesc.Height,"worker diagnostics report matched rasters and both actual GPU copies");
+    publish(114); omitRight=true; FrameBody(0,0); omitRight=false;
+    check(frameDiagnostic.Read(diagnostic)&&diagnostic.failure==FrameFailure::IncompletePair&&diagnostic.eyeMask==1,
+        "missing eye is distinguished from camera receipt and raster rejection");
+    publish(115); reinterpret_cast<SaberViewPair*>(rendererAddress+0xb0)->views[1].camera.pose.matrix[12]+=100;
+    FrameBody(0,0);
+    check(frameDiagnostic.Read(diagnostic)&&diagnostic.failure==FrameFailure::CameraChanged&&
+        diagnostic.cameraDifference>=sizeof(SaberCamera)&&diagnostic.eyeMask==0,
+        "a displaced right camera is rejected and identified before any GPU capture");
     ResourceRegistry::Record recorded{};
     resources.Forget(reinterpret_cast<uintptr_t>(testSource));
     HaloCE_RecordTextureCreated(testSource,testDesc);

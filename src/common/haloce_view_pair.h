@@ -29,6 +29,10 @@ static_assert(offsetof(SaberView,camera)==0x30);
 static_assert(offsetof(SaberView,viewIndex)==0x0c);
 static_assert(offsetof(SaberViewPair,views)==0x10);
 static_assert(sizeof(SaberViewPair)==0x7a0);
+// Native append stores index*0x3c8+0x10; the next array begins at +0xbd20.
+// Culling can append reflection/shadow views after the two primary records.
+inline constexpr uint32_t kNativeViewCapacity=(0xbd20-0x10)/sizeof(SaberView);
+static_assert(kNativeViewCapacity==50);
 
 enum class PairStageResult : uint8_t
 {
@@ -37,6 +41,7 @@ enum class PairStageResult : uint8_t
     InvalidTracking,
     RebuildFailed,
     InvalidRebuiltCamera,
+    AwaitingRaster,
 };
 
 struct StagedViewPair
@@ -71,6 +76,26 @@ inline bool ValidNativePair(const SaberViewPair& pair)
         left.viewportHeight==right.viewportHeight&&
         left.horizontalFovDegrees==right.horizontalFovDegrees&&
         left.verticalFovDegrees==right.verticalFovDegrees;
+}
+
+// E-CE-11: the native copy can expose a half-height eye source while the
+// original camera still describes the full desktop raster. Select the proven
+// GPU dimensions BEFORE deriving the eye FOV/projection, never at submission.
+// The caller supplies dimensions of its cold, generation-bound eye cache;
+// capture must still verify them against the actual current native source.
+inline bool SelectNativeEyeRaster(const SaberViewPair& native,uint32_t width,
+    uint32_t height,SaberViewPair& out) noexcept
+{
+    if (!ValidNativePair(native)||!width||width>16384||!height||height>16384)
+        return false;
+    SaberViewPair result=native;
+    for (auto& view:result.views)
+    {
+        view.camera.viewportWidth=static_cast<float>(width);
+        view.camera.viewportHeight=static_cast<float>(height);
+    }
+    out=result;
+    return true;
 }
 
 // Rebuild is supplied by the CE adapter only after independently verifying

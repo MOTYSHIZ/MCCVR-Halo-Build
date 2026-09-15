@@ -20,6 +20,7 @@ using namespace halo_ce;
 // frames, zero captured pairs, black VR and mismatched stacked desktop views.
 // Keep the failed implementation intact for diagnosis, but do not install it.
 constexpr bool kRejectedCeInitialStereoEnabled=false;
+constexpr bool kCeSourceRasterStereoEnabled=true;
 using PrepareFn=void(__fastcall*)(uintptr_t);
 using BuilderFn=uintptr_t(__fastcall*)(uintptr_t,SaberViewPair*,uint8_t,float*);
 using FrameFn=void(__fastcall*)(uintptr_t,uint32_t);
@@ -43,6 +44,16 @@ std::atomic<uintptr_t> copyTarget{};
 std::atomic<uintptr_t> activeListAddress{};
 std::atomic<uint64_t> built{},captured{},dropped{},stock{},descriptorMiss{},previewFolded{};
 std::atomic<uint32_t> lastPairStage{0xffffffffu};
+enum class FrameFailure : uint32_t { None,NoReceipt,InvalidReceipt,CameraChanged,CacheBegin,CopyShape,RasterChanged,EyeCopy,Destination,IncompletePair };
+struct FrameDiagnostic
+{
+    FrameFailure failure{};
+    uint32_t nativeCount{},nativeFlags{},cameraDifference{0xffffffffu},eyeMask{};
+    float cameraWidth{},cameraHeight{};
+    uint32_t sourceWidth{},sourceHeight{};
+    float position[2][3]{};
+};
+Snapshot<FrameDiagnostic> frameDiagnostic;
 uint32_t rejectedGeneration{};
 uint64_t lastReport{},resourceEpoch{};
 Snapshot<Tracking> trackingSnapshot;
@@ -74,6 +85,7 @@ struct FrameScope
     Prepared prepared;
     const SurfaceTransfer* transfer{};
     uintptr_t selectedSource{},selectedDestination{};
+    FrameDiagnostic diagnostic;
 };
 thread_local FrameScope* frameScope{};
 struct Callback
@@ -165,11 +177,15 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
     result.referenceRevision=referenceRevision.load(std::memory_order_acquire);
     if (force)
     {
-        SaberViewPair source{},committed{}; StagedViewPair staged{};
+        SaberViewPair source{},rasterSource{},committed{}; StagedViewPair staged{};
         if (recenter.exchange(false)||reference.generation!=gen||reference.spaceEpoch!=tracking.spaceEpoch)
             reference={tracking.headPosition,tracking.headOrientation,tracking.spaceEpoch,gen};
-        const auto stage=Read(address,source)
-            ? StageBoundNativePair(bindings,source,tracking,reference,
+        Wanted raster{};
+        const bool rasterReady=allocated.Read(raster)&&raster.generation==gen;
+        const auto stage=!rasterReady?PairStageResult::AwaitingRaster:
+            Read(address,source)&&SelectNativeEyeRaster(source,raster.descriptor.Width,
+                raster.descriptor.Height,rasterSource)
+            ? StageBoundNativePair(bindings,rasterSource,tracking,reference,
                 Game_GetWorldScale(),Game_IsPositionalTracking(),staged)
             : PairStageResult::InvalidNativePair;
         lastPairStage.store(static_cast<uint32_t>(stage),std::memory_order_relaxed);
@@ -227,6 +243,7 @@ void FrameBody(uintptr_t arg,uint32_t flags)
     // The builder's already-published marker protects the packed GPU copy in
     // that window. Only the fully frozen receipt below permits VR submission.
     if (!frameScope&&HasSyntheticLists()) scope.synthetic=true;
+    scope.diagnostic.failure=FrameFailure::NoReceipt;
     if (!frameScope&&renderReady.Read(scope.prepared)&&scope.prepared.synthetic&&
         scope.prepared.generation==generation.load()&&
         Read(bindings.base+0x1bea9e0,renderer)&&Read(renderer+0xb0,rendered)&&
@@ -234,9 +251,27 @@ void FrameBody(uintptr_t arg,uint32_t flags)
     {
         scope.synthetic=true;
         lastOwnedMs.store(GetTickCount64(),std::memory_order_release);
-        scope.capture=Current()&&armed.load()&&trackingEnabled.load()&&scope.prepared.valid&&
-            scope.prepared.referenceRevision==referenceRevision.load(std::memory_order_acquire)&&
-            MatchesPreparedViews(rendered,scope.prepared.receipt)&&cache.Begin(scope.prepared.receipt,scope.key);
+        auto& diagnostic=scope.diagnostic;
+        diagnostic.nativeCount=rendered.count; diagnostic.nativeFlags=rendered.flags;
+        for (int eye=0;eye<2;++eye)
+            for (int axis=0;axis<3;++axis)
+                diagnostic.position[eye][axis]=rendered.views[eye].camera.pose.matrix[12+axis];
+        diagnostic.cameraWidth=scope.prepared.receipt.pair.cameras[0].viewportWidth;
+        diagnostic.cameraHeight=scope.prepared.receipt.pair.cameras[0].viewportHeight;
+        const bool receiptCurrent=Current()&&armed.load()&&trackingEnabled.load()&&scope.prepared.valid&&
+            scope.prepared.referenceRevision==referenceRevision.load(std::memory_order_acquire);
+        const bool sameCameras=MatchesPreparedViews(rendered,scope.prepared.receipt);
+        if (scope.prepared.valid&&!sameCameras)
+        {
+            for (uint32_t eye=0;eye<2&&diagnostic.cameraDifference==0xffffffffu;++eye)
+                for (uint32_t offset=0;offset<offsetof(SaberCamera,derived160);++offset)
+                    if (reinterpret_cast<const uint8_t*>(&rendered.views[eye].camera)[offset]!=
+                        reinterpret_cast<const uint8_t*>(&scope.prepared.receipt.pair.cameras[eye])[offset])
+                    { diagnostic.cameraDifference=eye*sizeof(SaberCamera)+offset; break; }
+        }
+        scope.capture=receiptCurrent&&sameCameras&&cache.Begin(scope.prepared.receipt,scope.key);
+        diagnostic.failure=!receiptCurrent?FrameFailure::InvalidReceipt:!sameCameras?FrameFailure::CameraChanged:
+            !scope.capture?FrameFailure::CacheBegin:FrameFailure::None;
     }
     const auto previous=frameScope;
     if (!previous) frameScope=&scope;
@@ -249,8 +284,12 @@ void FrameBody(uintptr_t arg,uint32_t flags)
             if (returned&&scope.capture&&cache.Finish(scope.key))
             { completedFrame.Publish({scope.key,scope.prepared.referenceRevision,GetTickCount64()}); captured.fetch_add(1,std::memory_order_relaxed); }
             else if (scope.synthetic)
-            { cache.Drop(scope.key); dropped.fetch_add(1,std::memory_order_relaxed); }
+            {
+                if (scope.diagnostic.failure==FrameFailure::None) scope.diagnostic.failure=FrameFailure::IncompletePair;
+                cache.Drop(scope.key); dropped.fetch_add(1,std::memory_order_relaxed);
+            }
             else stock.fetch_add(1,std::memory_order_relaxed);
+            if (scope.synthetic) frameDiagnostic.Publish(scope.diagnostic);
             frameScope=previous;
         }
     }
@@ -298,16 +337,23 @@ void CopyBody(ID3D11DeviceContext* context,ID3D11Resource* destination,
             y==static_cast<UINT>(transfer.destinationY);
         if (shape)
         {
+            scope->diagnostic.sourceWidth=src.descriptor.Width;
+            scope->diagnostic.sourceHeight=src.descriptor.Height;
             wanted.Publish({src.descriptor,generation.load(),reinterpret_cast<uintptr_t>(context)});
             if (scope->capture)
             {
                 const auto& camera=scope->prepared.receipt.pair.cameras[scope->eye];
                 if (camera.viewportWidth!=src.descriptor.Width||camera.viewportHeight!=src.descriptor.Height)
-                    scope->capture=false;
+                { scope->capture=false; scope->diagnostic.failure=FrameFailure::RasterChanged; }
             }
-            if (scope->capture&&!cache.Capture(scope->key,scope->eye,context,source,src.descriptor)) scope->capture=false;
+            if (scope->capture)
+            {
+                if (!cache.Capture(scope->key,scope->eye,context,source,src.descriptor))
+                { scope->capture=false; scope->diagnostic.failure=FrameFailure::EyeCopy; }
+                else scope->diagnostic.eyeMask|=1u<<scope->eye;
+            }
         }
-        else { scope->capture=false; descriptorMiss.fetch_add(1,std::memory_order_relaxed); }
+        else { scope->capture=false; scope->diagnostic.failure=FrameFailure::CopyShape; descriptorMiss.fetch_add(1,std::memory_order_relaxed); }
         // A forced second full-size view can exceed the stock packed target.
         // Preserve native bookkeeping and a bounded desktop preview. Unknown
         // descriptors never authorize this potentially out-of-bounds GPU call.
@@ -317,7 +363,7 @@ void CopyBody(ID3D11DeviceContext* context,ID3D11Resource* destination,
             src.descriptor.SampleDesc.Count!=1||src.descriptor.SampleDesc.Quality!=0||
             src.descriptor.MipLevels!=1||src.descriptor.ArraySize!=1||
             dst.descriptor.SampleDesc.Quality!=0||dst.descriptor.Format!=src.descriptor.Format)
-        { scope->capture=false; return; }
+        { scope->capture=false; if (shape) scope->diagnostic.failure=FrameFailure::Destination; return; }
         if (y>dst.descriptor.Height-src.descriptor.Height)
         { y=0; previewFolded.fetch_add(1,std::memory_order_relaxed); }
     }
@@ -422,6 +468,7 @@ bool Remove() noexcept
     resources.InvalidateAll();
     if (moduleReference) { FreeLibrary(moduleReference); moduleReference=nullptr; }
     bindings={}; installed=false; generation=0; allocated.Publish({});
+    frameDiagnostic.Publish({});
     completedFrame.Publish({}); renderReady.Publish({}); wanted.Publish({});
     preparedLists[0].Publish({}); preparedLists[1].Publish({});
     handoff.Invalidate(PreparationOrigin::ActiveList); handoff.Invalidate(PreparationOrigin::CopiedList);
@@ -475,7 +522,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         if (!Remove()) return false;
     }
     if (!isActive||!base||!gen) return false;
-    if (!kRejectedCeInitialStereoEnabled)
+    if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled)
     {
         if (gen!=rejectedGeneration)
         {
@@ -502,6 +549,19 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         lastReport=now;
         LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u",
             gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load());
+        FrameDiagnostic diagnostic{};
+        if (frameDiagnostic.Read(diagnostic))
+        {
+            constexpr const char* reasons[]={"none","no-receipt","invalid-receipt","camera-changed","cache-begin",
+                "copy-shape","raster-changed","eye-copy","destination","incomplete-pair"};
+            const auto reason=static_cast<uint32_t>(diagnostic.failure);
+            LOG("CE FRAME failure=%s(%u) nativeViews=%u flags=0x%X cameraDiff=0x%X eyeMask=%u raster=%.0fx%.0f source=%ux%u eye0=(%.3f,%.3f,%.3f) eye1=(%.3f,%.3f,%.3f)",
+                reason<std::size(reasons)?reasons[reason]:"unknown",reason,diagnostic.nativeCount,diagnostic.nativeFlags,
+                diagnostic.cameraDifference,diagnostic.eyeMask,diagnostic.cameraWidth,diagnostic.cameraHeight,
+                diagnostic.sourceWidth,diagnostic.sourceHeight,
+                diagnostic.position[0][0],diagnostic.position[0][1],diagnostic.position[0][2],
+                diagnostic.position[1][0],diagnostic.position[1][1],diagnostic.position[1][2]);
+        }
     }
     return armed.load();
 }

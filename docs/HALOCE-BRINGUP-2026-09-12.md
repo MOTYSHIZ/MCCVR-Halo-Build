@@ -1,5 +1,26 @@
 # Halo CE Anniversary VR bring-up — September 12, 2026
 
+## September 14 late: actual headset failure and correction
+
+e17a664 was delivered and tested. User reports working input/graphics gesture,
+flat Classic, black Anniversary VR and mismatched stacked desktop views. The
+log shows 734 prepared frames and zero captured pairs, with half-height eye
+textures. Full report/log: out/test-runs/e17a664-ce-anniversary-failed-20260914/.
+The initial resume missed that newer conversation reply; ACTIVE-WORK-CHECKPOINT
+now preserves it and points to the final out/ce-current-handoff.json record.
+
+Failed rendering was disabled separately in 736f0c5. The new correction preserves
+two exact primary cameras through native auxiliary culling views and selects
+proven source-texture dimensions before projection/culling rebuild. Failure-stage,
+copy-mask, raster and camera-position diagnostics are included. E-CE-11 records
+the proof and uncertainty: the earlier log does not establish which rejection
+condition occurred each frame, or conclusively explain the displaced view.
+Regressions fail under the old count guard and pass under the correction;
+Release/eight suites, Reach consistency, pinned/generated contracts and mapped
+PE checks pass. New notes: HALOCE-REPAIR-2026-09-14.md. Package build/source
+without -Install, deliver and wait for the new headset result. Accepted source
+remains 4e01f28; every unfinished/deferred task and both editions are retained.
+
 ## September 14: connected Anniversary candidate
 
 Recovered uncommitted runtime work beyond a6a507a was preserved before edits at

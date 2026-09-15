@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <limits>
 #include <thread>
+#include <utility>
 
 using namespace halo_ce;
 
@@ -59,6 +60,20 @@ int main()
     check(std::memcmp(&native,&savedNative,sizeof(native))==0,
         "staging cannot mutate live cameras, native headers or count");
     const StagedViewPair saved=staged;
+    SaberViewPair fullDesktop=savedNative,rasterSource{};
+    for (auto& view:fullDesktop.views)
+    { view.camera.viewportWidth=2912; view.camera.viewportHeight=2100; }
+    check(SelectNativeEyeRaster(fullDesktop,2912,1050,rasterSource)&&
+        fullDesktop.views[0].camera.viewportHeight==2100,
+        "logged half-height source selects a private raster without changing the desktop camera");
+    StagedViewPair sourceSized{};
+    check(StageNativeViewPair(rasterSource,tracking,reference,0.33f,true,rebuild,sourceSized)==PairStageResult::Staged&&
+        sourceSized.cameras[0].viewportHeight==1050&&sourceSized.cameras[1].viewportHeight==1050&&
+        near(std::tan(sourceSized.covers[0].halfX)/std::tan(sourceSized.covers[0].halfY),2912.0f/1050.0f),
+        "eye projection aspect is rebuilt for 2912x1050 pixels rather than the 2912x2100 desktop");
+    for (const auto dimensions:{std::pair{0u,1050u},std::pair{2912u,0u},std::pair{16385u,1050u}})
+        check(!SelectNativeEyeRaster(fullDesktop,dimensions.first,dimensions.second,rasterSource),
+            "invalid observed raster cannot change staged source cameras");
     tracking.eyes[1].orientation.w=std::numeric_limits<float>::quiet_NaN();
     rebuilds=0;
     check(StageNativeViewPair(native,tracking,reference,0.33f,true,rebuild,staged)==
@@ -161,6 +176,21 @@ int main()
         tracking.generation,tracking.spaceEpoch,received)&&received.tracking.serial==tracking.serial,
         "active render receives exact tracking pair");
     const auto savedReceipt=received;
+    SaberViewPair withAuxiliaryViews=committed;
+    withAuxiliaryViews.count=3;
+    check(handoff.Read(PreparationOrigin::ActiveList,0x10000,withAuxiliaryViews,
+        tracking.generation,tracking.spaceEpoch,received),
+        "native culling may append auxiliary views without changing the prepared primary eyes");
+    withAuxiliaryViews.count=kNativeViewCapacity;
+    check(MatchesPreparedViews(withAuxiliaryViews,received),"native view storage capacity is bounded");
+    withAuxiliaryViews.count=kNativeViewCapacity+1;
+    check(!MatchesPreparedViews(withAuxiliaryViews,received),"corrupt total view count rejected");
+    withAuxiliaryViews.count=3;
+    withAuxiliaryViews.views[1].viewIndex=2;
+    check(!MatchesPreparedViews(withAuxiliaryViews,received),"auxiliary view cannot replace the right primary eye");
+    withAuxiliaryViews=committed; withAuxiliaryViews.count=3;
+    check(!handoff.Publish(direct,tracking,staged,withAuxiliaryViews),
+        "initial receipt still requires exactly two primary views before native culling");
     check(!handoff.Read(PreparationOrigin::CopiedList,0x10000,committed,
         tracking.generation,tracking.spaceEpoch,received),"other preparation route cannot steal identity");
     check(!handoff.Read(PreparationOrigin::ActiveList,0x20000,committed,

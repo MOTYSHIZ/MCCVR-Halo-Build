@@ -34,7 +34,7 @@ inline bool SamePreparedCamera(const SaberCamera& a,const SaberCamera& b) noexce
 }
 inline bool MatchesPreparedViews(const SaberViewPair& views,const PreparedReceipt& receipt) noexcept
 {
-    if (views.flags!=1||views.count!=2) return false;
+    if (views.flags!=1||views.count<2||views.count>kNativeViewCapacity) return false;
     for (int eye=0;eye<2;++eye)
         if (views.views[eye].viewIndex!=eye||
             views.views[eye].flags!=receipt.viewFlags[eye]||
@@ -82,7 +82,7 @@ public:
     bool Publish(const PreparationTicket& ticket,const Tracking& tracking,
         const StagedViewPair& staged,const SaberViewPair& committed) noexcept
     {
-        if (!Current(ticket)||tracking.generation!=ticket.generation||
+        if (committed.count!=2||!Current(ticket)||tracking.generation!=ticket.generation||
             !tracking.serial||staged.serial!=tracking.serial||
             staged.generation!=tracking.generation||staged.spaceEpoch!=tracking.spaceEpoch)
             return false;

@@ -1,4 +1,17 @@
-# LATEST - September 14 late: CE candidate FAILED headset testing
+# LATEST - September 14 late: CE failure correction candidate
+
+The actual e17a664 headset failure/report was recovered from the previous chat.
+After the separate disable commit 736f0c5, CE primary-eye receipt matching now
+handles auxiliary culling views, cameras rebuild for the proven eye-source raster,
+and logs distinguish rejection reasons and camera positions. Release/eight suites,
+Reach and pinned/mapped binding checks pass; headset success remains unproven.
+See E-CE-11, HALOCE-REPAIR-2026-09-14.md and ACTIVE-WORK-CHECKPOINT.md. Package
+and deliver the correction's build/source ZIPs then wait for its test result;
+read out/ce-current-handoff.json for final artifact identity after packaging.
+All standing/deferred requirements below are retained. No full CE completion
+claim; CE melee/world collision remain deferred until functional VR confirmation.
+
+# September 14 late: first CE candidate FAILED headset testing
 
 e17a664 was delivered and tested. Input/graphics gesture work; Classic is flat
 and Anniversary shows black VR plus mismatched stacked desktop views. User

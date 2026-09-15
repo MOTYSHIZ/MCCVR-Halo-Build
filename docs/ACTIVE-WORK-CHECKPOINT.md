@@ -1,4 +1,31 @@
-# LATEST - September 14 late headset failure, recovered from previous chat
+# LATEST - September 14 late: correction after the ALREADY TESTED CE failure
+
+Recovered the actual prior chat and attachment after the initial resume wrongly
+treated the pre-test checkpoint as current. e17a664 was already tested/failed;
+do not ask for its first test or resend it as a new update. Full failure details
+are preserved immediately below. Failure-disable commit is `736f0c5`.
+
+The follow-up correction now retains exact primary-eye identity through native
+auxiliary culling views (total count 2..50), selects actual source texture raster
+before camera/projection rebuild, and records explicit frame rejection reasons,
+counts, dimensions, copy mask and both camera positions. E-CE-11 records native
+proof and limits. Tests reproduced rejection with the old total-count guard;
+the corrected pair and production WARP fixtures pass, including a full-height
+stock camera/half-height source and copied lists with auxiliary views. All eight
+Release suites, Reach gate, generated contract, pinned SHA/witness and mapped PE
+checks pass. Logs/evidence: `out/ce-repair-*`, `out/ce-failure-*`.
+
+Package the new correction without -Install, using HALOCE-REPAIR-2026-09-14.md
+as notes; deliver BOTH build/source ZIPs, then wait for the new result. The exact
+delivery record is written to ignored `out/ce-current-handoff.json` after archive
+verification; read it and the latest project conversation on the next resume.
+The old log did not record enough detail to prove which guard caused every drop,
+and the displaced-view cause remains unconfirmed. This is a correction candidate,
+not headset acceptance or full CE parity. No install/launch/game writes/publishing.
+Keep both editions, accepted 4e01f28, working input/gesture and every deferred
+item below. CE melee/collision still await functional VR injection confirmation.
+
+# September 14 late headset failure, recovered from previous chat
 
 The e17a664 build/source ZIPs were ALREADY DELIVERED AND TESTED. The previous
 chat received the user's log and instruction to fix CE at 2026-09-15 03:07 UTC.

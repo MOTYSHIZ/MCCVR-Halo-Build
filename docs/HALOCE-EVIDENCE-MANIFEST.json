@@ -1,6 +1,6 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "CE Anniversary connected stereo/6DoF candidate; native execution and headset acceptance pending; Classic and motion-controller/HUD parity unfinished",
+  "status": "Initial CE Anniversary e17a664 rejected by headset test; primary-view receipt and source-raster correction candidate, headset result pending; Classic and motion-controller/HUD parity unfinished",
   "recorded_date": "2026-09-14",
   "retail": {
     "module": "halo1.dll",
@@ -186,7 +186,7 @@
       "rva": "0x2ea720",
       "signature": "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 78 FC FF FF",
       "function_entry": true,
-      "evidence": "E-CE-4",
+      "evidence": "E-CE-4/11",
       "relative_operands": [
         {
           "instruction_rva": "0x2ea8b3",
@@ -198,6 +198,62 @@
         {
           "instruction_rva": "0x2ea96d",
           "target_rva": "0x11e5f0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4aa97c",
+          "target_rva": "0x4ada70",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4aa983",
+          "target_rva": "0x4aec10",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4aa9a4",
+          "target_rva": "0x4ab4e0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4ab8c6",
+          "target_rva": "0x2ea720",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4abc88",
+          "target_rva": "0x2ea720",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4ae0df",
+          "target_rva": "0x2ea720",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4af40f",
+          "target_rva": "0x2ea720",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0x4afa58",
+          "target_rva": "0x2ea720",
           "instruction_bytes": 5,
           "displacement_offset": 1,
           "instruction_signature": "E8 ?? ?? ?? ??"
@@ -221,6 +277,36 @@
           "signature": "48 8D 4A 40",
           "instruction": "lea rcx, [rdx + 0x40]",
           "meaning": "camera at list entry plus 0x40"
+        },
+        {
+          "rva": "0x2eab09",
+          "signature": "89 87 20 BD 00 00",
+          "instruction": "mov dword ptr [rdi + 0xbd20], eax",
+          "meaning": "origin-table count at +0xbd20 bounds the preceding 50-record view storage"
+        },
+        {
+          "rva": "0x2eab12",
+          "signature": "F2 0F 11 84 8F 24 BD 00 00",
+          "instruction": "movsd qword ptr [rdi + rcx*4 + 0xbd24], xmm0",
+          "meaning": "origin table starts at +0xbd24 after the fixed view storage"
+        },
+        {
+          "rva": "0x2eab22",
+          "signature": "48 63 4F 08",
+          "instruction": "movsxd rcx, dword ptr [rdi + 8]",
+          "meaning": "append reads total view count at list +8"
+        },
+        {
+          "rva": "0x2eab29",
+          "signature": "89 47 08",
+          "instruction": "mov dword ptr [rdi + 8], eax",
+          "meaning": "append increments total view count"
+        },
+        {
+          "rva": "0x4aa9e4",
+          "signature": "41 3B 77 08",
+          "instruction": "cmp esi, dword ptr [r15 + 8]",
+          "meaning": "culling iterates the resulting total view count including appended auxiliary views"
         }
       ]
     },
