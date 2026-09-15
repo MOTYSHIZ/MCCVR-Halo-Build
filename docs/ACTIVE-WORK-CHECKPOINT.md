@@ -1,4 +1,33 @@
-# Latest continuation - September 14, 2026: CE Anniversary candidate
+# LATEST - September 14 late headset failure, recovered from previous chat
+
+The e17a664 build/source ZIPs were ALREADY DELIVERED AND TESTED. The previous
+chat received the user's log and instruction to fix CE at 2026-09-15 03:07 UTC.
+Its last action was reading the CE builder/capture code before interruption;
+no fix or failure-disable commit had been made. Do not redeliver that candidate
+or ask for its first test. On continuity-sensitive resumes, check the latest
+project conversation as well as this file; older saved notes missed that reply.
+
+User confirms input and left-head-side graphics gesture work. Classic is flat;
+Anniversary is black in the headset, with vertically stacked desktop views,
+one displaced/noclipped elsewhere and one near the normal camera. Fix the actual
+stereo/6DoF failure, using the existing titles and CE-specific native evidence.
+Preserved full report and log: out/test-runs/e17a664-ce-anniversary-failed-20260914/.
+Log SHA256 6D283B2FD811A5A587AD5F0EB192F6505C60EAF8FBCE18CF62B5BB7B133EDF57.
+Steam / SteamVR OpenXR 2.17.9 / Oculus-family headset / 90 Hz; exact model and
+mission not supplied. Log source is e17a664c1160b750f29dabcb35da3b0709c968eb.
+Runtime: 734 prepared frames, zero completed pairs, 734 dropped; staging=0;
+cache allocated 2912x1050 format=90 while backbuffer is 2912x2100. Descriptor
+miss counter stays zero. These facts do not yet isolate the failing guard.
+
+Failed CE rendering is disabled in its own commit before the next experiment;
+code remains intact. Shared input/graphics gesture remain. Next: trace native
+camera/raster preparation and exact capture rejection, add a regression for the
+actual mismatch, then build/check a corrected candidate if evidence supports it.
+No install, launch, game-folder writes or publishing. Do not advance accepted
+4e01f28. Both editions and ALL standing/deferred tasks remain. Physical melee/
+world collision stay deferred: functional CE VR injection has not been confirmed.
+
+# Historical pre-test continuation - September 14, 2026: CE Anniversary candidate
 
 The runtime WIP beyond a6a507a was recovered and preserved under
 out/checkpoints/20260914-215646-ce-finish-resume. CE Anniversary native two-view

@@ -16,6 +16,10 @@
 namespace
 {
 using namespace halo_ce;
+// e17a664 was rejected in the September 14 headset test: 734 prepared
+// frames, zero captured pairs, black VR and mismatched stacked desktop views.
+// Keep the failed implementation intact for diagnosis, but do not install it.
+constexpr bool kRejectedCeInitialStereoEnabled=false;
 using PrepareFn=void(__fastcall*)(uintptr_t);
 using BuilderFn=uintptr_t(__fastcall*)(uintptr_t,SaberViewPair*,uint8_t,float*);
 using FrameFn=void(__fastcall*)(uintptr_t,uint32_t);
@@ -471,6 +475,16 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         if (!Remove()) return false;
     }
     if (!isActive||!base||!gen) return false;
+    if (!kRejectedCeInitialStereoEnabled)
+    {
+        if (gen!=rejectedGeneration)
+        {
+            LOG("CE core disabled by HaloCE_Poll: e17a664 stereo rejected by headset test; controller input and graphics gesture retained");
+            rejectedGeneration=gen;
+        }
+        TitleAdapter_PublishLifecycle(GameTitle::HaloCE,gen,{false,false,false,0});
+        return false;
+    }
     if (!installed.load()&&gen!=rejectedGeneration&&copyTarget.load())
         if (!Install(base,size,gen)) rejectedGeneration=gen;
     const uint64_t now=GetTickCount64(),first=firstCameraMs.load(),last=lastCameraMs.load();

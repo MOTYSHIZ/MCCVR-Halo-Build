@@ -1,4 +1,15 @@
-# Latest continuation - September 14, 2026
+# LATEST - September 14 late: CE candidate FAILED headset testing
+
+e17a664 was delivered and tested. Input/graphics gesture work; Classic is flat
+and Anniversary shows black VR plus mismatched stacked desktop views. User
+provided a log and explicitly requested fixing stereo/6DoF. Read the NEW top
+of ACTIVE-WORK-CHECKPOINT.md and preserved e17a664 failure report before work.
+Do not treat the historical ready-to-package instructions below as current.
+Failed rendering is disabled separately before correction; retain the code,
+working input/gesture, both editions, accepted 4e01f28 and every task below.
+CE melee/world collision remain deferred until functional injection confirmation.
+
+# Historical pre-test continuation - September 14, 2026
 
 CE Anniversary now has a connected native two-view stereo/6DoF candidate with
 shared OpenXR, owned eye storage, lifetime/raster/pose/recenter guards and eight
