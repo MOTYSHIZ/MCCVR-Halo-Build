@@ -2031,6 +2031,8 @@ float4 ps_pass(VSOut i) : SV_Target
         return true;
     }
 
+    #include "haloce_desktop_mirror.inl"
+
     // Image-quality pipeline. Compiles the resolve/AA/sharpen pixel shaders and
     // the params constant buffer once; reuses the blit VS/sampler/rasterizer/
     // depth. All passes operate in the display's perceptual (sRGB-encoded) space
@@ -11113,6 +11115,27 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     }
                 }
 
+                // H3/H2's native final output already contains one full eye.
+                // CE leaves its packed native atlas here instead. Present one
+                // completed eye only after all headset/screen consumers above
+                // have read their inputs, while the same pair borrow is held.
+                // A desktop failure is independent of XR ownership/submission.
+                if (ceImages&&ceOwned&&stereoWorldFrame)
+                {
+                    const bool mirrored=MirrorCeDesktop(ceLease.pair,backbuffer,bd);
+                    static int lastCeMirrorState=-1;
+                    static uint64_t lastCeMirrorLogMs=0;
+                    const uint64_t nowMs=GetTickCount64();
+                    if (lastCeMirrorState!=static_cast<int>(mirrored)||
+                        (!mirrored&&nowMs-lastCeMirrorLogMs>=2000))
+                    {
+                        lastCeMirrorState=static_cast<int>(mirrored);lastCeMirrorLogMs=nowMs;
+                        LOG("CE desktop mirror: %s; left eye %ux%u -> desktop %ux%u; XR pair unchanged",
+                            mirrored?"one view":"copy failed; native output retained",
+                            ceLease.pair.descriptor.Width,ceLease.pair.descriptor.Height,bd.Width,bd.Height);
+                    }
+                }
+
                 if (g_abortFrameForSwapchainFailure)
                 {
 #if HALOMCCVR_HALO2_STEREO6DOF
@@ -13077,6 +13100,7 @@ void VR_NotifyCameraTransform()
 void VR_OnResizeBuffers(IDXGISwapChain*)
 {
     HaloCE_ForgetPresentationTexture();
+    ReleaseCeDesktopMirror();
 #if HALOMCCVR_HALO2_STEREO6DOF
     VR_ResetHalo2SynchronousStereo();
 #endif
@@ -13283,6 +13307,7 @@ void VR_DetachGamePresentation()
     InvalidateReachPresentAdmission();
 #endif
     HaloCE_ForgetPresentationTexture();
+    ReleaseCeDesktopMirror();
     ReleaseSourceViews();
     ReleaseIqChain();
     ReleaseIqTimer();
