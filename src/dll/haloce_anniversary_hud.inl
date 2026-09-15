@@ -12,7 +12,10 @@ constexpr bool kCeAnniversaryManualHudReplayEnabled=false;
 // Retain the adapter, but disable its unprepared raster/target transaction
 // before implementing its independently verified replacement.
 constexpr bool kCeAnniversaryUnpreparedHudReplayEnabled=false;
-constexpr bool kCeAnniversaryPreparedHudTargetsEnabled=true;
+// 2cf002b stopped presenting on the first Original -> Anniversary switch.
+// Disable this candidate's new native binder transaction separately before
+// replacing it; preserve Original reticles and the shared contact refinements.
+constexpr bool kCeAnniversaryPreparedHudTargetsEnabled=false;
 std::atomic<bool> anniversaryHudInstalled{};
 std::atomic<bool> anniversaryHudNaturalInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
