@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-original-anniversary-correction',
+        'ce-camera-weapons-pause-refinement',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 44
+        schema_version = 45
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1135,18 +1135,24 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
+            previous_headset_result = 'a2b526a-both-graphics-modes-visible; Original-weapon-scale-graphics-toggle-facing-and-pause-menu-refinement-required'
             rejected_previous_candidate = 'be2140f-Classic-zero-pairs-Anniversary-split-displaced-world; hands-and-controller-aim-partially-confirmed'
-            correction = 'native-static-scene-refresh-on-mono-stereo-transition; Classic-kind-zero-source-and-Present-bootstrap; isolated-Anniversary-HUD; single-eye-desktop-mirror'
+            correction = 'graphics-toggle-reference-continuity; Classic-tracked-first-person-model-and-effect-world-lens; native-pause-screen; cold-authored-HUD-binding-proof'
             graphics = 'Classic-and-Anniversary-stereo-6DoF-test'
             native_views = 'Anniversary-prepared-before-culling; Classic-native-render-only-eye-replay'
             submitted_pose = 'exact-native-preparation-receipt'
             source_storage = 'owned-D3D11-per-eye-textures'
             graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
             controller_aim_hands_hud_parity = 'implemented-locally-awaiting-headset-test; stock-feature-fallback-on-validation-failure'
-            world_render_failure = 'native-stale-static-visibility-reproduced-and-corrected-offline; reported-headset-world-failure-not-yet-confirmed-resolved'
+            world_render_failure = 'a2b526a-user-confirms-both-modes-visible; camera-alignment-and-feature-parity-under-refinement'
             scene_refresh = 'native-request-only-at-one-two-camera-transition; authored-hidden-and-geometric-culling-preserved'
             desktop_mirror = 'one-completed-eye-aspect-and-gamma-correct; both-eye-submissions-preserved'
             native_scene_refresh_verifier = 'tools/re/test_ce_scene_refresh_native.py'
+            anniversary_hud_replay = 'previous-log-zero-draws; native-admission-reasons-now-specific; visible-result-unconfirmed'
+            authored_crosshair = 'full-target-contract-verified-before-overlapping-core-hook; generation-module-scoped-proof'
+            native_pause = 'independent-native-clock-drives-head-locked-screen-and-resume; shared-YB-shortcut'
+            classic_weapon_effect_lens = 'optional-proven-first-person-consumers-retain-tracked-world-lens; native-depth-and-restore-preserved'
+            performance = 'measured-previous-log-misses-90Hz; no-unmeasured-optimization-or-parity-claim'
             physical_melee_world_collision = 'deferred-until-basic-VR-confirmed'
             physical_roomscale_body_following = 'disabled-for-CE-deferred'
             headset_accepted = $false
@@ -1155,11 +1161,11 @@ try {
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE Original/Anniversary correction candidate: native scene-visibility transition refresh, Classic output bootstrap, isolated HUD and single-eye desktop mirror. Tracked hands/weapon, controller aim and standard input preserved. Native visibility omission reproduced offline; headset world rendering remains unconfirmed. CE body-following, melee and world collision deferred. Existing title work preserved. Keep existing config. Both editions; package only; no headset acceptance.'
+        note = 'CE refinement after both graphics modes became visible: stable camera reference across switching, Original gun/hand/effect world lens, native pause screen and authored-crosshair binding order. Native shot origin/spread retained; Anniversary HUD admission and broad weapon/performance parity still need headset testing. CE body-following/melee/world collision and other standing work preserved. Keep existing config. Both editions; package only; no new headset acceptance.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-VR-CORRECTION-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-REFINEMENT-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

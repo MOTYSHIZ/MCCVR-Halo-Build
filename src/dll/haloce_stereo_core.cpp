@@ -65,6 +65,7 @@ NativeBindings bindings;
 HMODULE moduleReference{};
 std::atomic<bool> installed{},active{},armed{},retiring{},trackingEnabled{};
 std::atomic<bool> gameplayBridgeVerified{};
+std::atomic<bool> hudTargetBindingsVerified{};
 std::atomic<uint32_t> callbacks{},generation{};
 std::atomic<uint64_t> firstCameraMs{},lastCameraMs{},lastOwnedMs{},trackingAtMs{};
 std::atomic<bool> recenter{true};
@@ -313,7 +314,11 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
     const auto ticket=scoped?handoff.Begin(origin,address,gen):PreparationTicket{};
     if (scoped) preparedLists[slot].Publish({});
     Tracking tracking{};
-    const bool eligible=scoped&&Current()&&Anniversary()&&LiveGame()&&SingleCamera()&&!secondary;
+    // Observe a graphics transition before freezing the preparation revision.
+    // Publication must not discover it after the new pair has been built.
+    const bool current=scoped&&Current();
+    if (current) (void)CeObserveRendererMode();
+    const bool eligible=current&&Anniversary()&&LiveGame()&&SingleCamera()&&!secondary;
     if (eligible)
     {
         const uint64_t now=GetTickCount64();
@@ -851,6 +856,7 @@ bool Remove() noexcept
 {
     retiring.store(true,std::memory_order_release);
     gameplayBridgeVerified.store(false,std::memory_order_release);
+    hudTargetBindingsVerified.store(false,std::memory_order_release);
     if (!AnniversaryHud_Remove()||!Classic_Remove()) return false;
     // Keep copy protection installed until native reset/stock preparation has
     // retired every manufactured list. An inactive title may retain these
@@ -904,6 +910,15 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     gameplayBridgeVerified=VerifyNativeFeatureBindings(base,size,gen,gameplayContracts,failure);
     if (!gameplayBridgeVerified.load())
         LOG("CE Anniversary control-camera stock fallback: %s; camera core retained",failure?failure:"bridge verification");
+    // The HUD target contract includes native texture release, which this
+    // camera transaction detours below. Verify its untouched body now and
+    // lend only a module/generation-bound result to the optional HUD feature.
+    const NativeContractSet hudTargetContracts{contract::hud_target::entries,
+        contract::hud_target::witnesses,contract::hud_target::relatives,
+        contract::hud_target::pointers};
+    hudTargetBindingsVerified=VerifyNativeFeatureBindings(base,size,gen,hudTargetContracts,failure);
+    if (!hudTargetBindingsVerified.load())
+        LOG("CE HUD target stock fallback: %s; camera core retained",failure?failure:"target verification");
     generation=gen; retiring=false;
     preparedLists[0].Publish({}); preparedLists[1].Publish({}); renderReady.Publish({});
     const uintptr_t addresses[Count]={bindings.prepare,bindings.pairBuilder,bindings.frame,
@@ -936,9 +951,16 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     installed=true;
     (void)Classic_Install();
     if (!AnniversaryHud_Install()) LOG("CE Anniversary HUD stock fallback: optional installation failed; camera retained");
-    LOG("CE scene-visibility correction candidate installed: native mono/stereo cache refresh, Classic output bootstrap and optional hands/HUD; waiting for fresh camera; headset result pending");
+    LOG("CE refinement candidate installed: both native renderers, graphics-toggle camera continuity and independent weapon/HUD features; waiting for fresh camera; new headset result pending");
     return true;
 }
+}
+
+bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    return Current()&&hudTargetBindingsVerified.load(std::memory_order_acquire)&&
+        bindings.base==base&&bindings.size==size&&bindings.generation==gen&&
+        generation.load(std::memory_order_acquire)==gen;
 }
 
 bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
@@ -984,9 +1006,10 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
             gen,classicInstalled.load(),classicPairs.load(),classicDrops.load(),classicStock.load(),
             classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()),
             static_cast<unsigned>(classicSourceFailure.load()));
-        LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u",
+        const uint32_t hudFailure=anniversaryHudFailure.load();
+        LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u reason=%s",
             gen,anniversaryHudInstalled.load(),anniversaryHudDraws.load(),
-            anniversaryHudFallbacks.load(),anniversaryHudFailure.load());
+            anniversaryHudFallbacks.load(),hudFailure,AnniversaryHudFailureName(hudFailure));
         FrameDiagnostic diagnostic{};
         if (frameDiagnostic.Read(diagnostic))
         {
@@ -1128,6 +1151,14 @@ bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
         referenceRevision.load(std::memory_order_acquire)!=revision) return false;
     tracking=frozen;
     return true;
+}
+bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& context) noexcept
+{
+    const auto* primary=classicPrimaryViewScope;
+    return primary&&primary->frame==classicFrameScope&&
+        primary->eye==primary->frame->eye&&ClassicScopeCurrent(*primary->frame)&&
+        HaloCE_Armed()&&!recenter.load(std::memory_order_acquire)&&
+        ClassicGetRenderContext(context)&&HaloCE_RenderContextCurrent(context);
 }
 bool HaloCE_GetRenderContext(const halo_ce::Camera& stockCamera,
     halo_ce::RenderContext& context) noexcept

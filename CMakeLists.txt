@@ -432,6 +432,7 @@ if(BUILD_TESTING)
         tests/haloce_bindings_tests.cpp src/dll/haloce_native_bindings.cpp)
     target_include_directories(halomccvr_ce_bindings_tests PRIVATE src/common src/dll)
     target_compile_definitions(halomccvr_ce_bindings_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_bindings_tests PRIVATE minhook)
     add_test(NAME halomccvr_ce_bindings_tests COMMAND halomccvr_ce_bindings_tests)
     add_executable(halomccvr_ce_eye_cache_tests
         tests/haloce_eye_cache_tests.cpp src/dll/haloce_eye_cache.cpp)

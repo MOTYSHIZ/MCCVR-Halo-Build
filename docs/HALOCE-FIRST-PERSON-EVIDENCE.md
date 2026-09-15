@@ -403,6 +403,104 @@ position; 12,960 native instructions execute. Record:
 also checks preserved fields, signed offsets/bias and invalid-input fallback.
 These are synthetic native arithmetic checks, not headset acceptance.
 
+## E-CE-FP-8: Original weapon and effect projection refinement
+
+September 15 a2b526a feedback: both graphics modes now render in the headset,
+but Original hands/weapons look incorrectly scaled. The log records every
+observed native FP palette as applied, so another palette scale guess is not
+supported. Halo 3's behavior being matched is tracked weapon/hand geometry and
+its attached effects using the same per-eye lens as the surrounding world,
+while preserving the native first-person depth treatment and stock animations.
+
+The official HCEEK `rasterizer_dx9_models.c` model setup `0x00851440` checks
+parameter flags `0x80`, then calls lens setter `0x008402D0` with float bits
+`0x3F77965D` (0.9671381116 radians / 55.412932 degrees). Its separate near/far
+setter follows. Model cleanup restores the saved world lens. The same kit
+fixed-lens calls occur in transparent models `0x00849640`, particles
+`0x0083D980`, light-flare occlusion `0x0083A9A0`, and light-flare draw
+`0x00839E40`. Kit source paths/asserts and complete bodies are preserved in
+`out/ce-refine-kit-fp-lens-bodies.txt` and `out/ce-refine-kit-fp-setters.txt`.
+
+The pinned MCC homologues call `0xAE1AF0` from these exact sites:
+
+| Native path | Setter call | Admitted return |
+| --- | --- | --- |
+| Opaque model setup | `0xC1769A` | `0xC1769F` |
+| Transparent model draw | `0xC159AC` | `0xC159B1` |
+| Particle draw | `0xBF443B` | `0xBF4440` |
+| Light-flare occlusion | `0xC1234F` | `0xC12354` |
+| Light-flare draw | `0xC12B4D` | `0xC12B52` |
+
+Each native branch tests its first-person flag and reads the same fixed lens.
+The setter calls native `0xB8EE3C`, which replaces the current raster frustum's
+projection X/Y scales. That makes already tracked world-coordinate geometry
+appear enlarged, and lets effects use a different lens from the world/weapon.
+`HALOCE-CLASSIC-FIRST-PERSON-CONTRACTS.json` pins two unique function prefixes,
+the five call edges/flag branches, native cleanup and setter/math witnesses.
+The group is independent of stereo, hands, controller aim and Anniversary.
+
+Both kit and retail establish the three special lens arguments: `-1` saves,
+`0` restores, and `-2` skips the lens rewrite while honoring the setter's
+separate constant-rebuild argument. The new optional hook changes only the
+positive lens argument at those five callsites to `-2`. It requires Original,
+a fresh successfully committed tracked-palette receipt, current generation,
+reference/renderer/XR-space identity and matching render-frame context. The
+context must come from the verified primary `0xBBCF30` class-1 eye interval;
+auxiliary/reflection/nested views and the broader outer render scope cannot
+borrow it. Primary-eye scope restores even when the native view raises a
+structured exception. Existing palette context remains a separate API.
+Unclaimed or stale presentation stays stock; feature fallback never tears
+down stereo. Native near/far calls and world save/restore remain untouched.
+Its callback lifetime drains through `__finally` even if the native setter
+raises a structured exception; ten total FP hooks retire in batches of 8+2.
+
+`tools/re/test_ce_classic_fp_projection_native.py` executes the complete pinned
+setter, lens arithmetic, native depth adjustment, save/restore and constant
+composition with synthetic native frusta. The compiled production selector
+handles all five admitted returns across three raster/FOV combinations and
+both signed eye offsets: **30 cases, 35,298 native instructions, 144 native
+constant uploads**. The stock fixed lens changes world X/Y projection; the
+correction preserves every frustum byte until native depth adjustment, which
+changes Z while retaining X/Y; restoration returns the exact starting frustum.
+Foreign callers and native sentinel arguments are unchanged. CRT tangent,
+GPU upload and cookie services are explicit stubs. Record:
+`out/ce-refine-classic-fp-native.json`. This is CPU/native constant evidence;
+it does not execute every live material, mesh or GPU shader variant.
+
+Production FP transaction tests additionally cover a missing render scope,
+different tracking serial, renderer switch, recenter, blocked presentation,
+failed native prepare, foreign caller arguments, native structured exceptions
+and both retirement batches. Existing 12 official graph fixtures and the
+tracked-palette/Anniversary skin and projection tests remain supported.
+
+### Muzzle/effect and aim audit at this refinement
+
+The existing canonical tracked palette is also the native attachment source.
+Official HCEEK marker query `0x005CACD0` passes FP graph count, model remapping
+table `user+0x1D88` and palette `user+0x1088` to model-marker evaluation. Pinned
+MCC homolog `0xB2804C` passes the remapping and palette to `0xC64480` (actual
+stack arguments are visible in disassembly; the decompiler omits later args).
+Native effect-node helper `0xB25EB0` selects `user+0x1088+node*0x34` for its
+signed first-person node encoding; stock world-object nodes use their separate
+native path. Native effect code `0xB23898` independently uses the same FP
+selection and transforms its local effect point with `0xBA2EA8`. The existing
+palette hook changes this canonical palette before the native model remapping,
+and its carrier transform keeps gun parts together. No second muzzle palette
+or guessed marker offset was added. Evidence bodies:
+`out/ce-refine-kit-fp-marker.txt`, `out/ce-refine-retail-fp-marker.txt`, and
+the earlier `out/ce-fp-consumers.txt`. The lens correction includes native
+particles/light-flare consumers so attached effects keep the tracked world lens.
+
+The a2b526a log has zero observed shot-hook calls, counted before ownership
+gates; it does not establish whether firing was tested. Earlier be2140f logs
+record 52 controller-shot applications and 52 downstream assist applications
+on unchanged shot code. Native direction/assist routing and engine origin,
+collision clamp, spread and offsets are retained. No new evidence justifies
+changing projectile origin or stripping stock shot behavior. Each weapon's
+barrel, reload, muzzle flash and close-range bullet alignment still require
+headset testing; neither this attachment audit nor the lens fixture proves
+every weapon/animation is visually correct.
+
 ## Verification performed and limits
 
 - `halomccvr_ce_first_person_tests` passes the production pose/palette helper,

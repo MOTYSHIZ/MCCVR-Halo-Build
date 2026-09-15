@@ -27,7 +27,11 @@ int32_t CeObserveRendererMode() noexcept
     {
         ceRendererEpoch.fetch_add(1,std::memory_order_acq_rel);
         referenceRevision.fetch_add(1,std::memory_order_acq_rel);
-        recenter.store(true,std::memory_order_release);
+        // Original and Anniversary render the same native player camera.
+        // Retire old-mode receipts, but retain the player's tracking origin:
+        // rebasing it to the current head pose makes a graphics toggle jump
+        // yaw/pitch/roll and room translation. Explicit recenter, XR-space and
+        // title-generation changes still reseed at the next preparation.
         completedFrame.Publish({});
     }
     return mode;
@@ -105,6 +109,12 @@ struct ClassicFrameScope
     { failed=true; if (failure==ClassicFailure::None) failure=reason; }
 };
 thread_local ClassicFrameScope* classicFrameScope{};
+struct ClassicPrimaryViewScope
+{
+    ClassicFrameScope* frame{};
+    int eye{};
+};
+thread_local const ClassicPrimaryViewScope* classicPrimaryViewScope{};
 
 bool ClassicGetRenderContext(RenderContext& out) noexcept
 {
@@ -138,6 +148,7 @@ void ClassicViewBody(int16_t player,const Camera* render,const void* renderFrust
     uintptr_t caller)
 {
     auto* scope=classicFrameScope;
+    bool primary=false;
     if (scope&&scope->prepared&&!scope->failed&&caller==bindings.base+0xbbccb2)
     {
         Camera consumedRender{},consumedRaster{},expectedRender=scope->pair.eyes[scope->eye].render;
@@ -156,9 +167,23 @@ void ClassicViewBody(int16_t player,const Camera* render,const void* renderFrust
             std::memcmp(&consumedRender,&expectedRender,sizeof(Camera))||
             std::memcmp(&consumedRaster,&expectedRaster,sizeof(Camera)))
             scope->Fail(ClassicFailure::Consumer);
+        else primary=true;
     }
-    reinterpret_cast<ClassicViewFn>(classicHooks[ClassicMainView].original)(
-        player,render,renderFrustum,raster,rasterFrustum,kind,reflected);
+    // The prepared frame also spans reflections and final output. Projection
+    // changes require the narrower interval during which BBCF30 is actually
+    // consuming the verified primary eye. Mask it for every auxiliary view,
+    // including a nested reflection, and restore it even on native unwind.
+    // `reflected` is not the view kind: BBCC82 sets it to 1 AFTER a reflection
+    // was rendered, then passes it to the normal class-1 call at BBCCAD.
+    const ClassicPrimaryViewScope primaryScope{scope,scope?scope->eye:0};
+    const auto* previous=classicPrimaryViewScope;
+    classicPrimaryViewScope=primary?&primaryScope:nullptr;
+    __try
+    {
+        reinterpret_cast<ClassicViewFn>(classicHooks[ClassicMainView].original)(
+            player,render,renderFrustum,raster,rasterFrustum,kind,reflected);
+    }
+    __finally { classicPrimaryViewScope=previous; }
 }
 void __fastcall ClassicViewHook(int16_t player,const Camera* render,const void* renderFrustum,
     const Camera* raster,const void* rasterFrustum,int16_t kind,uint8_t reflected)

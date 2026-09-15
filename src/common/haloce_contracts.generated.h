@@ -583,6 +583,51 @@ inline constexpr uint32_t classic_frustum_bounds=0xb8f144;
 inline constexpr uint32_t classic_frustum_build=0xb8f690;
 inline constexpr uint32_t classic_output_target_initialize=0xae410;
 }
+namespace classic_first_person_projection {
+inline constexpr std::array<Entry,2> entries={{
+    {"first_person_classic_lens",0xae1af0,"40 53 48 83 EC 20 0F 28 C8 8A DA 0F 2E 0D 9E E3 E6 00 7A 02 74 45 0F BF 05 A9 EA",true},
+    {"first_person_classic_lens_math",0xb8ee3c,"48 8B C4 53 48 81 EC A0 00 00 00 41 0F BF 51 32 48 8B D9 0F 29 70 E8",true},
+}};
+inline constexpr std::array<Witness,21> witnesses={{
+    {0xc1767f,"F6 03 80 74 30 40 84 F6 75 2B 8B CF E8 CC A4 EC FF F3 0F 10 05 14 7E D3 00 33 D2 E8 51 A4 EC FF F3 0F 10 0D 61 5D F6 00 F3 0F 10 05 55 5D F6 00 E8 04 A4 EC FF"},
+    {0xc1599d,"F6 03 80 74 24 F3 0F 10 05 02 9B D3 00 33 D2 E8 3F C1 EC FF F3 0F 10 0D 4F 7A F6 00 F3 0F 10 05 43 7A F6 00 E8 F2 C0 EC FF"},
+    {0xbf4420,"F6 03 80 74 33 40 84 FF 75 2E 33 C9 E8 2B D7 EE FF F3 0F 10 05 73 B0 D5 00 33 D2 E8 B0 D6 EE FF F3 0F 10 0D C0 8F F8 00 F3 0F 10 05 B4 8F F8 00 E8 63 D6 EE FF"},
+    {0xc12340,"45 84 F6 79 0F F3 0F 10 05 5F D1 D3 00 33 D2 E8 9C F7 EC FF"},
+    {0xc12b3e,"45 84 F6 79 11 F3 0F 10 05 61 C9 D3 00 B2 01 E8 9E EF EC FF"},
+    {0xc19697,"F6 00 80 74 25 38 1D FF 23 29 02 75 1D 8D 4B 02 E8 B0 84 EC FF 33 D2 0F 57 C0 E8 3A 84 EC FF 0F 57 C9 0F 57 C0 E8 F7 83 EC FF"},
+    {0xae1b06,"0F BF 05 A9 EA EF 01 4C 8D 0D 74 EA EF 01 0F BF 0D 9F EA EF 01 2B C8 0F BF 05 90 EA EF 01 66 0F 6E D1 0F BF 0D 89 EA EF 01 2B C8 0F 5B D2 66 0F 6E C1 48 8D 0D 9D EA EF 01 0F 5B C0 F3 0F 5E D0 E8 F1 D2 0A 00"},
+    {0xc1769a,"E8 51 A4 EC FF"},
+    {0xc159ac,"E8 3F C1 EC FF"},
+    {0xbf443b,"E8 B0 D6 EE FF"},
+    {0xc1234f,"E8 9C F7 EC FF"},
+    {0xc12b4d,"E8 9E EF EC FF"},
+    {0xae1b46,"E8 F1 D2 0A 00"},
+    {0xae1afb,"0F 2E 0D 9E E3 E6 00"},
+    {0xc17690,"F3 0F 10 05 14 7E D3 00"},
+    {0xb8ee92,"0F 2E 0D 07 BA CB 00 66 44 0F 6E EA 45 0F 5B ED 45 0F 5B E4 7A 67 75 65"},
+    {0xb8ef0f,"0F 2E 0D 82 49 CF 00 7A 67 75 65 F3 0F 10 05 7E D5 02 03 F3 0F 10 0D 7A D5 02 03"},
+    {0xb8eff3,"F3 0F 59 C7 F3 0F 5E D1 F3 0F 5E D8 F3 0F 11 93 44 01 00 00 F3 0F 11 9B 58 01 00 00"},
+    {0xb8f045,"F3 44 0F 11 83 64 01 00 00 F3 44 0F 11 8B 78 01 00 00 F3 0F 11 93 84 01 00 00"},
+    {0xb8ee92,"0F 2E 0D 07 BA CB 00"},
+    {0xb8ef0f,"0F 2E 0D 82 49 CF 00"},
+}};
+inline constexpr std::array<Relative,10> relatives={{
+    {0xc1769a,5,1,0xae1af0},
+    {0xc159ac,5,1,0xae1af0},
+    {0xbf443b,5,1,0xae1af0},
+    {0xc1234f,5,1,0xae1af0},
+    {0xc12b4d,5,1,0xae1af0},
+    {0xae1b46,5,1,0xb8ee3c},
+    {0xae1afb,7,3,0x194fea0},
+    {0xc17690,8,4,0x194f4ac},
+    {0xb8ee92,7,3,0x184a8a0},
+    {0xb8ef0f,7,3,0x1883898},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t first_person_classic_lens=0xae1af0;
+inline constexpr uint32_t first_person_classic_lens_math=0xb8ee3c;
+}
 namespace comfort {
 inline constexpr std::array<Entry,1> entries={{
     {"motion_blur_draw",0x446580,"48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 58 FC FF FF 48 81 EC 70 04 00 00 48 C7 45 D0 FE FF FF FF",true},

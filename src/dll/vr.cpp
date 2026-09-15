@@ -25,6 +25,7 @@
 #include "menu.h"
 #include "game.h"
 #include "haloce_stereo_core.h"
+#include "../common/haloce_pause_logic.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
 #include "haloce_hud_layout.h"
@@ -10943,7 +10944,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         VR_ReachEndRenderAccess(reachAccess);
 #endif
                 }
-                else if (allowStockScreenFrame&&!ceOwned)
+                else if (halo_ce::AllowStockScreen(allowStockScreenFrame,ceOwned,pausedPresentation))
                 {
 #if HALOMCCVR_HALO2_STEREO6DOF
                     if (halo2StrictStockScreen)
@@ -13211,7 +13212,7 @@ void VR_ToggleStereo()
             "one render per frame, adjacent-eye pair)");
 #if HALOMCCVR_HALO2_STEREO6DOF
     else if (on && TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
-        LOG("CE Anniversary native two-view stereo + positional 6DoF presentation ON");
+        LOG("CE Original/Anniversary stereo + positional 6DoF presentation ON");
     else if (on && Game_UsesTitleOwnedHeadTracking())
         LOG("Halo 2 C-H2-6 synchronous stereo+6DOF presentation ON "
             "(title-owned headset pose; exact-current-serial eye pair)");

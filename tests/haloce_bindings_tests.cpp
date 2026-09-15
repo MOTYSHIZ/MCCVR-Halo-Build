@@ -7,6 +7,7 @@
 #include <iterator>
 #include <vector>
 #include <set>
+#include <MinHook.h>
 
 using namespace halo_ce;
 namespace
@@ -146,6 +147,30 @@ int main(int argc,char** argv)
     check(!ResolveNativeBindings(1,contract::imageSize,4,bindings,failure)&&!bindings.base,
         "unreadable mapping fails safely");
 
+    // Reproduce the installed-order failure with an actual MinHook patch in
+    // private fixture memory. No game process or native function is executed.
+    const contract::Entry releaseEntry[]{contract::hud_target::entries.back()};
+    const NativeContractSet releaseSet{releaseEntry,{},{},{}};
+    check(VerifyNativeFeatureBindings(base,image.size(),4,releaseSet,failure),
+        "HUD release witness passes before the core hook changes its entry");
+    void* trampoline{};
+    void* releaseTarget=reinterpret_cast<void*>(base+releaseEntry[0].rva);
+    DWORD priorProtection{},ignoredProtection{};
+    check(VirtualProtect(releaseTarget,64,PAGE_EXECUTE_READWRITE,&priorProtection)!=0,
+        "private fixture page admits MinHook executable-target validation");
+    check(MH_Initialize()==MH_OK&&
+        MH_CreateHook(releaseTarget,reinterpret_cast<void*>(&main),&trampoline)==MH_OK&&
+        MH_EnableHook(releaseTarget)==MH_OK,"private release-hook installation fixture");
+    check(!VerifyNativeFeatureBindings(base,image.size(),4,releaseSet,failure)&&
+        failure==releaseEntry[0].name,
+        "rescan after a real core-style hook reproduces hud_target_release rejection");
+    check(MH_DisableHook(releaseTarget)==MH_OK&&MH_RemoveHook(releaseTarget)==MH_OK&&
+        MH_Uninitialize()==MH_OK,"private release-hook fixture retires fully");
+    check(VirtualProtect(releaseTarget,64,priorProtection,&ignoredProtection)!=0,
+        "private fixture page protection restored");
+    check(VerifyNativeFeatureBindings(base,image.size(),4,releaseSet,failure),
+        "original native witness returns after hook retirement");
+
     // Optional read-only check of the actual pinned PE. This maps file bytes
     // into NON-EXECUTABLE private storage, rebases only the tested vtable slots,
     // and executes the same production verifier. No LoadLibrary or game code.
@@ -179,6 +204,7 @@ int main(int argc,char** argv)
             {contract::comfort::entries,contract::comfort::witnesses,contract::comfort::relatives,contract::comfort::pointers},
             {contract::entries,contract::witnesses,contract::relatives,contract::pointers},
             {contract::classic::entries,contract::classic::witnesses,contract::classic::relatives,contract::classic::pointers},
+            {contract::classic_first_person_projection::entries,contract::classic_first_person_projection::witnesses,contract::classic_first_person_projection::relatives,contract::classic_first_person_projection::pointers},
             {contract::first_person::entries,contract::first_person::witnesses,contract::first_person::relatives,contract::first_person::pointers},
             {contract::first_person_aim::entries,contract::first_person_aim::witnesses,contract::first_person_aim::relatives,contract::first_person_aim::pointers},
             {contract::first_person_skin::entries,contract::first_person_skin::witnesses,contract::first_person_skin::relatives,contract::first_person_skin::pointers},

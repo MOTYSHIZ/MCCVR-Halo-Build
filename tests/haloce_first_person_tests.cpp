@@ -12,6 +12,34 @@ void Name(AnimationNode& node,const char* name,int parent)
 }
 int main(int argc,char** argv)
 {
+    if (argc==4&&std::strcmp(argv[1],"--classic-native-projection-fixture")==0)
+    {
+        std::ifstream input(argv[2],std::ios::binary);
+        uint64_t returnRva{};float fov{};
+        CHECK(input.read(reinterpret_cast<char*>(&returnRva),sizeof(returnRva)));
+        CHECK(input.read(reinterpret_cast<char*>(&fov),sizeof(fov)));
+        if (IsClassicFirstPersonLensCallsite(uintptr_t(returnRva))) (void)SelectClassicTrackedProjection(fov);
+        std::ofstream output(argv[3],std::ios::binary);
+        CHECK(output.write(reinterpret_cast<const char*>(&fov),sizeof(fov)));
+        return 0;
+    }
+    for (float initial:{.9671381116f,1.2f,2.3f})
+    {
+        float fov=initial;CHECK(SelectClassicTrackedProjection(fov));CHECK(fov==-2);
+    }
+    for (float invalid:{-2.0f,-1.0f,0.0f,3.2f,std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity()})
+    {
+        float fov=invalid;CHECK(!SelectClassicTrackedProjection(fov));
+        CHECK(std::memcmp(&fov,&invalid,sizeof(fov))==0);
+    }
+    for (uintptr_t caller:{0xc1769fu,0xc159b1u,0xbf4440u,0xc12354u,0xc12b52u})
+    {
+        CHECK(IsClassicFirstPersonLensCallsite(caller));
+        CHECK(!IsClassicFirstPersonLensCallsite(caller-1));
+        CHECK(!IsClassicFirstPersonLensCallsite(caller+1));
+    }
+    CHECK(!IsClassicFirstPersonLensCallsite(0xc196b6)); // native restore
     if (argc==4&&(std::strcmp(argv[1],"--saber-native-projection-fixture")==0||
         std::strcmp(argv[1],"--saber-native-projection-layout-fixture")==0))
     {

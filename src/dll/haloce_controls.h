@@ -15,6 +15,9 @@ struct HaloCELocalPlayerState
 
 bool HaloCEControls_Poll(uintptr_t base,size_t size,uint32_t generation,bool active) noexcept;
 bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept;
+// Reads the verified native clock independently of player/unit/weapon state,
+// which can be unavailable while the pause menu or restart screen is visible.
+bool HaloCEControls_GetNativePaused(bool& paused) noexcept;
 bool HaloCEControls_OwnsLookStick() noexcept;
 bool HaloCEControls_MapMoveStick(float x,float y,float& outputX,float& outputY) noexcept;
 // Coherent on-foot owner and native CENTER camera/HMD/reference data. This

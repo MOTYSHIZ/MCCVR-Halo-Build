@@ -1,19 +1,20 @@
-HALO MCC VR - CE ORIGINAL / ANNIVERSARY VR CORRECTION - SEPTEMBER 2026
+HALO MCC VR - CE CAMERA, WEAPONS AND PAUSE REFINEMENT - SEPTEMBER 2026
 ==================================================================
 
 Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
 and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
-files. This candidate corrects CE Original (Classic) output discovery and
-Anniversary scene-visibility refresh and HUD admission, adds a single
-completed-eye desktop view, and preserves tracked hands, weapon placement
-and controller aiming.
+files. Following confirmation that both CE graphics modes are visible in VR,
+this candidate corrects camera facing across graphics switches, Original
+weapon/hand/effect projection, native pause-screen presentation and authored
+crosshair preparation. The single-eye desktop mirror, native scene-visibility
+correction, tracked hands and controller aiming are retained.
 This alpha candidate still needs headset confirmation in both CE graphics
 modes. The accepted baseline remains 4e01f28.
 Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
 exact build identity and file hashes; you do not need to edit it.
 
-For the CE test, begin in Anniversary graphics, then test Classic. The previous
-Anniversary world-render failure has not yet been confirmed fixed in a headset.
+For the CE test, compare both graphics modes, switch while looking around,
+check gun/hand size and firing effects, then pause and resume in each mode.
 Read RELEASE-NOTES.md for the exact status and test steps. CE physical roomscale
 body following, melee and world collision remain deferred; those sections below
 describe the other supported titles. Ordinary tracked leaning is part of CE 6DoF.

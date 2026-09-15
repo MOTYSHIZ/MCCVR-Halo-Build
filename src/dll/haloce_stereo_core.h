@@ -5,6 +5,9 @@
 // CE Anniversary builds two views before culling. No whole-frame replay.
 // Classic, weapon IK, melee, collision and HUD extraction remain separate.
 bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t generation,bool active) noexcept;
+// Cold optional proof captured before the core detours overlapping native
+// bodies. Revoked on retirement and valid only for the exact retained module.
+bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t generation) noexcept;
 bool HaloCE_Armed() noexcept;
 void HaloCE_Recenter() noexcept;
 void HaloCE_PublishTracking(const halo_ce::Tracking& tracking,bool enabled) noexcept;
@@ -18,6 +21,10 @@ bool HaloCE_OwnsPresentation() noexcept;
 // their camera adaptation; Classic's active eye scope substitutes its source.
 bool HaloCE_GetRenderContext(const halo_ce::Camera& stockCamera,
     halo_ce::RenderContext& context) noexcept;
+// Projection changes require the verified primary Classic BBCF30 consumer,
+// not merely a prepared frame or a recent first-person palette. Auxiliary
+// views and work outside the primary draw interval cannot borrow this scope.
+bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& context) noexcept;
 // Gameplay hooks never read the renderer's temporary camera globals. This
 // receipt retains a verified stock center and pairs it with fresh XR input.
 bool HaloCE_GetGameplayContext(halo_ce::RenderContext& context) noexcept;

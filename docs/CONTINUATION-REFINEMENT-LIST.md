@@ -1,4 +1,24 @@
-# Latest continuation - September 15: corrected CE candidate handoff
+# Latest continuation - September 15: CE visible, refine camera/weapons/pause
+
+User confirms BOTH CE graphics modes visible on a2b526a and requests autonomous
+cumulative refinement through build and matching source ZIPs, without approval
+questions. Preserve working visibility; correct graphics-toggle facing,
+Original gun/hand/effect scale and native pause-screen visibility. Refine
+controller aiming and native weapon effects using existing evidence, keeping
+the accepted other-title behavior and both MCC editions. Package without
+`-Install`, deliver both ZIPs, then WAIT. No game launch/install/game-folder
+writes/PR/publishing. Earlier diagnostic-only scope and package holds below are
+historical; the full standing list remains retained rather than discarded.
+
+Read latest `ACTIVE-WORK-CHECKPOINT.md`, `HALOCE-A2B526A-TEST-2026-09-15.md` and
+`HALOCE-REFINEMENT-CANDIDATE-2026-09-15.md` for current corrections and limits.
+Halo 3 recovery succeeded after initial flat view, as reported; do not call
+automatic recovery universal or divert CE work into redesigning it. Shared
+pause callsite changes retain the shared-code regression requirement.
+CE body following/melee/world collision, vehicles, dual trajectory, zoom and
+all prior deferred scope remain preserved. Accepted `4e01f28` is unchanged.
+
+# Historical continuation - September 15: corrected CE candidate handoff
 
 The interrupted native scene-visibility refresh is implemented and reproduced
 offline. Original final-output capture/real resize recovery, Anniversary HUD

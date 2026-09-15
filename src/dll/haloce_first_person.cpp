@@ -22,6 +22,7 @@ using ModernRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,Vec3*,const Vec3*,bool,
 using LegacyRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,float*,bool,bool);
 using PlayerRayFn=int16_t(__fastcall*)(uint32_t,Vec3*,Vec3*);
 using SkinConvertFn=void(__fastcall*)(const NodeMatrix*,SaberBoneMatrix*);
+using ClassicLensFn=void(__fastcall*)(float,bool);
 using GltConstantsFn=void(__fastcall*)(uintptr_t,float*,uintptr_t,const uint32_t*,
     uintptr_t,uintptr_t,uintptr_t,const float*);
 struct Hook { void* target{};void* original{};bool enabled{}; };
@@ -29,6 +30,7 @@ Hook prepareHook,paletteHook;
 Hook modernRayHook,legacyRayHook,assistRayHook;
 Hook skinConvertHook;
 Hook projectionHook,zfillProjectionHook,sfxProjectionHook;
+Hook classicLensHook;
 HMODULE retainedModule{};
 uintptr_t moduleBase{};
 std::atomic<uint32_t> generation{},callbacks{};
@@ -39,15 +41,19 @@ std::atomic<bool> skinInstalled{};
 bool skinRetiring{};
 std::atomic<bool> projectionInstalled{};
 bool projectionRetiring{};
+std::atomic<bool> classicLensInstalled{};
+bool classicLensRetiring{};
 std::atomic<uint64_t> observed{},applied{},refused{},exceptions{},lastApplied{};
 std::atomic<uint64_t> aimObserved{},aimApplied{},aimRefused{};
 std::atomic<uint64_t> assistApplied{};
 std::atomic<uint64_t> skinApplied{},skinRefused{};
 std::atomic<uint64_t> projectionApplied{},projectionRefused{};
+std::atomic<uint64_t> classicLensApplied{},classicLensRefused{};
 uint32_t failedGeneration{};
 uint32_t aimFailedGeneration{};
 uint32_t skinFailedGeneration{};
 uint32_t projectionFailedGeneration{};
+uint32_t classicLensFailedGeneration{};
 uint64_t lastReport{};
 struct Scope
 {
@@ -246,6 +252,33 @@ bool ApplyTrackedProjection(float* constants,uintptr_t model,size_t selectorOffs
     __except(EXCEPTION_EXECUTE_HANDLER)
     { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
 }
+bool ApplyClassicTrackedProjection(float& verticalFov) noexcept
+{
+    RenderContext context{},eyeContext{};int32_t renderer=-1;
+    if (!CurrentPaletteContext(context)||context.tracking.controllers.controlsPresentationBlocked||
+        !Read(moduleBase+0x1b7aa84,renderer)||renderer!=0||
+        !HaloCE_GetClassicPrimaryEyeContext(eyeContext)||
+        eyeContext.tracking.serial!=context.tracking.serial||
+        eyeContext.referenceRevision!=context.referenceRevision||eyeContext.rendererEpoch!=context.rendererEpoch||
+        !HaloCE_RenderContextCurrent(context)||!Current()) return false;
+    return SelectClassicTrackedProjection(verticalFov);
+}
+__declspec(noinline) void __fastcall ClassicLensHook(float verticalFov,bool rebuild)
+{
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    const auto original=reinterpret_cast<ClassicLensFn>(classicLensHook.original);
+    if (!original) { callbacks.fetch_sub(1,std::memory_order_release);return; }
+    // Exact calls from native first-person model/effect flag branches. World setup,
+    // lens save/restore, HUD and reflections retain their original arguments.
+    if (IsClassicFirstPersonLensCallsite(reinterpret_cast<uintptr_t>(_ReturnAddress())-moduleBase)&&
+        classicLensInstalled.load(std::memory_order_acquire)&&Current())
+    {
+        if (ApplyClassicTrackedProjection(verticalFov)) classicLensApplied.fetch_add(1,std::memory_order_relaxed);
+        else classicLensRefused.fetch_add(1,std::memory_order_relaxed);
+    }
+    __try { original(verticalFov,rebuild); }
+    __finally { callbacks.fetch_sub(1,std::memory_order_release); }
+}
 __declspec(noinline) void __fastcall ProjectionHook(uintptr_t material,float* constants,
     uintptr_t model,const uint32_t* variants,uintptr_t a5,uintptr_t a6,uintptr_t a7,const float* a8)
 {
@@ -364,8 +397,8 @@ __declspec(noinline) void __fastcall PrepareHook(int16_t user)
 }
 bool Remove() noexcept
 {
-    active=false;retiring=true;installed=false;aimInstalled=false;skinInstalled=false;projectionInstalled=false;
-    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook})
+    active=false;retiring=true;installed=false;aimInstalled=false;skinInstalled=false;projectionInstalled=false;classicLensInstalled=false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook})
     {
         if (!hook->target||!hook->enabled) continue;
         const auto result=MCCVR_DisableHookForRetirement(hook->target);
@@ -376,20 +409,20 @@ bool Remove() noexcept
         reinterpret_cast<const void*>(&ModernRayHook),reinterpret_cast<const void*>(&LegacyRayHook),
         reinterpret_cast<const void*>(&AssistRayHook),reinterpret_cast<const void*>(&SkinConvertHook),
         reinterpret_cast<const void*>(&ProjectionHook),reinterpret_cast<const void*>(&ZfillProjectionHook),
-        reinterpret_cast<const void*>(&SfxProjectionHook)};
-    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original};
+        reinterpret_cast<const void*>(&SfxProjectionHook),reinterpret_cast<const void*>(&ClassicLensHook)};
+    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original,classicLensHook.original};
     // The shared native stack verifier admits at most eight detour ranges.
-    // All nine entries above are disabled before either batch is checked;
+    // All ten entries above are disabled before either batch is checked;
     // keep every trampoline/module alive until both batches are quiescent.
     if (!WaitForNativeDetourQuiescence(functions,trampolines,8,callbacks)||
-        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,1,callbacks)) return false;
-    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook})
+        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,2,callbacks)) return false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook})
     {
         if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
         *hook={};
     }
     if (retainedModule) { FreeLibrary(retainedModule);retainedModule=nullptr; }
-    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;skinRetiring=false;projectionRetiring=false;
+    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;skinRetiring=false;projectionRetiring=false;classicLensRetiring=false;
     return true;
 }
 bool RemoveSkin() noexcept
@@ -477,6 +510,41 @@ bool InstallProjection(uintptr_t base,size_t size,uint32_t gen) noexcept
     }
     projectionInstalled=true;
     LOG("CE Anniversary FP projection installed: native GLT color, ZFILL depth and SFX materials share the tracked world lens");
+    return true;
+}
+bool RemoveClassicLens() noexcept
+{
+    classicLensInstalled=false;classicLensRetiring=true;
+    if (classicLensHook.target&&classicLensHook.enabled)
+    {
+        const auto result=MCCVR_DisableHookForRetirement(classicLensHook.target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        classicLensHook.enabled=false;
+    }
+    const void* functions[]={reinterpret_cast<const void*>(&ClassicLensHook)};
+    const void* trampolines[]={classicLensHook.original};
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,1,callbacks)) return false;
+    if (classicLensHook.target&&MH_RemoveHook(classicLensHook.target)!=MH_OK) return false;
+    classicLensHook={};classicLensRetiring=false;return true;
+}
+bool InstallClassicLens(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::classic_first_person_projection::entries,
+        contract::classic_first_person_projection::witnesses,contract::classic_first_person_projection::relatives,
+        contract::classic_first_person_projection::pointers};
+    if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
+    { LOG("CE Original FP projection stock fallback: binding verification failed: %s",failure?failure:"unknown");return false; }
+    void* target=reinterpret_cast<void*>(base+contract::classic_first_person_projection::first_person_classic_lens);
+    auto result=MH_CreateHook(target,reinterpret_cast<void*>(&ClassicLensHook),&classicLensHook.original);
+    if (result!=MH_OK)
+    { LOG("CE Original FP projection stock fallback: create hook status %d",result);return false; }
+    classicLensHook.target=target;
+    result=MH_EnableHook(target);
+    if (result!=MH_OK)
+    { LOG("CE Original FP projection stock fallback: enable hook status %d",result);(void)RemoveClassicLens();return false; }
+    classicLensHook.enabled=true;classicLensInstalled=true;
+    LOG("CE Original FP projection installed: tracked weapon/hands retain each eye's world lens; native depth range preserved");
     return true;
 }
 bool RemoveAim() noexcept
@@ -587,6 +655,9 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
     if (projectionRetiring&&!RemoveProjection()) return HaloCEFirstPerson_Armed();
     if (installed.load()&&!projectionInstalled.load()&&gen!=projectionFailedGeneration&&!retiring.load())
         if (!InstallProjection(base,size,gen)) projectionFailedGeneration=gen;
+    if (classicLensRetiring&&!RemoveClassicLens()) return HaloCEFirstPerson_Armed();
+    if (installed.load()&&!classicLensInstalled.load()&&gen!=classicLensFailedGeneration&&!retiring.load())
+        if (!InstallClassicLens(base,size,gen)) classicLensFailedGeneration=gen;
     const uint64_t now=GetTickCount64();
     if (now-lastReport>=2000)
     {
@@ -599,6 +670,8 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
             gen,skinInstalled.load(),skinApplied.load(),skinRefused.load());
         LOG("CE Anniversary FP projection gen=%u installed=%d applied=%llu stock=%llu",
             gen,projectionInstalled.load(),projectionApplied.load(),projectionRefused.load());
+        LOG("CE Original FP projection gen=%u installed=%d applied=%llu stock=%llu",
+            gen,classicLensInstalled.load(),classicLensApplied.load(),classicLensRefused.load());
     }
     return HaloCEFirstPerson_Armed();
 }

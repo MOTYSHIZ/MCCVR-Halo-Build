@@ -14,6 +14,9 @@ static unsigned layoutSuspensions{};
 static bool nativeFramingIsolated=true,canPrepare=true,suppressionReady=true;
 static AuthoredReticlePreparationResult preparationResult=AuthoredReticlePreparationResult::Ready;
 static bool aimAvailable=true,playerEligible=true;
+static bool coldTargetProof=true;
+bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t gen) noexcept
+{ return coldTargetProof&&base==moduleBase&&size==halo_ce::contract::imageSize&&gen==testGeneration; }
 bool HaloCEFirstPerson_AimArmed() noexcept { return aimAvailable; }
 bool HaloCEFirstPerson_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept
 {
@@ -91,7 +94,17 @@ int main()
     testContext.tracking.controllers.primaryAim.valid=true;
     testContext.tracking.controllers.controlsPresentationBlocked=false;
     testContext.referenceRevision=2;testContext.rendererEpoch=4;
-    prepared=false;targetBindingsVerified=true;
+    prepared=false;targetBindingsVerified=false;
+    coldTargetProof=false;
+    PrepareCapture(moduleBase,memory.size(),3);
+    check(!prepared.load()&&rejectedCaptureGeneration==3&&HaloCEHud_HasCrosshairScope(),
+        "missing cold target proof isolates capture without disarming native HUD");
+    coldTargetProof=true;rejectedCaptureGeneration=0;
+    canPrepare=false;
+    PrepareCapture(moduleBase,memory.size(),3);
+    check(targetBindingsVerified&&!prepared.load()&&!rejectedCaptureGeneration,
+        "current core proof admits target bindings without rescanning patched native bytes");
+    canPrepare=true;
     check(HaloCEHud_HasCrosshairScope(),"native crosshair scope does not depend on private capture resources");
     CrosshairHook(0,17,29,nullptr);
     check(!captureBegins&&nativeCalls==1&&nativeFramingIsolated&&!layoutSuspensions,

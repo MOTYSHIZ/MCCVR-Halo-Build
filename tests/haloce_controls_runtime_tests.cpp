@@ -110,6 +110,34 @@ int main()
     rig.turnSnapDeg=45;rig.turnSmoothDegS=120;
 
     HaloCELocalPlayerState player{};halo_ce::RenderContext frame{};
+    bool nativePaused=true;
+    Check(HaloCEControls_GetNativePaused(nativePaused)&&!nativePaused,
+        "production pause reader uses the verified initialized native clock");
+    Put(clock+2,uint8_t(1));Put(moduleBase+0x2ea2d90,uintptr_t(0));
+    Check(!HaloCEControls_GetLocalPlayerState(player)&&
+        HaloCEControls_GetNativePaused(nativePaused)&&nativePaused,
+        "native pause remains readable while local player mapping is unavailable in the menu");
+    Put(moduleBase+0x2ea2d90,mapping);Put(clock+2,uint8_t(0));
+    Check(HaloCEControls_GetNativePaused(nativePaused)&&!nativePaused,
+        "native resume is observed without a controller Start edge");
+    Put(clock+2,uint8_t(2));nativePaused=true;
+    Check(!HaloCEControls_GetNativePaused(nativePaused)&&nativePaused,
+        "invalid native boolean cannot invent an unpause or modify the output");
+    Put(clock+2,uint8_t(0));Put(clock,uint8_t(0));
+    Check(!HaloCEControls_GetNativePaused(nativePaused)&&nativePaused,
+        "uninitialized clock at restart is unknown, not an unpause");
+    Put(clock,uint8_t(1));Put(moduleBase+0x2e9fd68,uintptr_t(1));
+    const auto pauseExceptions=exceptions.load();
+    Check(!HaloCEControls_GetNativePaused(nativePaused)&&nativePaused&&!callbacks.load()&&
+        exceptions.load()==pauseExceptions+1,
+        "inaccessible native clock is isolated and reader lifetime ownership drains");
+    Put(moduleBase+0x2e9fd68,clock);
+    ++testGeneration;
+    Check(!HaloCEControls_GetNativePaused(nativePaused),"retired title generation cannot publish native pause");
+    --testGeneration;turnReady=false;
+    Check(HaloCEControls_GetNativePaused(nativePaused)&&!nativePaused,
+        "optional turn failure does not disable native pause presentation");
+    turnReady=true;
     Check(HaloCEControls_GetLocalPlayerState(player)&&player.player==playerId&&
         player.unit==unitId&&player.inputUser==1&&player.hasControlledUnit&&player.onFoot&&
         player.nativePreparesFirstPerson&&player.firstPersonVisible&&player.weapon==weaponId,
@@ -197,7 +225,8 @@ int main()
     raiseTurn=false;TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
     Check(!callbacks.load(),"native callback recovers without stranded retirement ownership");
     testTitle=GameTitle::Halo3;
-    Check(!HaloCEControls_GetLocalPlayerState(player)&&!HaloCEControls_MapMoveStick(0,1,x,y),
+    Check(!HaloCEControls_GetLocalPlayerState(player)&&!HaloCEControls_MapMoveStick(0,1,x,y)&&
+        !HaloCEControls_GetNativePaused(nativePaused),
         "CE never claims another title's state or movement");
     active=stateReady=turnReady=false;moduleBase=0;
     VirtualFree(image,0,MEM_RELEASE);

@@ -31,6 +31,7 @@
 #include "haloce_hud.h"
 #include "haloce_hud_layout.h"
 #include "haloce_controls.h"
+#include "../common/haloce_pause_logic.h"
 #include "haloce_comfort.h"
 #include "roomscale.h"
 #include "d3d11_hook.h"
@@ -42548,6 +42549,11 @@ void Game_DetachForVrRuntimeFailure()
 bool Game_HasAuthoritativePauseState()
 {
     const GameTitle activeTitle = TitleAdapter_GetActiveTitle();
+    if (activeTitle==GameTitle::HaloCE)
+    {
+        bool paused{};
+        return HaloCEControls_GetNativePaused(paused);
+    }
     const TitleAdapterRuntimeSnapshot runtime =
         RuntimeSnapshot(GetTickCount64());
     // g_enginePauseValidated belongs specifically to Halo 3. MCC keeps title
@@ -42687,11 +42693,22 @@ void Game_AutoVrTick()
 #endif
     // CE owns its camera lifecycle. Keep the existing title branches intact.
     static bool wasCeContext=false;
+    static halo_ce::NativePausePresentation cePause;
     if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
     {
         if (!wasCeContext)
         { HaloCE_Recenter(); g_autoVrUserVeto.store(false); VR_RequestPausePresentation(false); }
         wasCeContext=true;
+        bool cePaused{};
+        const bool cePauseKnown=HaloCEControls_GetNativePaused(cePaused);
+        const auto cePauseRequest=cePause.Observe(TitleAdapter_GetGeneration(GameTitle::HaloCE),
+            cePauseKnown,cePaused,VR_IsPausePresentationTarget(),GetTickCount64());
+        if (cePauseRequest!=halo_ce::PauseRequest::None)
+        {
+            VR_RequestPausePresentation(cePauseRequest==halo_ce::PauseRequest::Enter);
+            LOG("CE pause presentation: native clock restored %s",
+                cePaused?"head-locked 2D":"stereo 3D");
+        }
         const bool ready=HaloCE_Armed()&&!g_autoVrUserVeto.load()&&
             !g_vrRuntimeFailureLatched.load();
         if (ready)
@@ -42700,8 +42717,8 @@ void Game_AutoVrTick()
             g_autoVrOwned.store(true,std::memory_order_release);
             if (!VR_IsStereoEnabled()) VR_ToggleStereo();
             HaloCELocalPlayerState player{};
-            RuntimeMode mode=RuntimeMode::Unsupported;
-            if (HaloCEControls_GetLocalPlayerState(player))
+            RuntimeMode mode=cePauseKnown&&cePaused?RuntimeMode::Paused:RuntimeMode::Unsupported;
+            if (mode!=RuntimeMode::Paused&&HaloCEControls_GetLocalPlayerState(player))
             {
                 if (player.nativePaused) mode=RuntimeMode::Paused;
                 else if (player.nativeCinematicFlag) mode=RuntimeMode::Cutscene;
@@ -42725,7 +42742,8 @@ void Game_AutoVrTick()
     }
     if (wasCeContext)
     {
-        wasCeContext=false; HaloCE_PublishTracking({},false);
+        wasCeContext=false;cePause={}; HaloCE_PublishTracking({},false);
+        VR_RequestPausePresentation(false);
         g_enabled.store(false,std::memory_order_release);
         g_autoVrOwned.store(false,std::memory_order_release);
         VR_DetachGamePresentation();

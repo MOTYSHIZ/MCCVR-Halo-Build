@@ -327,6 +327,19 @@ int main()
     rendererAddress=reinterpret_cast<uintptr_t>(renderer.data());
     std::memcpy(mapped.data()+0x1bea9e0,&rendererAddress,sizeof(rendererAddress));
     installed=true; active=true; retiring=false; armed=true; generation=3; recenter=false; trackingEnabled=true;
+    hudTargetBindingsVerified=true;
+    check(HaloCE_HudTargetBindingsVerified(bindings.base,bindings.size,3),
+        "cold HUD target proof is available only through the current retained core");
+    check(!HaloCE_HudTargetBindingsVerified(bindings.base+1,bindings.size,3)&&
+        !HaloCE_HudTargetBindingsVerified(bindings.base,bindings.size-1,3)&&
+        !HaloCE_HudTargetBindingsVerified(bindings.base,bindings.size,4),
+        "HUD target proof cannot cross module, size or generation boundaries");
+    retiring=true;
+    check(!HaloCE_HudTargetBindingsVerified(bindings.base,bindings.size,3),
+        "core retirement immediately revokes the borrowed HUD target proof");
+    retiring=false;hudTargetBindingsVerified=false;
+    check(!HaloCE_HudTargetBindingsVerified(bindings.base,bindings.size,3)&&HaloCE_Armed(),
+        "failed optional target proof leaves the working camera core armed");
     {
         std::array<uint8_t,0x118> nativeScene{};
         const uintptr_t scene=reinterpret_cast<uintptr_t>(nativeScene.data());
@@ -669,7 +682,11 @@ int main()
                 "optional HUD work clears its thread scope and preserves the CE core");
         };
         hudFrame(134,0,false);
+        check(anniversaryHudFailure.load()==10,
+            "native HUD frame-bit refusal is distinguished from camera and source failures");
         hudFrame(135,0x10,true);
+        check(anniversaryHudFailure.load()==0,
+            "recovered native HUD clears its old rejection reason");
         const int32_t noCapacity=2;std::memcpy(nativeBackend.data()+0x14,&noCapacity,4);
         hudFrame(136,0x10,false);
         std::memcpy(nativeBackend.data()+0x14,&capacity,4);
@@ -700,7 +717,14 @@ int main()
             "uninstalled optional layout is a feature-only admission fallback");
         ConfigureCeHudLayoutRuntimeFixture(3,true);
         hudFrame(145,0x10,true);
-        check(hudRasterCorrect&&anniversaryHudDraws.load()==12,
+        Camera invalidCamera{};
+        std::memcpy(mapped.data()+0x2d9cb34,&invalidCamera,sizeof(invalidCamera));
+        hudFrame(146,0x10,false);
+        check(anniversaryHudFailure.load()==20,
+            "missing stock HUD camera leaves world eyes intact with a precise reason");
+        std::memcpy(mapped.data()+0x2d9cb34,&camera,sizeof(camera));
+        hudFrame(147,0x10,true);
+        check(hudRasterCorrect&&anniversaryHudDraws.load()==14,
             "both-eye HUD raster and capture recover after rejected and faulted optional callbacks");
         anniversaryHudInstalled=false;anniversaryHudHook={};hudRoot=0;
         ConfigureCeHudLayoutRuntimeFixture(3,false);

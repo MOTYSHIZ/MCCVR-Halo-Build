@@ -5937,6 +5937,7 @@ int main()
                   TitleSpecificPauseToggleOwner(GameTitle::HaloReach, false) &&
                   TitleSpecificPauseToggleOwner(GameTitle::Halo4, false) &&
                   TitleSpecificPauseToggleOwner(GameTitle::Halo2, false) &&
+                  TitleSpecificPauseToggleOwner(GameTitle::HaloCE, false) &&
                   !TitleSpecificPauseToggleOwner(GameTitle::Halo3, false) &&
                   !TitleSpecificPauseToggleOwner(GameTitle::Unknown, false),
             "the title-specific Y+B admission includes Halo 4 without broadening unsupported ownership");

@@ -169,14 +169,13 @@ void PrepareCapture(uintptr_t base,size_t size,uint32_t gen) noexcept
     if (prepared.load()||gen==rejectedCaptureGeneration) return;
     if (!targetBindingsVerified)
     {
-        const NativeContractSet set{contract::hud_target::entries,contract::hud_target::witnesses,
-            contract::hud_target::relatives,contract::hud_target::pointers};
-        const char* failure{};
-        if (!VerifyNativeFeatureBindings(base,size,gen,set,failure))
+        // The core owns the texture-release hook also witnessed by this
+        // optional contract. Its full cold proof precedes installing hooks;
+        // rescanning here would reject our own jump at hud_target_release.
+        if (!HaloCE_HudTargetBindingsVerified(base,size,gen))
         {
             rejectedCaptureGeneration=gen;
-            LOG("CE crosshair native-art fallback: %s; native scope and gameplay HUD retained",
-                failure?failure:"target binding verification");
+            LOG("CE crosshair native-art fallback: current cold target proof unavailable; native scope and gameplay HUD retained");
             return;
         }
         targetBindingsVerified=true;

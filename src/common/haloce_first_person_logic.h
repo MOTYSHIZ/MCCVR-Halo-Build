@@ -32,6 +32,22 @@ static_assert(offsetof(NodeMatrix,position)==0x28);
 // Skinning consumes the 3x3 basis, so restore scale there without moving the
 // already converted world translation or changing the object's root carrier.
 struct SaberBoneMatrix { float value[16]{}; };
+// E-CE-FP-8: Classic's model setup substitutes a fixed weapon FOV after the
+// eye's world frustum has already been built. The native setter accepts -2 to
+// retain that frustum. Its separate near/far depth treatment stays native.
+inline bool SelectClassicTrackedProjection(float& verticalFov) noexcept
+{
+    if (!std::isfinite(verticalFov)||verticalFov<=0||verticalFov>=3.14159265f) return false;
+    verticalFov=-2.0f;
+    return true;
+}
+inline bool IsClassicFirstPersonLensCallsite(uintptr_t returnRva) noexcept
+{
+    // Native opaque/transparent models and the first-person effect/particle
+    // paths all select the same fixed lens from their first-person flag.
+    return returnRva==0xc1769f||returnRva==0xc159b1||returnRva==0xbf4440||
+        returnRva==0xc12354||returnRva==0xc12b52;
+}
 // E-CE-FP-5: native GLT, ZFILL and SFX material writers select their alternate
 // fixed-FOV lens from the same first-person model flag. Tracked geometry uses
 // the world lens, retaining native depth-range treatment of both matrices.

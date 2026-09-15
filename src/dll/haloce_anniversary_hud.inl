@@ -6,6 +6,32 @@ Hook anniversaryHudHook;
 std::atomic<bool> anniversaryHudInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
 std::atomic<uint32_t> anniversaryHudFailure{};
+const char* AnniversaryHudFailureName(uint32_t value) noexcept
+{
+    switch (value)
+    {
+    case 0:return "none";
+    case 1:return "legacy-admission";
+    case 2:return "raster-or-target-stack";
+    case 3:return "callback-or-restoration";
+    case 4:return "restored-native-exception";
+    case 5:return "unverified-cleanup";
+    case 10:return "native-HUD-frame-bit";
+    case 11:return "primary-eye-ownership";
+    case 12:return "native-callback-owner";
+    case 13:return "native-player-count";
+    case 14:return "native-HUD-initialized";
+    case 15:return "native-HUD-disabled";
+    case 16:return "native-rendering-disabled";
+    case 17:return "native-HUD-unavailable";
+    case 18:return "native-display-mode";
+    case 19:return "native-display-size";
+    case 20:return "stock-camera";
+    case 21:return "tracking-reference";
+    case 22:return "output-source";
+    default:return "unknown";
+    }
+}
 struct AnniversaryHudReplay
 {
     RenderContext owner;
@@ -110,19 +136,35 @@ void AnniversaryHud_ReplayEyeBody(FrameScope& scope,int eye,bool& cleanupVerifie
     UINT previousViewportCount{},previousScissorCount{};
     bool targetRestored=false;
     const auto camera=reinterpret_cast<const SaberCamera*>(scope.renderer+0xf0+eye*sizeof(SaberView));
-    if (!(scope.renderFlags&0x10)||scope.diagnostic.nativeFlags!=1||
-        !HaloCE_GetAnniversaryEyeTracking(camera,replay.owner.tracking)||
-        !Read(bindings.base+0x1c33fe0,callback)||callback!=bindings.base+contract::anniversary_hud::native_hud_callback||
-        !Read(bindings.base+0x2ea2d90,players)||!Read(players+0xb4,playerCount)||playerCount!=1||
-        !Read(bindings.base+0x2d9bdd1,nativeInitialized)||!nativeInitialized||
-        !Read(bindings.base+0x2b23700,nativeDisabled)||nativeDisabled||
-        !Read(bindings.base+0x2d91330,enabledPointer)||!Read(enabledPointer+2,nativeRendering)||!nativeRendering||
-        !Read(bindings.base+0x2e3b829,hudAvailable)||!hudAvailable||
-        !Read(bindings.base+0x2e3bdd8,config)||!Read(config+0x238,stereo)||stereo||
-        !Read(config+0x118,display)||!Read(display+0x10,replay.width)||!Read(display+0x14,replay.height)||
-        !Read(bindings.base+0x2d9cb34,replay.owner.camera)||!Valid(replay.owner.camera)||
-        !publishedReference.Read(sample)||sample.revision!=scope.prepared.referenceRevision||
-        !AnniversaryHud_ReadSource(source)) goto failed;
+    // Keep each optional admission refusal attributable in the cold log.
+    // Earlier builds collapsed all of these into failure 1, hiding which
+    // native state actually prevented HUD replay on the user's machine.
+    failure=10;
+    if (!(scope.renderFlags&0x10)) goto failed;
+    failure=11;
+    if (scope.diagnostic.nativeFlags!=1||!HaloCE_GetAnniversaryEyeTracking(camera,replay.owner.tracking)) goto failed;
+    failure=12;
+    if (!Read(bindings.base+0x1c33fe0,callback)||callback!=bindings.base+contract::anniversary_hud::native_hud_callback) goto failed;
+    failure=13;
+    if (!Read(bindings.base+0x2ea2d90,players)||!Read(players+0xb4,playerCount)||playerCount!=1) goto failed;
+    failure=14;
+    if (!Read(bindings.base+0x2d9bdd1,nativeInitialized)||!nativeInitialized) goto failed;
+    failure=15;
+    if (!Read(bindings.base+0x2b23700,nativeDisabled)||nativeDisabled) goto failed;
+    failure=16;
+    if (!Read(bindings.base+0x2d91330,enabledPointer)||!Read(enabledPointer+2,nativeRendering)||!nativeRendering) goto failed;
+    failure=17;
+    if (!Read(bindings.base+0x2e3b829,hudAvailable)||!hudAvailable) goto failed;
+    failure=18;
+    if (!Read(bindings.base+0x2e3bdd8,config)||!Read(config+0x238,stereo)||stereo) goto failed;
+    failure=19;
+    if (!Read(config+0x118,display)||!Read(display+0x10,replay.width)||!Read(display+0x14,replay.height)) goto failed;
+    failure=20;
+    if (!Read(bindings.base+0x2d9cb34,replay.owner.camera)||!Valid(replay.owner.camera)) goto failed;
+    failure=21;
+    if (!publishedReference.Read(sample)||sample.revision!=scope.prepared.referenceRevision) goto failed;
+    failure=22;
+    if (!AnniversaryHud_ReadSource(source)) goto failed;
     failure=2;
     replay.owner.reference=sample.value; replay.owner.referenceRevision=sample.revision;
     replay.owner.rendererEpoch=ceRendererEpoch.load();
@@ -208,6 +250,7 @@ void AnniversaryHud_ReplayEyeBody(FrameScope& scope,int eye,bool& cleanupVerifie
             after.root!=source.root||after.surface!=source.surface||after.resource!=source.resource||
             after.context!=source.context||after.record.revision!=source.record.revision) goto failed;
     }
+    anniversaryHudFailure.store(0,std::memory_order_relaxed);
     anniversaryHudDraws.fetch_add(1,std::memory_order_relaxed); return;
 failed:
     anniversaryHudFailure.store(failure,std::memory_order_relaxed);

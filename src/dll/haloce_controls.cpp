@@ -44,6 +44,23 @@ bool StateCurrent() noexcept
 bool TurnCurrent() noexcept
 { return turnReady.load(std::memory_order_acquire)&&StateCurrent(); }
 
+static bool ReadNativePaused(bool& paused) noexcept
+{
+    if (!StateCurrent()) return false;
+    const auto before=generation.load(std::memory_order_acquire);
+    uint8_t value{};
+    __try
+    {
+        const uintptr_t clock=*reinterpret_cast<const uintptr_t*>(moduleBase+0x2e9fd68);
+        if (!clock||*reinterpret_cast<const uint8_t*>(clock)!=1) return false;
+        value=*reinterpret_cast<const uint8_t*>(clock+2);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+    if (value>1||!StateCurrent()||before!=generation.load(std::memory_order_acquire)) return false;
+    paused=value!=0;return true;
+}
+
 static bool ReadLocalPlayerState(HaloCELocalPlayerState& state) noexcept
 {
     if (!StateCurrent()) return false;
@@ -187,9 +204,10 @@ bool Remove() noexcept
         reinterpret_cast<const void*>(&HaloCEControls_GetLocalPlayerState),
         reinterpret_cast<const void*>(&HaloCEControls_OwnsLookStick),
         reinterpret_cast<const void*>(&HaloCEControls_MapMoveStick),
-        reinterpret_cast<const void*>(&HaloCEControls_GetLocomotionFrame)};
-    const void* trampolines[]{turnOriginal,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
-    if (!WaitForNativeDetourQuiescence(functions,trampolines,7,callbacks)) return false;
+        reinterpret_cast<const void*>(&HaloCEControls_GetLocomotionFrame),
+        reinterpret_cast<const void*>(&HaloCEControls_GetNativePaused)};
+    const void* trampolines[]{turnOriginal,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,8,callbacks)) return false;
     if (turnTarget&&MH_RemoveHook(turnTarget)!=MH_OK) return false;
     turnTarget=turnOriginal=nullptr;
     if (retainedModule) { FreeLibrary(retainedModule);retainedModule=nullptr; }
@@ -258,6 +276,8 @@ bool HaloCEControls_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) 
 }
 bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept
 { Callback callback;return ReadLocalPlayerState(state); }
+bool HaloCEControls_GetNativePaused(bool& paused) noexcept
+{ Callback callback;return ReadNativePaused(paused); }
 bool HaloCEControls_OwnsLookStick() noexcept
 {
     Callback callback;

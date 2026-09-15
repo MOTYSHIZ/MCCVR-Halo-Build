@@ -656,8 +656,8 @@ const TitleDescriptor* TitleAdapter_PollLoaded(uint64_t observedAtMs)
         }
         else if (detected->title == GameTitle::HaloCE)
         {
-            LOG("Title adapter: detected CE; Anniversary native two-view core "
-                "will verify bindings before arming; Classic remains stock");
+            LOG("Title adapter: detected CE; Original and Anniversary camera paths "
+                "will verify their native bindings before arming");
         }
         else if (TitleRegistry_HookPlan(detected->title) ==
             TitleHookPlan::OdstExperimentalCameraCore)

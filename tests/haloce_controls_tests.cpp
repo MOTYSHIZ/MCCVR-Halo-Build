@@ -1,4 +1,5 @@
 #include "common/haloce_controls_logic.h"
+#include "common/haloce_pause_logic.h"
 #include <cstdio>
 #include <limits>
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr,"CE controls check failed line %d: %s\n",__LINE__,#condition);return 1;} } while(false)
@@ -7,6 +8,33 @@ using namespace halo_ce;
 static bool Near(float a,float b) { return std::fabs(a-b)<0.0001f; }
 int main()
 {
+    // Reproduce the reported native-pause/render mismatch. The engine has
+    // stopped, but the compositor still targets stereo until reconciled.
+    NativePausePresentation pause;
+    CHECK(pause.Observe(3,true,false,false,1)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,true,false,10)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,true,false,59)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,true,false,60)==PauseRequest::Enter);
+    CHECK(pause.Observe(3,true,true,true,61)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,true,true,261)==PauseRequest::None);
+    // Unavailable player/clock state does not invent a native unpause.
+    CHECK(pause.Observe(3,false,false,true,300)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,false,true,350)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,false,true,400)==PauseRequest::Exit);
+    CHECK(pause.Observe(3,true,false,false,401)==PauseRequest::None);
+    CHECK(pause.Observe(3,true,true,false,500)==PauseRequest::None);
+    CHECK(pause.Observe(4,true,true,false,551)==PauseRequest::None);
+    CHECK(pause.Observe(4,true,true,false,601)==PauseRequest::Enter);
+    CHECK(pause.Observe(4,true,false,true,650)==PauseRequest::None);
+    CHECK(pause.Observe(4,false,false,true,690)==PauseRequest::None);
+    CHECK(pause.Observe(4,true,false,true,700)==PauseRequest::None);
+    CHECK(pause.Observe(4,true,false,true,750)==PauseRequest::Exit);
+    CHECK(pause.Observe(0,true,true,false,900)==PauseRequest::None);
+    CHECK(!AllowStockScreen(true,true,false)); // retain failed-frame isolation
+    CHECK(AllowStockScreen(true,true,true)); // visible immediately after fade
+    CHECK(AllowStockScreen(true,false,false)); // ordinary shell
+    CHECK(!AllowStockScreen(false,true,true)); // preserve other-title admission
+
     ControlAdmission admitted{true,true,true,false,false,false,false,false};
     CHECK(OnFootControls(admitted));
     for (int index=0;index<8;++index)

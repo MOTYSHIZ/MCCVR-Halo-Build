@@ -101,7 +101,8 @@ inline constexpr bool TitleSpecificPauseToggleOwner(
     GameTitle activeTitle, bool odstCameraOnly)
 {
     return odstCameraOnly || activeTitle == GameTitle::HaloReach ||
-        activeTitle == GameTitle::Halo4 || activeTitle == GameTitle::Halo2;
+        activeTitle == GameTitle::Halo4 || activeTitle == GameTitle::Halo2 ||
+        activeTitle == GameTitle::HaloCE;
 }
 
 // Reach's on-foot VR layout trades the physical left trigger and X button so

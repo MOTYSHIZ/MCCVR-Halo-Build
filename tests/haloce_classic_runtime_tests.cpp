@@ -34,7 +34,12 @@ enum class Fault { None,MissingView,ForeignCamera,ChangedCamera,DuplicateWindow,
 Fault fault{};
 bool floatArgumentsIntact{true},sourceRestored{true};
 RenderContext observedContexts[2]{};
+Camera observedViews[2]{};
 bool observedContextValid[2]{};
+bool probePrimaryScope{},faultAuxiliaryView{};
+bool primaryScopeValid[2]{},outsidePrimaryRejected{true},auxiliaryPrimaryRejected{true};
+bool primaryScopeRestored{true},auxiliaryUnwindCaught{true};
+unsigned auxiliaryViewCalls{};
 uintptr_t alternativeClock{};
 uintptr_t alternativeOwner{};
 constexpr uint32_t leftColor=0xff123456,rightColor=0xffabcdef;
@@ -63,14 +68,47 @@ bool Pixels(ID3D11Device* device,ID3D11Texture2D* texture,uint32_t expected)
     }
     testContext->Unmap(staging.Get(),0); return result;
 }
-void __fastcall NativeView(int16_t,const Camera* render,const void*,const Camera*,const void*,int16_t,uint8_t)
+bool InvokeFaultingAuxiliary(int16_t player,const Camera* render,const void* renderFrustum,
+    const Camera* raster,const void* rasterFrustum)
+{
+    faultAuxiliaryView=true;
+    __try
+    {
+        ClassicViewBody(player,render,renderFrustum,raster,rasterFrustum,2,0,
+            bindings.base+0xbbcc7c);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { faultAuxiliaryView=false; return true; }
+    faultAuxiliaryView=false; return false;
+}
+void __fastcall NativeView(int16_t player,const Camera* render,const void* renderFrustum,
+    const Camera* raster,const void* rasterFrustum,int16_t kind,uint8_t)
 {
     ++nativeViews;
+    if (probePrimaryScope&&kind==2)
+    {
+        RenderContext auxiliary{};
+        ++auxiliaryViewCalls;
+        auxiliaryPrimaryRejected&=!HaloCE_GetClassicPrimaryEyeContext(auxiliary);
+        if (faultAuxiliaryView) RaiseException(0xE000CEA2,0,0,nullptr);
+        return;
+    }
     std::memcpy(reinterpret_cast<void*>(bindings.base+0x29af2c4),render,sizeof(Camera));
     std::memset(reinterpret_cast<void*>(bindings.base+0x29af318),0x5a,0x18c);
     auto* scope=classicFrameScope;
     if (scope&&scope->prepared)
     {
+        if (probePrimaryScope)
+        {
+            RenderContext primary{};
+            primaryScopeValid[scope->eye]=HaloCE_GetClassicPrimaryEyeContext(primary)&&
+                primary.tracking.serial==scope->pair.tracking.serial&&
+                primary.referenceRevision==scope->revision&&primary.rendererEpoch==scope->epoch;
+            // Even a nested auxiliary view with identical camera pointers
+            // cannot borrow primary ownership; native unwind restores it.
+            auxiliaryUnwindCaught&=InvokeFaultingAuxiliary(player,render,renderFrustum,raster,rasterFrustum);
+            primaryScopeRestored&=HaloCE_GetClassicPrimaryEyeContext(primary);
+        }
+        observedViews[scope->eye]=*render;
         observedContextValid[scope->eye]=ClassicGetRenderContext(observedContexts[scope->eye]);
         // World rendering precedes final output/postprocessing. Capturing at
         // this boundary would retain unfinished pixels rather than the eye.
@@ -89,8 +127,20 @@ void __fastcall NativeWindow(Window* window)
     if (second&&fault==Fault::ChangedCamera) window->render.position.x+=100;
     // The native window clamps render far plane to fog before consumption.
     window->render.farPlane=900;
+    if (probePrimaryScope)
+    {
+        RenderContext outside{};
+        outsidePrimaryRejected&=!HaloCE_GetClassicPrimaryEyeContext(outside);
+        ClassicViewBody(window->player,selected,renderFrustum.data(),&window->raster,
+            rasterFrustum.data(),2,0,bindings.base+0xbbcc7c);
+    }
     ClassicViewBody(window->player,selected,renderFrustum.data(),&window->raster,
-        rasterFrustum.data(),1,0,bindings.base+0xbbccb2);
+        rasterFrustum.data(),1,probePrimaryScope?1:0,bindings.base+0xbbccb2);
+    if (probePrimaryScope)
+    {
+        RenderContext outside{};
+        outsidePrimaryRejected&=!HaloCE_GetClassicPrimaryEyeContext(outside);
+    }
 }
 void __fastcall NativeBlit(const halo_ce::Rectangle*)
 {
@@ -268,8 +318,16 @@ int main()
     run(Fault::None);
     check(nativeFrames==2&&nativeViews==2&&nativeBlits==2,"two independent native render passes each consume a camera and output");
     check(floatArgumentsIntact&&sourceRestored,"float ABI and exact native camera/frustum restoration survive both passes");
+    const auto& leftContext=observedContexts[0];
+    const auto& rightContext=observedContexts[1];
+    // Aggregate assignment does not specify the padding after positional.
+    // Compare the copied payloads and scalar settings, never that padding.
     check(observedContextValid[0]&&observedContextValid[1]&&
-        std::memcmp(&observedContexts[0],&observedContexts[1],sizeof(RenderContext))==0&&
+        std::memcmp(&leftContext.tracking,&rightContext.tracking,sizeof(Tracking))==0&&
+        std::memcmp(&leftContext.reference,&rightContext.reference,sizeof(Reference))==0&&
+        std::memcmp(&leftContext.camera,&rightContext.camera,sizeof(Camera))==0&&
+        leftContext.unitsPerMeter==rightContext.unitsPerMeter&&leftContext.positional==rightContext.positional&&
+        leftContext.referenceRevision==rightContext.referenceRevision&&leftContext.rendererEpoch==rightContext.rendererEpoch&&
         std::memcmp(&observedContexts[0].camera,&stockWindow.render,sizeof(Camera))==0,
         "first-person and HUD receive one stock center/tracking/reference context in both eyes");
     FrameBody(0,0);
@@ -285,6 +343,17 @@ int main()
     *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
     check(!HaloCE_AcquirePair(context.Get(),serial,7,pair),
         "graphics mode change before submission immediately revokes the Classic pair");
+    probePrimaryScope=true;
+    run(Fault::None);
+    probePrimaryScope=false;
+    RenderContext primaryContext{};
+    check(primaryScopeValid[0]&&primaryScopeValid[1]&&outsidePrimaryRejected&&
+        auxiliaryPrimaryRejected&&auxiliaryViewCalls==4&&primaryScopeRestored&&auxiliaryUnwindCaught&&
+        !classicPrimaryViewScope&&!HaloCE_GetClassicPrimaryEyeContext(primaryContext),
+        "lens context owns only primary draws in both eyes; reflections, post-draw work and native unwind cannot borrow or leak it");
+    check(HaloCE_AcquirePair(context.Get(),serial,7,pair),
+        "auxiliary scope isolation retains normal Classic pair completion");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
     for (Fault selected:{Fault::MissingView,Fault::ForeignCamera,Fault::ChangedCamera,
         Fault::DuplicateWindow,Fault::MissingOutput,Fault::ResizedOutput,Fault::ChangedTick,
         Fault::ChangedClock,Fault::ModeSwitch,Fault::Recenter,Fault::ChangedSource,Fault::ChangedOwner})
@@ -295,6 +364,94 @@ int main()
         run(Fault::None);
         check(HaloCE_AcquirePair(context.Get(),serial,7,pair),"next good native frame recovers without reinstall");
         if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+    }
+    {
+        // A graphics toggle changes the renderer, not the player's tracking
+        // origin. Reproduce it after moving and looking away from recenter.
+        run(Fault::None);
+        const Reference originalReference=reference;
+        const auto nearVector=[](Vec3 a,Vec3 b) {
+            const Vec3 error=a-b; return Dot(error,error)<0.000001f;
+        };
+        tracking.headPosition=tracking.headPosition+Vec3{.24f,.12f,-.31f};
+        const Quat yaw{0,std::sin(.55f),0,std::cos(.55f)};
+        const Quat pitch{std::sin(.23f),0,0,std::cos(.23f)};
+        const Quat roll{0,0,std::sin(-.12f),std::cos(-.12f)};
+        tracking.headOrientation=Multiply(yaw,Multiply(pitch,roll));
+        for (int eye=0;eye<2;++eye)
+        {
+            tracking.eyes[eye].orientation=tracking.headOrientation;
+            tracking.eyes[eye].offset=Rotate(tracking.headOrientation,{eye?.032f:-.032f,0,0});
+        }
+        tracking.serial=++serial; HaloCE_PublishTracking(tracking,true);
+        ClassicGameRenderBody(.125f,.75f);
+        const std::array<Camera,2> before{observedViews[0],observedViews[1]};
+        RenderContext oldContext{};
+        check(HaloCE_GetGameplayContext(oldContext),"moved Classic view publishes its original tracking reference");
+        check(!nearVector(before[0].forward,stockWindow.render.forward)&&
+            !nearVector(before[0].position,stockWindow.render.position),
+            "toggle regression starts with actual nonzero head rotation and room translation");
+        const uint64_t previousEpoch=ceRendererEpoch.load(),previousRevision=referenceRevision.load();
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
+        check(CeObserveRendererMode()==1&&!recenter.load()&&
+            ceRendererEpoch.load()==previousEpoch+1&&referenceRevision.load()==previousRevision+1,
+            "entering Anniversary revokes renderer receipts without silently requesting a recenter");
+        check(!HaloCE_RenderContextCurrent(oldContext)&&
+            !HaloCE_AcquirePair(context.Get(),serial,7,pair),
+            "preserved tracking origin never admits a Classic context or image into Anniversary");
+        SaberCamera saber{};
+        BuildSaberPose(stockWindow.render,{},0,saber.pose);
+        saber.viewportWidth=static_cast<float>(testDesc.Width);
+        saber.viewportHeight=static_cast<float>(testDesc.Height);
+        saber.verticalFovDegrees=stockWindow.render.verticalFov*57.295779513f;
+        saber.nearPlane=stockWindow.render.nearPlane*kSaberUnitsPerNativeUnit;
+        saber.farPlane=stockWindow.render.farPlane*kSaberUnitsPerNativeUnit;
+        for (int eye=0;eye<2;++eye)
+        {
+            SaberCamera anniversary{}; Cover cover{}; Camera mappedEye{};
+            check(StageSaberEye(saber,tracking,reference,eye,Game_GetWorldScale(),true,anniversary,cover)&&
+                NativeCameraFromSaber(anniversary,mappedEye)&&
+                nearVector(mappedEye.forward,before[eye].forward)&&
+                nearVector(mappedEye.up,before[eye].up)&&nearVector(mappedEye.position,before[eye].position),
+                "Anniversary and Original preserve the same yaw, pitch, roll, head translation and eye separation");
+        }
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
+        tracking.serial=++serial; HaloCE_PublishTracking(tracking,true);
+        // Let the production Classic entry observe this return toggle.
+        ClassicGameRenderBody(.125f,.75f);
+        check(std::memcmp(&reference,&originalReference,sizeof(reference))==0&&
+            nearVector(observedViews[0].forward,before[0].forward)&&
+            nearVector(observedViews[0].up,before[0].up)&&
+            nearVector(observedViews[0].position,before[0].position),
+            "returning to Original retains the original reference and actual consumed eye pose");
+        check(HaloCE_AcquirePair(context.Get(),serial,7,pair),
+            "first fresh Original frame after toggle produces a valid pair without a manual recenter");
+        if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+        HaloCE_Recenter();
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1; CeObserveRendererMode();
+        check(recenter.load(),"a graphics toggle preserves an explicit pending user recenter request");
+        run(Fault::None);
+        check(nearVector(reference.position,tracking.headPosition)&&
+            std::memcmp(&reference.orientation,&tracking.headOrientation,sizeof(Quat))==0,
+            "explicit user recenter still resets the shared tracking origin in Original");
+    }
+    {
+        const auto beforePairs=classicPairs.load();
+        const auto beforeFrames=nativeFrames;
+        const Reference beforePause=reference;
+        HaloCE_PublishTracking(tracking,false);
+        ClassicGameRenderBody(.125f,.75f);
+        RenderContext pausedContext{};
+        check(nativeFrames==beforeFrames+1&&classicPairs.load()==beforePairs&&
+            !classicFrameScope&&!HaloCE_GetGameplayContext(pausedContext),
+            "pause presentation disables tracked replay and keeps one complete native stock render");
+        check(armed.load()&&classicInstalled.load(),"pause presentation retains the installed camera core");
+        tracking.serial=++serial; HaloCE_PublishTracking(tracking,true);
+        ClassicGameRenderBody(.125f,.75f);
+        check(classicPairs.load()==beforePairs+1&&
+            std::memcmp(&reference,&beforePause,sizeof(reference))==0&&
+            HaloCE_GetGameplayContext(pausedContext),
+            "resume immediately restores two eyes and controls without changing the tracking origin");
     }
     RenderContext gameplay{};
     check(HaloCE_GetGameplayContext(gameplay)&&

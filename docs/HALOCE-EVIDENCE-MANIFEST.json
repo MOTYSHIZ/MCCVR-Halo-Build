@@ -1,6 +1,6 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "CE Original/Anniversary correction candidate under local verification; be2140f failed headset test; accepted source remains4e01f28; local checks are not headset acceptance",
+  "status": "a2b526a user confirms both CE renderers visible; camera/weapon/pause refinements under local verification; accepted source remains 4e01f28; local checks are not headset acceptance",
   "recorded_date": "2026-09-15",
   "retail": {
     "module": "halo1.dll",
@@ -3958,6 +3958,144 @@
           "rva": "0x542f2a",
           "signature": "8B C1 C1 E8 05 48 89 7C 24 40 83 E0 01 03 C0 4C 89 64 24 38 C1 E9 06 4C 89 6C 24 30 4C 89 7C 24 20 44 8B F8 80 E1 01 74 04 41 83 CF 04",
           "meaning": "Convert region0x20 and0x40 to object visibility bits2 and4"
+        }
+      ]
+    },
+    {
+      "name": "first_person_classic_lens",
+      "rva": "0xae1af0",
+      "signature": "40 53 48 83 EC 20 0F 28 C8 8A DA 0F 2E 0D 9E E3 E6 00 7A 02 74 45 0F BF 05 A9 EA",
+      "function_entry": true,
+      "evidence": "E-CE-FP-8",
+      "runtime_group": "classic_first_person_projection",
+      "instruction_witnesses": [
+        {
+          "rva": "0xc1767f",
+          "signature": "F6 03 80 74 30 40 84 F6 75 2B 8B CF E8 CC A4 EC FF F3 0F 10 05 14 7E D3 00 33 D2 E8 51 A4 EC FF F3 0F 10 0D 61 5D F6 00 F3 0F 10 05 55 5D F6 00 E8 04 A4 EC FF"
+        },
+        {
+          "rva": "0xc1599d",
+          "signature": "F6 03 80 74 24 F3 0F 10 05 02 9B D3 00 33 D2 E8 3F C1 EC FF F3 0F 10 0D 4F 7A F6 00 F3 0F 10 05 43 7A F6 00 E8 F2 C0 EC FF"
+        },
+        {
+          "rva": "0xbf4420",
+          "signature": "F6 03 80 74 33 40 84 FF 75 2E 33 C9 E8 2B D7 EE FF F3 0F 10 05 73 B0 D5 00 33 D2 E8 B0 D6 EE FF F3 0F 10 0D C0 8F F8 00 F3 0F 10 05 B4 8F F8 00 E8 63 D6 EE FF"
+        },
+        {
+          "rva": "0xc12340",
+          "signature": "45 84 F6 79 0F F3 0F 10 05 5F D1 D3 00 33 D2 E8 9C F7 EC FF"
+        },
+        {
+          "rva": "0xc12b3e",
+          "signature": "45 84 F6 79 11 F3 0F 10 05 61 C9 D3 00 B2 01 E8 9E EF EC FF"
+        },
+        {
+          "rva": "0xc19697",
+          "signature": "F6 00 80 74 25 38 1D FF 23 29 02 75 1D 8D 4B 02 E8 B0 84 EC FF 33 D2 0F 57 C0 E8 3A 84 EC FF 0F 57 C9 0F 57 C0 E8 F7 83 EC FF"
+        },
+        {
+          "rva": "0xae1b06",
+          "signature": "0F BF 05 A9 EA EF 01 4C 8D 0D 74 EA EF 01 0F BF 0D 9F EA EF 01 2B C8 0F BF 05 90 EA EF 01 66 0F 6E D1 0F BF 0D 89 EA EF 01 2B C8 0F 5B D2 66 0F 6E C1 48 8D 0D 9D EA EF 01 0F 5B C0 F3 0F 5E D0 E8 F1 D2 0A 00"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0xc1769a",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "target_rva": "0xae1af0",
+          "instruction_signature": "E8 51 A4 EC FF"
+        },
+        {
+          "instruction_rva": "0xc159ac",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "target_rva": "0xae1af0",
+          "instruction_signature": "E8 3F C1 EC FF"
+        },
+        {
+          "instruction_rva": "0xbf443b",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "target_rva": "0xae1af0",
+          "instruction_signature": "E8 B0 D6 EE FF"
+        },
+        {
+          "instruction_rva": "0xc1234f",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "target_rva": "0xae1af0",
+          "instruction_signature": "E8 9C F7 EC FF"
+        },
+        {
+          "instruction_rva": "0xc12b4d",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "target_rva": "0xae1af0",
+          "instruction_signature": "E8 9E EF EC FF"
+        },
+        {
+          "instruction_rva": "0xae1b46",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "target_rva": "0xb8ee3c",
+          "instruction_signature": "E8 F1 D2 0A 00"
+        },
+        {
+          "instruction_rva": "0xae1afb",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "target_rva": "0x194fea0",
+          "instruction_signature": "0F 2E 0D 9E E3 E6 00"
+        },
+        {
+          "instruction_rva": "0xc17690",
+          "instruction_bytes": 8,
+          "displacement_offset": 4,
+          "target_rva": "0x194f4ac",
+          "instruction_signature": "F3 0F 10 05 14 7E D3 00"
+        }
+      ]
+    },
+    {
+      "name": "first_person_classic_lens_math",
+      "rva": "0xb8ee3c",
+      "signature": "48 8B C4 53 48 81 EC A0 00 00 00 41 0F BF 51 32 48 8B D9 0F 29 70 E8",
+      "function_entry": true,
+      "evidence": "E-CE-FP-8",
+      "runtime_group": "classic_first_person_projection",
+      "instruction_witnesses": [
+        {
+          "rva": "0xb8ee92",
+          "signature": "0F 2E 0D 07 BA CB 00 66 44 0F 6E EA 45 0F 5B ED 45 0F 5B E4 7A 67 75 65"
+        },
+        {
+          "rva": "0xb8ef0f",
+          "signature": "0F 2E 0D 82 49 CF 00 7A 67 75 65 F3 0F 10 05 7E D5 02 03 F3 0F 10 0D 7A D5 02 03"
+        },
+        {
+          "rva": "0xb8eff3",
+          "signature": "F3 0F 59 C7 F3 0F 5E D1 F3 0F 5E D8 F3 0F 11 93 44 01 00 00 F3 0F 11 9B 58 01 00 00"
+        },
+        {
+          "rva": "0xb8f045",
+          "signature": "F3 44 0F 11 83 64 01 00 00 F3 44 0F 11 8B 78 01 00 00 F3 0F 11 93 84 01 00 00"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb8ee92",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "target_rva": "0x184a8a0",
+          "instruction_signature": "0F 2E 0D 07 BA CB 00"
+        },
+        {
+          "instruction_rva": "0xb8ef0f",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "target_rva": "0x1883898",
+          "instruction_signature": "0F 2E 0D 82 49 CF 00"
         }
       ]
     }

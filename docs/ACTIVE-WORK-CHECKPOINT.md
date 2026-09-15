@@ -1,4 +1,53 @@
-# Exact continuation - September 15: CE scene-refresh correction and ZIP handoff
+# Current continuation - September 15: CE camera, weapons and pause refinement
+
+Latest user tested `a2b526a`: BOTH Original and Anniversary now visible in VR.
+Keep that successful scene/output baseline. New concrete defects are Original
+gun/hand distortion, facing jumps when switching graphics, and an invisible
+native pause menu. User explicitly authorizes cumulative CE refinement through
+build ZIP AND matching source ZIP, autonomously with no approvals. Package
+without `-Install`, deliver both in chat, then WAIT for testing/instructions.
+No install, launch, game-folder writes, PR or publishing. This supersedes older
+packaging holds and isolated-diagnostic scope; both editions remain supported.
+
+Both supplied logs are preserved under
+`out/test-runs/a2b526a-ce-refinement-feedback-20260915/`; exact hashes and
+feedback in `HALOCE-A2B526A-TEST-2026-09-15.md`. Steam, SteamVR/OpenXR 2.17.9,
+Oculus-family, 90 Hz. Halo 3 initially flat, manual recovery completed after
+native load-gate admission; pause/resume worked. Record this positive recovery
+result without claiming universal automatic injection. Halo 3 regression was
+requested because preceding CE work touched shared VR/input/lifecycle code.
+Current priority remains CE, not a new Halo 3 recovery redesign.
+
+Current refinements: preserve the HMD reference across graphics switches while
+invalidating old receipts; independent native CE pause state drives shared 2D
+pause presentation and the Y+B shortcut; Original tracked first-person models
+and effects preserve the native world eye lens; cold HUD target proof precedes
+the overlapping core release hook. Optional Anniversary HUD replay diagnostics
+now identify the rejecting guard. Read the dedicated CAMERA, PAUSE, HUD,
+FIRST-PERSON refinement evidence and `HALOCE-REFINEMENT-CANDIDATE-2026-09-15.md`.
+
+The camera-switch regression failed against old behavior and passes corrected.
+Cumulative Release and all 20 CTest suites pass, as do Reach consistency,
+101 pinned contracts/15 production mapped-image groups, 30 native Original
+lens cases, native Anniversary shader/skin upload, eight target-restoration
+cases, 27 native gameplay-camera conversions, 10 native scene refresh cases
+and all 12 official weapon-graph fixtures. Primary-eye projection ownership,
+reflection exclusion and native exception cleanup pass. Package identity and
+exact records belong under `out/ce-refinement-*` and
+`out/ce-current-handoff.json` after packaging. Packaging repeats required
+build/checks for the committed source. Do not
+infer headset acceptance from these checks. Anniversary native HUD replay,
+every weapon/animation/muzzle effect, multiplayer menus and 90 Hz parity remain
+unconfirmed. Prior `be2140f` includes 52 successful shot adjustments and user
+confirmation of controller bullets; a2b526a has no shot-hook calls and cannot
+establish firing coverage. Preserve the verified aim path and native origin.
+
+The four failed CE enables stay false; scene-refresh correction stays enabled.
+Accepted `4e01f28` remains unchanged. CE body following, physical melee/world
+collision, all-title zoom, dual trajectory, vehicles, alignment and EVERY
+standing/deferred request below and in the refinement list are retained.
+
+# Historical continuation - September 15: CE scene-refresh correction and ZIP handoff
 
 Recovered the actual prior root chat through the quoted Original final-output /
 Anniversary scene-cache update. Pre-edit WIP preserved under
