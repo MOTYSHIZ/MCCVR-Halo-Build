@@ -1,4 +1,67 @@
-# Current continuation - September 15: full-resolution CE refinement and contact
+# Current continuation - September 15: native CE HUD/reticles and weapon surfaces
+
+Latest user test is **22cb813**, preserved under
+`out/test-runs/22cb813-ce-feedback-20260915/`. Read
+`HALOCE-22CB813-TEST-2026-09-15.md`. Both Original and Anniversary inject/run
+smoothly with equal image quality and correct muzzle flashes. Original HUD
+works. Preserve this feature-confirmed base. Remaining requested work is actual
+native reticles in BOTH CE modes, visible Anniversary HUD, and world contact /
+physical strikes using every stock gun's mesh surfaces as well as the hands.
+Halo 2/Halo 4 are precedents for the reticle fix, not newly reported failures.
+
+The candidate now corrects CE's independently proven RGB-only reticle writes
+with visible-color measurement and authored-upload alpha reconstruction. Native
+allocation, parent assignment and late split-selector clearing prove the current
+Anniversary depth root is H while its packed color is 2H. The prepared HUD
+transaction detaches only incompatible depth, then restores verified native
+target/raster state with partial-bind, SEH, lifetime and foreign-target guards.
+Real WARP draws replace the old fixture's direct texture painting. Earlier
+pre-full-resolution rootH/packedH attachments were compatible; this finding does
+not explain every historical missing-HUD report. Preserve the working camera,
+resolution, hands, muzzle path, all other titles, both editions and deferred
+scope. Cumulative accepted source stays `4e01f28`; this partial CE result does
+not accept the remaining features or replace the required Halo 3 regression.
+
+The failed unprepared late HUD adapter was disabled separately in `48cf9b0`,
+with its code retained. Read `HALOCE-22CB813-HUD-ROLLBACK-2026-09-15.md`.
+The replacement must use its own explicit prepared-path enable; never re-enable
+the earlier manual callback replay or mistake the rollback for a test handoff.
+
+All twelve official CE weapon models now supply bounds from 21,180 vertices
+across 58 positively weighted nodes. Live posed bones generate fourteen gun
+samples, each included in world and physical-melee queries. Compiled production
+geometry passes 48 cases / 84,720 vertex-pose checks. This is a deliberate stock
+CE physical envelope for both modes, not exact Saber replacement/custom mesh
+surfaces. Same-graph custom models retain stock bounds; unknown graphs retain
+logged node contact. Detached/reload parts can enlarge the conservative envelope.
+Animation alone cannot trigger melee. Existing native biped damage selection,
+bare support-hand selector limits, other damage targets and body-following
+deferrals remain. The shared reticle/packet changes require a Halo 3 headset
+regression alongside both CE modes.
+
+Evidence: `HALOCE-NATIVE-RETICLE-RGB-2026-09-15.md`,
+`HALOCE-NATIVE-HUD-ATTACHMENTS-2026-09-15.md`,
+`HALOCE-WEAPON-CONTACT-REFINEMENT-2026-09-15.md`. Release notes:
+`HALOCE-NATIVE-HUD-WEAPON-CONTACT-CANDIDATE-2026-09-15.md`.
+
+Pre-package cumulative Release and all 23 CTest suites pass. All 123 pinned
+contracts, generated contracts and 19 production binding groups pass, along
+with native HUD late-root attachment verification (four cases), 48 compiled
+weapon poses, native reticle instructions/WARP pixels and the Reach gate.
+Final records use `out/ce-native-hud-contact-*`,
+`out/ce-native-hud-attachment-verification-20260915.json`,
+`out/ce-weapon-mesh-compiled-20260915.json`, and
+`out/ce-reticle-native-rgb-validation-20260915.json`. The final committed
+package repeats the required build/tests before archive verification.
+
+Complete this refinement, package with `tools/package-candidate.ps1` WITHOUT
+`-Install`, deliver NEW build and matching source ZIPs in chat, then WAIT for
+headset testing/instructions. No installation, game-folder writes, MCC launch,
+PR or publication. The previous 22cb813 artifact pair is evidence, not the next
+delivery. Exact new package identity belongs in `out/ce-current-handoff.json`
+only after archive/source/hash verification.
+
+# Historical continuation - September 15: full-resolution CE refinement and contact
 
 Latest user test is **58f71a4**, with both supplied logs preserved in
 `out/test-runs/58f71a4-ce-feedback-20260915/`. Read

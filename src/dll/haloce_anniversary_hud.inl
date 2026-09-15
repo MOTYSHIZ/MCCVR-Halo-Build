@@ -12,9 +12,11 @@ constexpr bool kCeAnniversaryManualHudReplayEnabled=false;
 // Retain the adapter, but disable its unprepared raster/target transaction
 // before implementing its independently verified replacement.
 constexpr bool kCeAnniversaryUnpreparedHudReplayEnabled=false;
+constexpr bool kCeAnniversaryPreparedHudTargetsEnabled=true;
 std::atomic<bool> anniversaryHudInstalled{};
 std::atomic<bool> anniversaryHudNaturalInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
+std::atomic<uint64_t> anniversaryHudTargetPreparations{},anniversaryHudDepthDetachments{};
 std::atomic<uint32_t> anniversaryHudFailure{};
 const char* AnniversaryHudFailureName(uint32_t value) noexcept
 {
@@ -54,6 +56,8 @@ const char* AnniversaryHudFailureName(uint32_t value) noexcept
     case 51:return "natural-HUD-packed-target";
     case 52:return "natural-HUD-gameplay-or-raster";
     case 53:return "natural-HUD-source-changed";
+    case 54:return "natural-HUD-target-preparation";
+    case 55:return "natural-HUD-target-restoration";
     default:return "unknown";
     }
 }
@@ -69,13 +73,23 @@ thread_local AnniversaryHudReplay* anniversaryHudReplay{};
 // The normal native callback runs once, late in the frame, after the native
 // copies have packed the two worlds. Only its gameplay HUD draw is framed
 // twice. No callback, preamble, target push/pop or lock is invoked manually.
+struct AnniversaryHudRaster
+{
+    static constexpr UINT capacity=D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_VIEWPORT views[capacity]{};D3D11_RECT scissors[capacity]{};
+    UINT viewCount{},scissorCount{};
+};
 struct AnniversaryNaturalHud
 {
     FrameScope* frame{};
     RenderContext owner;
     CeHudTargetSnapshot target;
+    CeHudTargetSnapshot nativeTarget;
+    AnniversaryHudRaster nativeRaster;
+    std::array<uint8_t,0x48> preparedDescriptor{};
+    uint64_t nativeDepthRevision{};
     ID3D11DeviceContext* context{};
-    bool entered{},complete{};
+    bool entered{},complete{},targetPrepared{};
 };
 thread_local AnniversaryNaturalHud* anniversaryNaturalHud{};
 
@@ -86,6 +100,46 @@ bool AnniversaryHud_NaturalCurrent(const AnniversaryNaturalHud& hud) noexcept
         f->diagnostic.eyeMask==3&&f->packedEyeMask==3&&f->packedResource&&
         f->prepared.referenceRevision==referenceRevision.load(std::memory_order_acquire)&&
         Current()&&Anniversary()&&HaloCE_RenderContextCurrent(hud.owner);
+}
+bool AnniversaryHud_ReplaceTarget(const CeHudTargetSnapshot& expected,
+    const std::array<uint8_t,0x48>& descriptor,const AnniversaryHudRaster& raster,
+    CeHudTargetSnapshot& result,bool restoring=false) noexcept
+{
+    bool replaced=false;
+    HaloCEHudLayout_BeginPrivateRaster();
+    __try
+    {
+        replaced=restoring?HaloCEHudTarget_RestorePrepared(expected,descriptor,result):
+            HaloCEHudTarget_Replace(expected,descriptor,result);
+        auto prepared=expected;prepared.descriptor=descriptor;
+        // A failed binder/readback can still own this exact transaction, but
+        // a foreign native target must retain its own raster as well as target.
+        const bool rasterOwned=replaced||HaloCEHudTarget_CaptureSourceCurrent(expected)||
+            HaloCEHudTarget_CaptureSourceCurrent(prepared);
+        if (rasterOwned)
+        {
+            expected.context->RSSetViewports(raster.viewCount,raster.views);
+            expected.context->RSSetScissorRects(raster.scissorCount,raster.scissors);
+        }
+        else HaloCEHudLayout_InvalidateState(expected.context);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { replaced=false; }
+    HaloCEHudLayout_EndPrivateRaster();
+    return replaced;
+}
+bool AnniversaryHud_RestoreTarget(AnniversaryNaturalHud& hud) noexcept
+{
+    if (!hud.targetPrepared) return true;
+    if (hud.nativeTarget.dsv)
+    {
+        ResourceRegistry::Record depth{};const auto identity=hud.nativeTarget.resources[4];
+        if (!resources.Read(identity,identity,depth)||depth.revision!=hud.nativeDepthRevision)
+        { hud.complete=false;anniversaryHudFailure=55;return false; }
+    }
+    CeHudTargetSnapshot restored{};
+    if (!AnniversaryHud_ReplaceTarget(hud.nativeTarget,hud.preparedDescriptor,hud.nativeRaster,restored,true))
+    { hud.complete=false;anniversaryHudFailure=55;return false; }
+    hud.target=restored;hud.targetPrepared=false;return true;
 }
 bool AnniversaryHud_BeginGameplay(ID3D11DeviceContext* context,UINT& width,UINT& height) noexcept
 {
@@ -106,7 +160,35 @@ bool AnniversaryHud_BeginGameplay(ID3D11DeviceContext* context,UINT& width,UINT&
     const auto& d=f.packedDescriptor;
     if (!d.Width||!d.Height||d.Height%2||d.Width!=f.diagnostic.sourceWidth||
         d.Height!=2*f.diagnostic.sourceHeight) return false;
-    hud->context=context;hud->entered=true;
+    hud->context=context;
+    hud->nativeTarget=hud->target;
+    auto descriptor=hud->target.descriptor;
+    bool detachDepth=false;
+    anniversaryHudFailure=54;
+    auto& raster=hud->nativeRaster;
+    if (!HaloCEHudLayout_CopyState(context,&raster.viewCount,raster.views,&raster.scissorCount,raster.scissors)) return false;
+    if (hud->target.dsv)
+    {
+        ResourceRegistry::Record depth{};
+        const auto identity=hud->target.resources[4];
+        if (!identity||!resources.Read(identity,identity,depth)) return false;
+        const auto& z=depth.descriptor;
+        hud->nativeDepthRevision=depth.revision;
+        detachDepth=z.Width!=d.Width||z.Height!=d.Height||z.ArraySize!=d.ArraySize||
+            z.SampleDesc.Count!=d.SampleDesc.Count||z.SampleDesc.Quality!=d.SampleDesc.Quality;
+        if (detachDepth) std::memset(descriptor.data()+0x30,0,8);
+    }
+    // The native cache describes intended attachments, not whether D3D
+    // accepted the last bind. A packed color can be twice the native depth's
+    // height. Bind a coherent native descriptor before actual HUD drawing;
+    // bitmap/text rendering disables depth, so only incompatible depth detaches.
+    hud->preparedDescriptor=descriptor;
+    hud->targetPrepared=true; // Record possible mutation BEFORE the native call.
+    if (!AnniversaryHud_ReplaceTarget(hud->nativeTarget,descriptor,hud->nativeRaster,hud->target))
+    { (void)AnniversaryHud_RestoreTarget(*hud);return false; }
+    hud->entered=true;
+    anniversaryHudTargetPreparations.fetch_add(1,std::memory_order_relaxed);
+    if (detachDepth) anniversaryHudDepthDetachments.fetch_add(1,std::memory_order_relaxed);
     width=d.Width;height=d.Height;
     anniversaryHudFailure=52;
     return true;
@@ -121,6 +203,10 @@ void AnniversaryHud_EndGameplay(bool complete) noexcept
         after.backend==hud->target.backend&&after.descriptor==hud->target.descriptor&&
         after.count==hud->target.count&&after.resources[0]==hud->target.resources[0]&&
         after.rtvs[0]==hud->target.rtvs[0]&&after.dsv==hud->target.dsv;
+    // A native binder can publish its descriptor before its view cache.
+    // One bounded repair attempt finishes an owned partial restoration before
+    // the callback performs its ordinary ClearState cleanup.
+    if (!AnniversaryHud_RestoreTarget(*hud)) (void)AnniversaryHud_RestoreTarget(*hud);
 }
 void AnniversaryHud_NaturalBody(AnniversaryHudFn original,uintptr_t caller)
 {
@@ -148,6 +234,7 @@ void AnniversaryHud_NaturalBody(AnniversaryHudFn original,uintptr_t caller)
     __try { original();returned=true; }
     __finally
     {
+        (void)AnniversaryHud_RestoreTarget(local);
         anniversaryNaturalHud=nullptr;
         ResourceRegistry::Record after{};
         const bool committed=returned&&local.complete&&AnniversaryHud_NaturalCurrent(local)&&
@@ -222,7 +309,7 @@ bool AnniversaryHud_Install() noexcept
 
 bool AnniversaryHud_InstallNatural() noexcept
 {
-    if (!kCeAnniversaryUnpreparedHudReplayEnabled)
+    if (!kCeAnniversaryUnpreparedHudReplayEnabled&&!kCeAnniversaryPreparedHudTargetsEnabled)
     { LOG("CE Anniversary unprepared HUD replay disabled after 22cb813 headset failure; camera retained");return false; }
     const NativeContractSet set{contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,
         contract::anniversary_hud::relatives,contract::anniversary_hud::pointers};
@@ -235,7 +322,7 @@ bool AnniversaryHud_InstallNatural() noexcept
     anniversaryHudHook.target=target;
     if (MH_EnableHook(target)!=MH_OK) { (void)AnniversaryHud_Remove();return false; }
     anniversaryHudHook.enabled=true;anniversaryHudNaturalInstalled=true;
-    LOG("CE Anniversary HUD installed: ordinary late native callback, gameplay HUD in both packed eyes; manual callback replay remains disabled");
+    LOG("CE Anniversary HUD installed: native target preparation and restoration, compatible packed-eye attachments; manual callback replay remains disabled");
     return true;
 }
 

@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstdio>
 #include <thread>
+#include <d3dcompiler.h>
 
 using Microsoft::WRL::ComPtr;
 void ConfigureCeHudLayoutRuntimeFixture(uint32_t generation,bool enabled,bool installed=true);
@@ -233,12 +234,58 @@ unsigned naturalCallbacks{},naturalGameplayCalls{};
 bool naturalRevokeSource{},naturalInvalidateRaster{},naturalOmitGameplay{},naturalWrongTarget{};
 bool naturalForeignCaller{},naturalUnobservedRaster{},naturalRepeatGameplay{};
 bool naturalSwapSelectedSource{},naturalRetireContext{};
+bool naturalIncompatibleDepth{};
+bool naturalTargetRestoreCorrect{true};
+enum class NaturalBindFault { None,BeforeMutation,AfterMutation,Readback,ForeignTarget };
+NaturalBindFault naturalBindFault{};
+unsigned naturalBindFaultAt=1,naturalBindCalls{};
+bool naturalForeignRasterPreserved{true},naturalRevokeDepth{},naturalChangeDepthView{};
+bool naturalGameplayFault{};
+const D3D11_VIEWPORT foreignHudViewport{5,6,7,8,0,1};
+const D3D11_RECT foreignHudScissor{5,6,12,14};
 bool naturalFrozen{},naturalNativeReset{},naturalRasterRestored{true};
 UINT naturalAuthoredHeight{};
 UINT NaturalAuthoredHeight() { return naturalAuthoredHeight?naturalAuthoredHeight:2*testDesc.Height; }
 uint64_t expectedNaturalSerial{};
 ID3D11RenderTargetView* packedHudView{};
+ID3D11VertexShader* naturalHudVs{};
+ID3D11PixelShader* naturalHudPs{};
+ID3D11RasterizerState* naturalHudRaster{};
+ID3D11DepthStencilState* naturalHudDepth{};
 D3D11_BOX hudRegions[2]{};
+bool __fastcall NaturalHudTargetBind(uintptr_t backend,const void* descriptor)
+{
+    const bool fault=++naturalBindCalls==naturalBindFaultAt;
+    if (fault&&naturalBindFault==NaturalBindFault::BeforeMutation)
+        RaiseException(0xe042ce05,0,0,nullptr);
+    std::memmove(reinterpret_cast<void*>(backend+0x18),descriptor,0x48);
+    const auto* bytes=reinterpret_cast<const uint8_t*>(backend+0x18);
+    uintptr_t color{},depth{};std::memcpy(&color,bytes+0x10,8);std::memcpy(&depth,bytes+0x30,8);
+    if (color!=packedHudRoot) return false;
+    ID3D11DepthStencilView* dsv{};
+    if (depth)
+    {
+        const auto selected=NativeDepthSelect(depth);
+        if (!selected) return false;
+        std::memcpy(&dsv,reinterpret_cast<const void*>(selected+0x108),8);
+    }
+    const uint32_t count=1;std::memcpy(reinterpret_cast<void*>(backend+0xcf8),&count,4);
+    std::memcpy(reinterpret_cast<void*>(backend+0xd00),&packedHudView,8);
+    std::memcpy(reinterpret_cast<void*>(backend+0xd20),&dsv,8);
+    testContext->OMSetRenderTargets(1,&packedHudView,dsv);
+    ObserveRaster({0,0,float(testDesc.Width),float(testDesc.Height*2),0,1},
+        {0,0,LONG(testDesc.Width),LONG(testDesc.Height*2)});
+    if (fault&&naturalBindFault==NaturalBindFault::AfterMutation)
+        RaiseException(0xe042ce05,0,0,nullptr);
+    if (fault&&naturalBindFault==NaturalBindFault::Readback)
+        std::memset(reinterpret_cast<void*>(backend+0xcf8),0,4);
+    if (fault&&naturalBindFault==NaturalBindFault::ForeignTarget)
+    {
+        *reinterpret_cast<uint8_t*>(backend+0x18)^=0x80;
+        ObserveRaster(foreignHudViewport,foreignHudScissor);
+    }
+    return true;
+}
 void __fastcall NaturalGameplayHud()
 {
     RenderContext owner{};Camera camera{};Read(bindings.base+0x29af2c4,camera);
@@ -247,16 +294,29 @@ void __fastcall NaturalGameplayHud()
         ObserveRaster({0,0,float(testDesc.Width),float(NaturalAuthoredHeight()),0,1},
             {0,0,LONG(testDesc.Width),LONG(NaturalAuthoredHeight())});
     D3D11_VIEWPORT v{};UINT count=1;testContext->RSGetViewports(&count,&v);
-    D3D11_BOX box{UINT(v.TopLeftX),UINT(v.TopLeftY),0,
-        UINT(v.TopLeftX+v.Width/4),UINT(v.TopLeftY+v.Height/2),1};
+    const auto edge=[](float value){return UINT(std::ceil(value-.5f));};
+    D3D11_BOX box{edge(v.TopLeftX),edge(v.TopLeftY),0,
+        edge(v.TopLeftX+v.Width/4),edge(v.TopLeftY+v.Height/2),1};
     if (naturalGameplayCalls<2) hudRegions[naturalGameplayCalls]=box;
     ++naturalGameplayCalls;
     if (box.right>box.left&&box.bottom>box.top&&box.bottom<=2*testDesc.Height)
     {
-        std::vector<uint32_t> pixels((box.right-box.left)*(box.bottom-box.top),hudColor);
-        testContext->UpdateSubresource(testDestination,0,&box,pixels.data(),(box.right-box.left)*4,0);
+        // A real draw must consume the actual bound output, viewport and
+        // scissor. UpdateSubresource bypassed every native raster/target bug.
+        testContext->VSSetShader(naturalHudVs,nullptr,0);
+        testContext->PSSetShader(naturalHudPs,nullptr,0);
+        testContext->GSSetShader(nullptr,nullptr,0);
+        testContext->IASetInputLayout(nullptr);
+        testContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        testContext->RSSetState(naturalHudRaster);
+        testContext->OMSetDepthStencilState(naturalHudDepth,0);
+        testContext->OMSetBlendState(nullptr,nullptr,~0u);
+        testContext->Draw(4,0);
     }
     if (naturalInvalidateRaster) HaloCEHudLayout_InvalidateState(testContext);
+    if (naturalRevokeDepth) resources.Forget(reinterpret_cast<uintptr_t>(depthTextures[0]));
+    if (naturalChangeDepthView) std::memcpy(depthSurfaces[0].data()+0x108,&depthViews[1],8);
+    if (naturalGameplayFault) RaiseException(0xe042ce06,0,0,nullptr);
 }
 void __fastcall NaturalHudCallback()
 {
@@ -268,7 +328,13 @@ void __fastcall NaturalHudCallback()
     const uint32_t count=1;std::memcpy(backend+0xcf8,&count,4);
     std::memcpy(backend+0xd00,&packedHudView,8);
     std::memset(backend+0xd08,0,0x20);
-    testContext->OMSetRenderTargets(1,&packedHudView,nullptr);
+    if (naturalIncompatibleDepth)
+    {
+        SelectDepth(0);
+        std::memcpy(backend+0x48,&depthRoot,8);
+        std::memcpy(backend+0xd20,&depthViews[0],8);
+    }
+    testContext->OMSetRenderTargets(1,&packedHudView,naturalIncompatibleDepth?depthViews[0]:nullptr);
     const D3D11_VIEWPORT full{0,0,float(testDesc.Width),float(NaturalAuthoredHeight()),0,1};
     const D3D11_RECT rect{0,0,LONG(testDesc.Width),LONG(NaturalAuthoredHeight())};
     ObserveRaster(full,rect);
@@ -276,7 +342,18 @@ void __fastcall NaturalHudCallback()
     if (naturalUnobservedRaster) HaloCEHudLayout_InvalidateState(testContext);
     if (!naturalOmitGameplay) RunCeHudGameplayRuntimeFixture(bindings.base,&NaturalGameplayHud);
     if (naturalRepeatGameplay) RunCeHudGameplayRuntimeFixture(bindings.base,&NaturalGameplayHud);
+    uintptr_t restoredDepth{};std::memcpy(&restoredDepth,backend+0x48,8);
+    ID3D11DepthStencilView* restoredView{};std::memcpy(&restoredView,backend+0xd20,8);
+    naturalTargetRestoreCorrect&=restoredDepth==(naturalIncompatibleDepth?depthRoot:0)&&
+        restoredView==(naturalIncompatibleDepth?depthViews[0]:nullptr);
     D3D11_VIEWPORT after{};UINT n=1;testContext->RSGetViewports(&n,&after);
+    if (naturalBindFault==NaturalBindFault::ForeignTarget)
+    {
+        D3D11_RECT scissor{};UINT rectangles=1;testContext->RSGetScissorRects(&rectangles,&scissor);
+        naturalForeignRasterPreserved&=n==1&&rectangles==1&&
+            !std::memcmp(&after,&foreignHudViewport,sizeof(after))&&
+            !std::memcmp(&scissor,&foreignHudScissor,sizeof(scissor));
+    }
     naturalRasterRestored&=n==1&&!std::memcmp(&after,&full,sizeof(full));
     ObserveRaster(full,rect); // Native callback's own final full-height viewport.
     if (naturalRevokeSource)
@@ -297,6 +374,12 @@ bool InvokeActualHudHookFault()
 {
     __try { AnniversaryHudCallbackHook(); }
     __except(GetExceptionCode()==0xe042ce04?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH) { return true; }
+    return false;
+}
+bool InvokeNaturalHudFrameFault()
+{
+    __try { FrameBody(0,0x10); }
+    __except(GetExceptionCode()==0xe042ce06?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH) { return true; }
     return false;
 }
 bool InstallFixtureJump(uintptr_t at,uintptr_t destination)
@@ -1218,6 +1301,27 @@ int main()
         // callback then reaches the production gameplay/layout adapter. GPU
         // pixels must reach both eye caches before the native frame returns.
         auto packedDesc=testDesc;packedDesc.Height*=2;
+        const char* hudShader=R"(
+            float4 VS(uint id:SV_VertexID):SV_Position {
+                float2 p[4]={float2(-1,1),float2(-.5,1),float2(-1,0),float2(-.5,0)};
+                return float4(p[id],0,1);
+            }
+            float4 PS():SV_Target { return float4(120,171,52,255)/255; }
+        )";
+        ComPtr<ID3DBlob> vsCode,psCode;
+        ComPtr<ID3D11VertexShader> hudVs;ComPtr<ID3D11PixelShader> hudPs;
+        ComPtr<ID3D11RasterizerState> hudRaster;ComPtr<ID3D11DepthStencilState> hudDepth;
+        D3D11_RASTERIZER_DESC rasterDesc{};rasterDesc.FillMode=D3D11_FILL_SOLID;
+        rasterDesc.CullMode=D3D11_CULL_NONE;rasterDesc.DepthClipEnable=true;rasterDesc.ScissorEnable=true;
+        D3D11_DEPTH_STENCIL_DESC hudDepthDesc{};hudDepthDesc.DepthEnable=false;
+        hudDepthDesc.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ZERO;hudDepthDesc.DepthFunc=D3D11_COMPARISON_ALWAYS;
+        check(SUCCEEDED(D3DCompile(hudShader,std::strlen(hudShader),nullptr,nullptr,nullptr,"VS","vs_5_0",0,0,&vsCode,nullptr))&&
+            SUCCEEDED(D3DCompile(hudShader,std::strlen(hudShader),nullptr,nullptr,nullptr,"PS","ps_5_0",0,0,&psCode,nullptr))&&
+            SUCCEEDED(device->CreateVertexShader(vsCode->GetBufferPointer(),vsCode->GetBufferSize(),nullptr,&hudVs))&&
+            SUCCEEDED(device->CreatePixelShader(psCode->GetBufferPointer(),psCode->GetBufferSize(),nullptr,&hudPs))&&
+            SUCCEEDED(device->CreateRasterizerState(&rasterDesc,&hudRaster))&&
+            SUCCEEDED(device->CreateDepthStencilState(&hudDepthDesc,&hudDepth)),"native HUD draw fixture shaders created");
+        naturalHudVs=hudVs.Get();naturalHudPs=hudPs.Get();naturalHudRaster=hudRaster.Get();naturalHudDepth=hudDepth.Get();
         ComPtr<ID3D11Texture2D> packedTexture;ComPtr<ID3D11RenderTargetView> packedView;
         check(SUCCEEDED(device->CreateTexture2D(&packedDesc,nullptr,&packedTexture))&&
             SUCCEEDED(device->CreateRenderTargetView(packedTexture.Get(),nullptr,&packedView)),"packed native HUD target created");
@@ -1236,6 +1340,8 @@ int main()
         std::memcpy(wrapper.data()+0xf0,&viewCount,4);
         check(InstallFixtureJump(bindings.base+contract::hud_target::hud_target_surface_select,
             reinterpret_cast<uintptr_t>(&NativeDepthSelect)),"verified native surface selector fixture");
+        check(InstallFixtureJump(bindings.base+contract::hud_target::hud_target_bind,
+            reinterpret_cast<uintptr_t>(&NaturalHudTargetBind)),"verified native target binder fixture");
         Camera camera{};camera.position={10,20,30};camera.forward={1,0,0};camera.up={0,0,1};
         camera.verticalFov=1;camera.nearPlane=.01f;camera.farPlane=1000;
         camera.window=camera.viewport={0,0,static_cast<int16_t>(packedDesc.Height),static_cast<int16_t>(packedDesc.Width)};
@@ -1268,7 +1374,8 @@ int main()
             renderReady.Publish(p);auto newer=p.receipt.tracking;++newer.serial;
             HaloCE_PublishTracking(newer,true);recenter=false;
             publishedReference.Publish({{p.receipt.tracking.headPosition,{},7,3},referenceRevision.load()});
-            expectedNaturalSerial=serial;naturalFrozen=true;naturalRasterRestored=true;
+            expectedNaturalSerial=serial;naturalFrozen=true;naturalRasterRestored=true;naturalTargetRestoreCorrect=true;
+            naturalBindCalls=0;naturalForeignRasterPreserved=true;
             const auto before=naturalCallbacks;naturalGameplayCalls=0;hudRegions[0]={};hudRegions[1]={};
             FrameBody(0,flags);
             std::memcpy(mapped.data()+0x2ea2d30,&testContext,8);
@@ -1282,11 +1389,13 @@ int main()
             check(HaloCE_AcquirePair(context.Get(),serial+1,7,pair),"late HUD keeps complete world pair available");
             if (pair.borrowId)
             {
-                check(pixelsMatch(pair.eyes[0],0,expectedHud)&&pixelsMatch(pair.eyes[1],1,expectedHud),
+                const bool drawnPixels=pixelsMatch(pair.eyes[0],0,expectedHud)&&pixelsMatch(pair.eyes[1],1,expectedHud);
+                if (!drawnPixels) std::fprintf(stderr,"HUD GPU mismatch serial=%llu HUD=%u\n",serial,unsigned(expectedHud));
+                check(drawnPixels,
                     "late native HUD pixels reach both eyes while distinct world pixels survive around them");
                 HaloCE_ReleasePair(pair.borrowId);pair={};
             }
-            if (expectedHud) check(naturalFrozen&&naturalRasterRestored&&anniversaryHudFailure==0,
+            if (expectedHud) check(naturalFrozen&&naturalRasterRestored&&naturalTargetRestoreCorrect&&anniversaryHudFailure==0,
                 "both HUD draws use frozen frame tracking and restore full native viewport");
             check(!anniversaryNaturalHud&&HaloCE_Armed(),"natural HUD scope clears and keeps camera armed");
         };
@@ -1326,6 +1435,38 @@ int main()
             hudRegions[1].right-hudRegions[1].left==testDesc.Width/8,
             "full-resolution packed HUD still applies the configured half-size slider");
         naturalAuthoredHeight=0;
+        naturalIncompatibleDepth=true;naturalFrame(172,true,2);naturalIncompatibleDepth=false;
+        const auto detachments=anniversaryHudDepthDetachments.load();
+        check(detachments>0,"native one-eye depth is detached for packed HUD drawing");
+        naturalIncompatibleDepth=true;
+        naturalBindFault=NaturalBindFault::BeforeMutation;naturalFrame(173,false,1);
+        naturalBindFault=NaturalBindFault::AfterMutation;naturalFrame(174,false,1);
+        check(naturalTargetRestoreCorrect,"native target restores after a bind mutates then throws");
+        naturalBindFault=NaturalBindFault::Readback;naturalFrame(175,false,1);
+        check(naturalTargetRestoreCorrect,"native target restores after a successful bind has incomplete cache readback");
+        naturalBindFault=NaturalBindFault::ForeignTarget;naturalFrame(176,false,1);
+        check(naturalForeignRasterPreserved&&naturalBindCalls==1,
+            "foreign target takeover keeps both its native descriptor and distinct raster untouched by cleanup");
+        naturalBindFault=NaturalBindFault::Readback;naturalBindFaultAt=2;naturalFrame(177,false,2);
+        check(naturalBindCalls==3,"partial restore with original descriptor can retry after failed cache publication");
+        naturalBindFault=NaturalBindFault::None;naturalBindFaultAt=1;
+        naturalFrame(178,true,2);
+        naturalRevokeDepth=true;naturalFrame(179,false,2);naturalRevokeDepth=false;
+        check(naturalBindCalls==1,"released detached depth is refused before the restoration binder");
+        HaloCE_RecordTextureCreated(static_cast<ID3D11Texture2D*>(depthTextures[0]),depthDesc);
+        naturalChangeDepthView=true;naturalFrame(180,false,2);naturalChangeDepthView=false;SelectDepth(0);
+        check(naturalBindCalls==1,"changed detached depth view is refused before the restoration binder");
+        naturalFrame(181,true,2);
+        publish(182);Prepared faultPrepared{};renderReady.Read(faultPrepared);
+        auto latest=faultPrepared.receipt.tracking;++latest.serial;HaloCE_PublishTracking(latest,true);recenter=false;
+        publishedReference.Publish({{faultPrepared.receipt.tracking.headPosition,{},7,3},referenceRevision.load()});
+        naturalGameplayFault=true;naturalBindCalls=0;naturalGameplayCalls=0;
+        check(InvokeNaturalHudFrameFault(),"native gameplay HUD exception propagates after scoped cleanup");
+        naturalGameplayFault=false;
+        uintptr_t depthAfterFault{};std::memcpy(&depthAfterFault,reinterpret_cast<void*>(depthBackend+0x48),8);
+        check(!anniversaryNaturalHud&&depthAfterFault==depthRoot&&naturalBindCalls==2&&HaloCE_Armed(),
+            "gameplay SEH restores the original native depth descriptor and leaves the camera armed");
+        naturalFrame(183,true,2);naturalIncompatibleDepth=false;
         const auto callbacksBefore=callbacks.load();
         anniversaryHudHook.original=reinterpret_cast<void*>(&NativeHudHookFault);
         check(InvokeActualHudHookFault()&&callbacks.load()==callbacksBefore&&!anniversaryNaturalHud,

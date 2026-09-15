@@ -24,8 +24,59 @@ static bool Tracked(const RenderContext& context,const FirstPersonBinding& bindi
     return BuildTrackedFirstPersonPalette(binding,authored,context.camera,context.tracking,context.reference,
         context.unitsPerMeter,context.positional,palette);
 }
-int main()
+static int MeshFixture(const char* input,const char* output)
 {
+    auto* file=std::fopen(input,"rb");CHECK(file);
+    uint32_t count{};AnimationNode nodes[kFirstPersonMaxNodes]{};
+    NodeMatrix palette[kFirstPersonMaxNodes]{};
+    CHECK(std::fread(&count,sizeof(count),1,file)==1&&count&&count<=kFirstPersonMaxNodes);
+    CHECK(std::fread(nodes,sizeof(AnimationNode),count,file)==count);
+    CHECK(std::fread(palette,sizeof(NodeMatrix),count,file)==count);std::fclose(file);
+    FirstPersonBinding binding{};CHECK(BuildFirstPersonBinding(31,3,nodes,count,binding));
+    Vec3 samples[kCeWeaponBoundsSamples]{};
+    CHECK(BuildWeaponMeshBoundsSamples(binding,palette,samples));
+    RenderContext context{};context.camera.forward={1,0,0};context.camera.up={0,0,1};
+    context.camera.viewport={0,0,800,1000};context.camera.window=context.camera.viewport;
+    context.camera.verticalFov=1;context.camera.nearPlane=.01f;context.camera.farPlane=1000;
+    context.tracking.serial=10;context.tracking.spaceEpoch=2;context.tracking.generation=3;
+    context.tracking.predictedDisplayTimeNs=1'000'000'000;
+    context.reference.generation=3;context.reference.spaceEpoch=2;
+    context.referenceRevision=4;context.rendererEpoch=5;context.unitsPerMeter=1;context.positional=true;
+    for (bool left:{false,true}) for (bool anatomical:{false,true})
+    {
+        ConfigureRig(context,left,anatomical);
+        contact_melee::Frame frames[2]{};uint8_t counts[2]{};
+        CHECK(BuildContactFrames(context,binding,palette,17,frames,counts));
+        const unsigned primary=left?0:1,support=1-primary;
+        CHECK(counts[primary]==14&&counts[support]==0&&frames[primary].count<=78);
+        for (unsigned i=0;i<14;++i)
+            CHECK(Near(Vec(frames[primary].transform.World(frames[primary].points[frames[primary].count-14+i])),samples[i]));
+        auto unknown=binding;unknown.nodeIdentity^=1;
+        contact_melee::Frame fallback[2]{};uint8_t missing[2]{99,99};
+        CHECK(BuildContactFrames(context,unknown,palette,17,fallback,missing));
+        CHECK(!missing[0]&&!missing[1]&&fallback[primary].count+14==frames[primary].count);
+        contact_melee::Motion motion;contact_melee::Sweeps sweeps{};
+        CHECK(motion.Advance(frames[primary],1,sweeps)==contact_melee::AdvanceResult::Seeded);
+        NodeMatrix animated[kFirstPersonMaxNodes]{};std::memcpy(animated,palette,sizeof(animated));
+        for (unsigned i=0;i<count;++i) if (binding.gunMask&(uint64_t{1}<<i)) animated[i].position.z+=.2f;
+        ++context.tracking.serial;context.tracking.predictedDisplayTimeNs+=20'000'000;
+        CHECK(BuildContactFrames(context,binding,animated,17,frames,counts));
+        CHECK(motion.Advance(frames[primary],1,sweeps)==contact_melee::AdvanceResult::Advanced&&sweeps.count==0);
+        ++context.tracking.serial;context.tracking.predictedDisplayTimeNs+=20'000'000;
+        context.tracking.controllers.physical[primary].position.x+=.1f;
+        CHECK(BuildContactFrames(context,binding,animated,17,frames,counts));
+        CHECK(motion.Advance(frames[primary],1,sweeps)==contact_melee::AdvanceResult::Advanced&&sweeps.count>0);
+        ++context.tracking.serial;context.tracking.predictedDisplayTimeNs+=20'000'000;
+        CHECK(BuildContactFrames(context,unknown,animated,17,fallback,missing));
+        CHECK(motion.Advance(fallback[primary],1,sweeps)==contact_melee::AdvanceResult::Seeded&&sweeps.count==0);
+    }
+    file=std::fopen(output,"wb");CHECK(file);
+    CHECK(std::fwrite(samples,sizeof(Vec3),kCeWeaponBoundsSamples,file)==kCeWeaponBoundsSamples);
+    std::fclose(file);return 0;
+}
+int main(int argc,char** argv)
+{
+    if (argc==4&&!std::strcmp(argv[1],"--weapon-mesh-fixture")) return MeshFixture(argv[2],argv[3]);
     AnimationNode nodes[13]{};
     Node(nodes[0],"frame root",-1);
     Node(nodes[1],"frame l upperarm",0);Node(nodes[2],"frame l forearm",1);
@@ -172,5 +223,48 @@ int main()
         const auto actual=transform.World(ContactPoint(context.tracking.controllers.physical[0].position));
         CHECK(Near(Vec(actual),expected.position));
     }
+    // Every generated stock model participates, with conservative animated
+    // bone coverage. The offline fixture separately uses actual graph records
+    // and all 21,180 vertices against this compiled production function.
+    CHECK(std::size(kCeWeaponMeshBounds)==12);
+    unsigned totalNodes=0;
+    for (const auto& mesh:kCeWeaponMeshBounds)
+    {
+        FirstPersonBinding model{};model.graph=44;model.generation=3;
+        model.count=mesh.graphCount;model.nodeIdentity=mesh.graphIdentity;model.gun=mesh.gunNode;
+        std::array<NodeMatrix,kFirstPersonMaxNodes> posed{};
+        for (const auto& node:mesh.nodes) model.gunMask|=uint64_t{1}<<node.node;
+        totalNodes+=unsigned(mesh.nodes.size());
+        Vec3 samples[kCeWeaponBoundsSamples]{};
+        for (unsigned pose=0;pose<4;++pose)
+        {
+            for (unsigned i=0;i<model.count;++i)
+            {
+                const float angle=float(i*pose)*.17f;
+                posed[i].forward={std::cos(angle),std::sin(angle),0};
+                posed[i].left={-std::sin(angle),std::cos(angle),0};
+                posed[i].position={float(i)*.012f,float(pose)*.031f,-float(i)*.006f};
+                posed[i].scale=pose?0.5f*float(pose):1;
+            }
+            CHECK(BuildWeaponMeshBoundsSamples(model,posed.data(),samples));
+            const auto& gun=posed[model.gun];
+            const auto local=[&](Vec3 world) { return InverseDirection(gun,world-gun.position)*(1/gun.scale); };
+            const Vec3 lo=local(samples[0]),hi=local(samples[7]);
+            for (const auto& node:mesh.nodes) for (unsigned corner=0;corner<8;++corner)
+            {
+                const Vec3 p{corner&1?node.maximum.x:node.minimum.x,
+                    corner&2?node.maximum.y:node.minimum.y,corner&4?node.maximum.z:node.minimum.z};
+                const auto& matrix=posed[node.node];
+                const auto bounded=local(matrix.position+TransformDirection(matrix,p)*matrix.scale);
+                for (unsigned axis=0;axis<3;++axis)
+                    CHECK((&bounded.x)[axis]>=(&lo.x)[axis]-.00001f&&(&bounded.x)[axis]<=(&hi.x)[axis]+.00001f);
+            }
+        }
+        const auto old=samples[0];model.nodeIdentity^=1;
+        CHECK(!BuildWeaponMeshBoundsSamples(model,posed.data(),samples)&&Near(old,samples[0]));
+        model.nodeIdentity^=1;model.gunMask=0;
+        CHECK(!BuildWeaponMeshBoundsSamples(model,posed.data(),samples)&&Near(old,samples[0]));
+    }
+    CHECK(totalNodes==58);
     return 0;
 }

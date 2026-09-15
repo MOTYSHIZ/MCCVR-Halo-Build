@@ -1,5 +1,12 @@
 # CE native world contact and physical melee
 
+The 22cb813 refinement adds stock authored weapon envelopes to this same
+native adapter; see `HALOCE-WEAPON-CONTACT-REFINEMENT-2026-09-15.md`. It replaces
+node-only gun coverage for all 12 recognized stock graphs and raises the held
+hand's bounded world probes to seven node extrema plus fourteen surface points.
+The historical node-only coverage limit below still applies to unknown graphs;
+exact custom/Anniversary replacement mesh surfaces remain unproved.
+
 ## E-CE-CONTACT-1: native ownership
 
 Halo 3's accepted reference is independent contact for each tracked hand,

@@ -1,5 +1,16 @@
 # Current state
 
+> **CE WORKING BASE CONFIRMED, REFINEMENT REQUIRED (2026-09-15).**
+> User-tested source `22cb8134e02ea84fc455d4ef3a2f284268ffe49b` gives
+> smooth working VR in Original and Anniversary, equivalent image quality,
+> correct muzzle flashes, working Original HUD and hand contact. Both reticles
+> still show the temporary marker, Anniversary HUD is absent, and gun mesh
+> contact is missing. Those features require further work and are not accepted.
+> Steam, SteamVR/OpenXR 2.17.9, Oculus-family headset, 90 Hz; exact model is not
+> named in the log. Preserved evidence and limits:
+> `HALOCE-22CB813-TEST-2026-09-15.md`. This scoped result does not advance the
+> cumulative accepted `4e01f28` pointer. Package-only delivery remains in force.
+
 > **CURRENT ACCEPTED PHYSICAL MELEE BASELINE: `4e01f28` (user headset,
 > 2026-09-08).** Source `4e01f28b3ec5f5f8f533ac66d94978509cbcea54`,
 > DLL SHA-256 `BE25108E16209DDB5ECF82D39C1EAB7B6982F0B3AC50F7DB8966B20D3630B21F`.

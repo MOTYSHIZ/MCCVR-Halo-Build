@@ -9,6 +9,7 @@ struct HaloCEContactPublication
 {
     contact_melee::Frame frames[2]{};
     uint32_t generation{};
+    uint8_t weaponBoundsSamples[2]{};
 };
 
 // Independent optional feature; failure never changes camera/render ownership.

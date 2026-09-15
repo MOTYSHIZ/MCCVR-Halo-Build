@@ -77,8 +77,8 @@ constexpr bool VrBlitNeedsHalo4ReticleAlphaRepair(
     return halo4Title && destinationWidth == 512 && destinationHeight == 512;
 }
 
-// Stage 3BQ's explicit typed RTV retry belongs only to Halo 4's authored
-// reticle upload. Other swapchain consumers retain their established default-
+// Stage 3BQ's explicit typed RTV retry is also selected by CE's verified RGB
+// authored upload. Other swapchain consumers retain their established default-
 // descriptor behavior even if their first view creation fails.
 constexpr bool VrHalo4ReticleRtvNeedsTypedFallback(
     bool halo4ReticleUpload, bool defaultCreationFailed,

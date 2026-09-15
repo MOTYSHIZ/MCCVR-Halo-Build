@@ -149,7 +149,24 @@ struct FirstPersonBinding
     int16_t shoulder[2]{-1,-1},elbow[2]{-1,-1}; // physical left/right
     uint64_t rightMask{},leftMask{},gunMask{};
     uint64_t armMask[2]{};
+    uint64_t nodeIdentity{}; // Complete ordered names/parents, never a title-wide bone guess.
 };
+inline uint64_t FirstPersonNodeIdentity(const AnimationNode* nodes,size_t count) noexcept
+{
+    if (!nodes||!count||count>kFirstPersonMaxNodes) return 0;
+    uint64_t hash=14695981039346656037ull;
+    const auto append=[&](uint8_t value) { hash=(hash^value)*1099511628211ull; };
+    append(uint8_t(count));
+    for (size_t i=0;i<count;++i)
+    {
+        const auto* end=static_cast<const char*>(std::memchr(nodes[i].name,0,32));
+        if (!end) return 0;
+        for (const char* c=nodes[i].name;c<=end;++c) append(uint8_t(*c));
+        const uint16_t parent=uint16_t(nodes[i].parent);
+        append(uint8_t(parent));append(uint8_t(parent>>8));
+    }
+    return hash?hash:1;
+}
 inline bool NodeName(const char (&name)[32],const char* expected) noexcept
 {
     const size_t length=std::strlen(expected);
@@ -238,6 +255,7 @@ inline bool BuildFirstPersonBinding(uint32_t graph,uint32_t generation,
             (nodes[wrist].parent!=candidate.elbow[side]||
              nodes[candidate.elbow[side]].parent!=candidate.shoulder[side])) return false;
     }
+    candidate.nodeIdentity=FirstPersonNodeIdentity(nodes,count);
     out=candidate;
     return true;
 }

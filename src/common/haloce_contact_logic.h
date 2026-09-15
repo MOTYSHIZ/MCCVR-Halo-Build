@@ -2,6 +2,7 @@
 #include "haloce_first_person_logic.h"
 #include "haloce_frame_context.h"
 #include "contact_melee_motion.h"
+#include "haloce_weapon_bounds.h"
 
 namespace halo_ce
 {
@@ -75,11 +76,11 @@ inline bool BuildContactTransform(const RenderContext& context,contact_melee::Tr
     out=candidate;return true;
 }
 
-// Native CE graph palettes already hold world coordinates (E-CE-FP-1). Each
-// point is a real named-graph descendant; this does not invent a mesh envelope.
-// Preserve node identity/order, with the physical hand's wrist first.
+// Preserve native descendant identity/order, with each physical wrist first.
+// Recognized stock graphs append the entire authored weapon mesh envelope.
 inline bool BuildContactFrames(const RenderContext& context,const FirstPersonBinding& binding,
-    const NodeMatrix* palette,uint32_t unit,contact_melee::Frame (&out)[2]) noexcept
+    const NodeMatrix* palette,uint32_t unit,contact_melee::Frame (&out)[2],
+    uint8_t* weaponBoundsSamples=nullptr) noexcept
 {
     ContactHandBinding hands[2]{};contact_melee::TrackingToWorld transform{};
     const auto& rig=context.tracking.controllers;
@@ -88,6 +89,8 @@ inline bool BuildContactFrames(const RenderContext& context,const FirstPersonBin
     for (size_t i=0;i<binding.count;++i) if (!Valid(palette[i])) return false;
     const uint64_t epoch=ContactReferenceEpoch(context);
     if (!epoch) return false;
+    Vec3 weaponSamples[kCeWeaponBoundsSamples]{};
+    const bool haveWeaponBounds=BuildWeaponMeshBoundsSamples(binding,palette,weaponSamples);
     uint64_t settings=ContactHash(14695981039346656037ull,uint64_t(context.positional));
     for (bool value:{rig.leftHanded,rig.handAlignment,rig.twoHandAimActive,rig.armIk,rig.floatingHands})
         settings=ContactHash(settings,uint64_t(value));
@@ -110,11 +113,18 @@ inline bool BuildContactFrames(const RenderContext& context,const FirstPersonBin
         uint64_t shape=ContactHash(settings,binding.graph);
         for (uint64_t value:{uint64_t(binding.count),hands[side].mask,uint64_t(hands[side].wrist),uint64_t(side)})
             shape=ContactHash(shape,value);
+        shape=ContactHash(shape,binding.nodeIdentity);
+        shape=ContactHash(shape,uint64_t(haveWeaponBounds));
         next.shape=shape?shape:1;
         next.points[next.count++]=transform.Tracking(ContactPoint(palette[hands[side].wrist].position));
         for (size_t i=0;i<binding.count;++i)
             if (i!=size_t(hands[side].wrist)&&(hands[side].mask&(uint64_t{1}<<i)))
                 next.points[next.count++]=transform.Tracking(ContactPoint(palette[i].position));
+        if (haveWeaponBounds&&(hands[side].mask&binding.gunMask)==binding.gunMask)
+        {
+            static_assert(kFirstPersonMaxNodes+kCeWeaponBoundsSamples<=contact_melee::kMaxPoints);
+            for (auto sample:weaponSamples) next.points[next.count++]=transform.Tracking(ContactPoint(sample));
+        }
         // Match the controller solver's broad eight-metre sanity bound. This
         // is a rejection limit for corrupt/implausible palette data, not an
         // assumed hand or weapon size used to generate geometry.
@@ -125,7 +135,12 @@ inline bool BuildContactFrames(const RenderContext& context,const FirstPersonBin
         }
         if (!next.Valid()) return false;
     }
-    out[0]=staged[0];out[1]=staged[1];return true;
+    out[0]=staged[0];out[1]=staged[1];
+    if (weaponBoundsSamples)
+        for (unsigned side=0;side<2;++side)
+            weaponBoundsSamples[side]=haveWeaponBounds&&
+                (hands[side].mask&binding.gunMask)==binding.gunMask?kCeWeaponBoundsSamples:0;
+    return true;
 }
 
 // Apply both physical-hand responses to one private palette. Rebuild the named

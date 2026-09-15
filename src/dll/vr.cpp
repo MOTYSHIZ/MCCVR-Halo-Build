@@ -27,6 +27,7 @@
 #include "haloce_stereo_core.h"
 #include "../common/haloce_pause_logic.h"
 #include "../common/haloce_reticle_logic.h"
+#include "../common/vr_blit_shader.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
 #include "haloce_hud_layout.h"
@@ -270,6 +271,8 @@ namespace
     uint32_t g_authoredReticleGoodInk = 0;
     uint32_t g_authoredReticleConsecutiveHolds = 0;
     uint32_t g_authoredReticleLastCoverage = 0;
+    uint32_t g_authoredReticleLastAlphaInk = 0;
+    uint32_t g_authoredReticleLastColorInk = 0;
     uint32_t g_authoredReticleBlankHeld = 0;
     bool g_authoredReticleProbeUsable = true;
     // Set when an upload was deliberately withheld because the capture had no
@@ -1671,37 +1674,7 @@ namespace
         release(g_blitRasterizer);
         release(g_blitDepthOff);
 
-        static const char* src = R"(
-Texture2D srcTex : register(t0);
-SamplerState smp : register(s0);
-struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
-VSOut vs_main(uint id : SV_VertexID)
-{
-    VSOut o;
-    float2 uv = float2((id << 1) & 2, id & 2);
-    o.pos = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
-    o.uv = uv;
-    return o;
-}
-float lin(float c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
-float4 fix(float4 c)
-{
-    uint w, h;
-    srcTex.GetDimensions(w, h);
-    if (w != 512 || h != 512) return c;
-    float a = max(c.a, max(c.r, max(c.g, c.b)));
-    return float4(a > 0 ? c.rgb / a : c.rgb, a);
-}
-float4 ps_linearize(VSOut i) : SV_Target
-{
-    float4 c = fix(srcTex.Sample(smp, i.uv));
-    return float4(lin(c.r), lin(c.g), lin(c.b), c.a);
-}
-float4 ps_pass(VSOut i) : SV_Target
-{
-    return fix(srcTex.Sample(smp, i.uv));
-}
-)";
+        const char* src = kVrBlitShader;
         ID3DBlob* blob = nullptr;
         ID3DBlob* err = nullptr;
         auto compile = [&](const char* entry, const char* target) -> ID3DBlob* {
@@ -1943,95 +1916,7 @@ float4 ps_pass(VSOut i) : SV_Target
         return g_intermediateSrvs[slot.index];
     }
 
-    // Copy src into dst (an XR swapchain image). Uses a plain GPU copy when
-    // the formats/sizes allow it, otherwise draws a fullscreen quad, fixing
-    // gamma along the way.
-    bool Blit(ID3D11Texture2D* src, const D3D11_TEXTURE2D_DESC& srcDesc,
-              ID3D11Texture2D* dst, uint32_t dstW, uint32_t dstH,
-              ID3D11RenderTargetView* dstRtv)
-    {
-        const bool halo4ReticleAlphaRepair =
-            VrBlitNeedsHalo4ReticleAlphaRepair(
-                TitleAdapter_GetActiveTitle() == GameTitle::Halo4,
-                dstW, dstH);
-        const bool fastPath = !halo4ReticleAlphaRepair &&
-            VrBlitCanUseDirectCopy(
-            srcDesc.Width, srcDesc.Height, srcDesc.Format,
-            srcDesc.SampleDesc.Count, dstW, dstH,
-            static_cast<DXGI_FORMAT>(g_xrFormat));
-        if (!g_context || !VrBlitResourcesReady(
-                src != nullptr, dst != nullptr, dstRtv != nullptr, fastPath))
-        {
-            LOG("blit: missing %s resource (context=%p src=%p dst=%p rtv=%p)",
-                fastPath ? "direct-copy" : "shader-path",
-                static_cast<void*>(g_context), static_cast<void*>(src),
-                static_cast<void*>(dst), static_cast<void*>(dstRtv));
-            return false;
-        }
-        // One-time: confirm the cheap CopyResource path is taken (the slow path
-        // makes an intermediate texture + full-screen draw every eye blit).
-        // Log every TRANSITION, not just the first blit. Logging once meant the
-        // menu's cheap backbuffer blit reported FAST and the log then went silent
-        // -- so a switch to the slow path on level load (the in-game scene target
-        // is multisampled, the menu backbuffer is not) was invisible. The slow
-        // path builds an intermediate and runs a full-screen draw PER EYE PER
-        // FRAME at full render size, which is exactly the kind of cost that
-        // halves the frame rate the moment a level loads.
-        static int loggedPath = -1;
-        if (!halo4ReticleAlphaRepair &&
-            loggedPath != (fastPath ? 1 : 0))
-        {
-            loggedPath = fastPath ? 1 : 0;
-            LOG("PERF: eye blit uses %s path (src %ux%u fmt %d samples %u -> "
-                "dst %ux%u xrfmt %d)",
-                fastPath?"FAST CopyResource":"SLOW shader",
-                srcDesc.Width,srcDesc.Height,(int)srcDesc.Format,
-                srcDesc.SampleDesc.Count,
-                dstW,dstH,(int)g_xrFormat);
-        }
-        if (fastPath)
-        {
-            g_context->CopyResource(dst, src);
-            return true;
-        }
-
-        if (!EnsureBlitPipeline())
-            return false;
-
-        ID3D11ShaderResourceView* srv = AcquireSrcSrv(src, srcDesc);
-        if (!srv)
-            return false;
-
-        // If the source is already an sRGB view (sampling gives linear) or the
-        // destination isn't sRGB, a raw copy through the shader is correct.
-        // Otherwise decode gamma in the shader so the sRGB target re-encodes it.
-        const bool linearize=!IsSrgb(srcDesc.Format) && IsSrgb((DXGI_FORMAT)g_xrFormat);
-        ID3D11PixelShader* ps=linearize?g_blitPsLinearize:g_blitPsPass;
-
-        D3DStateBackup backup;
-        backup.Capture(g_context);
-
-        g_context->OMSetRenderTargets(1, &dstRtv, nullptr);
-        D3D11_VIEWPORT vp{0, 0, (float)dstW, (float)dstH, 0, 1};
-        g_context->RSSetViewports(1, &vp);
-        g_context->RSSetState(g_blitRasterizer);
-        g_context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-        g_context->OMSetDepthStencilState(g_blitDepthOff, 0);
-        g_context->IASetInputLayout(nullptr);
-        g_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        g_context->VSSetShader(g_blitVs, nullptr, 0);
-        // Halo may leave a geometry shader bound at the end of an eye pass.
-        // The fullscreen triangle has no compatible GS stage; clear it for the
-        // blit and let D3DStateBackup restore the game's shader afterward.
-        g_context->GSSetShader(nullptr, nullptr, 0);
-        g_context->PSSetShader(ps, nullptr, 0);
-        g_context->PSSetShaderResources(0, 1, &srv);
-        g_context->PSSetSamplers(0, 1, &g_blitSampler);
-        g_context->Draw(3, 0);
-
-        backup.Restore(g_context);
-        return true;
-    }
+    #include "vr_blit.inl"
 
     #include "haloce_desktop_mirror.inl"
 
@@ -3326,33 +3211,7 @@ float4 ps_main(VSOut i) : SV_Target
         return true;
     }
 
-    ID3D11RenderTargetView* GetRtv(
-        std::vector<ID3D11Texture2D*>& images,
-        std::vector<ID3D11RenderTargetView*>& rtvs, uint32_t idx,
-        bool halo4ReticleUpload = false)
-    {
-        if (!g_device || idx >= images.size() || idx >= rtvs.size())
-            return nullptr;
-        if (!rtvs[idx])
-        {
-            const HRESULT defaultResult = g_device->CreateRenderTargetView(
-                images[idx], nullptr, &rtvs[idx]);
-            if (VrHalo4ReticleRtvNeedsTypedFallback(
-                    halo4ReticleUpload, FAILED(defaultResult), !rtvs[idx]))
-            {
-                // Stage 3BQ: SteamVR may expose a TYPELESS OpenXR image. Such
-                // a resource has no default RTV, but the negotiated XR format
-                // is the exact concrete view format the runtime expects.
-                D3D11_RENDER_TARGET_VIEW_DESC desc{};
-                desc.Format = static_cast<DXGI_FORMAT>(g_xrFormat);
-                desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-                desc.Texture2D.MipSlice = 0;
-                (void)g_device->CreateRenderTargetView(
-                    images[idx], &desc, &rtvs[idx]);
-            }
-        }
-        return rtvs[idx];
-    }
+    #include "vr_swapchain_rtv.inl"
 
     void ReleaseScopeCache()
     {
@@ -6351,8 +6210,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
         }
         g_context->Unmap(g_authoredReticleProbeStaging, 0);
-        // Stage 3BL: Halo 4's authored CUI writes RGB art with zero alpha.
-        // Other titles retain their accepted alpha-only coverage metric.
+        g_authoredReticleLastAlphaInk=alphaInk;
+        g_authoredReticleLastColorInk=colorInk;
+        // CE's native bitmap pass writes RGB only. Like Halo 4's CUI, its
+        // transparent capture cannot be judged by the untouched alpha plane.
+        // This is independently proven by CE's native blend descriptor.
+        if (TitleAdapter_GetActiveTitle() == GameTitle::HaloCE)
+            return halo_ce::ReticleVisibleInk(alphaInk,colorInk);
+        // Other titles retain their accepted coverage policy.
         return VrResolveAuthoredReticleCoverage(
             TitleAdapter_GetActiveTitle() == GameTitle::Halo4,
             alphaInk, colorInk);
@@ -6643,7 +6508,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                  GetRtv(
                                      g_reticleImages, g_reticleRtvs, index,
                                      TitleAdapter_GetActiveTitle() ==
-                                         GameTitle::Halo4));
+                                         GameTitle::Halo4 ||
+                                     TitleAdapter_GetActiveTitle() ==
+                                         GameTitle::HaloCE), true);
         const XrResult releaseResult =
             xrReleaseSwapchainImage(g_reticleChain, &release);
         const bool released = requireSuccessfulRelease
@@ -10745,10 +10612,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             {
                                 lastCeReticleLogMs = nowMs;
                                 LOG("CE crosshair presentation: quad=%d aim=%d nativeOwned=%d "
-                                    "measuredArt=%d heldArt=%d configured=%d",
+                                    "measuredArt=%d heldArt=%d configured=%d lastAlpha=%u lastRGB=%u",
                                     reticleQuadSubmitted ? 1 : 0, haveAim ? 1 : 0,
                                     titleCapturesArt ? 1 : 0, g_authoredReticleGoodValid ? 1 : 0,
-                                    g_reticleContainsAuthored ? 1 : 0, g_config.crosshair ? 1 : 0);
+                                    g_reticleContainsAuthored ? 1 : 0, g_config.crosshair ? 1 : 0,
+                                    g_authoredReticleLastAlphaInk,g_authoredReticleLastColorInk);
                             }
                         }
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE

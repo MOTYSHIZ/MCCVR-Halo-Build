@@ -130,6 +130,15 @@ bool CaptureSourceCurrentBody(const CeHudTargetSnapshot& saved,SelectFn select) 
         ReadValue<uintptr_t>(surface+0xe0)==resource&&
         !std::memcmp(saved.descriptor.data(),reinterpret_cast<const void*>(saved.backend+0x18),0x48);
 }
+bool DetachedDepthCurrent(const CeHudTargetSnapshot& saved,SelectFn select) noexcept
+{
+    if (!saved.dsv) return true;
+    uintptr_t surface{},resource{};
+    if (!OwnedSurface(saved.moduleBase,saved.wrappers[4],1u<<9,surface,resource,select)||
+        surface!=saved.surfaces[4]||resource!=saved.resources[4]) return false;
+    const auto view=ReadValue<ID3D11DepthStencilView*>(surface+(saved.descriptor[0x44]?0x110:0x108));
+    return view==saved.dsv;
+}
 CeHudTargetRestoreResult RestoreBody(const CeHudTargetSnapshot& saved,SelectFn select,BindFn bind) noexcept
 {
     CeHudTargetSnapshot latest{};
@@ -162,4 +171,37 @@ CeHudTargetRestoreResult HaloCEHudTarget_Restore(const CeHudTargetSnapshot& save
     const auto bind=reinterpret_cast<BindFn>(saved.moduleBase+halo_ce::contract::hud_target::hud_target_bind);
     __try { return RestoreBody(saved,select,bind); }
     __except(EXCEPTION_EXECUTE_HANDLER) { return CeHudTargetRestoreResult::Unavailable; }
+}
+bool HaloCEHudTarget_Replace(const CeHudTargetSnapshot& expected,
+    const std::array<uint8_t,0x48>& descriptor,CeHudTargetSnapshot& result) noexcept
+{
+    const auto select=reinterpret_cast<SelectFn>(expected.moduleBase+halo_ce::contract::hud_target::hud_target_surface_select);
+    const auto bind=reinterpret_cast<BindFn>(expected.moduleBase+halo_ce::contract::hud_target::hud_target_bind);
+    __try
+    {
+        CeHudTargetSnapshot current{};
+        return ReadBody(expected.moduleBase,expected.context,current,select)&&SameIntent(expected,current)&&
+            bind(expected.backend,descriptor.data())&&ReadBody(expected.moduleBase,expected.context,result,select)&&
+            result.backend==expected.backend&&result.descriptor==descriptor;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool HaloCEHudTarget_RestorePrepared(const CeHudTargetSnapshot& original,
+    const std::array<uint8_t,0x48>& preparedDescriptor,CeHudTargetSnapshot& result) noexcept
+{
+    const auto select=reinterpret_cast<SelectFn>(original.moduleBase+halo_ce::contract::hud_target::hud_target_surface_select);
+    const auto bind=reinterpret_cast<BindFn>(original.moduleBase+halo_ce::contract::hud_target::hud_target_bind);
+    __try
+    {
+        CeHudTargetSnapshot current{};
+        if (ReadBody(original.moduleBase,original.context,current,select)&&SameIntent(original,current))
+        { result=current;return true; }
+        auto prepared=original;prepared.descriptor=preparedDescriptor;
+        if ((!CaptureSourceCurrentBody(prepared,select)&&!CaptureSourceCurrentBody(original,select))||
+            !DetachedDepthCurrent(original,select)) return false;
+        if (!bind(original.backend,original.descriptor.data())||
+            !ReadBody(original.moduleBase,original.context,result,select)) return false;
+        return SameIntent(original,result);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }

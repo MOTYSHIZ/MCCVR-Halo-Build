@@ -1,0 +1,1047 @@
+{
+  "source": "Official HCEEK 2023.07.17.176677.1-QFE1",
+  "weapons": [
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.model_animations",
+      "sha256": "3154D660A65BB947B87A65B7CEAF57F0FA77BB7A24D39374398EF9470FB64B01",
+      "nodes": 42,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.gbxmodel",
+      "model_sha256": "F49C1C60AA0FC37951C863D78E9A2B3B6245DE2F88FF00889B41AC131473A967",
+      "graph_identity": "93663163761AA577",
+      "model_nodes": 5,
+      "parts": 8,
+      "vertices": 1713,
+      "weapon_vertices": 1713,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.08953895419836044,
+            -0.014792179002037109,
+            -0.025154159648885788
+          ],
+          "maximum": [
+            0.19909772276878357,
+            0.014792189688811241,
+            0.08205996708703989
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame display",
+          "minimum": [
+            -0.0020474418997764587,
+            -0.007614409551024437,
+            0.002632858918437897
+          ],
+          "maximum": [
+            0.005325939506292343,
+            0.007614559959620237,
+            0.022743868397006928
+          ]
+        },
+        {
+          "graph_node": 24,
+          "name": "frame magazine",
+          "minimum": [
+            -0.019628163427114487,
+            -0.006947500165551901,
+            -0.01014772827046162
+          ],
+          "maximum": [
+            0.019157879054546356,
+            0.006951809860765934,
+            0.05465952655060047
+          ]
+        },
+        {
+          "graph_node": 25,
+          "name": "frame ophandle",
+          "minimum": [
+            -0.0028013987466692924,
+            -0.0003437299864197385,
+            -0.000937310291996063
+          ],
+          "maximum": [
+            0.0034345807507634163,
+            0.009277530235627829,
+            0.0034811633987521517
+          ]
+        },
+        {
+          "graph_node": 31,
+          "name": "frame safety button",
+          "minimum": [
+            -0.003059053984584452,
+            -0.002168100974580374,
+            0.006000012645681097
+          ],
+          "maximum": [
+            0.0030572337122819794,
+            0.0039505126193269124,
+            0.016023921052492094
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/ball/fp/fp.model_animations",
+      "sha256": "6711E1714380DB6774B63EA2254A19F0783E51009DC2EA16A2BBCE9701E55A06",
+      "nodes": 38,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 17,
+      "weapon_root_name": "frame skull",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/ball/fp/fp.gbxmodel",
+      "model_sha256": "E4E5D37D299A0DBADD58F9A6ED5279971B06FF8CB97684A438DD01BB26363B82",
+      "graph_identity": "D4E1323E60DB2B87",
+      "model_nodes": 1,
+      "parts": 1,
+      "vertices": 1239,
+      "weapon_vertices": 1239,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 17,
+          "name": "frame skull",
+          "minimum": [
+            -0.04077223331897097,
+            -0.0320121589888541,
+            -0.030005817966205002
+          ],
+          "maximum": [
+            0.04114496375884729,
+            0.0326933087651422,
+            0.029229779728154204
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/flag/fp/fp.model_animations",
+      "sha256": "3748EE88AA15557A68D35B88C6E43A74687CEEBCAB09EBA2A6554FDDE636CEB5",
+      "nodes": 38,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 12,
+      "weapon_root_name": "frame pole",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/flag/fp/fp.gbxmodel",
+      "model_sha256": "AA8642635B5E6DBB59A70C515D28B1A52CA6F6A24BC4261C4752F7782B2EEE74",
+      "graph_identity": "9D8A310620DE486D",
+      "model_nodes": 1,
+      "parts": 1,
+      "vertices": 143,
+      "weapon_vertices": 143,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 12,
+          "name": "frame pole",
+          "minimum": [
+            -0.007499999832361937,
+            -0.007499999832361937,
+            0.0
+          ],
+          "maximum": [
+            0.007499999832361937,
+            0.007499999832361937,
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/flamethrower/fp/fp.model_animations",
+      "sha256": "AFB5C92EED8BC3FF11902AAB726ADB08AE195FC6E240D9D0E320F853F0C4EF0E",
+      "nodes": 40,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/flamethrower/fp/fp.gbxmodel",
+      "model_sha256": "7F29278370BD55A288B3DA9623198A149F2769D9F3186286E7724A5C1A4F52C6",
+      "graph_identity": "EC917EC3F1DFFEF9",
+      "model_nodes": 3,
+      "parts": 7,
+      "vertices": 2179,
+      "weapon_vertices": 2179,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.16504502296447754,
+            -0.07820449024438858,
+            -0.1237855888903141
+          ],
+          "maximum": [
+            0.31217624247074127,
+            0.05384141951799393,
+            0.06620420888066292
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame ammo",
+          "minimum": [
+            -0.05405245162546635,
+            -0.037500008940696716,
+            -0.03711191192269325
+          ],
+          "maximum": [
+            0.0700792521238327,
+            0.03750001639127731,
+            0.03788810968399048
+          ]
+        },
+        {
+          "graph_node": 19,
+          "name": "frame cover",
+          "minimum": [
+            -0.0022186019383601836,
+            -0.0010255295020226974,
+            -0.0051430849533555135
+          ],
+          "maximum": [
+            0.003291353301090332,
+            0.017889477288516614,
+            0.009977404006366949
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/needler/fp/fp.model_animations",
+      "sha256": "F82284E88FD86ED0D80C6221084402887967552EFF6DB3B675E92D77B2A3DD50",
+      "nodes": 54,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame body",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/needler/fp/fp.gbxmodel",
+      "model_sha256": "26A77DD87EDA1404A77A404E466392EB94DB1051C775243E4F5E11BD7684F1C5",
+      "graph_identity": "55EA2D6F6C10C375",
+      "model_nodes": 17,
+      "parts": 4,
+      "vertices": 2366,
+      "weapon_vertices": 2366,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame body",
+          "minimum": [
+            -0.1222412783831053,
+            -0.03323101542300069,
+            -0.09599025561392732
+          ],
+          "maximum": [
+            0.09792281499919582,
+            0.03246493915805996,
+            0.07259377479620639
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame eneedle13",
+          "minimum": [
+            -0.08892539624660488,
+            -0.001306883034410116,
+            -0.012636118090229827
+          ],
+          "maximum": [
+            -0.00027878774639246613,
+            0.00540651462510509,
+            -0.0006366923096737573
+          ]
+        },
+        {
+          "graph_node": 24,
+          "name": "frame needle01",
+          "minimum": [
+            -0.08029152189994239,
+            -0.04163596767055973,
+            -0.0031996901968504906
+          ],
+          "maximum": [
+            -0.001186932092448103,
+            0.0015717987771461757,
+            0.00696697954400987
+          ]
+        },
+        {
+          "graph_node": 25,
+          "name": "frame needle02",
+          "minimum": [
+            -0.08113009310482144,
+            -0.012370363409620149,
+            -0.0009494888624952073
+          ],
+          "maximum": [
+            -0.00011266225874019489,
+            0.0019647142615513828,
+            0.03698208849200703
+          ]
+        },
+        {
+          "graph_node": 26,
+          "name": "frame needle03",
+          "minimum": [
+            -0.07973807050830538,
+            -0.0027401026712590743,
+            -0.0008184773754262538
+          ],
+          "maximum": [
+            -9.482630605366909e-05,
+            0.01564604034058304,
+            0.0384684665925521
+          ]
+        },
+        {
+          "graph_node": 27,
+          "name": "frame needle04",
+          "minimum": [
+            -0.07822096849001907,
+            -0.002021081416360028,
+            -0.0028381458026026734
+          ],
+          "maximum": [
+            -0.001195820556901835,
+            0.0448114949393613,
+            0.0060547324478710095
+          ]
+        },
+        {
+          "graph_node": 28,
+          "name": "frame needle05",
+          "minimum": [
+            -0.08617399610097606,
+            -0.025804901639624338,
+            -0.003181889296446432
+          ],
+          "maximum": [
+            -0.0013847376321204793,
+            0.0026063200047412934,
+            0.013587430774983054
+          ]
+        },
+        {
+          "graph_node": 29,
+          "name": "frame needle06",
+          "minimum": [
+            -0.082151003755382,
+            -0.0021223240937767833,
+            -0.0018620419020193436
+          ],
+          "maximum": [
+            -0.0010705667702478093,
+            0.004681552581436717,
+            0.037244615687054845
+          ]
+        },
+        {
+          "graph_node": 30,
+          "name": "frame needle07",
+          "minimum": [
+            -0.08459868876552833,
+            -0.002351373312520424,
+            -0.0031522430445661952
+          ],
+          "maximum": [
+            -0.0013954121002182876,
+            0.030280597873102652,
+            0.013855297103030746
+          ]
+        },
+        {
+          "graph_node": 31,
+          "name": "frame needle08",
+          "minimum": [
+            -0.08620772535875816,
+            -0.027154541314958158,
+            -0.004410543975413956
+          ],
+          "maximum": [
+            -0.0012588511201775878,
+            0.0030325789092805564,
+            0.0009372509339500464
+          ]
+        },
+        {
+          "graph_node": 32,
+          "name": "frame needle09",
+          "minimum": [
+            -0.09728573927424795,
+            -0.011562269394764242,
+            -0.0025992600392109287
+          ],
+          "maximum": [
+            -0.009062868876006368,
+            0.0028360005214302184,
+            0.013021897460271974
+          ]
+        },
+        {
+          "graph_node": 33,
+          "name": "frame needle10",
+          "minimum": [
+            -0.09654284742260079,
+            -0.0011896409064353626,
+            -0.0026278187522182192
+          ],
+          "maximum": [
+            -0.009033626672113795,
+            0.017064828735816173,
+            0.013489065606449097
+          ]
+        },
+        {
+          "graph_node": 34,
+          "name": "frame needle11",
+          "minimum": [
+            -0.08500486694208652,
+            -0.0022994376715934246,
+            -0.007670210047032201
+          ],
+          "maximum": [
+            -0.0012609980609828496,
+            0.03065555046241368,
+            0.00048407797936741146
+          ]
+        },
+        {
+          "graph_node": 35,
+          "name": "frame needle12",
+          "minimum": [
+            -0.08463209802686367,
+            -0.01688334982391527,
+            -0.024501867603153666
+          ],
+          "maximum": [
+            -0.0002953577167394312,
+            0.004220067411283188,
+            0.0007528824982615522
+          ]
+        },
+        {
+          "graph_node": 36,
+          "name": "frame needle14",
+          "minimum": [
+            -0.0832391370774027,
+            -0.0022136776019785085,
+            -0.02767152804526272
+          ],
+          "maximum": [
+            -0.00029536037384028896,
+            0.021669835017065583,
+            -0.000277529587247715
+          ]
+        },
+        {
+          "graph_node": 37,
+          "name": "frame needle15",
+          "minimum": [
+            -0.08667859585821021,
+            -0.007237917850435713,
+            -0.02222502546468732
+          ],
+          "maximum": [
+            -0.00026541778274633183,
+            0.004462824298659906,
+            -0.0002610627135076195
+          ]
+        },
+        {
+          "graph_node": 38,
+          "name": "frame needle16",
+          "minimum": [
+            -0.08601385767418622,
+            -0.0017762116624016446,
+            -0.023966002564090462
+          ],
+          "maximum": [
+            -0.0002634036757665969,
+            0.013328033503733067,
+            -0.0009009972056290801
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.model_animations",
+      "sha256": "6E058CABADB7EE1A30A95A0148C008F8661BF2EE7B4575725F1E00552A94E5B6",
+      "nodes": 44,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.gbxmodel",
+      "model_sha256": "83A3ED078DCC92B15976462F3E71619F92A242E932CE736FA01EF7AB44697CC0",
+      "graph_identity": "24585B0C2FBD0622",
+      "model_nodes": 7,
+      "parts": 3,
+      "vertices": 1728,
+      "weapon_vertices": 1728,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.0358448417391628,
+            -0.009187609888613224,
+            -0.02353064832277596
+          ],
+          "maximum": [
+            0.0514189584646374,
+            0.009186750277876854,
+            0.039209968177601695
+          ]
+        },
+        {
+          "graph_node": 23,
+          "name": "frame magazine",
+          "minimum": [
+            -0.026757547533494082,
+            -0.005945510230958462,
+            -0.05130603919964308
+          ],
+          "maximum": [
+            0.013656168410267181,
+            0.00594548974186182,
+            0.01933252319013535
+          ]
+        },
+        {
+          "graph_node": 29,
+          "name": "frame slide",
+          "minimum": [
+            -0.02287442027591169,
+            -0.00724499998614192,
+            -0.008719419362023473
+          ],
+          "maximum": [
+            0.04146135994233191,
+            0.00724499998614192,
+            0.006085428176447749
+          ]
+        },
+        {
+          "graph_node": 30,
+          "name": "frame slide_release",
+          "minimum": [
+            -0.003929204914042109,
+            -0.001996821959446963,
+            -0.00022286910926445225
+          ],
+          "maximum": [
+            0.0035861947618007167,
+            0.0021065510747491677,
+            0.0019552600140639908
+          ]
+        },
+        {
+          "graph_node": 31,
+          "name": "frame trigger",
+          "minimum": [
+            -0.0020773091819137335,
+            0.0016789998626336455,
+            -0.012487599859014153
+          ],
+          "maximum": [
+            0.005057430127635598,
+            0.004070999682880938,
+            0.0009181702043861151
+          ]
+        },
+        {
+          "graph_node": 32,
+          "name": "frame bullet",
+          "minimum": [
+            0.002912229159846902,
+            -0.013968428829684854,
+            -0.002745049772784114
+          ],
+          "maximum": [
+            0.007136428961530328,
+            -1.0489020496606827e-06,
+            0.002745049772784114
+          ]
+        },
+        {
+          "graph_node": 33,
+          "name": "frame chamber_button",
+          "minimum": [
+            -0.008791537722572684,
+            -0.0011959999101236463,
+            -0.002335540484637022
+          ],
+          "maximum": [
+            -0.007567437132820487,
+            0.0011959999101236463,
+            0.002150569576770067
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/plasma pistol/fp/fp.model_animations",
+      "sha256": "503FF9F925208AD7A2A30DCF689211EC8E2208D08EE0FF906956A4F9B30CAA42",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/plasma pistol/fp/fp.gbxmodel",
+      "model_sha256": "0F1B31D72C0FE1E498877E00D9D8A0250B63771050BD257C5AA1E04058D9A4A4",
+      "graph_identity": "7B974325274A536D",
+      "model_nodes": 4,
+      "parts": 4,
+      "vertices": 982,
+      "weapon_vertices": 982,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.054353849962353706,
+            -0.010499998927116394,
+            -0.08013999834656715
+          ],
+          "maximum": [
+            0.0578523650765419,
+            0.010499998927116394,
+            0.009867239743471146
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame cover",
+          "minimum": [
+            -8.119083940982819e-05,
+            -0.009294369257986546,
+            -0.006013619247823954
+          ],
+          "maximum": [
+            0.05990925431251526,
+            0.009294369257986546,
+            0.004368716385215521
+          ]
+        },
+        {
+          "graph_node": 20,
+          "name": "frame face",
+          "minimum": [
+            -0.0037018332516260137,
+            -0.007699999492615461,
+            -0.007619504723704644
+          ],
+          "maximum": [
+            0.0028064913561422515,
+            0.007699999492615461,
+            0.0063376332503570585
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/plasma rifle/fp/fp.model_animations",
+      "sha256": "AB1DD9E18C96C3CB0300E924C3321F3B5D28CCF43CFC30DDF9FC0059DFFF2662",
+      "nodes": 42,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/plasma rifle/fp/fp.gbxmodel",
+      "model_sha256": "2352C04F5A42FF9C467DD5DBF0DEF09BACE1A621B205B3F0997D07FBA3D90494",
+      "graph_identity": "75A4823A46E33E13",
+      "model_nodes": 5,
+      "parts": 5,
+      "vertices": 1957,
+      "weapon_vertices": 1957,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.1224962358828634,
+            -0.02969851903617382,
+            -0.06132964510470629
+          ],
+          "maximum": [
+            0.09424572833813727,
+            0.029695779085159302,
+            0.06357170548290014
+          ]
+        },
+        {
+          "graph_node": 28,
+          "name": "frame rod_left",
+          "minimum": [
+            -0.0021886755588483506,
+            -0.002185819715696404,
+            -0.0009121091116432883
+          ],
+          "maximum": [
+            0.002192725639685711,
+            0.0021940265799429834,
+            0.012244585654841187
+          ]
+        },
+        {
+          "graph_node": 29,
+          "name": "frame rod_right",
+          "minimum": [
+            -0.00218867976218462,
+            -0.002356937563755689,
+            -0.011697486165303328
+          ],
+          "maximum": [
+            0.002192729967646301,
+            0.008014471180480681,
+            0.001885166740995479
+          ]
+        },
+        {
+          "graph_node": 40,
+          "name": "frame wing_left",
+          "minimum": [
+            -0.01894909097847698,
+            -0.012040901328075847,
+            -0.002603598925692955
+          ],
+          "maximum": [
+            0.05727222432035726,
+            0.0027031420239285574,
+            0.009882383159468388
+          ]
+        },
+        {
+          "graph_node": 41,
+          "name": "frame wing_right",
+          "minimum": [
+            -0.05727234040386975,
+            -0.002769228901222169,
+            -0.028288945492270522
+          ],
+          "maximum": [
+            0.018949129385873675,
+            0.013331630065680587,
+            -0.01926167474926532
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/plasma_cannon/fp/fp.model_animations",
+      "sha256": "B0A4BA2AB8128596CC8C3DB751A770432DCA16DDC68F5642FCC25FB607006D1F",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/plasma_cannon/fp/fp.gbxmodel",
+      "model_sha256": "23E1268603F03CD5424E4AAD691E36B854866EA2B0562355155A45D834EF6429",
+      "graph_identity": "B0BD3C18EDF619B4",
+      "model_nodes": 41,
+      "parts": 10,
+      "vertices": 2127,
+      "weapon_vertices": 2127,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.13677886708415884,
+            -0.1082886315229268,
+            -0.06359592182946942
+          ],
+          "maximum": [
+            -0.010512870097050668,
+            0.2142521666244958,
+            0.12017343872490843
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame barrel",
+          "minimum": [
+            0.06104738716667423,
+            -0.1187440059233801,
+            -0.12767640427983729
+          ],
+          "maximum": [
+            0.11035202917471132,
+            -0.0792121297577113,
+            -0.02490467754663168
+          ]
+        },
+        {
+          "graph_node": 30,
+          "name": "frame vents",
+          "minimum": [
+            0.12651386073846785,
+            0.026858740335298323,
+            -0.06369881692487452
+          ],
+          "maximum": [
+            0.15542622078293955,
+            0.05144683241385935,
+            -0.003583022912905259
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/rocket launcher/fp/fp.model_animations",
+      "sha256": "AC458776F24CAE08B164ECD53E08EC594E3CCABDBB054086E5973752CBCFC25C",
+      "nodes": 42,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/rocket launcher/fp/fp.gbxmodel",
+      "model_sha256": "1ACFE812E5E770A4F855D18A300629D1000E426F94FE2CA05A02B9FEC75A7009",
+      "graph_identity": "E155408F29C66938",
+      "model_nodes": 5,
+      "parts": 4,
+      "vertices": 3080,
+      "weapon_vertices": 3080,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.1285608410835266,
+            -0.040790729224681854,
+            -0.06052793934941292
+          ],
+          "maximum": [
+            0.14775166660547256,
+            0.029483508318662643,
+            0.03494748845696449
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame body",
+          "minimum": [
+            -0.04499998688697815,
+            -0.0009107179939746857,
+            -9.052455425262451e-07
+          ],
+          "maximum": [
+            0.04499998968094587,
+            0.0645952895283699,
+            0.037284985184669495
+          ]
+        },
+        {
+          "graph_node": 19,
+          "name": "frame foregrip",
+          "minimum": [
+            -0.11819836007190698,
+            -0.00720439034193987,
+            -0.05288459877920104
+          ],
+          "maximum": [
+            0.018051639199256897,
+            0.0071956103420234285,
+            0.0055154193614725955
+          ]
+        },
+        {
+          "graph_node": 30,
+          "name": "frame tubes",
+          "minimum": [
+            -0.28205978870391846,
+            -0.028681366091601965,
+            -0.02912213150979747
+          ],
+          "maximum": [
+            0.16395871341228485,
+            0.028704985912795952,
+            0.029002125085864222
+          ]
+        },
+        {
+          "graph_node": 36,
+          "name": "frame push_bar",
+          "minimum": [
+            -0.024323162867298187,
+            0.010997509583830833,
+            -0.004006564617156982
+          ],
+          "maximum": [
+            0.024284380243549286,
+            0.022037509828805923,
+            0.009027861058712006
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/shotgun/fp/fp.model_animations",
+      "sha256": "5C9E0D1D5AF25D09DD316BDA42B4B302C4A7CA36AD75B57AEB28693F278818A8",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/shotgun/fp/fp.gbxmodel",
+      "model_sha256": "935E0848767D1D89ED1C7E5231477F54F8D508228F2B64062C16051382EEBBD4",
+      "graph_identity": "1D306B5E75713D8B",
+      "model_nodes": 4,
+      "parts": 3,
+      "vertices": 1392,
+      "weapon_vertices": 1392,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.23737113177776337,
+            -0.0100672896951437,
+            -0.06407862156629562
+          ],
+          "maximum": [
+            0.200762078166008,
+            0.010067219845950603,
+            0.02837209962308407
+          ]
+        },
+        {
+          "graph_node": 18,
+          "name": "frame bullet",
+          "minimum": [
+            7.37123191356659e-05,
+            -0.00414871983230114,
+            -0.008717919699847698
+          ],
+          "maximum": [
+            0.02512270025908947,
+            0.00414871983230114,
+            -0.0008497703820466995
+          ]
+        },
+        {
+          "graph_node": 24,
+          "name": "frame magazine",
+          "minimum": [
+            -8.118152618408203e-05,
+            0.006219629663974047,
+            -0.00012874044477939606
+          ],
+          "maximum": [
+            0.03432132862508297,
+            0.01638261927291751,
+            0.0007719583809375763
+          ]
+        },
+        {
+          "graph_node": 25,
+          "name": "frame pump",
+          "minimum": [
+            -0.059405865147709846,
+            -0.016715168952941895,
+            -0.0163330202922225
+          ],
+          "maximum": [
+            0.08714977279305458,
+            0.016715168952941895,
+            0.0204527392052114
+          ]
+        }
+      ]
+    },
+    {
+      "file": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.model_animations",
+      "sha256": "EAA0A73F519309092A5E9FA0B16560DF85DF55D597342C802A0555AF461E2DB2",
+      "nodes": 41,
+      "left_wrist": 5,
+      "right_wrist": 6,
+      "weapon_root": 7,
+      "weapon_root_name": "frame gun",
+      "model_file": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.gbxmodel",
+      "model_sha256": "4AAC243A95EF94EA4B6637122B883F02CB3CD392C1F8C5665C6892C0CC7AD06A",
+      "graph_identity": "7560F22650441950",
+      "model_nodes": 4,
+      "parts": 6,
+      "vertices": 2274,
+      "weapon_vertices": 2274,
+      "excluded_hand_vertices": 0,
+      "bounds": [
+        {
+          "graph_node": 7,
+          "name": "frame gun",
+          "minimum": [
+            -0.2293768674135208,
+            -0.038901470601558685,
+            -0.0631919763982296
+          ],
+          "maximum": [
+            0.3897192180156708,
+            0.038901470601558685,
+            0.04397221654653549
+          ]
+        },
+        {
+          "graph_node": 23,
+          "name": "frame magazine",
+          "minimum": [
+            -0.03144021797925234,
+            -0.008001360110938549,
+            -0.00409587100148201
+          ],
+          "maximum": [
+            0.03077664878219366,
+            0.008001369424164295,
+            0.051579877734184265
+          ]
+        },
+        {
+          "graph_node": 24,
+          "name": "frame ophandle",
+          "minimum": [
+            -0.0029079392552375793,
+            -0.005449519492685795,
+            -0.0029585505835711956
+          ],
+          "maximum": [
+            0.0030200593173503876,
+            0.006078831851482391,
+            0.0029694479890167713
+          ]
+        },
+        {
+          "graph_node": 30,
+          "name": "frame bullet",
+          "minimum": [
+            -0.024942216463387012,
+            -0.003529540030285716,
+            0.005787540227174759
+          ],
+          "maximum": [
+            0.028506114147603512,
+            0.0035294098779559135,
+            0.011218827217817307
+          ]
+        }
+      ]
+    }
+  ],
+  "coverage": "All positive weapon vertex influences; per-node local envelopes, not triangle-exact collision",
+  "limit": "Stock CE model geometry; Anniversary replacement mesh shape and custom model geometry are not established by these tags"
+}

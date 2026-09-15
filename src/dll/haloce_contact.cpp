@@ -36,6 +36,8 @@ std::atomic<bool> active{},installed{},retiring{},worldFault{},meleeFault{},proc
 std::atomic<bool> worldReady{},meleeReady{};
 std::atomic<uint64_t> publications{},ticks{},worldQueries{},worldContacts{},corrections{},
     meleeQueries{},meleeContacts{},meleeApplied[2]{},dropped{},exceptions{};
+std::atomic<uint64_t> weaponEnvelopes{},weaponNodeFallbacks{};
+std::atomic<uint64_t> lastWeaponGraph{};
 uint32_t failedGeneration{};
 uint64_t lastReport{};
 ContactMeleeQueue queues[2];
@@ -167,7 +169,7 @@ struct Backend
 bool SameShape(const contact_melee::Frame& a,const contact_melee::Frame& b) noexcept
 { return a.unit==b.unit&&a.shape==b.shape&&a.referenceEpoch==b.referenceEpoch&&a.count==b.count; }
 
-void WorldTick(int side,const contact_melee::Frame& frame,uint64_t now)
+void WorldTick(int side,const contact_melee::Frame& frame,uint64_t now,uint8_t worldTailPoints)
 {
     auto& worker=workers[side];
     const float scale=frame.transform.unitsPerMetre;
@@ -182,21 +184,26 @@ void WorldTick(int side,const contact_melee::Frame& frame,uint64_t now)
         correction[side].Publish({generation.load(),frame.unit,frame.shape,frame.referenceEpoch,now,desired[0],{}});
         return;
     }
-    // Same root + min/max semantic slots as the other titles, derived from
-    // this CE palette. Seven native probes per hand bound simulation cost.
-    unsigned indices[7]{};
+    // Root + six node extrema preserve hand coverage. Every authored weapon
+    // corner/face centre gets its own probe; equal-coordinate tie breaking must
+    // not hide a gun face behind a hand node or another bounding-box corner.
+    unsigned indices[7+kCeWeaponBoundsSamples]{};
+    const unsigned tail=worldTailPoints==kCeWeaponBoundsSamples&&frame.count>worldTailPoints?
+        worldTailPoints:0;
+    const unsigned nodes=frame.count-tail;
     for (unsigned axis=0;axis<3;++axis)
     {
         unsigned low=0,high=0;
-        for (unsigned i=1;i<frame.count;++i)
+        for (unsigned i=1;i<nodes;++i)
         {
             if ((&desired[i].x)[axis]<(&desired[low].x)[axis]) low=i;
             if ((&desired[i].x)[axis]>(&desired[high].x)[axis]) high=i;
         }
         indices[1+axis*2]=low;indices[2+axis*2]=high;
     }
+    for (unsigned i=0;i<tail;++i) indices[7+i]=nodes+i;
     float strongest[3]{};float strongestSquared{};
-    for (unsigned slot=0;slot<7;++slot)
+    for (unsigned slot=0;slot<7+tail;++slot)
     {
         const unsigned i=indices[slot];
         bool duplicate=false;
@@ -226,9 +233,9 @@ void WorldTick(int side,const contact_melee::Frame& frame,uint64_t now)
     { worldContacts.fetch_add(1,std::memory_order_relaxed);VR_PulseContactHaptics(side==0,0.18f); }
 }
 
-void ProcessWorld(int side,const contact_melee::Frame& frame,uint64_t now) noexcept
+void ProcessWorld(int side,const contact_melee::Frame& frame,uint64_t now,uint8_t worldTailPoints) noexcept
 {
-    __try { WorldTick(side,frame,now); }
+    __try { WorldTick(side,frame,now,worldTailPoints); }
     __except(EXCEPTION_EXECUTE_HANDLER)
     { worldFault=true;exceptions.fetch_add(1,std::memory_order_relaxed); }
 }
@@ -267,7 +274,8 @@ void ContactTick(uint32_t unit)
                 if (g_config.physical_melee&&meleeReady.load()&&!meleeFault.load()) ProcessMelee(side,packet.frame);
                 else meleeHands[side].Reset();
             }
-            if (found&&g_config.world_collision&&worldReady.load()&&!worldFault.load()) ProcessWorld(side,latest.frame,now);
+            if (found&&g_config.world_collision&&worldReady.load()&&!worldFault.load())
+                ProcessWorld(side,latest.frame,now,latest.worldTailPoints);
             else if (!g_config.world_collision||!worldReady.load()||worldFault.load()||now-workers[side].lastAt>150)
                 workers[side].seeded=false;
         }
@@ -359,7 +367,7 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     }
     if (!worldReady.load()&&!meleeReady.load()) { (void)Remove();return false; }
     installed=true;active=true;
-    LOG("CE contact installed: native biped update, world clamp=%d physical hand/weapon-node contact=%d; native player melee targets bipeds, mesh hulls unproven",worldReady.load(),meleeReady.load());
+    LOG("CE contact installed: native biped update, world clamp=%d physical melee=%d; 12 stock CE authored weapon envelopes in both renderers, exact custom/Anniversary replacement surfaces unproven",worldReady.load(),meleeReady.load());
     return true;
 }
 }
@@ -380,6 +388,8 @@ bool HaloCEContact_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) n
             gen,Current(),g_config.world_collision,worldReady.load(),g_config.physical_melee,meleeReady.load(),worldFault.load(),meleeFault.load(),publications.load(),ticks.load(),
             worldQueries.load(),worldContacts.load(),corrections.load(),meleeQueries.load(),meleeContacts.load(),
             meleeApplied[0].load(),meleeApplied[1].load(),dropped.load(),exceptions.load());
+        LOG("CE weapon contact stock-envelope=%llu node-only-fallback=%llu graph=%llX; 14 surface probes plus up to 7 node probes for held hand, unknown graph keeps nodes only",
+            weaponEnvelopes.load(),weaponNodeFallbacks.load(),lastWeaponGraph.load());
     }
     return Current();
 }
@@ -398,7 +408,11 @@ void HaloCEContact_ApplyPalette(const halo_ce::RenderContext& context,
             state.nativeInputBlocked||state.nativeLookBlocked||state.nativePaused||state.nativeCinematicFlag||
             context.tracking.controllers.controlsPresentationBlocked||!HaloCE_RenderContextCurrent(context)) __leave;
         contact_melee::Frame frames[2]{};
-        if (!BuildContactFrames(context,binding,staged,state.unit,frames)) __leave;
+        if (!BuildContactFrames(context,binding,staged,state.unit,frames,publication.weaponBoundsSamples)) __leave;
+        lastWeaponGraph.store(binding.nodeIdentity,std::memory_order_relaxed);
+        if (publication.weaponBoundsSamples[0]||publication.weaponBoundsSamples[1])
+            weaponEnvelopes.fetch_add(1,std::memory_order_relaxed);
+        else weaponNodeFallbacks.fetch_add(1,std::memory_order_relaxed);
         const uint64_t now=GetTickCount64();Vec3 deltas[2]{};
         for (int side=0;side<2;++side)
         {
@@ -434,7 +448,10 @@ void HaloCEContact_CommitPalette(const halo_ce::RenderContext& context,
             const auto& frame=publication.frames[side];
             if (!frame.Valid()||frame.serial!=context.tracking.serial||
                 frame.referenceEpoch!=ContactReferenceEpoch(context)) continue;
-            const int result=queues[side].Push({frame,now,publication.generation});
+            const uint8_t tail=publication.weaponBoundsSamples[side];
+            if (tail&&tail!=kCeWeaponBoundsSamples) continue;
+            if (tail>=frame.count) continue;
+            const int result=queues[side].Push({frame,now,publication.generation,tail});
             if (result==2) publications.fetch_add(1,std::memory_order_relaxed);
             else if (!result) dropped.fetch_add(1,std::memory_order_relaxed);
         }

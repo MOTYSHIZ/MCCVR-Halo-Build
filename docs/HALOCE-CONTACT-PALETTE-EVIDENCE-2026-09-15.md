@@ -1,5 +1,11 @@
 # CE contact palette adapter
 
+September 15 follow-up: the 22cb813 gun-contact report is addressed by
+`HALOCE-WEAPON-CONTACT-REFINEMENT-2026-09-15.md`. Recognized stock graph frames
+now append a posed envelope derived from all 21,180 official weapon vertices.
+The node-only description below records the original adapter and remains the
+explicit fallback for unknown graphs; exact custom/Saber mesh coverage is open.
+
 Halo 3's reference behavior uses the visible hand/weapon pose for contact,
 routes both physical hands independently, ignores authored animation as a
 physical swing, and changes only the impacted hand's presentation when world

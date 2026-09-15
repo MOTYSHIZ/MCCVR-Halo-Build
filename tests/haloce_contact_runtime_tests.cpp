@@ -7,6 +7,7 @@ namespace
 {
 constexpr uint32_t testOwner=0x12340007,testTarget=0x34560009;
 unsigned failures{},nativeDamageCalls{},nativeTickCalls{},hapticCalls[2]{};
+unsigned meshProbeMask{};bool recordMeshProbes{};
 bool stateAvailable=true,testCurrent=true,hitEnabled=true,raiseWorld{},raiseMelee{},raiseTick{};
 GameTitle testTitle=GameTitle::HaloCE;
 uint32_t testGeneration=4,collisionTarget=testTarget;
@@ -28,6 +29,11 @@ uintptr_t __fastcall TestObject(uint32_t handle,uint32_t mask)
 uint8_t __fastcall TestResolver(const float* start,const float* desired,float* out,uint32_t owner)
 {
     Check(owner==testOwner,"resolver keeps full owner handle");
+    if (recordMeshProbes)
+    {
+        const int slot=int(std::round(desired[1]*100));
+        if (slot>=1&&slot<=14) meshProbeMask|=1u<<(slot-1);
+    }
     if (raiseWorld) RaiseException(0xe0424141,0,0,nullptr);
     std::memcpy(out,desired,12);
     if (desired[0]>.5f&&start[0]<=.5f) out[0]=.49f;
@@ -156,6 +162,20 @@ int main()
     Check(ticks.load()==before,"missing/dead/blocked local state cannot enter contact tick");stateAvailable=true;
     ++testContext.rendererEpoch;TickHook(testOwner);
     Check(nativeDamageCalls==2,"old renderer/reference frame is discarded before native damage");
+    // A gun face can share its x extrema with a hand node and still needs a
+    // native probe. The exact fourteen-point receipt survives queue transport.
+    contact_melee::Frame mesh=Frame(20,.3f);mesh.count=15;mesh.shape=0x9876;
+    for (unsigned i=1;i<15;++i) mesh.points[i]={.3f,float(i)*.01f,0};
+    workers[1]={};recordMeshProbes=true;meshProbeMask=0;
+    const uint64_t meshNow=GetTickCount64();WorldTick(1,mesh,meshNow,14);
+    mesh.serial++;for (unsigned i=0;i<15;++i) mesh.points[i].x=.6f;
+    const uint64_t queriesBefore=worldQueries.load();WorldTick(1,mesh,meshNow+1,14);
+    Check(meshProbeMask==0x3fff&&worldQueries.load()-queriesBefore==15,
+        "every weapon corner/face is probed despite node extrema ties; bounded fifteen calls for one-node fixture");
+    recordMeshProbes=false;
+    ContactMeleePacket meshPacket{mesh,meshNow,testGeneration,14},copied{};
+    queues[1].Reset();Check(queues[1].Push(meshPacket)==2&&queues[1].Pop(copied)&&copied.worldTailPoints==14,
+        "weapon sample receipt remains attached to its exact immutable frame");queues[1].Reset();
     meleeHands[0].Reset();raiseMelee=true;Publish(Frame(9,0));TickHook(testOwner);Publish(Frame(10,.1f));TickHook(testOwner);
     Check(meleeFault.load()&&Current()&&!worldFault.load()&&callbacks.load()==0&&!processing.load(),
         "native melee exception isolates feature and balances callback/tick ownership");

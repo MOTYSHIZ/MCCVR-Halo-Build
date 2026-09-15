@@ -1102,9 +1102,10 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
             classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()),
             static_cast<unsigned>(classicSourceFailure.load()));
         const uint32_t hudFailure=anniversaryHudFailure.load();
-        LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u reason=%s",
+        LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u reason=%s targetsPrepared=%llu incompatibleDepth=%llu",
             gen,anniversaryHudNaturalInstalled.load(),anniversaryHudDraws.load(),
-            anniversaryHudFallbacks.load(),hudFailure,AnniversaryHudFailureName(hudFailure));
+            anniversaryHudFallbacks.load(),hudFailure,AnniversaryHudFailureName(hudFailure),
+            anniversaryHudTargetPreparations.load(),anniversaryHudDepthDetachments.load());
         FrameDiagnostic diagnostic{};
         if (frameDiagnostic.Read(diagnostic))
         {

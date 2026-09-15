@@ -8,6 +8,8 @@ struct ContactMeleePacket
     contact_melee::Frame frame{};
     uint64_t publishedAtMs=0;
     uint32_t generation=0;
+    // Optional adapter-owned dense tail; zero preserves other titles' queues.
+    uint8_t worldTailPoints=0;
 };
 struct ContactMeleeQueue
 {

@@ -24,4 +24,20 @@ constexpr bool ReticleNeedsProceduralBootstrap(bool ownsNativeScope,bool measure
 // first successful compositor upload.
 constexpr bool ReticleCanReplaceCapture(bool coveragePending) noexcept
 { return !coveragePending; }
+
+// CE's native bitmap renderer masks writes to RGB (B0EC20 -> render state
+// A8=7 -> D3D11_BLEND_DESC.RenderTarget[0].RenderTargetWriteMask). The private
+// capture is cleared transparent, so its untouched alpha is not visibility.
+constexpr uint32_t ReticleVisibleInk(uint32_t alphaInk,uint32_t colorInk) noexcept
+{ return colorInk>alphaInk?colorInk:alphaInk; }
+
+// Repair is authorized by the authored-upload call site, never merely by a
+// 512-square eye/menu texture. Keep the normal CE image path byte-preserving.
+constexpr bool ReticleUploadNeedsAlphaRepair(bool ceTitle,bool authoredUpload,
+    uint32_t sourceWidth,uint32_t sourceHeight,
+    uint32_t destinationWidth,uint32_t destinationHeight) noexcept
+{
+    return ceTitle&&authoredUpload&&sourceWidth==512&&sourceHeight==512&&
+        destinationWidth==512&&destinationHeight==512;
+}
 }

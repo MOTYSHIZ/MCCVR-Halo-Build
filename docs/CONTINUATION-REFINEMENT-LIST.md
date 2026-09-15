@@ -1,4 +1,26 @@
-# Latest continuation - September 15: CE full resolution, crosshair and contact
+# Latest continuation - September 15: native CE HUD and authored stock gun contact
+
+Continue from user-tested `22cb813` through a NEW build ZIP and matching source
+ZIP. Both CE modes' injection, smooth VR, equal quality and muzzle alignment
+are confirmed; Original HUD remains good. Restore the actual native reticle
+in both modes, fix Anniversary's absent HUD, and make every stock CE weapon's
+geometry participate in world contact and physical strikes. Existing hand
+contact works and must be preserved. Read the newest checkpoint and
+`HALOCE-22CB813-TEST-2026-09-15.md`; prior scope and deferred items remain.
+Package without `-Install`, deliver both ZIPs, then WAIT. No game launch,
+installation, game-folder writes, PR or publishing. Both editions stay
+supported. Cumulative accepted source stays `4e01f28`; local checks do not
+establish headset acceptance of these refinements.
+
+Implemented candidate: RGB-only native reticle transport, compatible late
+Anniversary HUD attachments with guarded cleanup, and all twelve stock CE
+weapon envelopes through their live bones. Exact Saber/custom surface matching
+and detached reload-part precision remain unproven; preserve those limits and
+the existing melee/body-following deferrals. New candidate notes and evidence
+are linked from the checkpoint. Finish required validation/packaging before
+delivery; exact verified build/source identity belongs in `out/ce-current-handoff.json`.
+
+# Historical continuation - September 15: CE full resolution, crosshair and contact
 
 Continue the 58f71a4 feedback work through a NEW build ZIP and matching source
 ZIP. Preserve Original's confirmed working base, fix both crosshairs, Anniversary

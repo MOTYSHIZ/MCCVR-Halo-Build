@@ -24,3 +24,12 @@ bool HaloCEHudTarget_Read(uintptr_t moduleBase,ID3D11DeviceContext* expectedCont
 // bindings to remain live. Registry lifetime/revision stays with the caller.
 bool HaloCEHudTarget_CaptureSourceCurrent(const CeHudTargetSnapshot&) noexcept;
 CeHudTargetRestoreResult HaloCEHudTarget_Restore(const CeHudTargetSnapshot&) noexcept;
+// Replace only an exactly current native target intent through the verified
+// native binder. It updates both the backend cache and the D3D attachments.
+bool HaloCEHudTarget_Replace(const CeHudTargetSnapshot& expected,
+    const std::array<uint8_t,0x48>& descriptor,CeHudTargetSnapshot& result) noexcept;
+// Cleanup may follow a failed readback after a successful native mutation.
+// Admit only the exact prepared descriptor and still-current saved color;
+// unrelated native target changes are never overwritten.
+bool HaloCEHudTarget_RestorePrepared(const CeHudTargetSnapshot& original,
+    const std::array<uint8_t,0x48>& preparedDescriptor,CeHudTargetSnapshot& result) noexcept;
