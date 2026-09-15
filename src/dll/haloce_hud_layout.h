@@ -20,8 +20,9 @@ bool HaloCEHudLayout_CopyState(ID3D11DeviceContext*,UINT* viewportCount,D3D11_VI
     UINT* scissorCount,D3D11_RECT*) noexcept;
 void HaloCEHudLayout_BeginPrivateRaster() noexcept;
 void HaloCEHudLayout_EndPrivateRaster() noexcept;
-// The native Anniversary HUD is authored at full desktop height. Its callback
-// can be replayed into one verified half-height eye source after its preamble.
+// The native Anniversary HUD is authored at desktop height. Map its gameplay
+// raster into one verified full- or half-height eye region without changing
+// the authored canvas or repeating the outer native callback.
 // Caller restores the native backend target stack after EndEyeReplay.
 // On rejection, cleanupVerified distinguishes an untouched/restored raster
 // from an attempted replay whose cleanup could not be verified. On success

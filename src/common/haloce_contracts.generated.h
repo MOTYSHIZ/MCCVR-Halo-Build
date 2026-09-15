@@ -408,6 +408,41 @@ inline constexpr uint32_t native_late_hud_sequence=0x4572a5;
 inline constexpr uint32_t native_hud_scissor_state=0x202d70;
 inline constexpr uint32_t native_hud_backend_clear_state=0x203c00;
 }
+namespace anniversary_resolution {
+inline constexpr std::array<Entry,6> entries={{
+    {"resolution_pool_initialize",0x2d44b0,"48 89 5C 24 20 55 56 57 41 55 41 56 48 83 EC 50 4C 8B 05 11 79 B6 02 48 8B E9 49 8B 80 18 01 00",true},
+    {"resolution_pool_entry",0x20a9b0,"48 89 5C 24 10 44 89 4C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 40 44 8B BC 24 B0 00 00",true},
+    {"resolution_split_child",0x1f9d20,"48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 40 8B 99 88 00 00 00 41 8B F9 45 33 C9",true},
+    {"resolution_management",0x455700,"4C 8B DC 49 89 4B 08 56 57 41 54 41 56 41 57 48 81 EC 10 01 00 00 48 C7 44 24 20 FE FF FF FF 49",true},
+    {"resolution_release",0x4f1ad0,"48 83 EC 28 48 8B 0D 9D B2 94 02 48 85 C9 74 05 E8 7B 40 F3 FF 48 8B 05 44 23 74 01 48 8B 48 18",true},
+    {"resolution_reconfigure",0x4f11e0,"48 8B C4 55 41 54 41 55 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00 48 C7 44 24 60 FE FF FF",true},
+}};
+inline constexpr std::array<Witness,9> witnesses={{
+    {0x20ac2b,"48 8B BC 24 B8 00 00 00 48 89 44 1A 10"},
+    {0x20acf5,"41 FF 92 A8 00 00 00 48 63 43 0C 48 6B C8 38 44 89 7C 19 18"},
+    {0x20ad4b,"48 63 4B 0C 8D 41 01 89 43 0C"},
+    {0x1f42cf,"41 0F BF 76 10 41 0F BF 46 12 99 2B C2 D1 F8 8B E8"},
+    {0x1f42fe,"44 8B CD 44 8B C6 49 8B CE"},
+    {0x1f4369,"44 8B CD 44 8B C6 49 8B D7 49 8B CE"},
+    {0x1f4307,"E8 14 5A 00 00"},
+    {0x1f4375,"E8 A6 59 00 00"},
+    {0x4551b2,"E8 49 05 00 00"},
+}};
+inline constexpr std::array<Relative,3> relatives={{
+    {0x1f4307,5,1,0x1f9d20},
+    {0x1f4375,5,1,0x1f9d20},
+    {0x4551b2,5,1,0x455700},
+}};
+inline constexpr std::array<Pointer,1> pointers={{
+    {0x1815368,0x2d44b0},
+}};
+inline constexpr uint32_t resolution_pool_initialize=0x2d44b0;
+inline constexpr uint32_t resolution_pool_entry=0x20a9b0;
+inline constexpr uint32_t resolution_split_child=0x1f9d20;
+inline constexpr uint32_t resolution_management=0x455700;
+inline constexpr uint32_t resolution_release=0x4f1ad0;
+inline constexpr uint32_t resolution_reconfigure=0x4f11e0;
+}
 namespace classic {
 inline constexpr std::array<Entry,19> entries={{
     {"classic_view_render",0xbbcf30,"40 55 53 56 57 41 54 41 56 41 57 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 48 8B 05 BF 80 FB 00 48 33 C4 48 89 85 80 01 00 00 48 8B BD F0 01",true},
@@ -703,6 +738,58 @@ inline constexpr std::array<Relative,2> relatives={{
 inline constexpr std::array<Pointer,0> pointers={{
 }};
 inline constexpr uint32_t motion_blur_draw=0x446580;
+}
+namespace contact {
+inline constexpr std::array<Entry,6> entries={{
+    {"contact_biped_tick",0xbaf258,"48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 4C 8B 05 CD 2F 09 01",true},
+    {"contact_collision",0xb913fc,"48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 F8 FB FF FF 48 81 EC D0 04 00 00",true},
+    {"contact_object_collision",0xb9105c,"40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 F8 FB FF FF 48 81 EC 08 05 00 00 48 8B 05 91 3F FE 00",true},
+    {"contact_resolver",0xb93c8c,"48 89 5C 24 10 48 89 74 24 20 55 57 41 56 48 8D 6C 24 C1 48 81 EC A0 00 00 00 48 8B 05 63 13 FE 00",true},
+    {"contact_player_melee",0xb0c388,"48 8B C4 48 89 58 20 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 0F 29 70 B8",true},
+    {"contact_damage",0xb9ea28,"48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 18 FF FF FF 48 81 EC A8 01 00 00 0F 29 70 A8 0F 29 78 98 44 0F 29 40 88 44 0F 29 88 78 FF FF FF 44 0F 29 90 68 FF FF FF 44 0F 29 98 58 FF FF FF 48 8B 05 9F 65 FD 00",true},
+}};
+inline constexpr std::array<Witness,23> witnesses={{
+    {0xbaf813,"41 8A C4"},
+    {0xbaf796,"E8 ED CB F5 FF"},
+    {0xb9146b,"C7 43 14 00 00 80 3F"},
+    {0xb91271,"B8 03 00 00 00 F3 0F 11 4B 14 66 89 03"},
+    {0xb91210,"89 7B 38"},
+    {0xb912e7,"66 89 43 34"},
+    {0xb93cf0,"B9 E9 00 10 00"},
+    {0xb93d0c,"66 83 7D EF FF"},
+    {0xb93d9f,"B3 01 8A C3"},
+    {0xb93cff,"E8 F8 D6 FF FF"},
+    {0xb0c428,"41 3B F8 74 0F"},
+    {0xb0c489,"4C 63 5E 34"},
+    {0xb0c7e6,"33 C9 66 39 08 0F 85 BE 00 00 00"},
+    {0xb0c89d,"48 8D 4D A7 8B D7 E8 80 21 09 00"},
+    {0xb0c955,"44 88 A3 69 02 00 00"},
+    {0xb0c432,"E8 6D C5 02 00"},
+    {0xb0c462,"E8 45 FB FF FF"},
+    {0xb0c4b9,"E8 1E 98 FF FF"},
+    {0xb0c8a3,"E8 80 21 09 00"},
+    {0xb0c950,"E8 D3 20 09 00"},
+    {0xb9eb6f,"44 39 57 10 74 71 8B 4F 10 41"},
+    {0xb9f028,"4C 8D 47 38"},
+    {0xb9f40a,"48 8D 57 2C"},
+}};
+inline constexpr std::array<Relative,7> relatives={{
+    {0xbaf796,5,1,0xb0c388},
+    {0xb93cff,5,1,0xb913fc},
+    {0xb0c432,5,1,0xb389a4},
+    {0xb0c462,5,1,0xb0bfac},
+    {0xb0c4b9,5,1,0xb05cdc},
+    {0xb0c8a3,5,1,0xb9ea28},
+    {0xb0c950,5,1,0xb9ea28},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t contact_biped_tick=0xbaf258;
+inline constexpr uint32_t contact_collision=0xb913fc;
+inline constexpr uint32_t contact_object_collision=0xb9105c;
+inline constexpr uint32_t contact_resolver=0xb93c8c;
+inline constexpr uint32_t contact_player_melee=0xb0c388;
+inline constexpr uint32_t contact_damage=0xb9ea28;
 }
 namespace controls {
 inline constexpr std::array<Entry,1> entries={{

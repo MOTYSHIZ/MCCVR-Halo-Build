@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <limits>
 #include <thread>
+#include <array>
 #include <utility>
 #include <fstream>
 
@@ -369,5 +370,37 @@ int main(int argc,char** argv)
         handoff.Read(PreparationOrigin::CopiedList,0x40000,committed,
             tracking.generation,tracking.spaceEpoch,received)&&incoherent.load()==0,
         "concurrent preparation/publication never mixes tracking payloads and recovers after contention");
+    // Several readers may hit the brief writer-owned publication window.
+    // Rejected reader pins must retire without clearing the writer flag or
+    // underflowing either slot when its writer concurrently finishes.
+    struct SnapshotProbe { uint64_t serial{},lanes[32]{}; };
+    Snapshot<SnapshotProbe> shared;
+    SnapshotProbe probe{};
+    check(shared.Publish(probe),"contention fixture publishes its initial snapshot");
+    std::atomic<bool> startReaders{},stopReaders{};
+    std::atomic<unsigned> tornReads{};
+    std::array<std::thread,8> readers;
+    for (auto& reader:readers) reader=std::thread([&] {
+        while (!startReaders.load(std::memory_order_acquire)) std::this_thread::yield();
+        while (!stopReaders.load(std::memory_order_acquire))
+        {
+            SnapshotProbe value{};
+            if (!shared.Read(value)) continue;
+            for (uint64_t lane:value.lanes)
+                if (lane!=value.serial) tornReads.fetch_add(1,std::memory_order_relaxed);
+        }
+    });
+    startReaders.store(true,std::memory_order_release);
+    for (uint64_t serial=1;serial<=50000;++serial)
+    {
+        probe.serial=serial;for (auto& lane:probe.lanes) lane=serial;
+        (void)shared.Publish(probe);
+    }
+    stopReaders.store(true,std::memory_order_release);
+    for (auto& reader:readers) reader.join();
+    SnapshotProbe finalProbe{};
+    check(tornReads.load()==0&&shared.Publish(probe)&&shared.Publish(probe)&&shared.Read(finalProbe)&&
+        finalProbe.serial==probe.serial,
+        "writer/rejected-reader overlap preserves coherent payloads and leaves both slots reusable");
     return failures?1:0;
 }

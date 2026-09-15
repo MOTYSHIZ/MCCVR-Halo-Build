@@ -1,4 +1,61 @@
-# Current continuation - September 15: level horizon, Anniversary hands and HUD
+# Current continuation - September 15: full-resolution CE refinement and contact
+
+Latest user test is **58f71a4**, with both supplied logs preserved in
+`out/test-runs/58f71a4-ce-feedback-20260915/`. Read
+`HALOCE-58F71A4-TEST-2026-09-15.md`. Original is an excellent working base;
+preserve its camera/hands and fix its missing crosshair. Anniversary needs a
+gun-directed crosshair, working HUD controls, hand/weapon flicker correction,
+second-launch black-screen correction, and actual full native eye resolution.
+The user explicitly rejected deferring resolution: **fix it, then package**.
+Do not treat that as permission to stop at a limitation or to ship stretched
+half-height pixels. The same request adds CE world collision and physical melee
+in both graphics modes, superseding every older CE contact exclusion below.
+
+The interrupted root conversation was recovered from
+`rollout-2026-09-15T18-21-11-01a0a728-e8cb-7161-af8d-75b555a15dba.jsonl`,
+including the user's quoted reticle/contact update. Its source is preserved.
+Current candidate includes reticle receipt/blank-bootstrap fixes; reproduced
+material-reader and tracking-publication contention corrections; non-evicting
+resource metadata and release-token fixes; full-height HUD canvas mapping;
+independently HCEEK-proven native CE collision/melee and palette contact work.
+Native full-resolution color/depth allocation and managed reallocation are now
+connected. The native pool creates children BEFORE publishing its entry count
+and usage; a scoped pending-slot receipt fixes that reproduced allocation-order
+defect. The production WARP fixture follows this actual order. Native allocation
+verification passes 18 cases / 448,560 instructions, including the failed old
+membership policy and odd heights. Contact queues only after the palette's final
+receipt succeeds, after every rollback point. No headset fix is yet accepted.
+Do not deliver the old 58f71a4 ZIP again.
+
+Package with `tools/package-candidate.ps1` WITHOUT `-Install` only after full
+resolution and the requested candidate are implemented and validated. Deliver
+NEW build and matching source ZIPs in chat, then WAIT for headset testing.
+No installation, MCC launch, game-folder writes, PR or publication. Both
+editions and all standing/deferred scope remain supported/preserved. Accepted
+source stays `4e01f28`. Native contacts, both CE modes/switching/relaunch, and
+the shared-callsite Halo 3 regression require user headset results.
+
+Pre-package cumulative Release and all 22 CTest suites pass; final packaging
+repeats these for the committed source. Native material dispatch passes 36
+cases and the actual GLT/ZFILL/SFX shaders pass 48 WARP draws. Native contact
+passes three resolver and ten melee cases / 2,605 instructions. All 123 pinned
+contracts, generated contracts and 19 mapped production binding groups pass,
+along with native HUD sequence and Reach consistency. Final records use
+`out/ce-resolution-contact-*`, `out/ce-resolution-stability-final-*` and
+`out/ce-resolution-allocation-native-20260915.json`. Exact archive/source/file
+verification updates `out/ce-current-handoff.json` only after packaging.
+
+Candidate notes: `HALOCE-RESOLUTION-RETICLE-CONTACT-CANDIDATE-2026-09-15.md`.
+Native resolution: `HALOCE-ANNIVERSARY-FULL-RESOLUTION-2026-09-15.md`.
+Native contact details: `HALOCE-NATIVE-CONTACT-EVIDENCE-2026-09-15.md`.
+CE contact samples are hand/weapon nodes; complete/custom mesh coverage remains
+open. Melee targets bipeds and retains native held-weapon damage selection for
+either physical hand. Vehicle/world-object damage and a distinct bare support
+hand damage selector remain open. CE body following remains deferred. Metadata
+reset can overlap shared publishers outside the core drain; this is recorded
+as an unproven limitation, not a proven explanation of the user's second launch.
+
+# Historical continuation - September 15: level horizon, Anniversary hands and HUD
 
 The user resumed at the quoted right-eye omission / worker handoff update.
 The exact interrupted root chat was recovered from

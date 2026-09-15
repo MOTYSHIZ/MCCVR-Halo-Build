@@ -12,6 +12,7 @@ static halo_ce::RenderContext testOwner{};
 static bool ownerValid=true,crosshairScopeAvailable=true;
 static ID3D11DeviceContext* testDeviceContext{};
 static UINT failureCount{},nativeCalls{},scenario{};
+static UINT fullResolutionEyeTop{};
 static D3D11_VIEWPORT initialViewport{20,30,1000,800,0.2f,0.8f};
 static D3D11_RECT initialScissor{20,30,1020,830};
 static void Check(bool ok,const char* message)
@@ -49,6 +50,24 @@ static void NativeSetScissor(const D3D11_RECT& in)
 }
 static void Seed()
 { NativeSetViewport(initialViewport);NativeSetScissor(initialScissor); }
+static void __fastcall FullResolutionHud()
+{
+    const auto verify=[] {
+        const auto v=ActualViewport();
+        Check(Near(v.TopLeftX,728)&&Near(v.Width,1456)&&Near(v.Height,1050)&&
+            Near(v.TopLeftY,float(fullResolutionEyeTop)+525-testOwner.tracking.hud.verticalOffset),
+            "2912x2100 eyes retain HUD size and exact output-pixel height controls");
+        const auto r=ActualScissor();
+        Check(r.top>=LONG(fullResolutionEyeTop)&&r.bottom<=LONG(fullResolutionEyeTop+2100),
+            "full-resolution HUD scissors never cross the eye boundary");
+    };
+    verify();
+    NativeSetViewport({0,0,2912,2100,0,1});NativeSetScissor({0,0,2912,2100});
+    verify();
+    HaloCEHudLayout_Suspend();
+    Check(Near(ActualViewport().Height,2100),"full-resolution reticle suspension preserves native pixel height");
+    HaloCEHudLayout_Resume();verify();
+}
 static void __fastcall NativeHud()
 {
     ++nativeCalls;
@@ -238,7 +257,7 @@ int main()
             "each replay restores exact pre-callback viewport and scissor");
     }
     Seed();
-    Check(!HaloCEHudLayout_BeginEyeReplay(testDeviceContext,1000,800,1000,800)&&
+    Check(!HaloCEHudLayout_BeginEyeReplay(testDeviceContext,1000,800,1000,600)&&
         Near(ActualViewport().TopLeftY,30),"wrong source raster rejects without mutation");
     HaloCEHudLayout_Suspend();
     Check(!HaloCEHudLayout_BeginEyeReplay(testDeviceContext,1000,800,1000,400),
@@ -270,6 +289,23 @@ int main()
         Check(HaloCEHudLayout_EndEyeReplay()&&ActualScissor().top==initialScissor.top&&
             Near(ActualViewport().TopLeftY,initialViewport.TopLeftY),"packed raster restores exact native entry state");
     }
+    // User's actual 2912x2100 desktop canvas remains unchanged while the
+    // packed output grows to 2912x4200. Execute the production HUD hook and
+    // native setter interception at that size for each eye and slider extreme.
+    testOwner.camera.viewport={0,0,2100,2912};testOwner.tracking.hud.size=.5f;
+    original=&FullResolutionHud;
+    for (fullResolutionEyeTop=0;fullResolutionEyeTop<=2100;fullResolutionEyeTop+=2100)
+        for (const float height:{-300.0f,0.0f,300.0f})
+        {
+            testOwner.tracking.hud.verticalOffset=height;
+            NativeSetViewport({0,0,2912,2100,0,1});NativeSetScissor({0,0,2912,2100});
+            bool restored{};
+            Check(HaloCEHudLayout_BeginEyeReplay(testDeviceContext,2912,2100,2912,2100,
+                &restored,fullResolutionEyeTop,true),"full-resolution native eye raster admitted");
+            MainHook();
+            Check(HaloCEHudLayout_EndEyeReplay()&&Near(ActualViewport().Height,2100)&&
+                Near(ActualViewport().TopLeftY,0),"full-resolution eye restores exact native canvas");
+        }
     testDeviceContext->Release();device->Release();
     return failureCount?1:0;
 }

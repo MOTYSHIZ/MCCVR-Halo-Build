@@ -1248,7 +1248,7 @@ namespace
         changed |= ImGui::Checkbox("World collision (experimental)",
                                    &g_config.world_collision);
         ImGui::TextDisabled("Hands and held weapons stop on the world and pulse gently on contact.\n"
-                            "Available in Halo 2, Halo 3, ODST, Reach, and Halo 4.");
+                            "Available in Halo CE, Halo 2, Halo 3, ODST, Reach, and Halo 4.");
         changed |= ImGui::Checkbox("True physical melee (experimental)",
                                    &g_config.physical_melee);
         ImGui::TextDisabled("Strike a target with either hand or its held gun. Works with world collision on or off.");
@@ -1277,7 +1277,8 @@ namespace
         const bool halo2NativeHud = Game_UsesHalo2NativeHudLayout();
         const bool reachNativeHud =
             TitleAdapter_GetActiveTitle() == GameTitle::HaloReach;
-        const bool noLiveHudCurvature = halo2NativeHud || reachNativeHud;
+        const bool ceNativeHud = TitleAdapter_GetActiveTitle() == GameTitle::HaloCE;
+        const bool noLiveHudCurvature = halo2NativeHud || reachNativeHud || ceNativeHud;
         if (noLiveHudCurvature)
             ImGui::BeginDisabled();
         changed |= vr_menu::SliderFloat("HUD curvature", &g_config.hud_curvature,
@@ -1310,6 +1311,8 @@ namespace
             ImGui::TextDisabled("Halo 2 uses its native per-eye HUD path and has no separate curvature basis here.");
         else if (reachNativeHud)
             ImGui::TextDisabled("Reach bakes HUD curvature when its tag loads; size and width are live, curvature is not.");
+        else if (ceNativeHud)
+            ImGui::TextDisabled("Halo CE HUD size, width and height are adjustable in both graphics modes; curvature stays flat.");
         else
             ImGui::TextDisabled("Curvature: 0.00 = flat (+0.30), 1.00 = curved (-0.30); 0.50 is authored.");
         ImGui::TextDisabled("Height: positive raises the HUD, negative lowers it; the aiming reticle stays fixed.");

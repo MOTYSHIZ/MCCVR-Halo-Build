@@ -285,6 +285,7 @@ add_library(halo3xr SHARED
     src/dll/haloce_eye_cache.cpp
     src/dll/haloce_stereo_core.cpp
     src/dll/haloce_first_person.cpp
+    src/dll/haloce_contact.cpp
     src/dll/haloce_hud.cpp
     src/dll/haloce_hud_layout.cpp
     src/dll/haloce_hud_target.cpp
@@ -423,6 +424,15 @@ if(BUILD_TESTING)
     add_executable(halomccvr_ce_first_person_tests tests/haloce_first_person_tests.cpp src/dll/ik.cpp)
     target_include_directories(halomccvr_ce_first_person_tests PRIVATE src/common)
     add_test(NAME halomccvr_ce_first_person_tests COMMAND halomccvr_ce_first_person_tests)
+    add_executable(halomccvr_ce_contact_tests tests/haloce_contact_tests.cpp src/dll/ik.cpp)
+    target_include_directories(halomccvr_ce_contact_tests PRIVATE src/common)
+    add_test(NAME halomccvr_ce_contact_tests COMMAND halomccvr_ce_contact_tests)
+    add_executable(halomccvr_ce_contact_runtime_tests tests/haloce_contact_runtime_tests.cpp
+        src/dll/haloce_native_bindings.cpp src/dll/ik.cpp)
+    target_include_directories(halomccvr_ce_contact_runtime_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_ce_contact_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_contact_runtime_tests PRIVATE minhook)
+    add_test(NAME halomccvr_ce_contact_runtime_tests COMMAND halomccvr_ce_contact_runtime_tests)
     # Runs through tools/re/test_ce_fp_shader_native.py with locally extracted,
     # hash-pinned CE shader bytecode. Proprietary fixtures are not in the repo.
     add_executable(halomccvr_ce_first_person_shader_tests tests/haloce_first_person_shader_tests.cpp)
@@ -463,7 +473,7 @@ if(BUILD_TESTING)
     add_executable(halomccvr_ce_hud_tests tests/haloce_hud_tests.cpp src/dll/haloce_native_bindings.cpp)
     target_include_directories(halomccvr_ce_hud_tests PRIVATE src/common src/dll)
     target_compile_definitions(halomccvr_ce_hud_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    target_link_libraries(halomccvr_ce_hud_tests PRIVATE minhook)
+    target_link_libraries(halomccvr_ce_hud_tests PRIVATE minhook d3d11)
     add_test(NAME halomccvr_ce_hud_tests COMMAND halomccvr_ce_hud_tests)
     add_executable(halomccvr_ce_hud_layout_tests tests/haloce_hud_layout_tests.cpp src/dll/haloce_native_bindings.cpp)
     target_include_directories(halomccvr_ce_hud_layout_tests PRIVATE src/common src/dll)

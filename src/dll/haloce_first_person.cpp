@@ -1,4 +1,5 @@
 #include "haloce_first_person.h"
+#include "haloce_contact.h"
 #include "haloce_stereo_core.h"
 #include "haloce_native_bindings.h"
 #include "hook_quiescence.h"
@@ -487,6 +488,8 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexce
     if (!CopyPalette(matrices,source.data(),count)) return false;
     if (!BuildTrackedFirstPersonPalette(binding,source.data(),context.camera,context.tracking,
             context.reference,context.unitsPerMeter,context.positional,staged)) return false;
+    HaloCEContactPublication contact{};
+    HaloCEContact_ApplyPalette(context,binding,source.data(),staged.data(),contact);
     // Ownership is checked after staging as well: a title transition cannot
     // publish an old graph merely because its native builder completed.
     if (!Current()||generation.load()!=context.tracking.generation||
@@ -506,6 +509,9 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexce
         return false;
     }
     lastApplied.store(now,std::memory_order_release);
+    // Receipt publication can still roll the native palette back. Contact
+    // must enter the simulation queue only after that last rollback point.
+    HaloCEContact_CommitPalette(context,contact);
     return true;
 }
 __declspec(noinline) void __fastcall PaletteHook(uint32_t graph,NodeMatrix* matrices,

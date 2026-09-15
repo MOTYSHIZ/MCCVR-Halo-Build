@@ -3,6 +3,7 @@
 // game draw visibility. Actual native CPU/GPU consumers have a separate test.
 #include "../src/dll/haloce_first_person.cpp"
 #include <cstdio>
+#include <thread>
 
 static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
@@ -10,6 +11,8 @@ static halo_ce::RenderContext testContext{};
 static halo_ce::RenderContext anniversaryEyeContext{};
 static halo_ce::RenderContext gameplayContext{};
 static bool gameplayValid=true;
+static bool concurrentGameplayReads{};
+static halo_ce::Snapshot<halo_ce::RenderContext> concurrentGameplay;
 static unsigned gameplayReads{},revokeGameplayOnRead{};
 static bool anniversaryEyeValid=true;
 static bool anniversaryPrimaryValid=true;
@@ -30,6 +33,26 @@ static uintptr_t visibilitySubmittedList{},visibilitySubmittedCaller{};
 static uint8_t visibilitySubmittedPhase{};
 static unsigned visibilitySubmitRecords{},visibilitySubmitCalls{};
 static bool visibilitySubmitChecks=true,visibilitySubmitExpected=true;
+static unsigned contactStages{},contactCommits{};
+static bool contactReceiptCurrent=true,contactRejectOwnership{},contactRejectCopy{};
+static halo_ce::NodeMatrix* contactNativePalette{};
+static uintptr_t contactGraphDefinition{};
+void HaloCEContact_ApplyPalette(const halo_ce::RenderContext& context,const halo_ce::FirstPersonBinding&,
+    const halo_ce::NodeMatrix*,halo_ce::NodeMatrix*,HaloCEContactPublication& publication) noexcept
+{
+    ++contactStages;publication.generation=context.tracking.generation;
+    if (contactRejectOwnership) contextValid=false;
+    if (contactRejectCopy)
+    { DWORD before{};VirtualProtect(contactNativePalette,4096,PAGE_READONLY,&before); }
+}
+void HaloCEContact_CommitPalette(const halo_ce::RenderContext& context,const HaloCEContactPublication& publication) noexcept
+{
+    ++contactCommits;halo_ce::RenderContext committed{};
+    contactReceiptCurrent&=publication.generation==context.tracking.generation&&
+        CurrentPaletteContext(committed)&&committed.tracking.serial==context.tracking.serial;
+}
+uintptr_t __fastcall ContactGraphFixture(uint32_t graph)
+{ return graph==25?contactGraphDefinition:0; }
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
 uint32_t TitleAdapter_GetGeneration(GameTitle) { return testGeneration; }
 bool HaloCE_Armed() noexcept { return testTitle==GameTitle::HaloCE; }
@@ -39,6 +62,8 @@ bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& result) noexcept
 { result=testContext;return contextValid&&renderContextValid; }
 bool HaloCE_GetGameplayContext(halo_ce::RenderContext& result) noexcept
 {
+    if (concurrentGameplayReads)
+        return concurrentGameplay.Read(result)&&HaloCE_RenderContextCurrent(result);
     ++gameplayReads;
     if (revokeGameplayOnRead&&gameplayReads==revokeGameplayOnRead) gameplayValid=false;
     result=gameplayContext;return gameplayValid&&HaloCE_RenderContextCurrent(result);
@@ -182,6 +207,59 @@ bool InvokeParticleFaultFixture()
     return false;
 }
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr,"CE FP transaction failed at %d: %s\n",__LINE__,#x); return 1; } } while(false)
+static bool CheckContactPaletteCommit()
+{
+    using namespace halo_ce;
+    const auto previous=testContext;
+    AnimationNode nodes[4]{};
+    const char* names[]{"frame root","frame l wrist","frame r wrist","frame gun"};
+    for (unsigned i=0;i<4;++i)
+    { std::strcpy(nodes[i].name,names[i]);nodes[i].parent=i==0?-1:i==3?2:0; }
+    alignas(8) uint8_t definition[0x70]{};const int32_t count=4,cached=0x100;
+    std::memcpy(definition+0x68,&count,4);std::memcpy(definition+0x6c,&cached,4);
+    contactGraphDefinition=reinterpret_cast<uintptr_t>(definition);
+    const intptr_t mapped=reinterpret_cast<intptr_t>(nodes),virtualBase=cached;
+    std::memcpy(reinterpret_cast<void*>(moduleBase+0x2ea3410),&virtualBase,8);
+    std::memcpy(reinterpret_cast<void*>(moduleBase+0x2d9ce10),&mapped,8);
+    uint8_t jump[]{0x48,0xb8,0,0,0,0,0,0,0,0,0xff,0xe0};
+    const auto target=reinterpret_cast<uintptr_t>(&ContactGraphFixture);std::memcpy(jump+2,&target,8);
+    auto* service=reinterpret_cast<void*>(moduleBase+contract::first_person::first_person_cached_tag_get);
+    DWORD protection{};
+    if (!VirtualProtect(service,sizeof(jump),PAGE_EXECUTE_READWRITE,&protection)) return false;
+    std::memcpy(service,jump,sizeof(jump));FlushInstructionCache(GetCurrentProcess(),service,sizeof(jump));
+    contactNativePalette=static_cast<NodeMatrix*>(VirtualAlloc(nullptr,4096,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    if (!contactNativePalette) return false;
+    testContext.camera.position={100,200,300};testContext.camera.forward={1,0,0};testContext.camera.up={0,0,1};
+    testContext.camera.viewport={0,0,800,1000};testContext.camera.window=testContext.camera.viewport;
+    testContext.camera.verticalFov=1;testContext.camera.nearPlane=.01f;testContext.camera.farPlane=1000;
+    testContext.reference.generation=testGeneration;testContext.reference.spaceEpoch=testContext.tracking.spaceEpoch;
+    testContext.unitsPerMeter=1;testContext.positional=true;
+    auto& rig=testContext.tracking.controllers;
+    rig.gunScale=rig.supportScale=1;rig.armIk=rig.floatingHands=false;
+    rig.physical[0]={true,{-.3f,1.2f,-.6f},{}};rig.physical[1]={true,{.3f,1.2f,-.6f},{}};
+    rig.primaryAim=rig.independentPrimaryAim=rig.physical[1];rig.support=rig.physical[0];
+    std::array<NodeMatrix,4> source{};
+    source[1].position={100,200.3f,300};source[2].position={100,199.7f,300};source[3].position={100.4f,199.7f,300};
+    bool checks=true;
+    for (unsigned failure=0;failure<3;++failure)
+    {
+        std::memcpy(contactNativePalette,source.data(),sizeof(source));
+        ++testContext.tracking.serial;
+        contactRejectOwnership=failure==1;contactRejectCopy=failure==2;
+        const unsigned commits=contactCommits,stages=contactStages;
+        const Scope owner{testContext,contactNativePalette,true};
+        const bool accepted=ApplyPalette(25,contactNativePalette,owner);
+        if (contactRejectCopy) VirtualProtect(contactNativePalette,4096,PAGE_READWRITE,&protection);
+        contextValid=true;
+        checks&=accepted==(failure==0)&&contactStages==stages+1&&contactCommits==commits+(failure==0);
+        checks&=failure==0?std::memcmp(contactNativePalette,source.data(),sizeof(source))!=0:
+            std::memcmp(contactNativePalette,source.data(),sizeof(source))==0;
+    }
+    checks&=contactReceiptCurrent;
+    contactRejectOwnership=contactRejectCopy=false;contactGraphDefinition=0;
+    VirtualFree(contactNativePalette,0,MEM_RELEASE);contactNativePalette=nullptr;testContext=previous;
+    return checks;
+}
 int main(int argc,char** argv)
 {
     using namespace halo_ce;
@@ -190,7 +268,7 @@ int main(int argc,char** argv)
     testContext.tracking.generation=testGeneration;testContext.tracking.spaceEpoch=4;testContext.tracking.serial=12;
     testContext.referenceRevision=6;testContext.rendererEpoch=8;
     testContext.tracking.controllers.controlsPresentationBlocked=false;
-    void* native=VirtualAlloc(nullptr,0x2ea0000,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
+    void* native=VirtualAlloc(nullptr,contract::imageSize,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
     CHECK(native);moduleBase=reinterpret_cast<uintptr_t>(native);
     int32_t& renderer=*reinterpret_cast<int32_t*>(moduleBase+0x1b7aa84);
     auto publish=[&](uint64_t age=0)
@@ -220,6 +298,7 @@ int main(int argc,char** argv)
         CHECK(VirtualFree(native,0,MEM_RELEASE));
         return 0;
     }
+    CHECK(CheckContactPaletteCommit());CHECK(publish());
     float classicFov=.9671381116f;
     CHECK(ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==-2);
     renderContextValid=false;classicFov=.9671381116f;
@@ -301,6 +380,29 @@ int main(int argc,char** argv)
     CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
     for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
     gameplayValid=true;anniversaryEyeValid=true;anniversaryPrimaryValid=true;
+    // Native GLT/ZFILL/SFX workers simultaneously read the same published
+    // policy. Reader-reader contention must not randomly choose different
+    // lenses for color and depth when that policy has not changed at all.
+    CHECK(concurrentGameplay.Publish(gameplayContext));concurrentGameplayReads=true;
+    std::atomic<bool> startMaterialWorkers{};
+    std::atomic<unsigned> materialMisses{};
+    std::array<std::thread,8> materialWorkers;
+    for (auto& worker:materialWorkers) worker=std::thread([&] {
+        while (!startMaterialWorkers.load(std::memory_order_acquire)) std::this_thread::yield();
+        float localConstants[96]{};
+        for (unsigned pass=0;pass<20000;++pass)
+        {
+            const size_t offset=pass%3==0?0x170:pass%3==1?0x20:0x70;
+            for (size_t lane=offset/4;lane<offset/4+4;++lane) localConstants[lane]=1;
+            if (!ApplyTrackedProjection(localConstants,reinterpret_cast<uintptr_t>(model.data()),offset))
+                materialMisses.fetch_add(1,std::memory_order_relaxed);
+        }
+    });
+    startMaterialWorkers.store(true,std::memory_order_release);
+    for (auto& worker:materialWorkers) worker.join();
+    concurrentGameplayReads=false;
+    std::printf("CE concurrent material policy: %u refused of 160000 unchanged-policy writes\n",materialMisses.load());
+    CHECK(materialMisses.load()==0);
     // Fresh policy still rejects Classic, missing gameplay ownership, and a
     // policy revoked between reading native constants and publishing them.
     for (unsigned fault=0;fault<3;++fault)

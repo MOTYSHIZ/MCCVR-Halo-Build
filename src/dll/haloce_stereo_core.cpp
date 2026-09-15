@@ -90,6 +90,7 @@ struct FrameDiagnostic
     int32_t consumedPlayer[2]{-1,-1};
     uintptr_t consumedCamera[2]{},sourceWrapper[2]{},sourceResource[2]{},copyContext[2]{};
     uint32_t sourceSelectorFlags[2]{};
+    uint32_t copyProof[2]{},copySourceSize[2][2]{},copyRequestSize[2][2]{};
     uintptr_t depthResource[2]{},depthView[2]{};
     uint32_t depthMask{},depthFailure{};
 };
@@ -777,6 +778,23 @@ void CopyBody(ID3D11DeviceContext* context,ID3D11Resource* destination,
         const auto sourceId=reinterpret_cast<uintptr_t>(source),destinationId=reinterpret_cast<uintptr_t>(destination);
         const bool sourceKnown=resources.Read(sourceId,sourceId,src);
         const bool destinationKnown=resources.Read(destinationId,destinationId,dst);
+        const int copyEye=scope->eye;
+        if (copyEye>=0&&copyEye<2)
+        {
+            // Record rejected copies too: previously copy-shape left a null
+            // right source, hiding descriptor misses behind a generic failure.
+            auto& diagnostic=scope->diagnostic;
+            diagnostic.sourceWrapper[copyEye]=static_cast<uintptr_t>(transfer.sourceSurface);
+            diagnostic.sourceResource[copyEye]=sourceId;
+            diagnostic.copyContext[copyEye]=reinterpret_cast<uintptr_t>(context);
+            diagnostic.copyProof[copyEye]=(sourceKnown?1u:0u)|(destinationKnown?2u:0u)|
+                (box?4u:0u)|(sourceSub==0&&destinationSub==0?8u:0u)|
+                (x==0&&z==0?16u:0u);
+            diagnostic.copySourceSize[copyEye][0]=src.descriptor.Width;
+            diagnostic.copySourceSize[copyEye][1]=src.descriptor.Height;
+            diagnostic.copyRequestSize[copyEye][0]=transfer.width;
+            diagnostic.copyRequestSize[copyEye][1]=transfer.height;
+        }
         const bool shape=sourceKnown&&box&&sourceSub==0&&destinationSub==0&&x==0&&z==0&&
             IsPrimaryEyeTransfer(transfer,scope->eye,src.descriptor.Width,src.descriptor.Height)&&
             box->left==0&&box->top==0&&box->front==0&&box->back==1&&
@@ -921,13 +939,15 @@ uintptr_t __fastcall ResetListHook(uintptr_t list)
     if (activeListAddress.load(std::memory_order_acquire)==list) renderReady.Publish({});
     return reinterpret_cast<uintptr_t(__fastcall*)(uintptr_t)>(hooks[ResetList].original)(list);
 }
+#include "haloce_resolution.inl"
+
 bool Remove() noexcept
 {
     retiring.store(true,std::memory_order_release);
     RevokeCopiedWorkerList();
     gameplayBridgeVerified.store(false,std::memory_order_release);
     hudTargetBindingsVerified.store(false,std::memory_order_release);
-    if (!AnniversaryHud_Remove()||!Classic_Remove()) return false;
+    if (!ce_resolution::Remove()||!AnniversaryHud_Remove()||!Classic_Remove()) return false;
     // Keep copy protection installed until native reset/stock preparation has
     // retired every manufactured list. An inactive title may retain these
     // dormant hooks until its next reset; never remove them under a queued eye.
@@ -1019,6 +1039,7 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
         hook.enabled=true;
     }
     installed=true;
+    if (!ce_resolution::Install()) LOG("CE full resolution stock fallback: optional allocation hooks unavailable; camera retained");
     (void)Classic_Install();
     if (!AnniversaryHud_InstallNatural()) LOG("CE Anniversary HUD stock fallback: optional installation failed; camera retained");
     LOG("CE refinement candidate installed: both native renderers, graphics-toggle camera continuity and independent weapon/HUD features; waiting for fresh camera; new headset result pending");
@@ -1060,7 +1081,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     const uint64_t now=GetTickCount64(),first=firstCameraMs.load(),last=lastCameraMs.load();
     const bool fresh=last&&now>=last&&now-last<500;
     if (installed.load()&&fresh&&first&&now-first>=1000&&!armed.exchange(true))
-        LOG("CE camera heartbeat ready; stereo outputs and optional hands/aim/HUD report their own validation; physical melee/world collision deferred");
+        LOG("CE camera heartbeat ready; stereo outputs and optional hands/aim/HUD/contact report their own validation; physical body following deferred");
     if (!fresh&&armed.exchange(false))
     { recenter=true; LOG("CE core disarmed by HaloCE_Poll: camera heartbeat expired; hooks retained for re-entry"); firstCameraMs=0; }
     constexpr uint32_t capabilities=TitleCapability_Stereo|TitleCapability_RoomScale|
@@ -1070,6 +1091,10 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     if (now-lastReport>=2000)
     {
         lastReport=now;
+        LOG("CE RESOLUTION installed=%d requestedEye=%ux%u packedHeight=%u nativeChildren=%llu packedAllocations=%llu managedRebuilds=%llu failures=%llu reason=%u",
+            ce_resolution::enabled.load(),ce_resolution::requestedWidth.load(),ce_resolution::requestedHeight.load(),
+            2*ce_resolution::requestedHeight.load(),ce_resolution::children.load(),ce_resolution::packedAllocations.load(),
+            ce_resolution::rebuilds.load(),ce_resolution::failures.load(),ce_resolution::lastFailure.load());
         LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u sceneRefresh=%llu",
             gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load(),sceneVisibilityRefreshes.load());
         LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u sourceFailure=%u",
@@ -1100,6 +1125,12 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
                 diagnostic.depthMask,diagnostic.depthFailure,
                 reinterpret_cast<void*>(diagnostic.depthResource[0]),reinterpret_cast<void*>(diagnostic.depthResource[1]),
                 reinterpret_cast<void*>(diagnostic.depthView[0]),reinterpret_cast<void*>(diagnostic.depthView[1]));
+            LOG("CE COPY proof=0x%X/0x%X source=%ux%u/%ux%u request=%ux%u/%ux%u",
+                diagnostic.copyProof[0],diagnostic.copyProof[1],
+                diagnostic.copySourceSize[0][0],diagnostic.copySourceSize[0][1],
+                diagnostic.copySourceSize[1][0],diagnostic.copySourceSize[1][1],
+                diagnostic.copyRequestSize[0][0],diagnostic.copyRequestSize[0][1],
+                diagnostic.copyRequestSize[1][0],diagnostic.copyRequestSize[1][1]);
             LOG("CE CONSUMERS depth=%u scene=%u shading=%u reject=%u players=%d/%d cameras=%p/%p sourceWrappers=%p/%p sourceResources=%p/%p contexts=%p/%p selectors=0x%X/0x%X",
                 diagnostic.consumedDepth,diagnostic.consumedScene,diagnostic.consumedShading,diagnostic.consumerFailure,
                 diagnostic.consumedPlayer[0],diagnostic.consumedPlayer[1],
@@ -1121,8 +1152,11 @@ void HaloCE_Recenter() noexcept
 }
 void HaloCE_PublishTracking(const halo_ce::Tracking& tracking,bool enabled) noexcept
 {
-    trackingEnabled.store(false,std::memory_order_release);
-    if (enabled&&trackingSnapshot.Publish(tracking))
+    // A valid replacement does not revoke the previous coherent sample while
+    // workers read it. Its original timestamp still expires normally if a
+    // busy snapshot prevents publication. Only an actual disable revokes it.
+    if (!enabled) { trackingEnabled.store(false,std::memory_order_release);return; }
+    if (trackingSnapshot.Publish(tracking))
     { trackingAtMs.store(GetTickCount64(),std::memory_order_release); trackingEnabled.store(true,std::memory_order_release); }
 }
 void HaloCE_PresentResources(ID3D11Device* device,ID3D11DeviceContext* context) noexcept

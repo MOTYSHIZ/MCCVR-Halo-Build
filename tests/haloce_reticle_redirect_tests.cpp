@@ -1,6 +1,7 @@
 // Execute the production CE redirection decisions with a real D3D11 context.
 // The native descriptor is explicit fixture data; this is not game-pixel proof.
 #include "../src/dll/haloce_hud_target.h"
+#include "../src/common/haloce_reticle_logic.h"
 #include <cstdio>
 #include <cstring>
 static ID3D11DeviceContext* g_context{};
@@ -21,6 +22,16 @@ int main()
     const auto check=[&](bool ok,const char* message) {
         if (!ok) { ++failures;std::fprintf(stderr,"CE reticle redirect: %s\n",message); }
     };
+    check(halo_ce::ReticleNeedsProceduralBootstrap(true,false,false)&&
+        !halo_ce::ReticleNeedsProceduralBootstrap(true,true,true)&&
+        !halo_ce::ReticleNeedsProceduralBootstrap(false,false,false),
+        "a completed native scope with no measured pixels keeps a visible fallback only while CE owns suppression");
+    check(halo_ce::ReticleNeedsProceduralBootstrap(true,true,false)&&
+        halo_ce::ReticleNeedsProceduralBootstrap(true,false,true)&&
+        !halo_ce::ReticleNeedsProceduralBootstrap(true,true,true),
+        "measured art with a failed compositor upload retains fallback until a successful visible publication");
+    check(!halo_ce::ReticleCanReplaceCapture(true)&&halo_ce::ReticleCanReplaceCapture(false),
+        "coverage owns its queued source until consumption even before first successful upload");
     ID3D11Device* device{};D3D_FEATURE_LEVEL feature{};
     if (FAILED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,
         D3D11_SDK_VERSION,&device,&feature,&g_context))) return 2;

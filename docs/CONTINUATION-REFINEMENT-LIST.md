@@ -1,4 +1,27 @@
-# Latest continuation - September 15: CE horizon, Anniversary hands and HUD
+# Latest continuation - September 15: CE full resolution, crosshair and contact
+
+Continue the 58f71a4 feedback work through a NEW build ZIP and matching source
+ZIP. Preserve Original's confirmed working base, fix both crosshairs, Anniversary
+HUD/flickering/relaunch black screen, and implement CE world collision/physical
+melee. The user expressly rejected a resolution limitation: Anniversary must
+render actual full-resolution eye images before packaging. Native color/depth,
+packed output and HUD must be coherent; enlarging a cache alone is not a fix.
+Read current `ACTIVE-WORK-CHECKPOINT.md` and `HALOCE-58F71A4-TEST-2026-09-15.md`.
+This supersedes older contact exclusions and packaging scopes below. All other
+standing/deferred items remain preserved. Package without `-Install`, deliver
+both ZIPs here, then WAIT. No launch/install/game-folder writes/PR/publishing.
+
+The candidate now implements native full-height eye color/depth allocation,
+packed output and managed reallocation with the actual native entry publication
+order verified. The preserved reticle corrections and final palette-before-contact
+publication are locally tested. CE contact remains node-based, with native biped
+melee and native held-weapon damage selection for either hand; full/custom mesh
+coverage, world-object damage, bare support-hand damage selection and body
+following remain open. No local checks establish headset acceptance. The final
+committed package and matching source identity are in `out/ce-current-handoff.json`
+after archive verification; never redeliver its old 58f71a4 pair.
+
+# Historical continuation - September 15: CE horizon, Anniversary hands and HUD
 
 The resumed worker handoff is completed: the actual native submission publishes
 the copied-list receipt before workers run; reset, reuse and retirement revoke

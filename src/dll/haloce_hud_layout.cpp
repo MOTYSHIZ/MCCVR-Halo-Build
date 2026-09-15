@@ -236,9 +236,11 @@ void MainLayoutBody()
         !ComputeHudLayoutAffine(h.size,h.aspect,h.verticalOffset,gameAspect,
             local.owner.tracking.eyes[0].fov,View(state->viewports[0]),local.affine))
     { fallbacks.fetch_add(1,std::memory_order_relaxed); original(); return; }
-    // Height is configured in output pixels. Anniversary halves authored Y
-    // after this affine, so compensate the translation before that mapping.
-    if (eyeReplay.live&&eyeReplay.state==state) local.affine.offsetY-=h.verticalOffset;
+    // Height is configured in output pixels. Preserve that distance for both
+    // native half-height eyes and full-height VR eyes; only the former needs
+    // its authored translation doubled before the final eye mapping.
+    if (eyeReplay.live&&eyeReplay.state==state)
+        local.affine.offsetY-=h.verticalOffset*(1.0f/eyeReplay.affine.vertical-1.0f);
     local.state=state;
     local.live=true;
     scope=&local;
@@ -261,13 +263,18 @@ void MainBody()
         !HaloCE_BeginAnniversaryHudGameplay(context,width,height))
     { MainLayoutBody();return; }
     bool complete=false,drew=false;
+    // The native HUD canvas keeps desktop dimensions when VR eye allocation
+    // grows. The packed target contains two eyes, not the authored HUD canvas.
+    const auto& native=owner.camera.viewport;
+    const UINT nativeWidth=static_cast<UINT>(native.right-native.left);
+    const UINT nativeHeight=static_cast<UINT>(native.bottom-native.top);
     __try
     {
         complete=true;
         for (UINT eye=0;eye<2;++eye)
         {
             bool restored=true;
-            if (!HaloCEHudLayout_BeginEyeReplay(context,width,height,width,height/2,&restored,eye*(height/2),true))
+            if (!HaloCEHudLayout_BeginEyeReplay(context,nativeWidth,nativeHeight,width,height/2,&restored,eye*(height/2),true))
             {
                 complete=false;
                 if (!drew&&restored) MainLayoutBody();
@@ -457,11 +464,13 @@ bool HaloCEHudLayout_BeginEyeReplay(ID3D11DeviceContext* context,UINT nativeWidt
     if (cleanupVerified) *cleanupVerified=true;
     if (!Current()||scope||suspensions||writing||privateRasterDepth||eyeReplay.live||!context||
         !eyeWidth||!eyeHeight||eyeWidth>16384||eyeHeight>8192||
-        nativeWidth!=eyeWidth||nativeHeight!=eyeHeight*2||(outputTop!=0&&outputTop!=eyeHeight)) return false;
+        nativeWidth!=eyeWidth||(nativeHeight!=eyeHeight*2&&nativeHeight!=eyeHeight)||
+        (outputTop!=0&&outputTop!=eyeHeight)) return false;
     auto* state=Find(context,false);
     if (!state||!StateCurrent(*state)||!state->viewportsKnown||!state->scissorsKnown) return false;
     if (cleanupVerified) *cleanupVerified=false;
     eyeReplay={state,*state,true,true};
+    eyeReplay.affine.vertical=float(eyeHeight)/float(nativeHeight);
     eyeReplay.affine.offsetY=float(outputTop);
     eyeReplay.clipToEye=clipToEye;
     eyeReplay.bounds={0,LONG(outputTop),LONG(eyeWidth),LONG(outputTop+eyeHeight)};

@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <vector>
 #include <cstdio>
+#include <thread>
 
 using Microsoft::WRL::ComPtr;
 void ConfigureCeHudLayoutRuntimeFixture(uint32_t generation,bool enabled,bool installed=true);
@@ -26,6 +27,95 @@ bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t 
 
 namespace
 {
+extern D3D11_TEXTURE2D_DESC testDesc;
+uintptr_t resolutionPool{};
+std::array<std::array<uint8_t,0x118>,4> resolutionRoots{};
+std::array<std::array<int32_t,2>,4> resolutionSizes{};
+std::array<uint8_t,0x40> resolutionConfig{};
+std::vector<ComPtr<ID3D11Texture2D>> resolutionGpuChildren;
+ID3D11Device* resolutionDevice{};
+unsigned resolutionReleases{},resolutionReconfigures{},resolutionManagements{};
+bool resolutionFault{};
+bool resolutionEntryFault{};
+bool resolutionReconfigureFail{},resolutionNested{};
+std::array<uint64_t,2> resolutionChildOpaque{};
+std::array<std::array<uint32_t,2>,2> resolutionInitialChildHeights{};
+uintptr_t __fastcall ResolutionEntryNative(uintptr_t pool,uintptr_t,uint64_t,
+    int32_t width,int32_t height,uint32_t,uint32_t usage,uintptr_t)
+{
+    auto& count=*reinterpret_cast<int32_t*>(pool+0xc);
+    const unsigned index=static_cast<unsigned>(count);
+    if (index>=resolutionRoots.size()) return 0;
+    if (!width) std::memcpy(&width,resolutionConfig.data()+0x20,4);
+    if (!height) std::memcpy(&height,resolutionConfig.data()+0x24,4);
+    resolutionSizes[index]={width,height};
+    auto& bytes=resolutionRoots[index];bytes={};
+    const auto root=reinterpret_cast<uintptr_t>(bytes.data());
+    const int16_t w=static_cast<int16_t>(width),h=static_cast<int16_t>(height);
+    std::memcpy(bytes.data()+0x10,&w,2);std::memcpy(bytes.data()+0x12,&h,2);
+    const uint32_t flags=usage&0x4000000u?0x160u:0x170u;
+    std::memcpy(bytes.data()+0x88,&flags,4);
+    std::memcpy(reinterpret_cast<void*>(pool+0x10+size_t(count)*0x38),&root,8);
+    if (resolutionEntryFault) RaiseException(0xece01001u,0,0,nullptr);
+    if (index<2) for (unsigned eye=0;eye<2;++eye)
+    {
+        // +20a9b0 calls native +a8 while this slot's usage/count remain
+        // unpublished. +1f3e90 creates both children inside that call.
+        const auto child=ce_resolution::ChildHook(root,0,width,height/2,0,eye+1);
+        D3D11_TEXTURE2D_DESC descriptor{};
+        if (child) reinterpret_cast<ID3D11Texture2D*>(child)->GetDesc(&descriptor);
+        resolutionInitialChildHeights[index][eye]=descriptor.Height;
+    }
+    std::memcpy(reinterpret_cast<void*>(pool+0x18+size_t(count)*0x38),&usage,4);
+    ++count;
+    return root;
+}
+uintptr_t __fastcall ResolutionInitializeNative(uintptr_t pool)
+{
+    if (resolutionFault) RaiseException(0xece01001u,0,0,nullptr);
+    *reinterpret_cast<int32_t*>(pool+0xc)=0;
+    ce_resolution::EntryHook(pool,0,0x800171,0,0,0,1,0);
+    ce_resolution::EntryHook(pool,0,0x1000271,0,0,0x35,0x8800001,0);
+    ce_resolution::EntryHook(pool,0,0x800161,0,0,0,0x4000001,0);
+    ce_resolution::EntryHook(pool,0,0x800161,0,0,0x1b,0x24000001,0);
+    return 1;
+}
+uintptr_t __fastcall ResolutionChildNative(uintptr_t parent,uintptr_t,int32_t width,
+    int32_t height,uint64_t opaque,uint64_t selector)
+{
+    if (resolutionFault) RaiseException(0xece01001u,0,0,nullptr);
+    resolutionChildOpaque={opaque,selector};
+    auto descriptor=testDesc;descriptor.Width=width;descriptor.Height=height;
+    const bool depth=parent==reinterpret_cast<uintptr_t>(resolutionRoots[1].data());
+    if (depth) { descriptor.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;descriptor.BindFlags=D3D11_BIND_DEPTH_STENCIL; }
+    ComPtr<ID3D11Texture2D> texture;
+    if (FAILED(resolutionDevice->CreateTexture2D(&descriptor,nullptr,&texture))) return 0;
+    const auto result=reinterpret_cast<uintptr_t>(texture.Get());
+    resolutionGpuChildren.push_back(std::move(texture));
+    return result;
+}
+void __fastcall ResolutionManageNative(uint64_t,uint64_t,uint64_t,uint64_t) { ++resolutionManagements; }
+void __fastcall ResolutionReleaseNative()
+{
+    ++resolutionReleases;ce_resolution::completed.Publish({});
+    if (resolutionNested) ce_resolution::ManageHook(1,2,3,4);
+}
+uintptr_t __fastcall ResolutionReconfigureNative(int32_t mode,uint8_t value)
+{
+    ++resolutionReconfigures;
+    if (mode||value||resolutionReconfigureFail) return 0;
+    return ce_resolution::InitializeHook(resolutionPool);
+}
+bool ResolutionCaughtFault(bool initialize)
+{
+    __try
+    {
+        if (initialize) ce_resolution::InitializeHook(resolutionPool);
+        else ce_resolution::ChildHook(reinterpret_cast<uintptr_t>(resolutionRoots[0].data()),0,32,8,0,0);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return GetExceptionCode()==0xece01001u; }
+    return false;
+}
 int32_t sceneRequestedRefresh{};
 const float* scenePrimary{};
 const float* sceneSecondary{};
@@ -45,6 +135,7 @@ ID3D11Texture2D* testDestination{};
 D3D11_TEXTURE2D_DESC testDesc{};
 bool omitRight{};
 bool invalidBox{};
+bool collideOutputMetadata{};
 bool omitDepth{},omitShading{},foreignUploadCamera{},changedUploadCamera{},changedUploadPlayer{};
 bool aliasDepthResource{},aliasDepthView{},wrongBoundDepth{},changeDepthAtScene{},omitDepthDraw{};
 bool recreateDepthAtScene{},auxiliaryDepthOverwrite{};
@@ -143,6 +234,8 @@ bool naturalRevokeSource{},naturalInvalidateRaster{},naturalOmitGameplay{},natur
 bool naturalForeignCaller{},naturalUnobservedRaster{},naturalRepeatGameplay{};
 bool naturalSwapSelectedSource{},naturalRetireContext{};
 bool naturalFrozen{},naturalNativeReset{},naturalRasterRestored{true};
+UINT naturalAuthoredHeight{};
+UINT NaturalAuthoredHeight() { return naturalAuthoredHeight?naturalAuthoredHeight:2*testDesc.Height; }
 uint64_t expectedNaturalSerial{};
 ID3D11RenderTargetView* packedHudView{};
 D3D11_BOX hudRegions[2]{};
@@ -151,8 +244,8 @@ void __fastcall NaturalGameplayHud()
     RenderContext owner{};Camera camera{};Read(bindings.base+0x29af2c4,camera);
     naturalFrozen&=HaloCE_GetRenderContext(camera,owner)&&owner.tracking.serial==expectedNaturalSerial;
     if (naturalNativeReset)
-        ObserveRaster({0,0,float(testDesc.Width),float(2*testDesc.Height),0,1},
-            {0,0,LONG(testDesc.Width),LONG(2*testDesc.Height)});
+        ObserveRaster({0,0,float(testDesc.Width),float(NaturalAuthoredHeight()),0,1},
+            {0,0,LONG(testDesc.Width),LONG(NaturalAuthoredHeight())});
     D3D11_VIEWPORT v{};UINT count=1;testContext->RSGetViewports(&count,&v);
     D3D11_BOX box{UINT(v.TopLeftX),UINT(v.TopLeftY),0,
         UINT(v.TopLeftX+v.Width/4),UINT(v.TopLeftY+v.Height/2),1};
@@ -176,8 +269,8 @@ void __fastcall NaturalHudCallback()
     std::memcpy(backend+0xd00,&packedHudView,8);
     std::memset(backend+0xd08,0,0x20);
     testContext->OMSetRenderTargets(1,&packedHudView,nullptr);
-    const D3D11_VIEWPORT full{0,0,float(testDesc.Width),float(2*testDesc.Height),0,1};
-    const D3D11_RECT rect{0,0,LONG(testDesc.Width),LONG(2*testDesc.Height)};
+    const D3D11_VIEWPORT full{0,0,float(testDesc.Width),float(NaturalAuthoredHeight()),0,1};
+    const D3D11_RECT rect{0,0,LONG(testDesc.Width),LONG(NaturalAuthoredHeight())};
     ObserveRaster(full,rect);
     if (naturalWrongTarget) std::memset(backend+0xd00,0,8);
     if (naturalUnobservedRaster) HaloCEHudLayout_InvalidateState(testContext);
@@ -243,6 +336,14 @@ void STDMETHODCALLTYPE NativeCopy(ID3D11DeviceContext* context,ID3D11Resource* d
 }
 uintptr_t __fastcall NativeTransfer(uintptr_t,SurfaceTransfer* request)
 {
+    if (collideOutputMetadata&&request->destinationY>0)
+    {
+        // Both keys had exactly the same 13-bit hash in the previous registry.
+        // Native allocation order could therefore evict the right-eye descriptor
+        // permanently even though its GPU resource was still alive.
+        const auto collision=reinterpret_cast<uintptr_t>(testSource)^uintptr_t{0x20040};
+        HaloCE_RecordTextureCreated(reinterpret_cast<ID3D11Texture2D*>(collision),testDesc);
+    }
     D3D11_BOX box{0,0,0,testDesc.Width,testDesc.Height,1};
     if (invalidBox) ++box.right;
     CopyBody(testContext,testDestination,0,0,request->destinationY,0,testSource,0,&box,bindings.base+0x204da0);
@@ -474,6 +575,89 @@ int main()
     rendererAddress=reinterpret_cast<uintptr_t>(renderer.data());
     std::memcpy(mapped.data()+0x1bea9e0,&rendererAddress,sizeof(rendererAddress));
     installed=true; active=true; retiring=false; armed=true; generation=3; recenter=false; trackingEnabled=true;
+    {
+        std::array<uint8_t,0x3000> pool{};
+        resolutionPool=reinterpret_cast<uintptr_t>(pool.data());resolutionDevice=device.Get();
+        const uintptr_t config=reinterpret_cast<uintptr_t>(resolutionConfig.data());
+        std::memcpy(mapped.data()+0x1bea8a0,&resolutionPool,8);
+        std::memcpy(nativeConfig.data()+0x118,&config,8);
+        std::memcpy(resolutionConfig.data()+0x20,&testDesc.Width,4);
+        std::memcpy(resolutionConfig.data()+0x24,&testDesc.Height,4);
+        ce_resolution::hooks[ce_resolution::Initialize].original=reinterpret_cast<void*>(&ResolutionInitializeNative);
+        ce_resolution::hooks[ce_resolution::Entry].original=reinterpret_cast<void*>(&ResolutionEntryNative);
+        ce_resolution::hooks[ce_resolution::Child].original=reinterpret_cast<void*>(&ResolutionChildNative);
+        ce_resolution::hooks[ce_resolution::Manage].original=reinterpret_cast<void*>(&ResolutionManageNative);
+        ce_resolution::release=&ResolutionReleaseNative;ce_resolution::reconfigure=&ResolutionReconfigureNative;
+        ce_resolution::enabled=true;ce_resolution::completed.Publish({});
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
+        check(ce_resolution::InitializeHook(resolutionPool)==1&&resolutionSizes[0][1]==16&&
+            resolutionSizes[1][1]==16&&resolutionSizes[2][1]==16&&resolutionSizes[3][1]==16&&
+            resolutionInitialChildHeights[0][0]==8&&resolutionInitialChildHeights[1][1]==8,
+            "Original allocation leaves native color, depth and packed targets unchanged");
+        const auto tracking=MakePrepared(97,rendererAddress+0xb0,PreparationOrigin::ActiveList).receipt.tracking;
+        HaloCE_PublishTracking(tracking,true);
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
+        resolutionNested=true;ce_resolution::ManageHook(1,2,3,4);resolutionNested=false;
+        check(resolutionReleases==1&&resolutionReconfigures==1&&resolutionManagements==2&&
+            resolutionSizes[0][1]==16&&resolutionSizes[1][1]==16&&
+            resolutionSizes[2][1]==32&&resolutionSizes[3][1]==32&&
+            resolutionInitialChildHeights[0][0]==16&&resolutionInitialChildHeights[0][1]==16&&
+            resolutionInitialChildHeights[1][0]==16&&resolutionInitialChildHeights[1][1]==16,
+            "managed native release/reconfigure expands only Anniversary packed outputs once, including nested callback");
+        ce_resolution::ManageHook(1,2,3,4);
+        check(resolutionReleases==1&&resolutionReconfigures==1,
+            "steady Anniversary full-resolution pool never reallocates per frame");
+        for (unsigned root=0;root<2;++root) for (unsigned eye=0;eye<2;++eye)
+        {
+            const auto parent=reinterpret_cast<uintptr_t>(resolutionRoots[root].data());
+            const auto child=ce_resolution::ChildHook(parent,0,32,8,0x123456789abcdef0ull,eye+1);
+            D3D11_TEXTURE2D_DESC desc{};
+            if (child) reinterpret_cast<ID3D11Texture2D*>(child)->GetDesc(&desc);
+            check(child&&desc.Width==32&&desc.Height==16&&
+                desc.BindFlags==(root?D3D11_BIND_DEPTH_STENCIL:D3D11_BIND_RENDER_TARGET)&&
+                resolutionChildOpaque[0]==0x123456789abcdef0ull&&resolutionChildOpaque[1]==eye+1,
+                "production child detour allocates full native eye color/depth and preserves opaque ABI arguments");
+        }
+        check(resolutionGpuChildren[0]!=resolutionGpuChildren[1]&&resolutionGpuChildren[2]!=resolutionGpuChildren[3],
+            "left/right native full-resolution color and depth allocations remain independent D3D textures");
+        const uint32_t oddHeight=17;std::memcpy(resolutionConfig.data()+0x24,&oddHeight,4);
+        ce_resolution::ManageHook(1,2,3,4);
+        const auto parent=reinterpret_cast<uintptr_t>(resolutionRoots[0].data());
+        auto child=ce_resolution::ChildHook(parent,0,32,8,0,0);
+        D3D11_TEXTURE2D_DESC desc{};reinterpret_cast<ID3D11Texture2D*>(child)->GetDesc(&desc);
+        check(desc.Height==17&&resolutionSizes[2][1]==34&&resolutionReleases==2,
+            "native resolution changes rebuild safely and odd eye height keeps its final row");
+        std::array<uint8_t,0x118> foreign=resolutionRoots[0];
+        child=ce_resolution::ChildHook(reinterpret_cast<uintptr_t>(foreign.data()),0,32,8,0,0);
+        reinterpret_cast<ID3D11Texture2D*>(child)->GetDesc(&desc);
+        check(desc.Height==8,"unregistered shadow/imported split surfaces retain native dimensions");
+        resolutionFault=true;
+        check(ResolutionCaughtFault(true)&&ResolutionCaughtFault(false)&&ce_resolution::callbacks.load()==0&&
+            !ce_resolution::initializing.address,"native allocation exceptions restore TLS and every callback pin");
+        resolutionFault=false;resolutionEntryFault=true;
+        check(ResolutionCaughtFault(true)&&ce_resolution::callbacks.load()==0&&
+            !ce_resolution::initializing.address&&!ce_resolution::allocating.pool,
+            "entry allocation exception revokes the pending native slot and restores callback ownership");
+        resolutionEntryFault=false;resolutionReconfigureFail=true;ce_resolution::completed.Publish({});
+        const auto beforeFailure=resolutionReleases;
+        ce_resolution::ManageHook(1,2,3,4);ce_resolution::ManageHook(1,2,3,4);
+        check(resolutionReleases==beforeFailure+1&&ce_resolution::lastFailure.load()==2&&HaloCE_Armed(),
+            "failed optional full-resolution rebuild backs off and keeps the camera core armed");
+        resolutionReconfigureFail=false;ce_resolution::retryAtMs=0;
+        ce_resolution::ManageHook(1,2,3,4);
+        check(ce_resolution::lastFailure.load()==0&&!ce_resolution::managing,
+            "a later native management callback recovers the allocation transaction");
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
+        ce_resolution::InitializeHook(resolutionPool);
+        child=ce_resolution::ChildHook(parent,0,32,8,0,0);
+        reinterpret_cast<ID3D11Texture2D*>(child)->GetDesc(&desc);
+        check(desc.Height==8&&resolutionSizes[2][1]==17,"Original native reinitialization restores stock split/output dimensions");
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
+        ce_resolution::enabled=false;ce_resolution::completed.Publish({});ce_resolution::hooks={};
+        ce_resolution::release=nullptr;ce_resolution::reconfigure=nullptr;
+        resolutionGpuChildren.clear();resolutionDevice=nullptr;
+        std::memset(mapped.data()+0x1bea8a0,0,8);std::memset(nativeConfig.data()+0x118,0,8);
+    }
     hudTargetBindingsVerified=true;
     check(HaloCE_HudTargetBindingsVerified(bindings.base,bindings.size,3),
         "cold HUD target proof is available only through the current retained core");
@@ -582,6 +766,16 @@ int main()
         HaloCE_ReleasePair(pair.borrowId); pair={};
     }
     check(previewFolded.load()==1&&nativeCopies==2,"second-eye packing guard ran exactly once");
+    collideOutputMetadata=true;publish(101);FrameBody(0,0);collideOutputMetadata=false;
+    check(HaloCE_AcquirePair(context.Get(),101,7,pair),
+        "unrelated native allocation sharing an eye-resource hash cannot black out the right eye");
+    if (pair.borrowId)
+    {
+        check(Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
+            "colliding metadata retains distinct complete eye pixels");
+        HaloCE_ReleasePair(pair.borrowId);pair={};
+    }
+    resources.Forget(reinterpret_cast<uintptr_t>(testSource)^uintptr_t{0x20040});
     omitRight=true; publish(102); FrameBody(0,0);
     check(!HaloCE_AcquirePair(context.Get(),102,7,pair),"partial native frame never submits");
     omitRight=false; publish(103); FrameBody(0,0);
@@ -1117,6 +1311,21 @@ int main()
         naturalSwapSelectedSource=true;naturalFrame(168,false,2);naturalSwapSelectedSource=false;
         naturalRetireContext=true;naturalFrame(169,false,2);naturalRetireContext=false;
         naturalFrame(170,true,2);
+        // Full-resolution eyes keep the native HUD canvas at desktop height;
+        // only the packed world target is double height. Its two HUD regions
+        // must keep size/height controls and native resets without halving art.
+        naturalAuthoredHeight=testDesc.Height;
+        camera.window=camera.viewport={0,0,static_cast<int16_t>(testDesc.Height),static_cast<int16_t>(testDesc.Width)};
+        std::memcpy(mapped.data()+0x2d9cb34,&camera,sizeof(camera));
+        std::memcpy(mapped.data()+0x29af2c4,&camera,sizeof(camera));
+        naturalNativeReset=true;naturalFrame(171,true,2,.5f);naturalNativeReset=false;
+        check(hudRegions[0].bottom>hudRegions[0].top&&hudRegions[0].bottom<=testDesc.Height&&
+            hudRegions[1].top>=testDesc.Height&&hudRegions[1].bottom<=2*testDesc.Height,
+            "full-resolution authored HUD maps into both independently bounded eye regions");
+        check(hudRegions[0].right-hudRegions[0].left==testDesc.Width/8&&
+            hudRegions[1].right-hudRegions[1].left==testDesc.Width/8,
+            "full-resolution packed HUD still applies the configured half-size slider");
+        naturalAuthoredHeight=0;
         const auto callbacksBefore=callbacks.load();
         anniversaryHudHook.original=reinterpret_cast<void*>(&NativeHudHookFault);
         check(InvokeActualHudHookFault()&&callbacks.load()==callbacksBefore&&!anniversaryNaturalHud,
@@ -1219,7 +1428,38 @@ int main()
             "camera-owned Anniversary job still reaches tracked native construction");
         jobScope=previousScope;
     }
+    {
+        // Publishing the next valid XR sample is not a disable operation.
+        // Material workers can inspect admission during this exact production
+        // function, even while the copied sample itself is being refreshed.
+        const auto tracking=MakePrepared(170,jobAddress+0x70,PreparationOrigin::CopiedList).receipt.tracking;
+        HaloCE_PublishTracking(tracking,true);
+        std::atomic<bool> started{},done{};
+        std::atomic<unsigned> transientDisables{};
+        std::thread reader([&] {
+            started.store(true,std::memory_order_release);
+            while (!done.load(std::memory_order_acquire))
+                if (!trackingEnabled.load(std::memory_order_acquire))
+                    transientDisables.fetch_add(1,std::memory_order_relaxed);
+        });
+        while (!started.load(std::memory_order_acquire)) std::this_thread::yield();
+        for (unsigned iteration=0;iteration<100000;++iteration) HaloCE_PublishTracking(tracking,true);
+        done.store(true,std::memory_order_release);reader.join();
+        std::printf("CE tracking replacement: %u transient disables\n",transientDisables.load());
+        check(transientDisables.load()==0,"enabled tracking replacement never transiently revokes worker material policy");
+        HaloCE_PublishTracking(tracking,false);
+        Tracking received{};
+        check(!TrackingNow(received),"explicit tracking disable still revokes workers immediately");
+        HaloCE_PublishTracking(tracking,true);
+        check(TrackingNow(received)&&received.serial==tracking.serial,"valid tracking publication recovers after explicit disable");
+    }
     ResourceRegistry::Record recorded{};
+    const uintptr_t pendingIdentity=0x70012340;
+    const auto pendingRevision=resources.Revoke(pendingIdentity);
+    resources.Forget(pendingIdentity);
+    check(!resources.Publish(pendingIdentity,pendingIdentity,pendingRevision,testDesc)&&
+        !resources.Read(pendingIdentity,pendingIdentity,recorded),
+        "native release invalidates reserved metadata even before its payload was published");
     resources.Forget(reinterpret_cast<uintptr_t>(testSource));
     HaloCE_RecordTextureCreated(testSource,testDesc);
     check(resources.Read(reinterpret_cast<uintptr_t>(testSource),reinterpret_cast<uintptr_t>(testSource),recorded),

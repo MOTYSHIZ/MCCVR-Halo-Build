@@ -24,7 +24,7 @@ CrosshairFn original{};
 bool hookEnabled{};
 std::atomic<bool> installed{},active{},retiring{},prepared{};
 std::atomic<uint32_t> generation{},callbacks{};
-std::atomic<uint64_t> captures{},fallbacks{};
+std::atomic<uint64_t> captures{},fallbacks{},contextRefusals{};
 uint32_t rejectedGeneration{},rejectedCaptureGeneration{};
 bool targetBindingsVerified{};
 uint64_t lastReport{};
@@ -62,28 +62,46 @@ bool Context(RenderContext& out) noexcept
         out.tracking.controllers.primaryAim.valid&&
         VR_CeAuthoredReticleFrameMatches(nativeContext,out.tracking.serial);
 }
+void InvalidateCapture() noexcept
+{
+    lastCapture.Publish({});
+    // A failed native scope cannot lend its queued coverage to a later
+    // renderer/reference. Other titles retain their own capture lifecycle.
+    if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
+        VR_InvalidatePreparedAuthoredReticleCapture();
+}
 void DrawBody(int32_t user,uint32_t weapon,uint32_t hud,const void* state)
 {
     RenderContext context{};
     if (drawing||user!=0)
     { original(user,weapon,hud,state); return; }
-    if (!Current()||!prepared.load()||!Context(context))
-    { lastCapture.Publish({}); original(user,weapon,hud,state); return; }
+    if (!Current()||!prepared.load())
+    { InvalidateCapture(); original(user,weapon,hud,state); return; }
+    if (!Context(context))
+    {
+        contextRefusals.fetch_add(1,std::memory_order_relaxed);
+        InvalidateCapture(); original(user,weapon,hud,state); return;
+    }
     uint64_t key=(uint64_t(hud)<<32)|weapon;
     key^=uint64_t(context.tracking.generation)*0x9e3779b97f4a7c15ull;
     if (!key) key=1;
     CaptureReceipt previous{};
+    const bool previousCurrent=lastCapture.Read(previous)&&previous.key&&
+        HaloCE_RenderContextCurrent(previous.context);
+    if (!previousCurrent) VR_InvalidatePreparedAuthoredReticleCapture();
     const bool first=context.tracking.serial!=lastSerial||context.referenceRevision!=lastRevision||
-        !lastCapture.Read(previous)||previous.key!=key||
-        !HaloCE_RenderContextCurrent(previous.context);
+        !previousCurrent||previous.key!=key;
     // Use the working titles' prepared phase redirect. Native crosshair logic
-    // still runs on both eyes; subsequent phases draw into the discard target.
-    const bool began=first?VR_BeginPreparedAuthoredReticleCapture():
+    // still runs on both eyes. A pending coverage query owns the source pixels;
+    // even a new weapon's first phase must use discard until it completes.
+    const bool capture=first&&VR_ShouldCaptureAuthoredReticleThisFrame();
+    const uint64_t capturedKey=capture?key:previous.key;
+    const bool began=capture?VR_BeginPreparedAuthoredReticleCapture():
         VR_BeginPreparedAuthoredReticleSuppression();
     if (!began)
     {
         fallbacks.fetch_add(1,std::memory_order_relaxed);
-        lastCapture.Publish({});
+        InvalidateCapture();
         original(user,weapon,hud,state);
         return;
     }
@@ -92,7 +110,7 @@ void DrawBody(int32_t user,uint32_t weapon,uint32_t hud,const void* state)
     __try { original(user,weapon,hud,state); returned=true; }
     __finally
     {
-        const bool ended=first?VR_EndPreparedAuthoredReticleCapture():
+        const bool ended=capture?VR_EndPreparedAuthoredReticleCapture():
             VR_EndPreparedAuthoredReticleSuppression();
         drawing=false;
         if (returned&&ended&&Current()&&HaloCE_RenderContextCurrent(context))
@@ -101,13 +119,14 @@ void DrawBody(int32_t user,uint32_t weapon,uint32_t hud,const void* state)
             // A complete phase has an explicit generation/renderer/reference
             // owner. Recenter, switching and a missing native phase cannot
             // inherit an old "captured once" latch.
-            lastCapture.Publish({context,key,GetTickCount64()});
+            // A discard-only weapon change still owns native suppression,
+            // but must not relabel the queued old artwork as the new weapon.
+            lastCapture.Publish({context,capturedKey,GetTickCount64()});
             captures.fetch_add(1,std::memory_order_relaxed);
         }
         else
         {
-            lastCapture.Publish({});
-            VR_InvalidatePreparedAuthoredReticleCapture();
+            InvalidateCapture();
             fallbacks.fetch_add(1,std::memory_order_relaxed);
         }
     }
@@ -218,8 +237,8 @@ bool HaloCEHud_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexc
     if (installed.load()&&now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE HUD gen=%u nativeScope=1 capturePrepared=%d crosshairCaptures=%llu stockFallbacks=%llu",
-            gen,prepared.load()?1:0,captures.load(),fallbacks.load());
+        LOG("CE HUD gen=%u nativeScope=1 capturePrepared=%d crosshairCaptures=%llu stockFallbacks=%llu contextRefusals=%llu",
+            gen,prepared.load()?1:0,captures.load(),fallbacks.load(),contextRefusals.load());
     }
     return Current();
 }

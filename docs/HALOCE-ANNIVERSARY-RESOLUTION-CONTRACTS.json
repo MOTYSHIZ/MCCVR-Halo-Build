@@ -1,0 +1,109 @@
+[
+  {
+    "name": "resolution_pool_initialize",
+    "rva": "0x2d44b0",
+    "signature": "48 89 5C 24 20 55 56 57 41 55 41 56 48 83 EC 50 4C 8B 05 11 79 B6 02 48 8B E9 49 8B 80 18 01 00",
+    "function_entry": true,
+    "evidence": "E-CE-RES-1",
+    "runtime_group": "anniversary_resolution",
+    "image_pointers": [
+      {
+        "rva": "0x1815368",
+        "target_rva": "0x2d44b0"
+      }
+    ]
+  },
+  {
+    "name": "resolution_pool_entry",
+    "rva": "0x20a9b0",
+    "signature": "48 89 5C 24 10 44 89 4C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 40 44 8B BC 24 B0 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-RES-1",
+    "runtime_group": "anniversary_resolution",
+    "instruction_witnesses": [
+      {
+        "rva": "0x20ac2b",
+        "signature": "48 8B BC 24 B8 00 00 00 48 89 44 1A 10"
+      },
+      {
+        "rva": "0x20acf5",
+        "signature": "41 FF 92 A8 00 00 00 48 63 43 0C 48 6B C8 38 44 89 7C 19 18"
+      },
+      {
+        "rva": "0x20ad4b",
+        "signature": "48 63 4B 0C 8D 41 01 89 43 0C"
+      }
+    ]
+  },
+  {
+    "name": "resolution_split_child",
+    "rva": "0x1f9d20",
+    "signature": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 40 8B 99 88 00 00 00 41 8B F9 45 33 C9",
+    "function_entry": true,
+    "evidence": "E-CE-RES-1",
+    "runtime_group": "anniversary_resolution",
+    "instruction_witnesses": [
+      {
+        "rva": "0x1f42cf",
+        "signature": "41 0F BF 76 10 41 0F BF 46 12 99 2B C2 D1 F8 8B E8"
+      },
+      {
+        "rva": "0x1f42fe",
+        "signature": "44 8B CD 44 8B C6 49 8B CE"
+      },
+      {
+        "rva": "0x1f4369",
+        "signature": "44 8B CD 44 8B C6 49 8B D7 49 8B CE"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0x1f4307",
+        "instruction_signature": "E8 14 5A 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x1f9d20"
+      },
+      {
+        "instruction_rva": "0x1f4375",
+        "instruction_signature": "E8 A6 59 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x1f9d20"
+      }
+    ]
+  },
+  {
+    "name": "resolution_management",
+    "rva": "0x455700",
+    "signature": "4C 8B DC 49 89 4B 08 56 57 41 54 41 56 41 57 48 81 EC 10 01 00 00 48 C7 44 24 20 FE FF FF FF 49",
+    "function_entry": true,
+    "evidence": "E-CE-RES-1",
+    "runtime_group": "anniversary_resolution",
+    "relative_operands": [
+      {
+        "instruction_rva": "0x4551b2",
+        "instruction_signature": "E8 49 05 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x455700"
+      }
+    ]
+  },
+  {
+    "name": "resolution_release",
+    "rva": "0x4f1ad0",
+    "signature": "48 83 EC 28 48 8B 0D 9D B2 94 02 48 85 C9 74 05 E8 7B 40 F3 FF 48 8B 05 44 23 74 01 48 8B 48 18",
+    "function_entry": true,
+    "evidence": "E-CE-RES-1",
+    "runtime_group": "anniversary_resolution"
+  },
+  {
+    "name": "resolution_reconfigure",
+    "rva": "0x4f11e0",
+    "signature": "48 8B C4 55 41 54 41 55 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00 48 C7 44 24 60 FE FF FF",
+    "function_entry": true,
+    "evidence": "E-CE-RES-1",
+    "runtime_group": "anniversary_resolution"
+  }
+]

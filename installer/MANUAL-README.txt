@@ -1,13 +1,12 @@
-HALO MCC VR - CE CAMERA, WEAPONS AND PAUSE REFINEMENT - SEPTEMBER 2026
-==================================================================
+HALO MCC VR - CE RESOLUTION, RETICLE AND CONTACT - SEPTEMBER 2026
+=============================================================
 
 Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
 and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
-files. Following confirmation that both CE graphics modes are visible in VR,
-this candidate corrects camera facing across graphics switches, Original
-weapon/hand/effect projection, native pause-screen presentation and authored
-crosshair preparation. The single-eye desktop mirror, native scene-visibility
-correction, tracked hands and controller aiming are retained.
+files. This CE candidate adds full-resolution Anniversary eye targets, reticle
+visibility/aim corrections, HUD mapping, hand-material contention and resource
+identity fixes, plus CE world collision and physical melee. Original's working
+camera/hands, the single-eye desktop mirror and controller aiming are retained.
 This alpha candidate still needs headset confirmation in both CE graphics
 modes. The accepted baseline remains 4e01f28.
 Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
@@ -15,9 +14,11 @@ exact build identity and file hashes; you do not need to edit it.
 
 For the CE test, compare both graphics modes, switch while looking around,
 check gun/hand size and firing effects, then pause and resume in each mode.
-Read RELEASE-NOTES.md for the exact status and test steps. CE physical roomscale
-body following, melee and world collision remain deferred; those sections below
-describe the other supported titles. Ordinary tracked leaning is part of CE 6DoF.
+Read RELEASE-NOTES.md for the exact status and test steps. CE world collision
+and physical melee are available through their separate Body & Hands controls.
+CE contact uses hand/weapon nodes; complete weapon surfaces remain unproven.
+CE physical roomscale body following remains deferred. Ordinary tracked leaning
+is part of CE 6DoF.
 CE graphics switching: physical left hand beside the left side of the head,
 then click the movement stick. Both graphics modes have a VR path in this test.
 
@@ -98,6 +99,8 @@ Config keys: left_handed = 1; experimental_hand_alignment = 0 (recommended).
 
 ROOMSCALE BODY MOVEMENT
 ----------------------
+This section applies to H2 Classic/Anniversary, H3, ODST, Reach and H4.
+CE body following remains deferred; CE still has positional head tracking.
 Open F1 > Controls and enable Roomscale body movement. Head tracking and
 positional tracking must be enabled. Recenter with F3, close F1, and begin in
 an open, level area with the movement stick idle. Take small forward, backward
@@ -123,6 +126,9 @@ EVERYDAY CONTROLS
 F1: VR settings. F3: recenter. L3+R3 together: recenter and toggle F1.
 F1 > Controls: snap/smooth turning and angle/speed.
 World contact, physical melee and gesture melee have separate settings.
+For this CE test, enable World collision and True physical melee individually in
+F1 > Body & Hands. New configs leave these off; existing choices are preserved.
+Physical melee uses a 5 m/s default threshold. Test both hands in both CE modes.
 Slider arrows move by the last displayed digit. F1 saves changes.
 H3, ODST and Reach have first-person vehicles; F1 > Vehicles adjusts the seat.
 

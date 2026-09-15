@@ -199,6 +199,8 @@ int main(int argc,char** argv)
         }
         const auto mappedBase=reinterpret_cast<uintptr_t>(image.data());
         const NativeContractSet featureSets[]{
+            {contract::contact::entries,contract::contact::witnesses,contract::contact::relatives,contract::contact::pointers},
+            {contract::anniversary_resolution::entries,contract::anniversary_resolution::witnesses,contract::anniversary_resolution::relatives,contract::anniversary_resolution::pointers},
             {contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,contract::anniversary_hud::relatives,contract::anniversary_hud::pointers},
             {contract::gameplay_bridge::entries,contract::gameplay_bridge::witnesses,contract::gameplay_bridge::relatives,contract::gameplay_bridge::pointers},
             {contract::comfort::entries,contract::comfort::witnesses,contract::comfort::relatives,contract::comfort::pointers},

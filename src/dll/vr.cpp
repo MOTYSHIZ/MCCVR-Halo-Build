@@ -26,6 +26,7 @@
 #include "game.h"
 #include "haloce_stereo_core.h"
 #include "../common/haloce_pause_logic.h"
+#include "../common/haloce_reticle_logic.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
 #include "haloce_hud_layout.h"
@@ -6381,10 +6382,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             Halo4CuiReticleUsesProceduralFallback(
                 titleHasAuthoredCapture, g_config.crosshair,
                 g_config.kill_reticle);
+        const bool ceProceduralBootstrap = reticleTitle == GameTitle::HaloCE &&
+            halo_ce::ReticleNeedsProceduralBootstrap(
+                titleHasAuthoredCapture, g_authoredReticleGoodValid,
+                g_reticleContainsAuthored);
+        const bool proceduralBootstrap = halo4ProceduralBootstrap || ceProceduralBootstrap;
         const bool authoredThisFrame =
             g_authoredReticleReady &&
             g_authoredReticleSerial == g_preparedFrame.serial;
-        if (authoredThisFrame && !halo4ProceduralBootstrap)
+        if (authoredThisFrame && !proceduralBootstrap)
             return true;
 
         // Halo can omit the authored widget in some of the repeated FP passes
@@ -6404,7 +6410,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_preparedFrame.serial >= g_authoredReticleSerial &&
             g_preparedFrame.serial - g_authoredReticleSerial <=
                 kAuthoredReticleGraceFrames;
-        if (g_reticleContainsAuthored && authoredCaptureRecent)
+        if (g_reticleContainsAuthored && authoredCaptureRecent && !ceProceduralBootstrap)
             return true;
 
         // Once the swapchain holds real authored art, LEAVE IT ALONE. For a
@@ -6418,7 +6424,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // and similar, which made the old grace window expire and wipe the art
         // mid-fight. Holding the last art is both correct and free; a genuine
         // change (weapon swap, zoom, colour) re-uploads through the key path.
-        if (g_reticleContainsAuthored && titleHasAuthoredCapture)
+        if (g_reticleContainsAuthored && titleHasAuthoredCapture && !ceProceduralBootstrap)
             return true;
 
         // Halo can stop drawing its authored widget during death and other
@@ -6441,7 +6447,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // what showed the old crosshair, made the two alternate, and cost a
         // swapchain repaint per frame.
         const float kProceduralOpacity =
-            titleHasAuthoredCapture && !halo4ProceduralBootstrap ? 0.0f : 1.0f;
+            titleHasAuthoredCapture && !proceduralBootstrap ? 0.0f : 1.0f;
         const bool enemy = g_reticleEnemy.load(std::memory_order_relaxed);
         const float wantR = enemy ? 1.0f : g_config.reticle_r;
         const float wantG = enemy ? 0.18f : g_config.reticle_g;
@@ -6491,6 +6497,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_reticleChain == XR_NULL_HANDLE)
             return false;
         g_authoredReticleHeldBlank = false;
+        if (TitleAdapter_GetActiveTitle() == GameTitle::HaloCE &&
+            (!g_authoredReticleProbeUsable || !g_authoredReticleGoodTexture))
+        {
+            // Optional capture measurement failure keeps CE's visible gun-ray
+            // fallback. Never label an unmeasured texture as authored artwork.
+            g_authoredReticleHeldBlank = true;
+            return false;
+        }
         if (!probePending &&
             g_authoredReticleUploadedSerial == g_authoredReticleSerial)
             return true;
@@ -6551,14 +6565,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                  kAuthoredReticleMaxConsecutiveHolds;
             const bool hasArt =
                 hasAnyArt && (ink >= required || staleEnoughToAccept);
-            const bool halo4BootstrapNeedsMeasuredArt =
-                TitleAdapter_GetActiveTitle() == GameTitle::Halo4 &&
+            const bool bootstrapNeedsMeasuredArt =
+                (TitleAdapter_GetActiveTitle() == GameTitle::Halo4 ||
+                 TitleAdapter_GetActiveTitle() == GameTitle::HaloCE) &&
                 !g_authoredReticleGoodValid;
             if (!hasArt &&
                 (g_authoredReticleGoodValid ||
-                 halo4BootstrapNeedsMeasuredArt))
+                 bootstrapNeedsMeasuredArt))
             {
-                // Halo 4 also holds before the first known-good capture. A
+                // Halo 4 and CE also hold before the first known-good capture. A
                 // blank or below-threshold bootstrap sample is not authored
                 // art and must never replace its procedural fallback with an
                 // invisible but "authored" image. The previously shipped
@@ -6636,7 +6651,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                   releaseResult,
                   "Reach authored-reticle swapchain release did not complete")
             : XR_SUCCEEDED(releaseResult);
-        if (!copied || (requireSuccessfulRelease && !released))
+        if (!copied || ((requireSuccessfulRelease ||
+                         TitleAdapter_GetActiveTitle() == GameTitle::HaloCE) && !released))
             return false;
         g_authoredReticleUploadedSerial = g_authoredReticleSerial;
         g_reticleContainsAuthored = true;
@@ -10502,7 +10518,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         // ODST is included too: its ink has never been measured
                         // in a headset session, and a stale-crosshair report is
                         // only actionable next to the coverage the guard saw.
-                        if (reachTitle || reticleTitle == GameTitle::Halo2 ||
+                        if (reachTitle || reticleTitle == GameTitle::HaloCE || reticleTitle == GameTitle::Halo2 ||
                             reticleTitle == GameTitle::Halo3 ||
                             reticleTitle == GameTitle::Halo3ODST ||
                             reticleTitle == GameTitle::Halo4)
@@ -10527,6 +10543,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     "skipped in the last window (key %llX, "
                                     "pieces %u, held %u, art %u, blankHeld %u)",
                                     reachTitle ? "Reach" :
+                                        reticleTitle == GameTitle::HaloCE
+                                            ? "CE" :
                                         reticleTitle == GameTitle::Halo2
                                             ? "Halo 2" :
                                         reticleTitle == GameTitle::Halo4
@@ -10699,6 +10717,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             reticleUploadAdmitted &&
                             AuthoredReticleLayerHasContent(
                                 titleCapturesArt &&
+                                    !(reticleTitle == GameTitle::HaloCE &&
+                                      halo_ce::ReticleNeedsProceduralBootstrap(
+                                          titleCapturesArt, g_authoredReticleGoodValid,
+                                          g_reticleContainsAuthored)) &&
                                     !(reticleTitle == GameTitle::Halo4 &&
                                       Halo4CuiReticleUsesProceduralFallback(
                                           titleCapturesArt,
@@ -10715,6 +10737,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             (reticleTitle != GameTitle::Halo4 ||
                              g_config.kill_reticle) &&
                             haveAim && reticleChainAdmitted && !theaterPresentation;
+                        if (ceTitle)
+                        {
+                            static uint64_t lastCeReticleLogMs = 0;
+                            const uint64_t nowMs = GetTickCount64();
+                            if (nowMs - lastCeReticleLogMs >= 2000)
+                            {
+                                lastCeReticleLogMs = nowMs;
+                                LOG("CE crosshair presentation: quad=%d aim=%d nativeOwned=%d "
+                                    "measuredArt=%d heldArt=%d configured=%d",
+                                    reticleQuadSubmitted ? 1 : 0, haveAim ? 1 : 0,
+                                    titleCapturesArt ? 1 : 0, g_authoredReticleGoodValid ? 1 : 0,
+                                    g_reticleContainsAuthored ? 1 : 0, g_config.crosshair ? 1 : 0);
+                            }
+                        }
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
                         // The 2026-07-27 objective blackout is proven NOT to be
                         // the capture, the class resolution, or the redirect:
@@ -15039,6 +15075,8 @@ void VR_InvalidatePreparedAuthoredReticleCapture()
     // transaction. Halo 3/ODST retain their accepted serial lifecycle.
     g_authoredReticleReady = false;
     g_authoredReticleSerial = 0;
+    if (TitleAdapter_GetActiveTitle() == GameTitle::HaloCE)
+        g_authoredReticleProbePending = false;
 }
 
 static bool BeginAuthoredReticleCaptureInternal(
@@ -15218,6 +15256,9 @@ static bool BeginAuthoredReticleCaptureInternal(
 
 bool VR_ShouldCaptureAuthoredReticleThisFrame()
 {
+    if (TitleAdapter_GetActiveTitle() == GameTitle::HaloCE)
+        return halo_ce::ReticleCanReplaceCapture(g_authoredReticleProbePending);
+
     // Until valid art is held there is nothing to fall back on, so never skip.
     if (!g_reticleContainsAuthored)
         return true;
@@ -15297,7 +15338,7 @@ bool VR_BeginPreparedAuthoredReticleCapture()
 bool VR_CeAuthoredReticleFrameMatches(ID3D11DeviceContext* context,uint64_t serial)
 {
     return TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&context&&context==g_context&&
-        serial&&serial==g_preparedFrame.serial&&g_preparedFrame.begun&&
+        halo_ce::ReticleReceiptSerialCurrent(serial,g_preparedFrame.serial)&&g_preparedFrame.begun&&
         g_preparedFrame.state.shouldRender&&g_stereoEnabled.load(std::memory_order_acquire)&&
         !g_pausePresentation.load(std::memory_order_acquire);
 }

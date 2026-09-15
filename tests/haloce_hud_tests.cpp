@@ -1,6 +1,7 @@
 // Production CE crosshair transaction and lifetime tests. Shared D3D/XR calls
 // are explicit fixtures: these do not establish native HUD pixels or framing.
 #include "../src/dll/haloce_hud.cpp"
+#include "../src/common/haloce_reticle_logic.h"
 #include <cstdio>
 #include <vector>
 
@@ -15,6 +16,11 @@ static bool nativeFramingIsolated=true,canPrepare=true,suppressionReady=true;
 static AuthoredReticlePreparationResult preparationResult=AuthoredReticlePreparationResult::Ready;
 static bool aimAvailable=true,playerEligible=true;
 static bool coldTargetProof=true;
+static uint64_t displayedSerial{};
+static bool coveragePending{};
+static ID3D11DeviceContext* pixelContext{};
+static ID3D11RenderTargetView* pixelCapture{},*pixelDiscard{};
+static float nativeInk=1;
 bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t gen) noexcept
 { return coldTargetProof&&base==moduleBase&&size==halo_ce::contract::imageSize&&gen==testGeneration; }
 bool HaloCEFirstPerson_AimArmed() noexcept { return aimAvailable; }
@@ -39,11 +45,14 @@ bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& context) noexcept
         context.rendererEpoch==testContext.rendererEpoch;
 }
 bool VR_CeAuthoredReticleFrameMatches(ID3D11DeviceContext* context,uint64_t serial)
-{ return context==reinterpret_cast<ID3D11DeviceContext*>(0x12340)&&serial==testContext.tracking.serial; }
+{ return context==reinterpret_cast<ID3D11DeviceContext*>(0x12340)&&
+    halo_ce::ReticleReceiptSerialCurrent(serial,displayedSerial?displayedSerial:testContext.tracking.serial); }
 bool VR_CanPrepareAuthoredReticleResources() { return canPrepare; }
 AuthoredReticlePreparationResult VR_PrepareAuthoredReticleResources()
 { return preparationResult; }
 bool VR_PrepareAuthoredReticleSuppressionResources() { return suppressionReady; }
+bool VR_ShouldCaptureAuthoredReticleThisFrame()
+{ return halo_ce::ReticleCanReplaceCapture(coveragePending); }
 bool VR_BeginPreparedAuthoredReticleCapture()
 {
     ++captureBegins;
@@ -60,7 +69,7 @@ bool VR_EndPreparedAuthoredReticleCapture()
 { ++ends;const bool match=redirectActive&&redirectAuthored;redirectActive=false;return match&&endAllowed; }
 bool VR_EndPreparedAuthoredReticleSuppression()
 { ++ends;const bool match=redirectActive&&!redirectAuthored;redirectActive=false;return match&&endAllowed; }
-void VR_InvalidatePreparedAuthoredReticleCapture() { ++invalidations; }
+void VR_InvalidatePreparedAuthoredReticleCapture() { ++invalidations;coveragePending=false; }
 void Logf(const char*,...) { }
 bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t,
     const std::atomic<uint32_t>& count) { return !count.load(); }
@@ -68,6 +77,11 @@ static void __fastcall NativeCrosshair(int32_t user,uint32_t weapon,uint32_t hud
 {
     ++nativeCalls;
     nativeFramingIsolated=nativeFramingIsolated&&layoutSuspensions>0;
+    if (pixelContext&&redirectActive)
+    {
+        const float color[4]{nativeInk,nativeInk,nativeInk,nativeInk};
+        pixelContext->ClearRenderTargetView(redirectAuthored?pixelCapture:pixelDiscard,color);
+    }
     if (reenterNative) { reenterNative=false;CrosshairHook(user,weapon,hud,state); }
     if (changeRevision) ++testContext.referenceRevision;
     if (raiseNative) RaiseException(0xe0424242,0,0,nullptr);
@@ -182,9 +196,95 @@ int main()
     check(captureBegins==eligibleCaptures&&!HaloCEHud_CapturedCrosshair(),
         "unproven on-foot ownership cannot hide the native reticle");
     playerEligible=true;
+    displayedSerial=testContext.tracking.serial;
     CrosshairHook(0,17,29,nullptr);
     check(captureBegins==eligibleCaptures+1&&HaloCEHud_CapturedCrosshair(),
         "eligible local player must recapture after stock fallback");
+    // The natural Anniversary callback carries the worker's frozen receipt,
+    // while the OpenXR submission is already one or more samples newer.
+    for (uint64_t age=1;age<=8;++age)
+    {
+        ++testContext.tracking.serial;displayedSerial=testContext.tracking.serial+age;
+        const unsigned beforeLateCapture=captureBegins;
+        CrosshairHook(0,17,29,nullptr);
+        check(captureBegins==beforeLateCapture+1&&HaloCEHud_CapturedCrosshair(),
+            "owned late Anniversary HUD captures art and suppresses the native screen crosshair");
+    }
+    displayedSerial=testContext.tracking.serial+9;
+    const unsigned staleCapture=captureBegins;
+    CrosshairHook(0,17,29,nullptr);
+    check(captureBegins==staleCapture&&!HaloCEHud_CapturedCrosshair(),
+        "expired worker receipt leaves native art stock without publishing stale ownership");
+    displayedSerial=testContext.tracking.serial-1;
+    CrosshairHook(0,17,29,nullptr);
+    check(captureBegins==staleCapture&&!HaloCEHud_CapturedCrosshair(),
+        "future receipt cannot capture into an earlier displayed frame");
+    displayedSerial=testContext.tracking.serial;
+    CrosshairHook(0,17,29,nullptr);
+    {
+        // Real GPU source A is queued for coverage. The next weapon emits B
+        // (blank) before that query is consumed. Execute the production native
+        // scope: B must reach discard while both source A and its key stay put.
+        ID3D11Device* device{};D3D_FEATURE_LEVEL feature{};
+        if (FAILED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,nullptr,0,
+            D3D11_SDK_VERSION,&device,&feature,&pixelContext))) return 2;
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=desc.Height=8;desc.ArraySize=desc.MipLevels=1;
+        desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.SampleDesc.Count=1;
+        desc.BindFlags=D3D11_BIND_RENDER_TARGET;
+        ID3D11Texture2D* source{},*discard{},*queued{},*readback{};
+        if (FAILED(device->CreateTexture2D(&desc,nullptr,&source))||
+            FAILED(device->CreateTexture2D(&desc,nullptr,&discard))||
+            FAILED(device->CreateRenderTargetView(source,nullptr,&pixelCapture))||
+            FAILED(device->CreateRenderTargetView(discard,nullptr,&pixelDiscard))) return 2;
+        desc.BindFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        if (FAILED(device->CreateTexture2D(&desc,nullptr,&queued))||
+            FAILED(device->CreateTexture2D(&desc,nullptr,&readback))) return 2;
+        const auto pixel=[&](ID3D11Texture2D* texture) {
+            pixelContext->CopyResource(readback,texture);D3D11_MAPPED_SUBRESOURCE mapped{};
+            uint32_t value=0x12345678;
+            if (SUCCEEDED(pixelContext->Map(readback,0,D3D11_MAP_READ,0,&mapped)))
+            { std::memcpy(&value,mapped.pData,4);pixelContext->Unmap(readback,0); }
+            return value;
+        };
+        displayedSerial=++testContext.tracking.serial;nativeInk=1;
+        CrosshairHook(0,17,29,nullptr);
+        const auto sourceKey=HaloCEHud_CrosshairKey();
+        pixelContext->CopyResource(queued,source);coveragePending=true;
+        const unsigned capturedBefore=captureBegins,discardedBefore=suppressionBegins;
+        displayedSerial=++testContext.tracking.serial;nativeInk=0;
+        CrosshairHook(0,18,30,nullptr);
+        CrosshairHook(0,18,30,nullptr);
+        check(coveragePending&&captureBegins==capturedBefore&&suppressionBegins==discardedBefore+2&&
+            HaloCEHud_CrosshairKey()==sourceKey&&pixel(source)==0xffffffff&&pixel(discard)==0&&
+            pixel(queued)==0xffffffff,
+            "pending coverage keeps exact GPU source and art key while both new-weapon phases draw blank into discard");
+        coveragePending=false;displayedSerial=++testContext.tracking.serial;
+        CrosshairHook(0,18,30,nullptr);
+        check(captureBegins==capturedBefore+1&&HaloCEHud_CrosshairKey()!=sourceKey&&pixel(source)==0,
+            "completed coverage permits the next real capture to publish the changed weapon key");
+        // Revoking the previous renderer/reference cancels its queued sample.
+        coveragePending=true;++testContext.rendererEpoch;nativeInk=1;
+        const unsigned epochCaptures=captureBegins;
+        CrosshairHook(0,17,29,nullptr);
+        check(!coveragePending&&captureBegins==epochCaptures+1&&pixel(source)==0xffffffff,
+            "renderer change cancels old queued coverage and requires real current-owner pixels");
+        coveragePending=true;displayedSerial=++testContext.tracking.serial;beginAllowed=false;
+        CrosshairHook(0,18,30,nullptr);beginAllowed=true;
+        check(!coveragePending&&!HaloCEHud_CapturedCrosshair(),
+            "failed pending suppression cancels its sample and revokes native ownership");
+        const unsigned recoveryCaptures=captureBegins;
+        CrosshairHook(0,18,30,nullptr);
+        check(captureBegins==recoveryCaptures+1&&HaloCEHud_CapturedCrosshair(),
+            "pending suppression failure recovers through a fresh capture");
+        coveragePending=true;contextValid=false;
+        CrosshairHook(0,18,30,nullptr);contextValid=true;
+        check(!coveragePending&&!HaloCEHud_CapturedCrosshair(),
+            "expired native context cannot carry a pending measurement into the next scope");
+        CrosshairHook(0,18,30,nullptr);
+        pixelCapture->Release();pixelDiscard->Release();source->Release();discard->Release();
+        queued->Release();readback->Release();pixelContext->Release();device->Release();
+        pixelContext=nullptr;pixelCapture=pixelDiscard=nullptr;
+    }
     ++testGeneration;
     check(!HaloCEHud_CapturedCrosshair(),"module generation change rejects previous crosshair ownership");
     --testGeneration;testTitle=GameTitle::Halo3;

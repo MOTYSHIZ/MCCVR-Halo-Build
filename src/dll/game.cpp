@@ -28,6 +28,7 @@
 #include "game.h"
 #include "haloce_stereo_core.h"
 #include "haloce_first_person.h"
+#include "haloce_contact.h"
 #include "haloce_hud.h"
 #include "haloce_hud_layout.h"
 #include "haloce_controls.h"
@@ -40821,6 +40822,7 @@ namespace
                 const auto ceGeneration=TitleAdapter_GetGeneration(GameTitle::HaloCE);
                 (void)HaloCEControls_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
                 (void)HaloCEFirstPerson_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEContact_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
                 (void)HaloCEHud_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
                 (void)HaloCEHudLayout_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
                 (void)HaloCEComfort_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
