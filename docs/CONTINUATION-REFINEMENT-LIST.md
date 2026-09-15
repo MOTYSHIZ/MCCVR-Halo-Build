@@ -1,3 +1,20 @@
+# Latest user result - September 15: be2140f partial progress, FAILED core VR
+
+The delivered integrated candidate has now been TESTED. Anniversary hands track
+and shots follow the controller, with an unusual left-hand angle; split/displaced
+world rendering persists. Classic still does not enter usable VR. New log:
+out/test-runs/be2140f-ce-partial-failed-20260915/HaloMCCVR-user.log, screenshot 3.PNG.
+Read docs/HALOCE-BE2140F-TEST-2026-09-15.md. Do not redeliver or accept be2140f.
+
+LATEST REQUEST OVERRIDES older package-ready instructions: resume basic VR for
+BOTH CE Classic and Anniversary; no ZIP until evidence supports confidence in
+the existing-title baseline. Preserve working hands/aim and all deferred scope.
+No install, MCC launch, game-folder writes or PR. Accepted 4e01f28 is unchanged.
+The failed integrated enable is disabled separately before correction; retain
+all code. Classic logs zero pairs/610 source misses; Anniversary HUD has zero
+replays/4890 fallbacks. World consumer admission alone did not solve displacement.
+No manual compaction. Recover available prior chats and continue from actual code.
+
 # Package-ready integrated CE candidate - September 15, 2026
 
 Latest user instruction is to continue until a ZIP is packaged; it supersedes

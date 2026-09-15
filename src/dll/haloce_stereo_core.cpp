@@ -31,7 +31,9 @@ constexpr bool kCeConstructTrackedViewsEnabled=false;
 // September 15 integrated candidate: Classic rendering, independently owned
 // native consumers/depth, HUD replay, FP shader projection and motion-blur
 // handling replace the camera-only experiments above. Headset test pending.
-constexpr bool kCeIntegratedBaseVrEnabled=true;
+// be2140f: hands/aim improved, but Classic produced no pair and Anniversary
+// retained the split/displaced world. Disable before developing a correction.
+constexpr bool kCeIntegratedBaseVrEnabled=false;
 // Preserve the unfinished body-following adapter, but keep experimental CE
 // locomotion out of the core VR candidate (September 15 user priority).
 constexpr bool kCeExperimentalRoomscaleEnabled=false;
@@ -912,7 +914,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     {
         if (gen!=rejectedGeneration)
         {
-            LOG("CE core disabled by HaloCE_Poll: full renderer/hand/HUD integration unfinished after rejected b9662cd; input and graphics gesture retained");
+            LOG("CE core disabled by HaloCE_Poll: be2140f failed Classic capture and Anniversary world rendering; input and graphics gesture retained");
             rejectedGeneration=gen;
         }
         TitleAdapter_PublishLifecycle(GameTitle::HaloCE,gen,{false,false,false,0});
