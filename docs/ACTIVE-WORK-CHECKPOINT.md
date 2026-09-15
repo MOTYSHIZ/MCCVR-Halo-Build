@@ -1,4 +1,59 @@
-# Current continuation - September 15: CE camera, weapons and pause refinement
+# Current continuation - September 15: CE hands, HUD and stability
+
+Latest user tested `e524d21`: BOTH CE modes inject, gun scale is excellent in
+both, and Original HUD works. Preserve these results. Current concrete defects:
+Original stretched arm triangles, Original startup flicker until an Anniversary
+roundtrip, Anniversary hand flicker and missing HUD, and head-locked MCC shell
+after CE exit with reported possible transition crashes. Halo 3 is explicitly
+left alone. The suggested extra task was withdrawn; focus CE/Anniversary.
+
+User explicitly requests autonomous cumulative refinement until a NEW build ZIP
+AND matching source ZIP are ready. Package with `tools/package-candidate.ps1`
+without `-Install`, deliver both in chat, then WAIT for testing/instructions.
+No install, game launch, game-folder writes, PR or publication. Both editions
+remain supported. Prior package holds and older exact-delivery pointers below
+are historical. Accepted cumulative source remains `4e01f28`.
+
+Supplied logs and screenshot are preserved in
+`out/test-runs/e524d21-ce-refinement-feedback-20260915/`; exact identity/results
+are in `HALOCE-E524D21-TEST-2026-09-15.md`. Steam / SteamVR OpenXR 2.17.9 /
+Oculus-family / 90 Hz; exact headset model unspecified. Both logs show Present
+stalls with worker logging still alive, no fault address or crash stack. Do not
+claim all transition crashes fixed. The later run reaches Halo 3 gameplay.
+
+The bad camera-origin floating-arm collapse was disabled separately in
+`2b46667`. Replacement uses CE's named arm chains and final corresponding
+wrists; official mesh proof covers 1,495 vertices and 71 blended forearm/wrist
+vertices. Anniversary skin conversion now honors each copied source bone's
+scale independently of another preparation's global receipt. Original's stock
+Anniversary worker no longer claims the camera-reference guard; the production
+interleaving regression failed old code and passes corrected stereo/pixels.
+Anniversary HUD now retains its frozen in-flight eye receipt after the next
+private worker reuses its source list. CE pause ownership ends at presentation
+loss even when the CE module stays resident. Each has a reproduced regression.
+Anniversary's independent primary-eye lens correction now passes depth, scene,
+shading and nested-frame/exception regressions. The HUD eye reader alone does
+NOT fix FP projection; the separate stage reader owns this optional feature.
+
+Read the dedicated HAND-STABILITY, ORIGINAL-STARTUP, HUD-FRAME-OWNERSHIP,
+ANNIVERSARY-LENS-OWNERSHIP and EXIT-PRESENTATION evidence plus
+`HALOCE-STABILITY-CANDIDATE-2026-09-15.md`. Cumulative Release and all 20 CTest
+suites pass, including final nested-frame cases; Reach consistency, generated
+contracts, 101 pinned contracts, 15 production mapped-image groups, Classic/HUD
+fragments, all 12 official weapon graphs, 15 official-mesh cases, 30 native skin
+cases and 48 native shader draws pass. Records: `out/ce-stability-*` and the
+dedicated hand evidence records. Packaging repeats required checks after final
+commit. `out/ce-current-handoff.json` records exact new build/source archives and
+hashes only after archive/source verification; never redeliver its old e524d21
+pointer. Local checks never imply headset acceptance. Both CE modes and the CE exit shared callsite need
+headset testing, with Halo 3 regression required by the shared-code contract.
+
+No new CE melee/world collision/body-following feature is introduced. All other
+title work and EVERY standing/deferred request in the continuation list remain
+preserved. Keep successful gun scale, native aim/origin/effects, Original HUD,
+graphics-switch reference continuity, scene refresh and desktop mirror.
+
+# Historical continuation - September 15: CE camera, weapons and pause refinement
 
 Latest user tested `a2b526a`: BOTH Original and Anniversary now visible in VR.
 Keep that successful scene/output baseline. New concrete defects are Original

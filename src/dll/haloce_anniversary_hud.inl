@@ -29,6 +29,17 @@ const char* AnniversaryHudFailureName(uint32_t value) noexcept
     case 20:return "stock-camera";
     case 21:return "tracking-reference";
     case 22:return "output-source";
+    case 30:return "eye-frame-scope";
+    case 31:return "eye-core-ownership";
+    case 32:return "eye-scene-index";
+    case 33:return "eye-camera-identity";
+    case 34:return "eye-consumer-stages";
+    case 35:return "eye-reference-revision";
+    case 36:return "eye-generation";
+    case 37:return "eye-tracking-age";
+    case 38:return "eye-camera-changed";
+    case 39:return "eye-selected-camera";
+    case 40:return "eye-ownership-changed";
     default:return "unknown";
     }
 }
@@ -142,7 +153,9 @@ void AnniversaryHud_ReplayEyeBody(FrameScope& scope,int eye,bool& cleanupVerifie
     failure=10;
     if (!(scope.renderFlags&0x10)) goto failed;
     failure=11;
-    if (scope.diagnostic.nativeFlags!=1||!HaloCE_GetAnniversaryEyeTracking(camera,replay.owner.tracking)) goto failed;
+    if (scope.diagnostic.nativeFlags!=1) goto failed;
+    failure=AnniversaryEyeTracking(camera,replay.owner.tracking);
+    if (failure) goto failed;
     failure=12;
     if (!Read(bindings.base+0x1c33fe0,callback)||callback!=bindings.base+contract::anniversary_hud::native_hud_callback) goto failed;
     failure=13;

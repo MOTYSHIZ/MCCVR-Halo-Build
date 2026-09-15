@@ -118,7 +118,8 @@ struct Prepared
 };
 Snapshot<Prepared> preparedLists[2],renderReady;
 std::atomic_flag preparationBusy=ATOMIC_FLAG_INIT;
-struct JobScope { uintptr_t job{},activeList{}; bool owned{}; };
+std::atomic_flag jobPreparationBusy=ATOMIC_FLAG_INIT;
+struct JobScope { uintptr_t job{},activeList{}; bool owned{},cameraOwned{}; };
 thread_local JobScope jobScope;
 struct BuildScope { uintptr_t list{}; ViewConstruction views; bool enabled{},failed{}; };
 thread_local BuildScope* buildScope{};
@@ -133,6 +134,8 @@ struct FrameScope
     uintptr_t selectedSource{},selectedDestination{};
     uintptr_t renderer{};
     int lastSceneEye{-1};
+    int primaryDrawEye{-1};
+    unsigned primaryDrawStage{};
     FrameDiagnostic diagnostic;
     struct DepthReceipt
     {
@@ -142,6 +145,7 @@ struct FrameScope
     } depth[2];
 };
 thread_local FrameScope* frameScope{};
+thread_local bool anniversaryMaterialMasked{};
 struct Callback
 {
     Callback() { callbacks.fetch_add(1,std::memory_order_acq_rel); }
@@ -326,7 +330,7 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
         if (!last||now<last||now-last>=500) firstCameraMs.store(now,std::memory_order_release);
         uint64_t zero=0; firstCameraMs.compare_exchange_strong(zero,now);
     }
-    const bool force=eligible&&armed.load()&&TrackingNow(tracking);
+    const bool force=eligible&&jobScope.cameraOwned&&armed.load()&&TrackingNow(tracking);
     constexpr bool constructTrackedViews=kCeConstructTrackedViewsEnabled||
         kCeIntegratedBaseVrEnabled||kCeSceneVisibilityBaseVrEnabled;
     const uint64_t revisionBeforeBuild=referenceRevision.load(std::memory_order_acquire);
@@ -391,12 +395,23 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
 void PrepareBody(uintptr_t job)
 {
     const auto original=reinterpret_cast<PrepareFn>(hooks[Prepare].original);
-    const bool claimed=!preparationBusy.test_and_set(std::memory_order_acquire);
+    // Native stock Saber preparation also runs while Original is selected.
+    // Its list bookkeeping does not read/write the tracking reference. Holding
+    // the camera guard for that whole job made overlapping Original frames
+    // fall back to the fixed native lens. Keep the job ledger exclusive, but
+    // claim camera ownership only for Anniversary. Builder rechecks this
+    // receipt before VR mutation,
+    // so a mode change inside a stock job cannot acquire an unguarded reference.
+    const bool jobClaimed=!jobPreparationBusy.test_and_set(std::memory_order_acquire);
+    const bool needsCamera=Current()&&Anniversary();
+    const bool cameraClaimed=jobClaimed&&needsCamera&&
+        !preparationBusy.test_and_set(std::memory_order_acquire);
+    const bool claimed=jobClaimed&&(!needsCamera||cameraClaimed);
     const auto previous=jobScope;
     uintptr_t renderer{}; int renderJob{},copyPrepared{};
     const bool scoped=claimed&&Read(bindings.base+0x1bea9e0,renderer)&&renderer&&
         Read(job+0xbe58,renderJob)&&Read(job+0xbe5c,copyPrepared);
-    jobScope={job,renderer?renderer+0xb0:0,scoped};
+    jobScope={job,renderer?renderer+0xb0:0,scoped,cameraClaimed};
     if (scoped) activeListAddress.store(renderer+0xb0,std::memory_order_release);
     if (scoped&&renderJob) renderReady.Publish({});
     __try { original(job); }
@@ -418,7 +433,8 @@ void PrepareBody(uintptr_t job)
             }
         }
         jobScope=previous;
-        if (claimed) preparationBusy.clear(std::memory_order_release);
+        if (cameraClaimed) preparationBusy.clear(std::memory_order_release);
+        if (jobClaimed) jobPreparationBusy.clear(std::memory_order_release);
     }
 }
 void __fastcall PrepareHook(uintptr_t job) { Callback callback; PrepareBody(job); }
@@ -503,6 +519,9 @@ void RejectDepth(FrameScope& scope,uint32_t failure) noexcept
 }
 void DepthMeshBody(uintptr_t a,uintptr_t b,uintptr_t c,int32_t eye,uintptr_t caller)
 {
+    if (auto* scope=frameScope;scope&&(caller!=bindings.base+0x456329||eye<0||eye>1||
+        scope->primaryDrawEye!=eye||scope->primaryDrawStage!=1))
+    { scope->primaryDrawEye=-1;scope->primaryDrawStage=0; }
     reinterpret_cast<DepthMeshFn>(hooks[DepthMesh].original)(a,b,c,eye);
     auto* scope=frameScope;
     if (!scope||!scope->capture||caller!=bindings.base+0x456329) return;
@@ -537,6 +556,9 @@ __declspec(noinline) void __fastcall DepthMeshHook(uintptr_t a,uintptr_t b,uintp
 void CameraUploadBody(uintptr_t arg,uintptr_t backend,const SaberCamera* camera,uintptr_t caller)
 {
     auto* scope=frameScope;
+    // No material may borrow the previous camera while native upload changes
+    // its matrices. Unknown/auxiliary uploads remain unowned after returning.
+    if (scope) { scope->primaryDrawEye=-1;scope->primaryDrawStage=0; }
     const unsigned stage=caller==bindings.base+0x4562bf?1u:
         caller==bindings.base+0x456a86?2u:caller==bindings.base+0x457c07?3u:0u;
     const auto address=reinterpret_cast<uintptr_t>(camera);
@@ -583,6 +605,7 @@ void CameraUploadBody(uintptr_t arg,uintptr_t backend,const SaberCamera* camera,
             else
             {
                 scope->diagnostic.consumedCamera[eye]=address;
+                scope->primaryDrawEye=eye;scope->primaryDrawStage=stage;
                 if (stage==1) scope->diagnostic.consumedDepth|=1u<<eye;
                 if (stage==2)
                 { scope->diagnostic.consumedScene|=1u<<eye; scope->lastSceneEye=eye; }
@@ -667,6 +690,8 @@ void FrameBody(uintptr_t arg,uint32_t flags)
             !scope.capture?FrameFailure::CacheBegin:FrameFailure::None;
     }
     const auto previous=frameScope;
+    const bool previousMaterialMask=anniversaryMaterialMasked;
+    if (previous) anniversaryMaterialMasked=true;
     if (!previous) frameScope=&scope;
     bool returned=false;
     __try { original(arg,flags); returned=true; }
@@ -686,13 +711,16 @@ void FrameBody(uintptr_t arg,uint32_t flags)
             if (scope.synthetic) frameDiagnostic.Publish(scope.diagnostic);
             frameScope=previous;
         }
+        anniversaryMaterialMasked=previousMaterialMask;
     }
 }
 void __fastcall FrameHook(uintptr_t arg,uint32_t flags) { Callback callback; FrameBody(arg,flags); }
+uint32_t AnniversaryEyeTracking(const SaberCamera* camera,Tracking& tracking) noexcept;
 #include "haloce_anniversary_hud.inl"
 void OutputBody(int eye)
 {
     auto* scope=frameScope; const int previous=scope?scope->eye:-1;
+    if (scope) { scope->primaryDrawEye=-1;scope->primaryDrawStage=0; }
     if (scope&&scope->synthetic&&eye>=0&&eye<2) scope->eye=eye;
     __try
     {
@@ -1119,38 +1147,68 @@ bool HaloCE_OwnsPresentation() noexcept
     const uint64_t last=lastOwnedMs.load(std::memory_order_acquire),now=GetTickCount64();
     return Current()&&last&&now>=last&&now-last<500;
 }
-bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
-    halo_ce::Tracking& tracking) noexcept
+namespace
+{
+uint32_t AnniversaryEyeTrackingForCamera(const SaberCamera* camera,Tracking& tracking,
+    int eye,unsigned requiredStages) noexcept
 {
     tracking={};
     const auto* scope=frameScope;
-    if (!camera||!scope||!scope->synthetic||!scope->capture||!scope->prepared.valid||
-        !HaloCE_Armed()||!Anniversary()||recenter.load(std::memory_order_acquire)) return false;
-    const int eye=scope->lastSceneEye;
-    if (eye<0||eye>1) return false;
+    if (!camera||!scope||!scope->synthetic||!scope->capture||!scope->prepared.valid) return 30;
+    if (!HaloCE_Armed()||!Anniversary()||recenter.load(std::memory_order_acquire)) return 31;
+    if (eye<0||eye>1) return 32;
     const uintptr_t address=reinterpret_cast<uintptr_t>(camera);
     const uint32_t mask=1u<<eye;
     const auto& receipt=scope->prepared.receipt;
     const auto& frozen=receipt.tracking;
     const uint64_t revision=referenceRevision.load(std::memory_order_acquire);
     if (address!=scope->renderer+0xf0+eye*sizeof(SaberView)||
-        scope->diagnostic.consumedCamera[eye]!=address||
-        !(scope->diagnostic.consumedDepth&mask)||!(scope->diagnostic.consumedScene&mask)||
-        !(scope->diagnostic.consumedShading&mask)||scope->prepared.referenceRevision!=revision||
-        scope->prepared.generation!=generation.load(std::memory_order_acquire)||
-        !handoff.Current(receipt.ticket)) return false;
+        scope->diagnostic.consumedCamera[eye]!=address) return 33;
+    if (((requiredStages&1)&&!(scope->diagnostic.consumedDepth&mask))||
+        ((requiredStages&2)&&!(scope->diagnostic.consumedScene&mask))||
+        ((requiredStages&4)&&!(scope->diagnostic.consumedShading&mask))) return 34;
+    if (scope->prepared.referenceRevision!=revision) return 35;
+    if (scope->prepared.generation!=generation.load(std::memory_order_acquire)||
+        !receipt.ticket.revision||!receipt.ticket.sourceList||
+        receipt.ticket.generation!=scope->prepared.generation) return 36;
+    // PrepareBody freezes this receipt after the native source-list copy.
+    // The next worker may now recycle that private source and advance its
+    // ledger ticket while this renderer still draws the copied cameras. A
+    // source-ticket query here incorrectly revokes a valid in-flight frame.
+    // Keep the live renderer/consumer, lifetime and tracking checks below;
+    // never replace the frozen receipt with the next worker's preparation.
     Tracking current{}; SaberCamera consumed{}; uintptr_t selected{};
     if (!TrackingNow(current)||frozen.generation!=current.generation||
         frozen.spaceEpoch!=current.spaceEpoch||!frozen.serial||frozen.serial>current.serial||
-        current.serial-frozen.serial>8||!Read(address,consumed)||
-        !SamePreparedCamera(consumed,receipt.pair.cameras[eye])||
+        current.serial-frozen.serial>8) return 37;
+    if (!Read(address,consumed)||!SamePreparedCamera(consumed,receipt.pair.cameras[eye])||
         std::memcmp(reinterpret_cast<const uint8_t*>(&consumed)+0x220,
-            reinterpret_cast<const uint8_t*>(&receipt.pair.cameras[eye])+0x220,4)||
-        !Read(scope->renderer+0xbe98,selected)||selected!=address||
-        !Current()||!Anniversary()||recenter.load(std::memory_order_acquire)||
-        referenceRevision.load(std::memory_order_acquire)!=revision) return false;
+            reinterpret_cast<const uint8_t*>(&receipt.pair.cameras[eye])+0x220,4)) return 38;
+    if (!Read(scope->renderer+0xbe98,selected)||selected!=address) return 39;
+    if (!Current()||!Anniversary()||recenter.load(std::memory_order_acquire)||
+        referenceRevision.load(std::memory_order_acquire)!=revision) return 40;
     tracking=frozen;
-    return true;
+    return 0;
+}
+uint32_t AnniversaryEyeTracking(const SaberCamera* camera,Tracking& tracking) noexcept
+{
+    return AnniversaryEyeTrackingForCamera(camera,tracking,frameScope?frameScope->lastSceneEye:-1,7);
+}
+}
+bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
+    halo_ce::Tracking& tracking) noexcept
+{
+    return AnniversaryEyeTracking(camera,tracking)==0;
+}
+bool HaloCE_GetAnniversaryPrimaryEyeTracking(halo_ce::Tracking& tracking) noexcept
+{
+    tracking={};
+    const auto* scope=frameScope;
+    if (anniversaryMaterialMasked||!scope||scope->primaryDrawEye<0||scope->primaryDrawEye>1||
+        scope->primaryDrawStage<1||scope->primaryDrawStage>3) return false;
+    const int eye=scope->primaryDrawEye;
+    const auto* camera=reinterpret_cast<const SaberCamera*>(scope->renderer+0xf0+eye*sizeof(SaberView));
+    return AnniversaryEyeTrackingForCamera(camera,tracking,eye,1u<<(scope->primaryDrawStage-1))==0;
 }
 bool HaloCE_GetClassicPrimaryEyeContext(halo_ce::RenderContext& context) noexcept
 {

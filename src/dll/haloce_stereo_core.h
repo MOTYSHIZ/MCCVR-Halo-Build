@@ -33,6 +33,10 @@ bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& context) noexcept
 // settings only while its primary camera still owns the current scene.
 bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
     halo_ce::Tracking& tracking) noexcept;
+// Material writers run during depth/scene/shading, before all three stages
+// complete. Only the currently selected, verified primary camera may lend its
+// frozen eye settings; auxiliary uploads and per-eye output revoke this scope.
+bool HaloCE_GetAnniversaryPrimaryEyeTracking(halo_ce::Tracking& tracking) noexcept;
 // Successful creation owns this texture, even before CE loads. Metadata only.
 void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     const D3D11_TEXTURE2D_DESC& descriptor) noexcept;

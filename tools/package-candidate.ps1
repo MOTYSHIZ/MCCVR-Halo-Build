@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-camera-weapons-pause-refinement',
+        'ce-hands-hud-stability',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1135,24 +1135,29 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
-            previous_headset_result = 'a2b526a-both-graphics-modes-visible; Original-weapon-scale-graphics-toggle-facing-and-pause-menu-refinement-required'
+            previous_headset_result = 'e524d21-both-inject-gun-scale-confirmed-Original-HUD-working; stretched-arms-startup-and-Anniversary-flicker-HUD-and-exit-menu-refinements-required'
             rejected_previous_candidate = 'be2140f-Classic-zero-pairs-Anniversary-split-displaced-world; hands-and-controller-aim-partially-confirmed'
-            correction = 'graphics-toggle-reference-continuity; Classic-tracked-first-person-model-and-effect-world-lens; native-pause-screen; cold-authored-HUD-binding-proof'
+            correction = 'CE-arm-chains-collapse-at-own-wrists; source-bound-copied-skin-scale; Anniversary-primary-eye-lens-independent-of-palette; Original-camera-guard-independent-of-stock-worker; frozen-frame-HUD-receipt; CE-pause-cleared-on-retirement'
             graphics = 'Classic-and-Anniversary-stereo-6DoF-test'
             native_views = 'Anniversary-prepared-before-culling; Classic-native-render-only-eye-replay'
             submitted_pose = 'exact-native-preparation-receipt'
             source_storage = 'owned-D3D11-per-eye-textures'
             graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
             controller_aim_hands_hud_parity = 'implemented-locally-awaiting-headset-test; stock-feature-fallback-on-validation-failure'
-            world_render_failure = 'a2b526a-user-confirms-both-modes-visible; camera-alignment-and-feature-parity-under-refinement'
+            world_render_failure = 'both-modes-visible-and-gun-scale-confirmed; startup-and-feature-stability-refined-offline-awaiting-headset'
             scene_refresh = 'native-request-only-at-one-two-camera-transition; authored-hidden-and-geometric-culling-preserved'
             desktop_mirror = 'one-completed-eye-aspect-and-gamma-correct; both-eye-submissions-preserved'
             native_scene_refresh_verifier = 'tools/re/test_ce_scene_refresh_native.py'
-            anniversary_hud_replay = 'previous-log-zero-draws; native-admission-reasons-now-specific; visible-result-unconfirmed'
+            anniversary_hud_replay = 'next-worker-source-retirement-no-longer-revokes-current-renderer-eye; production-HUD-pixel-regression; headset-result-pending'
+            floating_hands = 'official-CE-arm-geometry-collapses-at-own-tracked-wrist; old-camera-origin-collapse-disabled-in-separate-commit'
+            anniversary_skin_scale = 'native-copied-bone-source-owns-its-scale-through-next-prepare; stock-scale-one-byte-identical'
+            anniversary_weapon_lens = 'independent-primary-eye-depth-scene-shading-scope; native-FP-model-flag-and-exact-selector; not-latest-palette-dependent'
+            classic_startup = 'stock-Anniversary-preparation-no-longer-claims-Original-camera-guard; no-graphics-roundtrip-required-by-this-path'
             authored_crosshair = 'full-target-contract-verified-before-overlapping-core-hook; generation-module-scoped-proof'
-            native_pause = 'independent-native-clock-drives-head-locked-screen-and-resume; shared-YB-shortcut'
+            native_pause = 'native-pause-retained; CE-ownership-loss-clears-head-lock-even-with-resident-module; shared-YB-shortcut'
             classic_weapon_effect_lens = 'optional-proven-first-person-consumers-retain-tracked-world-lens; native-depth-and-restore-preserved'
             performance = 'measured-previous-log-misses-90Hz; no-unmeasured-optimization-or-parity-claim'
+            transition_crashes = 'reported-stalls-without-fault-address; exit-pause-leak-corrected; complete-crash-resolution-unproven'
             physical_melee_world_collision = 'deferred-until-basic-VR-confirmed'
             physical_roomscale_body_following = 'disabled-for-CE-deferred'
             headset_accepted = $false
@@ -1161,11 +1166,11 @@ try {
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE refinement after both graphics modes became visible: stable camera reference across switching, Original gun/hand/effect world lens, native pause screen and authored-crosshair binding order. Native shot origin/spread retained; Anniversary HUD admission and broad weapon/performance parity still need headset testing. CE body-following/melee/world collision and other standing work preserved. Keep existing config. Both editions; package only; no new headset acceptance.'
+        note = 'CE Original/Anniversary refinement: wrist-local hidden arms, source-bound skin scale, independent primary-eye weapon lens, cold Original stereo guard, frozen Anniversary HUD receipt, and pause head-lock release on exit. Successful gun scale, Original HUD, camera switching and native aim/effects preserved. No Halo 3 behavior change. Headset stability and reported transition crashes remain to verify. Keep existing config. Both editions; package only; accepted pointer unchanged.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-REFINEMENT-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-STABILITY-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

@@ -42699,18 +42699,21 @@ void Game_AutoVrTick()
         if (!wasCeContext)
         { HaloCE_Recenter(); g_autoVrUserVeto.store(false); VR_RequestPausePresentation(false); }
         wasCeContext=true;
+        const bool ready=HaloCE_Armed()&&!g_autoVrUserVeto.load()&&
+            !g_vrRuntimeFailureLatched.load();
         bool cePaused{};
-        const bool cePauseKnown=HaloCEControls_GetNativePaused(cePaused);
-        const auto cePauseRequest=cePause.Observe(TitleAdapter_GetGeneration(GameTitle::HaloCE),
-            cePauseKnown,cePaused,VR_IsPausePresentationTarget(),GetTickCount64());
+        const bool cePauseKnown=ready&&HaloCEControls_GetNativePaused(cePaused);
+        const auto cePauseRequest=cePause.ObserveOwned(TitleAdapter_GetGeneration(GameTitle::HaloCE),
+            ready,cePauseKnown,cePaused,VR_IsPausePresentationTarget(),GetTickCount64());
         if (cePauseRequest!=halo_ce::PauseRequest::None)
         {
             VR_RequestPausePresentation(cePauseRequest==halo_ce::PauseRequest::Enter);
-            LOG("CE pause presentation: native clock restored %s",
-                cePaused?"head-locked 2D":"stereo 3D");
+            if (!ready)
+                LOG("CE pause presentation: camera/presentation ownership ended; clearing head-lock for MCC shell");
+            else
+                LOG("CE pause presentation: native clock restored %s",
+                    cePaused?"head-locked 2D":"stereo 3D");
         }
-        const bool ready=HaloCE_Armed()&&!g_autoVrUserVeto.load()&&
-            !g_vrRuntimeFailureLatched.load();
         if (ready)
         {
             g_enabled.store(true,std::memory_order_release);

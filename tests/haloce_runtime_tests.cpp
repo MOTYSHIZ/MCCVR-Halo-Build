@@ -46,6 +46,10 @@ bool invalidBox{};
 bool omitDepth{},omitShading{},foreignUploadCamera{},changedUploadCamera{},changedUploadPlayer{};
 bool aliasDepthResource{},aliasDepthView{},wrongBoundDepth{},changeDepthAtScene{},omitDepthDraw{};
 bool recreateDepthAtScene{},auxiliaryDepthOverwrite{};
+bool recyclePreparedSource{};
+bool inspectPrimaryDraw{},primaryDrawCorrect{true};
+unsigned primaryDrawStages{},primaryDrawOutputs{};
+bool nestedMaterialProbe{},nestedMaterialFault{},nestedMaterialRejected{true};
 int depthEye{};
 uintptr_t depthRoot{},depthBackend{};
 std::array<std::array<uint8_t,0x118>,2> depthSurfaces{};
@@ -64,6 +68,11 @@ void SelectDepth(int eye)
 }
 void __fastcall NativeDepthDraw(uintptr_t,uintptr_t,uintptr_t,int32_t eye)
 {
+    if (inspectPrimaryDraw)
+    {
+        Tracking owner{};
+        primaryDrawCorrect&=HaloCE_GetAnniversaryPrimaryEyeTracking(owner)==(eye>=0&&eye<2);
+    }
     if (eye==2) eye=0;
     SelectDepth(eye);
     const auto view=reinterpret_cast<uintptr_t>(depthViews[wrongBoundDepth?1-eye:aliasDepthView?0:eye]);
@@ -170,12 +179,23 @@ uintptr_t __fastcall NativeTransfer(uintptr_t,SurfaceTransfer* request)
 }
 void __fastcall NativeOutput(int eye)
 {
+    if (inspectPrimaryDraw)
+    {
+        Tracking owner{};
+        primaryDrawCorrect&=!HaloCE_GetAnniversaryPrimaryEyeTracking(owner);
+        ++primaryDrawOutputs;
+    }
     SurfaceTransfer request{0x111,0x222,0,0,0,0,0,static_cast<int>(eye*testDesc.Height),0,0,
         static_cast<int>(testDesc.Width),static_cast<int>(testDesc.Height)};
     TransferBody(0,&request,bindings.base+0x45e376);
 }
 void __fastcall NativeCameraUpload(uintptr_t,uintptr_t,const SaberCamera* camera)
 {
+    if (inspectPrimaryDraw)
+    {
+        Tracking owner{};
+        primaryDrawCorrect&=!HaloCE_GetAnniversaryPrimaryEyeTracking(owner);
+    }
     const uintptr_t selected=reinterpret_cast<uintptr_t>(camera);
     std::memcpy(reinterpret_cast<void*>(rendererAddress+0xbe98),&selected,sizeof(selected));
 }
@@ -192,10 +212,33 @@ void ConsumeCamera(int eye,uintptr_t caller)
         std::memcpy(reinterpret_cast<uint8_t*>(camera)+0x220,&otherPlayer,4);
     }
     CameraUploadBody(0,0,foreignUploadCamera?&foreign:camera,bindings.base+caller);
+    if (inspectPrimaryDraw)
+    {
+        Tracking owner{};
+        primaryDrawCorrect&=HaloCE_GetAnniversaryPrimaryEyeTracking(owner)&&
+            owner.serial==frameScope->prepared.receipt.tracking.serial;
+        primaryDrawStages|=caller==0x4562bf?1u:caller==0x456a86?2u:4u;
+    }
     *camera=saved;
 }
+Prepared MakePrepared(uint64_t serial,uintptr_t list,PreparationOrigin origin);
 void __fastcall NativeFrame(uintptr_t,uint32_t)
 {
+    if (nestedMaterialProbe)
+    {
+        Tracking owner{};
+        nestedMaterialRejected&=!HaloCE_GetAnniversaryPrimaryEyeTracking(owner);
+        if (nestedMaterialFault) RaiseException(0xe042ce03,0,0,nullptr);
+        return;
+    }
+    if (recyclePreparedSource&&frameScope)
+    {
+        // The native copied-list worker can start preparing the next frame
+        // after this render frame has frozen its already-copied receipt.
+        // Recycle only its private source, leaving active renderer bytes alone.
+        const auto& receipt=frameScope->prepared.receipt;
+        MakePrepared(receipt.tracking.serial+1,receipt.ticket.sourceList,receipt.ticket.origin);
+    }
     if (!omitDepth) for (int eye=0;eye<2;++eye)
     {
         ConsumeCamera(eye,0x4562bf);
@@ -214,8 +257,23 @@ void __fastcall NativeFrame(uintptr_t,uint32_t)
         Paint(testSource,eye?rightColor:leftColor); OutputBody(eye);
     }
 }
+bool InvokeNestedMaterialFault()
+{
+    __try { FrameBody(0,0); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
+    return false;
+}
 uintptr_t __fastcall NativeReset(uintptr_t list)
 { *reinterpret_cast<SaberViewPair*>(list)={}; return 0xfedcba9876543210ull; }
+uint8_t observedBuilderSecondary{};
+bool observedBuilderTracking{};
+uintptr_t __fastcall NativeBuilder(uintptr_t,SaberViewPair* list,uint8_t secondary,float*)
+{
+    observedBuilderSecondary=secondary;
+    observedBuilderTracking=buildScope!=nullptr;
+    *list={};
+    return 0xceba1234;
+}
 void __fastcall NativePrepare(uintptr_t job)
 { std::memcpy(reinterpret_cast<void*>(rendererAddress+0xb0),reinterpret_cast<void*>(job+0x70),sizeof(SaberViewPair)); }
 bool Pixels(ID3D11Device* device,ID3D11Texture2D* texture,uint32_t expected)
@@ -567,43 +625,90 @@ int main()
         {
             auto* camera=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0+eye*sizeof(SaberView));
             post.lastSceneEye=eye;
+            post.primaryDrawEye=eye;post.primaryDrawStage=3;
             post.diagnostic.consumedCamera[eye]=reinterpret_cast<uintptr_t>(camera);
             NativeCameraUpload(0,0,camera);
             check(HaloCE_GetAnniversaryEyeTracking(camera,borrowed)&&borrowed.serial==131&&!borrowed.motionBlur,
                 "post effects borrow each current primary's frozen preparation settings rather than newer XR input");
+            check(HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed)&&borrowed.serial==131,
+                "material lens uses the same frozen primary camera settings");
             auto foreign=*camera;
             check(!HaloCE_GetAnniversaryEyeTracking(&foreign,borrowed)&&!borrowed.serial,
                 "identical copied camera bytes cannot lend post-effect ownership");
             const auto saved=*camera;camera->pose.matrix[12]+=1;
             check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject camera mutation after shading");
+            check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects changed native camera bytes");
             *camera=saved;
         }
         auto* camera=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0+sizeof(SaberView));
         const auto selected=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0);
         NativeCameraUpload(0,0,selected);
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"a later selected camera revokes current-scene post ownership");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects a changed native selected camera");
         NativeCameraUpload(0,0,camera);
         post.diagnostic.consumedShading=1;
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects require completed shading consumption");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"shading material scope requires its own consumed camera receipt");
         post.diagnostic.consumedShading=3;
         post.capture=false;
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"dropped pairs cannot lend post-effect ownership");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"dropped pairs cannot lend material lens ownership");
         post.capture=true;current.serial=140;trackingSnapshot.Publish(current);
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject an old preparation beyond the XR serial window");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects stale tracking serials");
         current.serial=133;trackingSnapshot.Publish(current);trackingAtMs.store(GetTickCount64()-300);
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject expired XR publication");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects expired tracking publication");
         trackingAtMs.store(GetTickCount64());current.spaceEpoch=8;trackingSnapshot.Publish(current);
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject a different XR reference space");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects changed XR space");
         current.spaceEpoch=7;trackingSnapshot.Publish(current);
         ++post.prepared.referenceRevision;
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post effects reject a changed tracking reference");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects changed reference revision");
         --post.prepared.referenceRevision;
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"Original renderer cannot borrow an Anniversary post scope");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"Original renderer cannot borrow Anniversary material ownership");
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
         check(HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"current post-effect ownership recovers after rejected observations");
+        nestedMaterialProbe=true;
+        FrameBody(0,0);
+        check(nestedMaterialRejected&&!anniversaryMaterialMasked&&HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),
+            "nested frames cannot borrow an outer material eye before their first camera upload");
+        nestedMaterialFault=true;
+        check(InvokeNestedMaterialFault()&&nestedMaterialRejected&&!anniversaryMaterialMasked&&
+            HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),
+            "native nested-frame unwind restores outer material scope without lending it to the nested frame");
+        nestedMaterialProbe=nestedMaterialFault=false;
+        ++testGeneration;
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material lens rejects a retired title generation");
+        --testGeneration;
+        post.diagnostic.nativeCount=3;
+        CameraUploadBody(0,0,camera,bindings.base+0x1234);
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),
+            "unknown native camera uploads revoke the preceding primary material scope");
+        CameraUploadBody(0,0,camera,bindings.base+0x4562bf);
+        check(HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),
+            "a verified depth upload admits material projection before scene or shading");
+        auto* auxiliary=reinterpret_cast<SaberCamera*>(rendererAddress+0xf0+2*sizeof(SaberView));
+        CameraUploadBody(0,0,auxiliary,bindings.base+0x4562bf);
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),
+            "auxiliary and reflection cameras cannot lend material projection ownership");
         frameScope=nullptr;
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post-effect ownership ends with the native frame scope");
+        check(!HaloCE_GetAnniversaryPrimaryEyeTracking(borrowed),"material ownership ends with the native frame scope");
+    }
+    {
+        publish(132);Prepared prepared{};renderReady.Read(prepared);
+        HaloCE_PublishTracking(prepared.receipt.tracking,true);recenter=false;
+        inspectPrimaryDraw=true;FrameBody(0,0);inspectPrimaryDraw=false;
+        Tracking ended{};
+        check(primaryDrawCorrect&&primaryDrawStages==7&&primaryDrawOutputs==2&&
+            !HaloCE_GetAnniversaryPrimaryEyeTracking(ended),
+            "both eyes own material projection at depth/scene/shading, never during upload/output or after frame");
+        check(HaloCE_AcquirePair(context.Get(),132,7,pair),"material stage observations preserve both world captures");
+        if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId);pair={}; }
     }
     {
         // Cover the complete frame -> per-eye replay -> native callback ->
@@ -650,7 +755,13 @@ int main()
         const D3D11_RECT priorScissor{2,3,22,13};
         auto hudFrame=[&](uint64_t serial,uint32_t flags,bool expectedHud,
             bool expectedPair=true,unsigned expectedCallbacks=UINT_MAX,bool expectedClean=true) {
-            publish(serial);Prepared prepared{};renderReady.Read(prepared);
+            if (recyclePreparedSource)
+            {
+                const auto next=MakePrepared(serial,jobAddress+0x70,PreparationOrigin::CopiedList);
+                preparedLists[1].Publish(next);PrepareBody(jobAddress);
+            }
+            else publish(serial);
+            Prepared prepared{};renderReady.Read(prepared);
             HaloCE_PublishTracking(prepared.receipt.tracking,true);recenter=false;
             publishedReference.Publish({{prepared.receipt.tracking.headPosition,{},7,3},referenceRevision.load()});
             ObserveRaster(priorViewport,priorScissor);
@@ -726,6 +837,12 @@ int main()
         hudFrame(147,0x10,true);
         check(hudRasterCorrect&&anniversaryHudDraws.load()==14,
             "both-eye HUD raster and capture recover after rejected and faulted optional callbacks");
+        recyclePreparedSource=true;
+        hudFrame(148,0x10,true);
+        Prepared renderedReceipt{};renderReady.Read(renderedReceipt);
+        check(!handoff.Current(renderedReceipt.receipt.ticket)&&anniversaryHudFailure.load()==0,
+            "recycled preparation source cannot revoke the frozen in-flight HUD eye receipt");
+        recyclePreparedSource=false;
         anniversaryHudInstalled=false;anniversaryHudHook={};hudRoot=0;
         ConfigureCeHudLayoutRuntimeFixture(3,false);
     }
@@ -784,6 +901,44 @@ int main()
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
         check(!HaloCE_GetGameplayContext(received),"graphics-mode switch revokes Anniversary controls before reuse");
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1; CeObserveRendererMode();
+    }
+    {
+        // An Original-mode preparation may observe the graphics toggle only
+        // after it started. Its bookkeeping scope owns no tracking reference.
+        // Require the camera guard before even forcing native secondary=1.
+        std::array<uint8_t,0x10> clock{};clock[0]=1;
+        const int32_t tick=20,count=1;
+        std::memcpy(clock.data()+0xc,&tick,4);
+        const uintptr_t clockAddress=reinterpret_cast<uintptr_t>(clock.data());
+        std::memcpy(mapped.data()+0x2e9fd68,&clockAddress,8);
+        Camera center{};center.forward={1,0,0};center.up={0,0,1};
+        center.verticalFov=1;center.nearPlane=.01f;center.farPlane=1000;
+        center.viewport=center.window={0,0,32,32};
+        SaberCamera source{};BuildSaberPose(center,{},0,source.pose);
+        source.viewportWidth=source.viewportHeight=32;
+        source.verticalFovDegrees=57.2957795f;source.nearPlane=.03f;source.farPlane=3000;
+        const uintptr_t sourceAddress=reinterpret_cast<uintptr_t>(&source);
+        const uintptr_t arrayAddress=reinterpret_cast<uintptr_t>(&sourceAddress);
+        std::memcpy(mapped.data()+0x2b17b98,&count,4);
+        std::memcpy(mapped.data()+0x2b17b90,&arrayAddress,8);
+        auto tracking=MakePrepared(160,jobAddress+0x70,PreparationOrigin::CopiedList).receipt.tracking;
+        HaloCE_PublishTracking(tracking,true);
+        const auto previousScope=jobScope;
+        const auto previousReference=reference;
+        hooks[Builder].original=reinterpret_cast<void*>(&NativeBuilder);
+        jobScope={jobAddress,rendererAddress+0xb0,true,false};
+        recenter=true;
+        check(LiveGame()&&SingleCamera(),"builder camera-ownership fixture reaches native eligibility");
+        check(BuilderHook(0,reinterpret_cast<SaberViewPair*>(jobAddress+0x70),0,nullptr)==0xceba1234&&
+            observedBuilderSecondary==0&&!observedBuilderTracking&&recenter.load()&&
+            !std::memcmp(&reference,&previousReference,sizeof(reference)),
+            "Original stock job cannot force stereo or consume recenter after a graphics toggle");
+        jobScope.cameraOwned=true;
+        check(BuilderHook(0,reinterpret_cast<SaberViewPair*>(jobAddress+0x70),0,nullptr)==0xceba1234&&
+            observedBuilderSecondary==1&&observedBuilderTracking&&!recenter.load()&&
+            reference.generation==tracking.generation&&reference.spaceEpoch==tracking.spaceEpoch,
+            "camera-owned Anniversary job still reaches tracked native construction");
+        jobScope=previousScope;
     }
     ResourceRegistry::Record recorded{};
     resources.Forget(reinterpret_cast<uintptr_t>(testSource));

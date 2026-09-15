@@ -30,6 +30,30 @@ int main()
     CHECK(pause.Observe(4,true,false,true,700)==PauseRequest::None);
     CHECK(pause.Observe(4,true,false,true,750)==PauseRequest::Exit);
     CHECK(pause.Observe(0,true,true,false,900)==PauseRequest::None);
+    // e524d21 Save & Quit: native pause succeeds, then camera ownership
+    // expires while halo1.dll and its generation remain in the MCC shell.
+    // Losing the native clock is unknown during a level, but losing the
+    // level's presentation ownership must release its head-locked screen.
+    NativePausePresentation levelPause;
+    CHECK(levelPause.ObserveOwned(7,true,true,true,false,1000)==PauseRequest::None);
+    CHECK(levelPause.ObserveOwned(7,true,true,true,false,1050)==PauseRequest::Enter);
+    CHECK(levelPause.ObserveOwned(7,true,false,false,true,1100)==PauseRequest::None);
+    CHECK(levelPause.ObserveOwned(7,false,false,false,true,1600)==PauseRequest::Exit);
+    CHECK(levelPause.ObserveOwned(7,false,false,false,false,1601)==PauseRequest::None);
+    // Residual native paused data cannot reacquire a detached presentation.
+    CHECK(levelPause.ObserveOwned(7,false,true,true,false,1800)==PauseRequest::None);
+    CHECK(levelPause.ObserveOwned(7,false,true,true,false,1900)==PauseRequest::None);
+    // Same-generation re-entry starts its own full native mismatch delay.
+    CHECK(levelPause.ObserveOwned(7,true,true,true,false,2000)==PauseRequest::None);
+    CHECK(levelPause.ObserveOwned(7,true,true,true,false,2049)==PauseRequest::None);
+    CHECK(levelPause.ObserveOwned(7,true,true,true,false,2050)==PauseRequest::Enter);
+    // If Save & Quit interrupts entry's debounce, it cannot carry forward.
+    NativePausePresentation interruptedPause;
+    CHECK(interruptedPause.ObserveOwned(8,true,true,true,false,3000)==PauseRequest::None);
+    CHECK(interruptedPause.ObserveOwned(8,false,false,false,false,3100)==PauseRequest::None);
+    CHECK(interruptedPause.ObserveOwned(8,true,true,true,false,3200)==PauseRequest::None);
+    CHECK(interruptedPause.ObserveOwned(8,true,true,true,false,3250)==PauseRequest::Enter);
+    CHECK(interruptedPause.ObserveOwned(0,false,true,true,true,3300)==PauseRequest::Exit);
     CHECK(!AllowStockScreen(true,true,false)); // retain failed-frame isolation
     CHECK(AllowStockScreen(true,true,true)); // visible immediately after fade
     CHECK(AllowStockScreen(true,false,false)); // ordinary shell

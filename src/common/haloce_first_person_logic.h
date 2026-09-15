@@ -126,6 +126,7 @@ struct FirstPersonBinding
     int16_t rightWrist{-1},leftWrist{-1},gun{-1};
     int16_t shoulder[2]{-1,-1},elbow[2]{-1,-1}; // physical left/right
     uint64_t rightMask{},leftMask{},gunMask{};
+    uint64_t armMask[2]{};
 };
 inline bool NodeName(const char (&name)[32],const char* expected) noexcept
 {
@@ -198,8 +199,16 @@ inline bool BuildFirstPersonBinding(uint32_t graph,uint32_t generation,
         if (DescendsFrom(nodes,count,i,size_t(candidate.rightWrist))) candidate.rightMask|=bit;
         if (DescendsFrom(nodes,count,i,size_t(candidate.leftWrist))) candidate.leftMask|=bit;
         if (DescendsFrom(nodes,count,i,size_t(candidate.gun))) candidate.gunMask|=bit;
+        for (size_t side=0;side<2;++side)
+            if (candidate.shoulder[side]>=0&&
+                DescendsFrom(nodes,count,i,size_t(candidate.shoulder[side]))&&
+                !DescendsFrom(nodes,count,i,size_t(side?candidate.rightWrist:candidate.leftWrist)))
+                candidate.armMask[side]|=bit;
     }
     if ((candidate.rightMask&candidate.leftMask)||!candidate.gunMask) return false;
+    if ((candidate.armMask[0]&candidate.armMask[1])||
+        ((candidate.armMask[0]|candidate.armMask[1])&
+         (candidate.rightMask|candidate.leftMask|candidate.gunMask|1))) return false;
     for (size_t side=0;side<2;++side)
     {
         const int wrist=side?candidate.rightWrist:candidate.leftWrist;
@@ -208,6 +217,33 @@ inline bool BuildFirstPersonBinding(uint32_t graph,uint32_t generation,
              nodes[candidate.elbow[side]].parent!=candidate.shoulder[side])) return false;
     }
     out=candidate;
+    return true;
+}
+
+inline bool CollapseFirstPersonArmsAtWrists(const FirstPersonBinding& binding,
+    std::array<NodeMatrix,kFirstPersonMaxNodes>& palette) noexcept
+{
+    if (!binding.count||binding.count>kFirstPersonMaxNodes||
+        binding.leftWrist<0||binding.rightWrist<0||
+        binding.leftWrist>=binding.count||binding.rightWrist>=binding.count||
+        (binding.armMask[0]&binding.armMask[1])||
+        ((binding.armMask[0]|binding.armMask[1])&
+         (binding.leftMask|binding.rightMask|binding.gunMask|1))) return false;
+    const uint64_t inRange=binding.count==64?~uint64_t{}:(uint64_t{1}<<binding.count)-1;
+    if ((binding.armMask[0]|binding.armMask[1])&~inRange) return false;
+    NodeMatrix collapsed[2]={palette[binding.leftWrist],palette[binding.rightWrist]};
+    for (auto& matrix:collapsed)
+    {
+        if (!Valid(matrix)) return false;
+        matrix.scale=0.00001f;
+    }
+    // Official HCEEK cyborg FP vertices blend each forearm with its own wrist.
+    // Shrinking the forearm at the camera leaves an arm-to-camera triangle fan.
+    // Collapse both named arm chains at their matching final wrist instead.
+    // Wrist/finger/weapon matrices and the native Saber object root stay exact.
+    for (size_t i=1;i<binding.count;++i)
+        for (size_t side=0;side<2;++side)
+            if (binding.armMask[side]&(uint64_t{1}<<i)) palette[i]=collapsed[side];
     return true;
 }
 
@@ -450,6 +486,8 @@ inline bool BuildTrackedFirstPersonPalette(const FirstPersonBinding& binding,
         for (size_t i=1;i<binding.count;++i)
             if (!((binding.rightMask|binding.leftMask|binding.gunMask)&(uint64_t{1}<<i)))
             { candidate[i].scale=0.00001f;candidate[i].position=camera.position; }
+    if (rig.floatingHands&&!kCeFloatingArmsAtCameraEnabled&&
+        !CollapseFirstPersonArmsAtWrists(binding,candidate)) return false;
     out=candidate;return true;
 }
 

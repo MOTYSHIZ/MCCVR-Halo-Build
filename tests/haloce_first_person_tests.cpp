@@ -12,6 +12,38 @@ void Name(AnimationNode& node,const char* name,int parent)
 }
 int main(int argc,char** argv)
 {
+    if (argc==4&&std::strcmp(argv[1],"--floating-mesh-fixture")==0)
+    {
+        std::ifstream input(argv[2],std::ios::binary);
+        uint32_t count{},flags{};float primaryScale{},supportScale{};
+        AnimationNode nodes[kFirstPersonMaxNodes]{};
+        NodeMatrix authored[kFirstPersonMaxNodes]{};
+        CHECK(input.read(reinterpret_cast<char*>(&count),sizeof(count))&&count&&count<=kFirstPersonMaxNodes);
+        CHECK(input.read(reinterpret_cast<char*>(nodes),count*sizeof(AnimationNode)));
+        CHECK(input.read(reinterpret_cast<char*>(authored),count*sizeof(NodeMatrix)));
+        CHECK(input.read(reinterpret_cast<char*>(&flags),sizeof(flags)));
+        CHECK(input.read(reinterpret_cast<char*>(&primaryScale),sizeof(primaryScale)));
+        CHECK(input.read(reinterpret_cast<char*>(&supportScale),sizeof(supportScale)));
+        FirstPersonBinding binding{};
+        CHECK(BuildFirstPersonBinding(25,3,nodes,count,binding));
+        Camera camera{};camera.position={100,200,300};camera.forward={1,0,0};camera.up={0,0,1};
+        camera.verticalFov=1;camera.viewport={0,0,100,100};camera.window=camera.viewport;
+        camera.nearPlane=.01f;camera.farPlane=100;
+        Tracking tracking{};tracking.serial=4;tracking.generation=3;tracking.spaceEpoch=2;
+        Reference reference{};reference.generation=3;reference.spaceEpoch=2;
+        auto& rig=tracking.controllers;
+        rig.controlsPresentationBlocked=false;rig.primaryAim.valid=rig.support.valid=true;
+        rig.primaryAim.position={.3f,-.2f,-.6f};rig.support.position={-.3f,-.1f,-.4f};
+        rig.gunScale=primaryScale;rig.supportScale=supportScale;
+        rig.gunForwardM=rig.supportForwardM=0;rig.primaryShoulderDrop=0;
+        rig.floatingHands=(flags&1)!=0;rig.leftHanded=(flags&2)!=0;
+        rig.handAlignment=(flags&4)!=0;rig.twoHandAimActive=(flags&8)!=0;
+        std::array<NodeMatrix,kFirstPersonMaxNodes> palette{};
+        CHECK(BuildTrackedFirstPersonPalette(binding,authored,camera,tracking,reference,1,true,palette));
+        std::ofstream output(argv[3],std::ios::binary);
+        CHECK(output.write(reinterpret_cast<const char*>(palette.data()),count*sizeof(NodeMatrix)));
+        return 0;
+    }
     if (argc==4&&std::strcmp(argv[1],"--classic-native-projection-fixture")==0)
     {
         std::ifstream input(argv[2],std::ios::binary);
@@ -115,6 +147,10 @@ int main(int argc,char** argv)
         FirstPersonBinding actual{};
         CHECK(BuildFirstPersonBinding(25,3,official,count,actual));
         for (int side=0;side<2;++side) CHECK(actual.shoulder[side]>=0&&actual.elbow[side]>=0);
+        // Every hidden official arm node has a proved left/right shoulder
+        // ancestor. The graph root is the only remaining non-hand node.
+        CHECK((actual.armMask[0]|actual.armMask[1]|actual.leftMask|actual.rightMask|1)==
+            (count==64?~uint64_t{}:(uint64_t{1}<<count)-1));
     }
     AnimationNode nodes[9]{};
     Name(nodes[0],"frame bone24",0);
@@ -247,6 +283,21 @@ int main(int argc,char** argv)
     CHECK(BuildTrackedFirstPersonPalette(binding,authored,camera,tracking,reference,1,true,palette));
     for (int index:{1,2,3,4}) CHECK(palette[index].scale<0.0001f);
     for (int index:{0,5,6,7,8,9,10}) CHECK(palette[index].scale==1);
+    // Regression: a camera-origin collapse stretches mixed forearm/wrist
+    // vertices into spikes. Each hidden arm must instead finish at its own
+    // tracked wrist, including anatomical left-handed and two-hand routing.
+    for (int index:{1,3}) CHECK(Near(palette[index].position,palette[5].position));
+    for (int index:{2,4}) CHECK(Near(palette[index].position,palette[6].position));
+    const auto hidden=palette;
+    rig.floatingHands=false;
+    CHECK(BuildTrackedFirstPersonPalette(binding,authored,camera,tracking,reference,1,true,palette));
+    for (int index:{0,5,6,7,8,9,10})
+        CHECK(std::memcmp(&palette[index],&hidden[index],sizeof(NodeMatrix))==0);
+    rig.floatingHands=true;
+    auto invalidBinding=binding;invalidBinding.armMask[0]|=1;
+    const auto beforeCollapse=palette;
+    CHECK(!CollapseFirstPersonArmsAtWrists(invalidBinding,palette));
+    CHECK(std::memcmp(&palette,&beforeCollapse,sizeof(palette))==0);
     rig.gunForwardM=-0.1f;rig.gunRightM=0.02f;rig.gunUpM=0.03f;rig.gunScale=0.5f;
     CHECK(BuildTrackedFirstPersonPalette(binding,authored,camera,tracking,reference,1,true,palette));
     CHECK(Near(palette[5].position,{0.4f,0.28f,0.03f}));

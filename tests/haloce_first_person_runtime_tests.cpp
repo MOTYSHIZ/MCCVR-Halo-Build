@@ -7,6 +7,8 @@
 static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 static halo_ce::RenderContext testContext{};
+static halo_ce::RenderContext anniversaryEyeContext{};
+static bool anniversaryEyeValid=true;
 static bool contextValid=true,renderContextValid=true,nativeSawInvalidated=true;
 static bool lensFault{},lensRebuild{};
 static float lensArgument{};
@@ -29,6 +31,12 @@ bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& candidate) noexce
         candidate.tracking.spaceEpoch==testContext.tracking.spaceEpoch&&
         candidate.tracking.serial&&candidate.tracking.serial<=testContext.tracking.serial&&
         testContext.tracking.serial-candidate.tracking.serial<=8;
+}
+bool HaloCE_GetAnniversaryPrimaryEyeTracking(halo_ce::Tracking& tracking) noexcept
+{
+    tracking={};
+    if (!anniversaryEyeValid||!renderContextValid||!HaloCE_RenderContextCurrent(anniversaryEyeContext)) return false;
+    tracking=anniversaryEyeContext.tracking;return true;
 }
 bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState&) noexcept { return false; }
 void Logf(const char*,...) {}
@@ -70,6 +78,7 @@ int main()
     {
         const uint64_t now=GetTickCount64()-age;
         const bool success=paletteReceipt.Publish({testContext,now});
+        anniversaryEyeContext=testContext;
         lastApplied.store(now,std::memory_order_release);return success;
     };
     CHECK(publish());CHECK(HaloCEFirstPerson_Armed());
@@ -97,6 +106,24 @@ int main()
     const SaberBoneMatrix initial{{1,0,0,0, 0,1,0,0, 0,0,1,0, 123,456,789,1}};
     SaberBoneMatrix output=initial;
     CHECK(ScaleConvertedSkin(&source,&output));CHECK(output.value[0]==.3f&&output.value[12]==123);
+    // Native Anniversary skinning owns a copied bone array. The next native
+    // prepare can invalidate the global palette receipt between ANY two bone
+    // conversions without changing this array. Its self-contained scale must
+    // apply consistently to all bones, including hidden forearms.
+    for (float scale:{.00001f,.3f,1.0f,3.0f})
+    {
+        source.scale=scale;CHECK(publish());
+        for (unsigned bone=0;bone<8;++bone)
+        {
+            if (bone==3) lastApplied.store(0,std::memory_order_release);
+            output=initial;
+            CHECK(ScaleConvertedSkin(&source,&output));
+            CHECK(output.value[0]==scale&&output.value[5]==scale&&output.value[10]==scale);
+            CHECK(output.value[12]==123&&output.value[13]==456&&output.value[14]==789&&output.value[15]==1);
+            if (scale==1) CHECK(std::memcmp(&output,&initial,sizeof(output))==0);
+        }
+    }
+    source.scale=.3f;CHECK(publish());
     std::array<uint8_t,0x40> model{};
     uint32_t flags=0x10000000u;std::memcpy(model.data()+0x28,&flags,sizeof(flags));
     float constants[96]{};for (size_t index=92;index<96;++index) constants[index]=1;
@@ -118,6 +145,21 @@ int main()
         CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data()),offset));
         CHECK(std::memcmp(before,constants,sizeof(before))==0);
     }
+    // The next CPU palette rebuild cannot switch any current-eye material
+    // back to the fixed weapon lens between depth/color/effect consumers.
+    CHECK(publish());lastApplied.store(0,std::memory_order_release);
+    CHECK(!HaloCEFirstPerson_Armed());
+    for (size_t offset:{size_t(0x170),size_t(0x20),size_t(0x70)})
+    {
+        for (size_t index=offset/4;index<offset/4+4;++index) constants[index]=1;
+        CHECK(ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data()),offset));
+        for (size_t index=offset/4;index<offset/4+4;++index) CHECK(constants[index]==0);
+    }
+    anniversaryEyeValid=false;
+    for (size_t index=92;index<96;++index) constants[index]=1;
+    CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
+    for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
+    anniversaryEyeValid=true;
     testContext.tracking.controllers.controlsPresentationBlocked=true;CHECK(publish());
     classicFov=.9671381116f;CHECK(!ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==.9671381116f);
     for (size_t index=92;index<96;++index) constants[index]=1;
@@ -139,7 +181,11 @@ int main()
         if (fault==5) testTitle=GameTitle::Halo3;
         CHECK(!HaloCEFirstPerson_Armed());output=initial;
         classicFov=.9671381116f;CHECK(!ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==.9671381116f);
-        CHECK(!ScaleConvertedSkin(&source,&output));CHECK(std::memcmp(&output,&initial,sizeof(output))==0);
+        // A copied source matrix retains its scale across frame/reference
+        // churn. Title/feature lifetime changes still reject the consumer.
+        CHECK(ScaleConvertedSkin(&source,&output)==(fault<4));
+        if (fault<4) CHECK(output.value[0]==source.scale&&output.value[12]==123);
+        else CHECK(std::memcmp(&output,&initial,sizeof(output))==0);
         for (size_t index=92;index<96;++index) constants[index]=1;
         CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
         for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
@@ -147,14 +193,22 @@ int main()
     }
     CHECK(publish(251));CHECK(!HaloCEFirstPerson_Armed());
     CHECK(publish());contextValid=false;CHECK(!HaloCEFirstPerson_Armed());contextValid=true;
-    // A native prepare that cannot produce a tracked palette must immediately
-    // leave both native skin scale and projection selector untouched.
+    // Failed new preparation cannot claim a Classic tracked-palette receipt.
+    // A current Anniversary draw still owns its own world lens; a copied bone
+    // retains its explicit scale, and stock scale one stays byte-identical.
     CHECK(publish());PrepareHook(0);CHECK(prepareCalls==1&&nativeSawInvalidated);
     CHECK(!HaloCEFirstPerson_Armed());output=initial;
     classicFov=.9671381116f;CHECK(!ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==.9671381116f);
-    CHECK(!ScaleConvertedSkin(&source,&output));CHECK(std::memcmp(&output,&initial,sizeof(output))==0);
+    CHECK(ScaleConvertedSkin(&source,&output));CHECK(output.value[0]==source.scale);
+    source.scale=1;output=initial;
+    CHECK(ScaleConvertedSkin(&source,&output));CHECK(std::memcmp(&output,&initial,sizeof(output))==0);
+    CHECK(ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
+    for (size_t index=92;index<96;++index) CHECK(constants[index]==0);
+    anniversaryEyeValid=false;
+    for (size_t index=92;index<96;++index) constants[index]=1;
     CHECK(!ApplyTrackedProjection(constants,reinterpret_cast<uintptr_t>(model.data())));
     for (size_t index=92;index<96;++index) CHECK(constants[index]==1);
+    anniversaryEyeValid=true;
     // Other output users cannot invalidate the locally owned user's receipt.
     CHECK(publish());PrepareHook(1);CHECK(HaloCEFirstPerson_Armed()&&prepareCalls==2);
     CHECK(callbacks.load()==0);

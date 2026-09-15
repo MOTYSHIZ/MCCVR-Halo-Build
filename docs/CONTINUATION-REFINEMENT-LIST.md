@@ -1,4 +1,21 @@
-# Latest continuation - September 15: CE visible, refine camera/weapons/pause
+# Latest continuation - September 15: CE hand/HUD/startup/exit refinement
+
+User tested e524d21: both CE modes inject, gun scale good, Original HUD good.
+Latest requested scope is stretched Original arms, initial Original flicker,
+Anniversary hand flicker/HUD, and head-locked shell/possible transition crashes.
+Focus CE/Anniversary, leave Halo 3 alone; the briefly proposed extra task was
+cancelled. Work autonomously through a NEW build ZIP plus matching source ZIP,
+package without `-Install`, deliver both here, then WAIT. No game launch,
+installation, game-folder changes, PR or publication. Accepted 4e01f28 unchanged.
+
+Read current ACTIVE-WORK-CHECKPOINT.md and HALOCE-E524D21-TEST-2026-09-15.md.
+This explicitly authorizes cumulative CE refinements and supersedes old holds.
+All other standing/deferred scope below is preserved; it is not authorization
+to divert this package into Halo 3 recovery, CE melee/collision/body following,
+dual trajectory, vehicles or unrelated features. Existing-title support and
+both MCC editions remain. Local regressions do not establish headset acceptance.
+
+# Historical continuation - September 15: CE visible, refine camera/weapons/pause
 
 User confirms BOTH CE graphics modes visible on a2b526a and requests autonomous
 cumulative refinement through build and matching source ZIPs, without approval

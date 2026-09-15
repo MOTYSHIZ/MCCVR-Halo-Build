@@ -215,13 +215,19 @@ bool CopyPalette(const NodeMatrix* source,NodeMatrix* destination,size_t count) 
 }
 bool ScaleConvertedSkin(const NodeMatrix* source,SaberBoneMatrix* destination) noexcept
 {
+    // Native 0x8B97D converts the model's already-copied instance+0x20C bone.
+    // Its explicit scale belongs to that immutable source, not to a different
+    // preparation's latest global receipt. Keep the old gate inert: a next
+    // PrepareHook could otherwise remove scale halfway through this palette.
+    constexpr bool useLatestPaletteReceipt=false;
     NodeMatrix native{};SaberBoneMatrix converted{};RenderContext context{};
-    if (!source||!destination||!CurrentPaletteContext(context)||
-        context.tracking.controllers.controlsPresentationBlocked||
+    if (!source||!destination||!Current()||
+        (useLatestPaletteReceipt&&(!CurrentPaletteContext(context)||
+            context.tracking.controllers.controlsPresentationBlocked))||
         !Read(reinterpret_cast<uintptr_t>(source),native)||!Valid(native)||
         !Read(reinterpret_cast<uintptr_t>(destination),converted)||
         !ApplySaberFirstPersonScale(native.scale,converted)||
-        !HaloCE_RenderContextCurrent(context)||!Current()) return false;
+        (useLatestPaletteReceipt&&!HaloCE_RenderContextCurrent(context))||!Current()) return false;
     __try { std::memcpy(destination,&converted,sizeof(converted));return true; }
     __except(EXCEPTION_EXECUTE_HANDLER)
     { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
@@ -241,13 +247,23 @@ __declspec(noinline) void __fastcall SkinConvertHook(const NodeMatrix* source,Sa
 }
 bool ApplyTrackedProjection(float* constants,uintptr_t model,size_t selectorOffset=0x170) noexcept
 {
-    uint32_t flags{};float selector[4]{};RenderContext context{};
+    // Lens selection belongs to the actual eye drawing this native FP model,
+    // independently of controller-palette production. The next CPU prepare
+    // can revoke lastApplied between ZFILL and color without changing either
+    // this model or the current eye. Keep the rejected scheduling gate inert.
+    constexpr bool useLatestPaletteReceipt=false;
+    RenderContext context{};Tracking eye{},after{};
+    uint32_t flags{};float selector[4]{};
     if (!constants||!model||!Read(model+0x28,flags)||!(flags&0x10000000u)||
-        !CurrentPaletteContext(context)||
-        context.tracking.controllers.controlsPresentationBlocked||
+        (useLatestPaletteReceipt&&(!CurrentPaletteContext(context)||
+            context.tracking.controllers.controlsPresentationBlocked||!HaloCE_RenderContextCurrent(context)))||
+        !HaloCE_GetAnniversaryPrimaryEyeTracking(eye)||
+        eye.generation!=generation.load(std::memory_order_acquire)||eye.controllers.controlsPresentationBlocked||
         !Read(reinterpret_cast<uintptr_t>(constants)+selectorOffset,selector)||
         !SelectSaberTrackedProjection(flags,selector)||
-        !HaloCE_RenderContextCurrent(context)||!Current()) return false;
+        !HaloCE_GetAnniversaryPrimaryEyeTracking(after)||
+        after.generation!=eye.generation||after.spaceEpoch!=eye.spaceEpoch||after.serial!=eye.serial||
+        !Current()) return false;
     __try { std::memcpy(reinterpret_cast<uint8_t*>(constants)+selectorOffset,selector,sizeof(selector));return true; }
     __except(EXCEPTION_EXECUTE_HANDLER)
     { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
@@ -456,7 +472,7 @@ bool InstallSkin(uintptr_t base,size_t size,uint32_t gen) noexcept
     if (result!=MH_OK)
     { LOG("CE Anniversary hand scale stock fallback: enable hook status %d",result);(void)RemoveSkin();return false; }
     skinConvertHook.enabled=true;skinInstalled=true;
-    LOG("CE Anniversary hand scale installed: native FP skin conversion preserves tracked gun/hand scale and floating arms");
+    LOG("CE Anniversary hand scale installed: native copied FP bones retain their own scale across overlapping prepares; stock scale one unchanged");
     return true;
 }
 bool RemoveProjection() noexcept
@@ -509,7 +525,7 @@ bool InstallProjection(uintptr_t base,size_t size,uint32_t gen) noexcept
         hook->enabled=true;
     }
     projectionInstalled=true;
-    LOG("CE Anniversary FP projection installed: native GLT color, ZFILL depth and SFX materials share the tracked world lens");
+    LOG("CE Anniversary FP projection installed: native GLT color, ZFILL depth and SFX share the current primary-eye world lens independently of palette scheduling");
     return true;
 }
 bool RemoveClassicLens() noexcept

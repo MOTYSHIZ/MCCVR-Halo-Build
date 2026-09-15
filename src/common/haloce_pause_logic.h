@@ -14,6 +14,21 @@ struct NativePausePresentation
     uint64_t mismatchSince{};
     bool mismatchPending{},mismatchValue{};
 
+    PauseRequest ObserveOwned(uint32_t currentGeneration,bool presentationOwned,
+        bool known,bool paused,bool targetPaused,uint64_t now) noexcept
+    {
+        // Ownership participates in reconciliation even when the native
+        // clock is no longer readable. The CE module can stay resident in
+        // MCC's shell after its camera heartbeat and controls have retired.
+        // A retained pause bit belongs to that old level, not the shell.
+        if (!presentationOwned)
+        {
+            *this={};generation=currentGeneration;
+            return targetPaused?PauseRequest::Exit:PauseRequest::None;
+        }
+        return Observe(currentGeneration,known,paused,targetPaused,now);
+    }
+
     PauseRequest Observe(uint32_t currentGeneration,bool known,bool paused,
         bool targetPaused,uint64_t now) noexcept
     {

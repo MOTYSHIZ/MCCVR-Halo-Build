@@ -149,6 +149,23 @@ void __fastcall NativeBlit(const halo_ce::Rectangle*)
     if (scope&&scope->prepared) Paint(scope->eye?rightColor:leftColor);
 }
 void __fastcall NativeSaberFrame(uintptr_t,uint32_t) { }
+bool preparationSawScope{},preparationSawCameraOwned{},preparationSawCameraGuard{},preparationThrow{};
+void __fastcall NativePreparation(uintptr_t)
+{
+    preparationSawScope=jobScope.owned;
+    preparationSawCameraOwned=jobScope.cameraOwned;
+    preparationSawCameraGuard=preparationBusy.test();
+    if (preparationThrow) RaiseException(0xE000CEA3,0,0,nullptr);
+    // The native preparation job may overlap Original rendering. Interleave
+    // the production callbacks deterministically while its guard is held.
+    ClassicGameRenderBody(.125f,.75f);
+}
+bool InvokeFaultingPreparation(uintptr_t job)
+{
+    __try { PrepareBody(job); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
+    return false;
+}
 void __fastcall NativeGame(float delta,float interpolation)
 {
     ++nativeFrames;
@@ -343,6 +360,42 @@ int main()
     *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
     check(!HaloCE_AcquirePair(context.Get(),serial,7,pair),
         "graphics mode change before submission immediately revokes the Classic pair");
+    {
+        run(Fault::None);
+        std::vector<uint8_t> job(0xbe70),renderer(0xc000);
+        put(mapped.data()+0x1bea9e0,reinterpret_cast<uintptr_t>(renderer.data()));
+        hooks[Prepare].original=reinterpret_cast<void*>(&NativePreparation);
+        const auto beforePairs=classicPairs.load(),beforeStock=classicStock.load();
+        tracking.serial=++serial; HaloCE_PublishTracking(tracking,true);
+        PrepareBody(reinterpret_cast<uintptr_t>(job.data()));
+        check(preparationSawScope&&!preparationSawCameraOwned&&!preparationSawCameraGuard&&
+            classicPairs.load()==beforePairs+1&&classicStock.load()==beforeStock&&
+            HaloCE_AcquirePair(context.Get(),serial,7,pair),
+            "stock Anniversary preparation cannot force a cold Original frame out of stereo");
+        if (pair.borrowId)
+        {
+            check(Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
+                "overlapping stock preparation preserves both completed Original eye images");
+            HaloCE_ReleasePair(pair.borrowId); pair={};
+        }
+        preparationThrow=true;
+        check(InvokeFaultingPreparation(reinterpret_cast<uintptr_t>(job.data()))&&
+            !jobScope.owned&&!preparationBusy.test()&&!jobPreparationBusy.test(),
+            "native preparation exception restores scope and camera guard");
+        preparationThrow=false;
+        tracking.serial=++serial; HaloCE_PublishTracking(tracking,true);
+        PrepareBody(reinterpret_cast<uintptr_t>(job.data()));
+        check(HaloCE_AcquirePair(context.Get(),serial,7,pair),
+            "Original recovers on the next preparation after native unwind");
+        if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+        *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
+        preparationThrow=true;
+        check(InvokeFaultingPreparation(reinterpret_cast<uintptr_t>(job.data()))&&
+            preparationSawScope&&preparationSawCameraOwned&&preparationSawCameraGuard&&
+            !jobScope.owned&&!preparationBusy.test()&&!jobPreparationBusy.test(),
+            "Anniversary still claims exclusive camera ownership and releases both guards on unwind");
+        preparationThrow=false;
+    }
     probePrimaryScope=true;
     run(Fault::None);
     probePrimaryScope=false;

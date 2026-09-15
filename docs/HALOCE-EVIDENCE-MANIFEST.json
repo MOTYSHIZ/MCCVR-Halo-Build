@@ -1,6 +1,6 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "a2b526a user confirms both CE renderers visible; camera/weapon/pause refinements under local verification; accepted source remains 4e01f28; local checks are not headset acceptance",
+  "status": "e524d21 user confirms both CE modes inject, gun scale and Original HUD; hand/HUD/startup/exit refinements locally verified and awaiting new headset test; accepted source remains 4e01f28",
   "recorded_date": "2026-09-15",
   "retail": {
     "module": "halo1.dll",
