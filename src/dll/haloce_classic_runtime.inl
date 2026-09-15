@@ -35,20 +35,35 @@ int32_t CeObserveRendererMode() noexcept
 
 struct ClassicNativeSource
 {
-    uintptr_t wrapper{},resolved{},rtv{},resource{},context{};
+    uintptr_t owner{},wrapper{},resolved{},rtv{},resource{},context{};
     ResourceRegistry::Record record;
 };
+enum class ClassicSourceFailure : uint32_t { None,Owner,Wrapper,WrapperType,
+    NativeView,Context,BackendContext,Selector,SelectedType,Views,RtvMismatch,Resource,Descriptor };
+std::atomic<ClassicSourceFailure> classicSourceFailure{};
 bool ClassicSource(ClassicNativeSource& out) noexcept
 {
     ClassicNativeSource value{};
     uintptr_t vtable{},views{},nativeView{},backend{},backendContext{};
-    if (!Read(bindings.base+0x2e3b910,value.wrapper)||!value.wrapper||
-        !Read(value.wrapper,vtable)||vtable!=bindings.base+0x17fb608||
-        !Read(bindings.base+0x1b85e78,nativeView)||!nativeView||
-        !Read(bindings.base+0x2ea2d30,value.context)||!value.context||
-        !Read(bindings.base+0x2e3bde0,backend)||!backend||
+    const auto fail=[](ClassicSourceFailure reason) noexcept {
+        classicSourceFailure.store(reason,std::memory_order_relaxed); return false;
+    };
+    // E-CE-C5: kind 0 is the host output, initialized separately at AE410.
+    // The 2E3B910 wrapper array is populated only for kinds 1..8; its element
+    // zero is not the native owner of the kind-0 RTV cached at 1B85E78.
+    if (!Read(bindings.base+0x2e3c090,value.owner)||!value.owner)
+        return fail(ClassicSourceFailure::Owner);
+    if (!Read(value.owner+0x500,value.wrapper)||!value.wrapper)
+        return fail(ClassicSourceFailure::Wrapper);
+    if (!Read(value.wrapper,vtable)||vtable!=bindings.base+0x17fb608)
+        return fail(ClassicSourceFailure::WrapperType);
+    if (!Read(bindings.base+0x1b85e78,nativeView)||!nativeView)
+        return fail(ClassicSourceFailure::NativeView);
+    if (!Read(bindings.base+0x2ea2d30,value.context)||!value.context)
+        return fail(ClassicSourceFailure::Context);
+    if (!Read(bindings.base+0x2e3bde0,backend)||!backend||
         !Read(backend+0xce0,backendContext)||backendContext!=value.context)
-        return false;
+        return fail(ClassicSourceFailure::BackendContext);
     __try
     {
         // Verified native selector is read-only. It chooses the same variants
@@ -56,12 +71,19 @@ bool ClassicSource(ClassicNativeSource& out) noexcept
         value.resolved=reinterpret_cast<uintptr_t(__fastcall*)(uintptr_t)>(
             bindings.surfaceSelector)(value.wrapper);
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
-    if (!value.resolved||!Read(value.resolved+0xe8,views)||!views||
-        !Read(views,value.rtv)||value.rtv!=nativeView||
-        !Read(value.resolved+0xe0,value.resource)||!value.resource||
-        !resources.Read(value.resource,value.resource,value.record)) return false;
+    __except(EXCEPTION_EXECUTE_HANDLER) { return fail(ClassicSourceFailure::Selector); }
+    if (!value.resolved||!Read(value.resolved,vtable)||vtable!=bindings.base+0x17fb608)
+        return fail(ClassicSourceFailure::SelectedType);
+    if (!Read(value.resolved+0xe8,views)||!views)
+        return fail(ClassicSourceFailure::Views);
+    if (!Read(views,value.rtv)||value.rtv!=nativeView)
+        return fail(ClassicSourceFailure::RtvMismatch);
+    if (!Read(value.resolved+0xe0,value.resource)||!value.resource)
+        return fail(ClassicSourceFailure::Resource);
+    if (!resources.Read(value.resource,value.resource,value.record))
+        return fail(ClassicSourceFailure::Descriptor);
     out=value;
+    classicSourceFailure.store(ClassicSourceFailure::None,std::memory_order_relaxed);
     return true;
 }
 
@@ -268,7 +290,7 @@ void ClassicBlitBody(const halo_ce::Rectangle* rectangle,uintptr_t caller)
     if (scope->eye==1)
     {
         const auto& first=scope->sources[0];
-        if (source.wrapper!=first.wrapper||source.resolved!=first.resolved||
+        if (source.owner!=first.owner||source.wrapper!=first.wrapper||source.resolved!=first.resolved||
             source.rtv!=first.rtv||source.resource!=first.resource||source.context!=first.context||
             source.record.revision!=first.record.revision)
         { scope->Fail(ClassicFailure::SourceChanged); return; }

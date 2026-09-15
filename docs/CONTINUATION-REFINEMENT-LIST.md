@@ -1,5 +1,17 @@
 # Latest user result - September 15: be2140f partial progress, FAILED core VR
 
+Current correction work is preserved in
+`docs/HALOCE-CORRECTION-HOLD-2026-09-15.md`. Classic's native kind-zero
+source/late DXGI metadata bootstrap and Anniversary's HUD flag/optional-failure
+isolation are corrected in source and locally verified. Final Release build
+and all 19 CTest suites pass. Native pinned/mapped bindings, generated contracts
+and Reach gate pass. These results do not fix or validate the Anniversary
+world mismatch. The user explicitly confirmed it affects one headset eye.
+All four rejected CE core enables remain false; no ZIP or deployment.
+Actual GPU draw/target/constant capture is the remaining evidence requirement.
+Only isolated capture-tool preparation is underway; MCC is closed and has
+not been launched. Installed Steam be2140f DLL hash independently matches.
+
 The delivered integrated candidate has now been TESTED. Anniversary hands track
 and shots follow the controller, with an unusual left-hand angle; split/displaced
 world rendering persists. Classic still does not enter usable VR. New log:

@@ -410,13 +410,15 @@ bool HaloCEHudLayout_CopyState(ID3D11DeviceContext* context,UINT* viewportCount,
 void HaloCEHudLayout_BeginPrivateRaster() noexcept { ++privateRasterDepth; }
 void HaloCEHudLayout_EndPrivateRaster() noexcept { if (privateRasterDepth) --privateRasterDepth; }
 bool HaloCEHudLayout_BeginEyeReplay(ID3D11DeviceContext* context,UINT nativeWidth,UINT nativeHeight,
-    UINT eyeWidth,UINT eyeHeight) noexcept
+    UINT eyeWidth,UINT eyeHeight,bool* cleanupVerified) noexcept
 {
+    if (cleanupVerified) *cleanupVerified=true;
     if (!Current()||scope||suspensions||writing||privateRasterDepth||eyeReplay.live||!context||
         !eyeWidth||!eyeHeight||eyeWidth>16384||eyeHeight>8192||
         nativeWidth!=eyeWidth||nativeHeight!=eyeHeight*2) return false;
     auto* state=Find(context,false);
     if (!state||!StateCurrent(*state)||!state->viewportsKnown||!state->scissorsKnown) return false;
+    if (cleanupVerified) *cleanupVerified=false;
     eyeReplay={state,*state,true,true};
     state->viewportCount=state->scissorCount=1;
     state->viewports[0]={0,0,float(nativeWidth),float(nativeHeight),0,1};
@@ -424,7 +426,8 @@ bool HaloCEHudLayout_BeginEyeReplay(ID3D11DeviceContext* context,UINT nativeWidt
     // Seed the complete known HUD raster even if native state caching skips a
     // redundant viewport set. Numeric observations stay in authored pixels.
     if (WriteState(*state,nullptr)) return true;
-    (void)HaloCEHudLayout_EndEyeReplay();
+    const bool restored=HaloCEHudLayout_EndEyeReplay();
+    if (cleanupVerified) *cleanupVerified=restored;
     return false;
 }
 bool HaloCEHudLayout_EndEyeReplay() noexcept

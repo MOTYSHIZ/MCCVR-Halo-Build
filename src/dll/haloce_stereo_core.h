@@ -29,3 +29,8 @@ bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,
 // Successful creation owns this texture, even before CE loads. Metadata only.
 void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     const D3D11_TEXTURE2D_DESC& descriptor) noexcept;
+// Cold presentation owns the GetBuffer reference, including buffers created
+// before CE hooks existed. Repeated observations preserve the resource revision.
+void HaloCE_RecordPresentationTexture(ID3D11Texture2D* texture,
+    const D3D11_TEXTURE2D_DESC& descriptor) noexcept;
+void HaloCE_ForgetPresentationTexture() noexcept;

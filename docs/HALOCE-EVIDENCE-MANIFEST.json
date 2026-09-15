@@ -3715,6 +3715,82 @@
           "signature": "80 3D 36 03 DC 02 00 0F 29 B4 24 B0 00 00 00 C6 05 9B 78 E2 02 00 0F 84 C0 00 00 00"
         }
       ]
+    },
+    {
+      "name": "classic_output_target_initialize",
+      "rva": "0xae410",
+      "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 DA 6B AC 01 48 33 C4 48 89 44 24 78 48 8B 05 4B DC D8 02",
+      "function_entry": true,
+      "runtime_group": "classic",
+      "evidence": "E-CE-C5; HALOCE-CLASSIC-EVIDENCE-2026-09-15.md",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xae43e",
+          "target_rva": "0x2e3c090",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 8B 05 ?? ?? ?? ??"
+        },
+        {
+          "instruction_rva": "0xae489",
+          "target_rva": "0x1b85e78",
+          "instruction_bytes": 7,
+          "displacement_offset": 3,
+          "instruction_signature": "48 89 3D ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0xae455",
+          "signature": "48 8B 98 00 05 00 00",
+          "meaning": "native kind-0 wrapper comes from output owner+500"
+        },
+        {
+          "rva": "0xae462",
+          "signature": "FF 90 D8 00 00 00",
+          "meaning": "native zero-index linear RTV accessor"
+        },
+        {
+          "rva": "0xae486",
+          "signature": "48 8B CB",
+          "meaning": "selector receives the same output wrapper"
+        },
+        {
+          "rva": "0xae490",
+          "signature": "E8 5B F1 FF FF",
+          "meaning": "native source selector"
+        },
+        {
+          "rva": "0xae49a",
+          "signature": "48 8B 88 E0 00 00 00",
+          "meaning": "native selected resource at E0"
+        },
+        {
+          "rva": "0xae4c3",
+          "signature": "41 BD 01 00 00 00",
+          "meaning": "wrapper-array loop begins at kind one"
+        },
+        {
+          "rva": "0xae4cd",
+          "signature": "41 8B ED",
+          "meaning": "initialize loop index to one"
+        },
+        {
+          "rva": "0xae601",
+          "signature": "49 89 B4 DF 10 B9 E3 02",
+          "meaning": "wrapper-array assignment for loop kinds 1..8"
+        },
+        {
+          "rva": "0xae6ce",
+          "signature": "FF C5",
+          "meaning": "increment wrapper kind"
+        },
+        {
+          "rva": "0xae6d0",
+          "signature": "83 FD 09",
+          "meaning": "loop stops at kind nine"
+        }
+      ]
     }
   ]
 }

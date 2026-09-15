@@ -9636,6 +9636,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             {
                 D3D11_TEXTURE2D_DESC bd{};
                 backbuffer->GetDesc(&bd);
+                HaloCE_RecordPresentationTexture(backbuffer,bd);
                 if (g_recenterRequested.exchange(
                         false, std::memory_order_acq_rel))
                 {
@@ -13075,6 +13076,7 @@ void VR_NotifyCameraTransform()
 
 void VR_OnResizeBuffers(IDXGISwapChain*)
 {
+    HaloCE_ForgetPresentationTexture();
 #if HALOMCCVR_HALO2_STEREO6DOF
     VR_ResetHalo2SynchronousStereo();
 #endif
@@ -13280,6 +13282,7 @@ void VR_DetachGamePresentation()
     // admission stamp so a proof racing this detach cannot publish.
     InvalidateReachPresentAdmission();
 #endif
+    HaloCE_ForgetPresentationTexture();
     ReleaseSourceViews();
     ReleaseIqChain();
     ReleaseIqTimer();

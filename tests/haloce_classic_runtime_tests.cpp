@@ -29,12 +29,14 @@ D3D11_TEXTURE2D_DESC testDesc{};
 Window stockWindow{};
 unsigned nativeFrames{},nativeViews{},nativeBlits{};
 enum class Fault { None,MissingView,ForeignCamera,ChangedCamera,DuplicateWindow,
-    MissingOutput,ResizedOutput,ChangedTick,ChangedClock,ModeSwitch,Recenter,ChangedSource };
+    MissingOutput,ResizedOutput,ChangedTick,ChangedClock,ModeSwitch,Recenter,ChangedSource,
+    ChangedOwner };
 Fault fault{};
 bool floatArgumentsIntact{true},sourceRestored{true};
 RenderContext observedContexts[2]{};
 bool observedContextValid[2]{};
 uintptr_t alternativeClock{};
+uintptr_t alternativeOwner{};
 constexpr uint32_t leftColor=0xff123456,rightColor=0xffabcdef;
 
 uintptr_t __fastcall SelectSource(uintptr_t wrapper) { return wrapper; }
@@ -115,6 +117,7 @@ void __fastcall NativeGame(float delta,float interpolation)
         if (fault==Fault::ModeSwitch) *reinterpret_cast<int32_t*>(bindings.base+0x1b7aa84)=1;
         if (fault==Fault::Recenter) HaloCE_Recenter();
         if (fault==Fault::ChangedSource) HaloCE_RecordTextureCreated(testSource,testDesc);
+        if (fault==Fault::ChangedOwner) std::memcpy(reinterpret_cast<void*>(bindings.base+0x2e3c090),&alternativeOwner,sizeof(alternativeOwner));
     }
 }
 }
@@ -127,14 +130,25 @@ int main()
     };
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
     const D3D_FEATURE_LEVEL feature=D3D_FEATURE_LEVEL_11_0;
-    if (FAILED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,&feature,1,
-        D3D11_SDK_VERSION,&device,nullptr,&context))) return 1;
+    // A real DXGI buffer can predate every CE native hook and bypass the
+    // public CreateTexture2D observation. Keep this test window hidden.
+    struct HiddenWindow { HWND value{}; ~HiddenWindow() { if (value) DestroyWindow(value); } };
+    HiddenWindow outputWindow{CreateWindowExW(0,L"STATIC",L"CE Classic source test",
+        WS_OVERLAPPEDWINDOW,0,0,32,16,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr)};
+    if (!outputWindow.value) return 1;
+    DXGI_SWAP_CHAIN_DESC swapDesc{};
+    swapDesc.BufferDesc.Width=32; swapDesc.BufferDesc.Height=16;
+    swapDesc.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    swapDesc.SampleDesc.Count=1; swapDesc.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapDesc.BufferCount=1; swapDesc.OutputWindow=outputWindow.value;
+    swapDesc.Windowed=TRUE; swapDesc.SwapEffect=DXGI_SWAP_EFFECT_DISCARD;
+    ComPtr<IDXGISwapChain> swapchain;
+    if (FAILED(D3D11CreateDeviceAndSwapChain(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,&feature,1,
+        D3D11_SDK_VERSION,&swapDesc,&swapchain,&device,nullptr,&context))) return 1;
     testContext=context.Get();
-    testDesc.Width=32; testDesc.Height=16; testDesc.MipLevels=1; testDesc.ArraySize=1;
-    testDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM; testDesc.SampleDesc.Count=1;
-    testDesc.Usage=D3D11_USAGE_DEFAULT; testDesc.BindFlags=D3D11_BIND_RENDER_TARGET;
     ComPtr<ID3D11Texture2D> source;
-    if (FAILED(device->CreateTexture2D(&testDesc,nullptr,&source))) return 1;
+    if (FAILED(swapchain->GetBuffer(0,__uuidof(ID3D11Texture2D),reinterpret_cast<void**>(source.GetAddressOf())))) return 1;
+    source->GetDesc(&testDesc);
     testSource=source.Get();
     ComPtr<ID3D11RenderTargetView> rtv;
     if (FAILED(device->CreateRenderTargetView(source.Get(),nullptr,&rtv))) return 1;
@@ -142,20 +156,27 @@ int main()
     bindings.base=reinterpret_cast<uintptr_t>(mapped.data()); bindings.generation=3;
     bindings.surfaceSelector=reinterpret_cast<uintptr_t>(&SelectSource);
     std::array<uint8_t,0x100> wrapper{};
+    std::array<uint8_t,0x100> decoyWrapper{};
+    std::array<uint8_t,0x508> owner{},otherOwner{};
     std::array<uint8_t,0xd00> backend{};
     std::array<uint8_t,0xc0> players{};
     std::array<uint8_t,0x40> nativeClock{},otherClock{};
     auto put=[](void* address,const auto& value) { std::memcpy(address,&value,sizeof(value)); };
     const uintptr_t wrapperAddress=reinterpret_cast<uintptr_t>(wrapper.data());
+    const uintptr_t ownerAddress=reinterpret_cast<uintptr_t>(owner.data());
+    alternativeOwner=reinterpret_cast<uintptr_t>(otherOwner.data());
     const uintptr_t backendAddress=reinterpret_cast<uintptr_t>(backend.data());
     const uintptr_t playersAddress=reinterpret_cast<uintptr_t>(players.data());
     const uintptr_t clockAddress=reinterpret_cast<uintptr_t>(nativeClock.data());
     alternativeClock=reinterpret_cast<uintptr_t>(otherClock.data());
-    const uintptr_t rtvAddress=reinterpret_cast<uintptr_t>(rtv.Get());
+    uintptr_t rtvAddress=reinterpret_cast<uintptr_t>(rtv.Get());
     const uintptr_t viewsAddress=reinterpret_cast<uintptr_t>(&rtvAddress);
     put(wrapper.data(),bindings.base+0x17fb608);
     put(wrapper.data()+0xe0,testSource); put(wrapper.data()+0xe8,viewsAddress);
-    put(mapped.data()+0x2e3b910,wrapperAddress); put(mapped.data()+0x1b85e78,rtvAddress);
+    // AE410 initializes kind 0 from native output owner+500. Its wrapper
+    // array loop starts at kind 1, leaving 2E3B910 null in the actual layout.
+    put(mapped.data()+0x2e3c090,ownerAddress); put(owner.data()+0x500,wrapperAddress);
+    put(otherOwner.data()+0x500,wrapperAddress); put(mapped.data()+0x1b85e78,rtvAddress);
     put(mapped.data()+0x2ea2d30,testContext); put(mapped.data()+0x2e3bde0,backendAddress);
     put(backend.data()+0xce0,testContext); put(mapped.data()+0x2ea2d90,playersAddress);
     put(players.data()+0xb4,int16_t{1}); put(mapped.data()+0x2e9fd68,clockAddress);
@@ -171,8 +192,35 @@ int main()
     classicHooks[ClassicFinalBlit].original=reinterpret_cast<void*>(&NativeBlit);
     classicHooks[ClassicMainView].original=reinterpret_cast<void*>(&NativeView);
     hooks[Frame].original=reinterpret_cast<void*>(&NativeSaberFrame);
-    HaloCE_RecordTextureCreated(testSource,testDesc);
-    check(cache.Prepare(device.Get(),context.Get(),testDesc,3,1),"cold eye storage prepares");
+    ClassicNativeSource selectedSource{};
+    check(!ClassicSource(selectedSource)&&classicSourceFailure.load()==ClassicSourceFailure::Descriptor,
+        "preexisting DXGI buffer has no fabricated creation or import metadata");
+    HaloCE_RecordPresentationTexture(source.Get(),testDesc);
+    check(ClassicSource(selectedSource)&&selectedSource.owner==ownerAddress&&
+        selectedSource.wrapper==wrapperAddress&&selectedSource.resource==reinterpret_cast<uintptr_t>(testSource),
+        "native kind-0 output resolves while wrapper-array element zero is null");
+    const auto observedRevision=selectedSource.record.revision;
+    HaloCE_RecordPresentationTexture(source.Get(),testDesc);
+    check(ClassicSource(selectedSource)&&selectedSource.record.revision==observedRevision,
+        "repeated strong GetBuffer observation does not churn the resource revision");
+    HaloCE_ForgetPresentationTexture();
+    check(!ClassicSource(selectedSource)&&classicSourceFailure.load()==ClassicSourceFailure::Descriptor,
+        "resize revocation removes metadata even when COM could reuse the address");
+    HaloCE_RecordPresentationTexture(source.Get(),testDesc);
+    check(ClassicSource(selectedSource)&&selectedSource.record.revision!=observedRevision,
+        "a newly owned post-resize observation receives fresh metadata lifetime");
+    put(mapped.data()+0x2e3b910,reinterpret_cast<uintptr_t>(decoyWrapper.data()));
+    check(ClassicSource(selectedSource)&&selectedSource.wrapper==wrapperAddress,
+        "an unrelated kind-0 array decoy cannot select the completed output");
+    put(owner.data()+0x500,uintptr_t{});
+    put(mapped.data()+0x2e3b910,wrapperAddress);
+    check(!ClassicSource(selectedSource)&&classicSourceFailure.load()==ClassicSourceFailure::Wrapper,
+        "missing native output owner never falls back to the wrapper array and records its exact failure");
+    put(owner.data()+0x500,wrapperAddress); put(mapped.data()+0x2e3b910,uintptr_t{});
+    put(mapped.data()+0x1b85e78,uintptr_t{1});
+    check(!ClassicSource(selectedSource)&&classicSourceFailure.load()==ClassicSourceFailure::RtvMismatch,
+        "selected output must agree with the native kind-0 RTV cache and records an identity failure");
+    put(mapped.data()+0x1b85e78,rtvAddress);
     Tracking tracking{}; tracking.generation=3; tracking.spaceEpoch=7;
     tracking.headPosition={0.1f,1.6f,0.2f};
     tracking.eyes[0].offset={-0.032f,0,0}; tracking.eyes[1].offset={0.032f,0,0};
@@ -182,12 +230,33 @@ int main()
         fault=selected; ++serial; tracking.serial=serial;
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
         put(mapped.data()+0x2e9fd68,clockAddress); put(nativeClock.data()+0xc,int32_t{100});
+        put(mapped.data()+0x2e3c090,ownerAddress);
         CeObserveRendererMode(); recenter=true;
         HaloCE_PublishTracking(tracking,true);
         ClassicGameRenderBody(0.125f,0.75f);
         check(!classicFrameScope&&!preparationBusy.test(),"scope and busy lease retire after every frame");
     };
     EyeCache::Completed pair{};
+    HaloCE_ForgetPresentationTexture();
+    run(Fault::None);
+    Wanted unavailable{};
+    check(!HaloCE_AcquirePair(context.Get(),serial,7,pair)&&classicSourceMiss.load()==1&&
+        classicSourceFailure.load()==ClassicSourceFailure::Descriptor&&
+        (!wanted.Read(unavailable)||!unavailable.generation),
+        "a late CE admission cannot publish or submit a preexisting DXGI buffer with unknown metadata");
+    // Production SubmitPreparedFrame observes its already-owned GetBuffer
+    // reference here; no texture creation/import callback is manufactured.
+    HaloCE_RecordPresentationTexture(source.Get(),testDesc);
+    run(Fault::None);
+    check(!HaloCE_AcquirePair(context.Get(),serial,7,pair)&&classicLastFailure.load()==ClassicFailure::PairPreparation,
+        "first cold Classic frame discovers the source without submitting an unprepared eye pair");
+    Wanted discovered{};
+    check(wanted.Read(discovered)&&discovered.generation==3&&discovered.descriptor.Width==testDesc.Width&&
+        discovered.descriptor.Height==testDesc.Height&&discovered.context==reinterpret_cast<uintptr_t>(testContext)&&
+        classicSourceMiss.load()==1,"native output discovery publishes the complete cold cache request after strong presentation observation");
+    HaloCE_PresentResources(device.Get(),context.Get());
+    nativeFrames=nativeViews=nativeBlits=0;
+    sourceRestored=true; // the initial unowned native pass may publish stock state
     run(Fault::None);
     check(nativeFrames==2&&nativeViews==2&&nativeBlits==2,"two independent native render passes each consume a camera and output");
     check(floatArgumentsIntact&&sourceRestored,"float ABI and exact native camera/frustum restoration survive both passes");
@@ -210,7 +279,7 @@ int main()
         "graphics mode change before submission immediately revokes the Classic pair");
     for (Fault selected:{Fault::MissingView,Fault::ForeignCamera,Fault::ChangedCamera,
         Fault::DuplicateWindow,Fault::MissingOutput,Fault::ResizedOutput,Fault::ChangedTick,
-        Fault::ChangedClock,Fault::ModeSwitch,Fault::Recenter,Fault::ChangedSource})
+        Fault::ChangedClock,Fault::ModeSwitch,Fault::Recenter,Fault::ChangedSource,Fault::ChangedOwner})
     {
         run(selected);
         check(!HaloCE_AcquirePair(context.Get(),serial,7,pair),"invalid native consumer/output/lifetime drops the pair");
@@ -263,7 +332,26 @@ int main()
     gameplayCamera.Read(stale); stale.capturedAtMs=GetTickCount64()+300; gameplayCamera.Publish(stale);
     check(!HaloCE_GetGameplayContext(gameplay),"future captured timestamp rejects gameplay context");
     recoverGameplay();
+    HaloCE_ForgetPresentationTexture();
+    rtv.Reset(); source.Reset(); testSource=nullptr;
+    check(SUCCEEDED(swapchain->ResizeBuffers(1,32,16,DXGI_FORMAT_R8G8B8A8_UNORM,0)),
+        "presentation metadata retains no COM references that block real DXGI ResizeBuffers");
+    if (SUCCEEDED(swapchain->GetBuffer(0,__uuidof(ID3D11Texture2D),reinterpret_cast<void**>(source.GetAddressOf()))))
+    {
+        source->GetDesc(&testDesc); testSource=source.Get();
+        check(SUCCEEDED(device->CreateRenderTargetView(source.Get(),nullptr,&rtv)),"resized native output view recreates");
+        rtvAddress=reinterpret_cast<uintptr_t>(rtv.Get());
+        put(wrapper.data()+0xe0,testSource); put(mapped.data()+0x1b85e78,rtvAddress);
+        check(!ClassicSource(selectedSource)&&classicSourceFailure.load()==ClassicSourceFailure::Descriptor,
+            "real resized buffer is rejected until a new strong presentation observation");
+        HaloCE_RecordPresentationTexture(source.Get(),testDesc);
+        run(Fault::None);
+        check(HaloCE_AcquirePair(context.Get(),serial,7,pair),"Classic capture recovers after real DXGI resize and observation");
+        if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+    }
+    else check(false,"resized DXGI buffer is available");
     classicInstalled=false;
+    HaloCE_ForgetPresentationTexture();
     cache.Reset();
     return failures?1:0;
 }

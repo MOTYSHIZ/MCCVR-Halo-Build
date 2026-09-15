@@ -75,3 +75,79 @@ The D3D endpoints and geometric ownership in this test are modeled. This
 result is not a GPU scene capture or headset result. The new candidate's actual
 camera/depth/source ledger and the user's headset report must determine whether
 the guarded integrated path produces correct world stereo.
+
+## Rejected `be2140f`: projection mode and remaining color evidence
+
+The user confirmed that the displaced view also appears in one headset eye.
+The stacked desktop image is therefore not the entire failure. The native
+output routine `0x45E2B0` deliberately copies primary view 0 at destination Y=0
+and primary view 1 at Y=source height. The current bounded copy wrapper retains
+that native desktop arrangement when it fits. Changing only the desktop mirror
+cannot establish correct headset world rendering.
+
+The latest camera-consumer receipt checks the supplied native camera address,
+its pose/projection prefix and player field, and the renderer's selected camera
+pointer. It does not observe every native renderer mode or the completed GPU
+world draws. A fresh review found an alternate projection branch in renderer
+virtual `+0x48`, `0x2351E0`, selected by renderer `+0x9C` bit `0x20` when the
+backend configuration's `+0x128` bit 26 enables the common constant upload.
+The preceding tests explicitly seeded renderer flags `1` and did not exercise
+this branch.
+
+Native setter `0x2EC2F0` (renderer virtual `+0x88`) ORs a nonzero mode into
+`+0x9C`; an argument of zero clears bits `0x30`. Surface callbacks `0x528A30`
+and `0x52B210` can set mode `0x20`, with plane position/normal at renderer
+`+0x10/+0x1C`. Callback `0x528B00` clears it. Their invocation lifecycle has
+not been established here, so a leaked reflection mode remains a hypothesis.
+Generic prop-container dispatchers `0x48F2B0` and `0x48F460` invoke child
+virtuals `+0x50/+0x58` over the same two child arrays, but this review did not
+tie those wrappers to the primary per-eye scene lifetime. They do not prove
+that the clipping mode is paired correctly in the failing frame. The inspected
+`0x520EC0` is a sniper-screen copy and `0x310640` constructs render packets;
+neither supplies that missing lifecycle evidence.
+
+`tools/re/verify_ce_native_camera_math.py` now executes the alternate native
+branch, including actual inverse `0xFED50..0xFF468` and common CPU constant
+writer `0x235860`; only CRT double `sqrt` is modeled. Sixteen combinations of
+two camera positions, two yaw angles and four clipping planes pass. The
+uploaded origin and matrix columns for clip X, Y and W remain identical
+(maximum error **0**); only clip depth changes. This is evidence against this
+mode itself translating the eye to another world position. Incorrect clipping
+is still possible if the mode is wrong; its runtime value is not in the log.
+
+The complete native/production-adapter run also passes its existing 189 camera
+checks, 54 native producer cameras, 162 adapter checks and 108 queued-worker
+camera setups. It remains a CPU proof, not a rendered scene or headset result.
+Reproduce with:
+
+```text
+python tools/re/verify_ce_native_camera_math.py out/deps/re-tools/inputs/halo1.dll --adapter-exe out/build/release/Release/halomccvr_ce_view_pair_tests.exe --output-dir out/ce-native-camera-mode-review-20260915
+```
+
+Records: `out/ce-native-camera-mode-review-20260915.json`,
+`out/ce-scene-reflection-mode-setters-20260915.txt`,
+`out/ce-scene-view-begin-modes-20260915.txt`, and the existing complete uploader
+record `out/ce-renderer-matrix-upload-consumer-20260915.txt`.
+The bounded callback follow-up is preserved in
+`out/ce-surface-container-pre-post-20260915.txt`,
+`out/ce-surface-callback-root-dispatch-20260915.txt`, and
+`out/ce-reflection-callback-lifetime-20260915.txt`.
+
+### Unobserved color target relationship
+
+The latest log identifies independent final color resources and independent
+depth receipts. It does not tie actual world color draws to those final color
+children. Native target binder `0x205E40` copies its descriptor to backend
+`+0x18`, records color wrapper roots at `+0x28..+0x40`, RTV count at `+0xCF8`,
+RTVs at `+0xD00..+0xD18`, and DSV at `+0xD20`, before calling D3D
+`OMSetRenderTargets`. These are verified native CPU records, not proof that an
+arbitrary later cached resource received the expected draws.
+
+At the existing scene-camera hook, native `0x45DCF0` has just selected and bound
+`BB_MNG_POOL`. Subsequent postprocessing may ping-pong through `0x45DD70` and
+`BB_MNG_POOL_1`; therefore a direct equality requirement between the initial
+world target and final output source would be unsupported. A bounded future
+diagnostic can record both endpoints, selected surface/resource/RTV identities,
+and the intermediate native target bindings. Queued worker backends need
+their own records. No such diagnostic or target-routing change is implemented
+by this review, and no rendering correction is claimed.

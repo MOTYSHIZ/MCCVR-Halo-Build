@@ -18,6 +18,8 @@ No install, game launch, game-folder changes or PR is authorized.
   The log does not identify the precise headset model.
 - Preserved verbatim log and screenshot:
   `out/test-runs/be2140f-ce-partial-failed-20260915/`.
+  Log SHA-256: `5B8A8EEFDCB7DE10D776C561FAAB660004B74B2AA69E4D6FEA24DD229075F215`.
+  Screenshot SHA-256: `24CDFA7BCDC668B64510DD5815227233B9201B0CADFEAB805DA56BC0EBC359DC`.
 - Final Anniversary totals: 2,449 prepared, 2,440 captured pairs, 452 dropped.
   Recorded depth/scene/shading masks reach 3 and camera/depth checks admit.
   These receipts do not prove the rendered world is correct.
@@ -30,6 +32,8 @@ No install, game launch, game-folder changes or PR is authorized.
 - The desktop screenshot has vertically stacked views; the lower one shows
   displaced/below-world geometry. Desktop composition and the actual world
   rendering defect require distinct verification.
+  The user explicitly confirmed in the follow-up that one headset eye also
+  shows the displaced view. A desktop-only correction cannot resolve this.
 
 The failed integrated enable flag is disabled in a separate commit before
 correction. Its code and user-confirmed hand/aim implementation are retained.

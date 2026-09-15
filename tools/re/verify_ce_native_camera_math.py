@@ -88,7 +88,8 @@ class NativeCamera:
                    (0x2351E0, 0x2357AD), (0x235860, 0x235948),
                    (0x2357B0, 0x2357F6), (0x310930, 0x310CA4),
                    (0x496D0, 0x496D3),
-                   (0x2EBFA0, 0x2EC20E), (0xF9B80, 0xF9CCB))
+                   (0x2EBFA0, 0x2EC20E), (0xF9B80, 0xF9CCB),
+                   (0xFED50, 0xFF468))
 
     def __init__(self, path):
         data = path.read_bytes()
@@ -107,7 +108,7 @@ class NativeCamera:
         self.machine.hook_add(UC_HOOK_CODE, self.on_instruction)
         self.instructions = 0
         self.calls = 0
-        self.math_calls = {"sqrtf": 0, "tanf": 0, "atanf": 0}
+        self.math_calls = {"sqrtf": 0, "sqrt": 0, "tanf": 0, "atanf": 0}
         self.worker_prefix = False
 
     def on_instruction(self, machine, address, size, data):
@@ -129,8 +130,12 @@ class NativeCamera:
             # read-only and model this one side effect instead of writing it.
             machine.reg_write(UC_X86_REG_RIP, address+7)
             return
-        if rva in (0x1607047, 0x1607053, 0x1722E00, 0x1391640):
-            if rva != 0x1391640:
+        if rva in (0x1607041, 0x1607047, 0x1607053, 0x1722E00, 0x1391640):
+            if rva == 0x1607041:
+                value = struct.unpack("<d", struct.pack("<Q", machine.reg_read(UC_X86_REG_XMM0) & 0xFFFFFFFFFFFFFFFF))[0]
+                self.math_calls["sqrt"] += 1
+                machine.reg_write(UC_X86_REG_XMM0, struct.unpack("<Q", struct.pack("<d", math.sqrt(value)))[0])
+            elif rva != 0x1391640:
                 value = struct.unpack("<f", struct.pack("<I", machine.reg_read(UC_X86_REG_XMM0) & 0xFFFFFFFF))[0]
                 name, operation = {0x1607047: ("tanf", math.tan),
                                    0x1607053: ("sqrtf", math.sqrt),
@@ -215,7 +220,7 @@ class NativeCamera:
                   struct.unpack("<I", struct.pack("<f", vertical))[0]))
         return bytes(self.machine.mem_read(CAMERA, 0x398))
 
-    def upload(self):
+    def upload(self, renderer_flags=1):
         # Renderer creation 4F05F6 assigns this exact vtable. Its +48 slot is
         # 2351E0; that calls +110=235860 to write the real shader constant layout.
         # No D3D operation is modeled as an upload: native instructions write
@@ -223,7 +228,7 @@ class NativeCamera:
         self.machine.mem_write(BASE+0x1BEA9E0, struct.pack("<Q", RENDERER))
         self.machine.mem_write(BASE+0x2E3BDD8, struct.pack("<Q", BACKEND_CONFIG))
         self.machine.mem_write(RENDERER, struct.pack("<Q", BASE+0x1815378))
-        self.machine.mem_write(RENDERER+0x9C, struct.pack("<I", 1))
+        self.machine.mem_write(RENDERER+0x9C, struct.pack("<I", renderer_flags))
         self.machine.mem_write(BACKEND_CONFIG+0x128, struct.pack("<I", 1 << 26))
         self.machine.mem_write(BACKEND+0xD8, struct.pack("<Q", CONSTANT_BLOCK))
         self.machine.mem_write(CONSTANT_BLOCK+8, struct.pack("<Q", SHADER_DATA))
@@ -361,6 +366,41 @@ def verify_bridge(native, executable, output_dir):
             "scope": "Native producer, production C++ adapter, native camera/CPU constants and queued-worker camera prefix; stops before D3D command-list begin; no GPU or scene draw"}
 
 
+def verify_oblique_projection(native):
+    # Native surface callbacks set renderer mode 0x20 for oblique clipping.
+    # The failed runtime's camera pointer/prefix ledger does not inspect this
+    # mode. Execute its real matrix inverse and uploader instead of assuming
+    # that the ordinary upload branch describes every native projection.
+    checks = 0
+    worst_xyw_error = 0.0
+    for position in ((0, 0, 0), (98.925, 180.641, 304.072)):
+        for yaw in (0.0, .71):
+            right = rotate((1, 0, 0), (0, 1, 0), yaw)
+            forward = rotate((0, 0, 1), (0, 1, 0), yaw)
+            native.build(position, right, (0, 1, 0), forward)
+            normal_origin, normal_matrix = native.upload()
+            for point, normal in (((0, -10, 0), (0, 1, 0)),
+                                  ((0, 2, 0), (0, 1, 0)),
+                                  ((0, 0, 10), (0, 0, 1)),
+                                  ((10, 0, 0), (1, 0, 0))):
+                native.machine.mem_write(RENDERER+0x10, struct.pack("<6f", *point, *normal))
+                native.machine.mem_write(BASE+0x2E3BB88, struct.pack("<3f", *position))
+                origin, matrix = native.upload(renderer_flags=0x21)
+                if origin != normal_origin or not all(math.isfinite(value) for value in matrix):
+                    raise AssertionError("Native oblique projection changed the origin or produced a nonfinite matrix")
+                error = max(abs(matrix[index]-normal_matrix[index])
+                            for index in range(16) if index % 4 != 2)
+                worst_xyw_error = max(worst_xyw_error, error)
+                if error > 1e-5:
+                    raise AssertionError("Native oblique projection changed clip x/y/w")
+                if max(abs(matrix[index]-normal_matrix[index]) for index in (2, 6, 10, 14)) < 1e-5:
+                    raise AssertionError("Native oblique branch did not change clip depth")
+                checks += 1
+    return {"checks": checks, "worst_clip_xyw_error": worst_xyw_error,
+            "result": "Mode 0x20 changes clip depth only in these cases; it does not displace the supplied world camera",
+            "scope": "Native CPU matrix result with synthetic planes; runtime mode and scene raster remain unobserved"}
+
+
 def verify(path, adapter_exe=None, output_dir=None):
     native = NativeCamera(path)
     checks = 0
@@ -422,12 +462,14 @@ def verify(path, adapter_exe=None, output_dir=None):
                 if abs(observed_disparity-expected_disparity) > .0015 or abs(eye_ndc[0][1]-eye_ndc[1][1]) > .0015:
                     raise AssertionError(f"Native stereo disparity mismatch: {eye_ndc=} {expected_disparity=}")
                 checks += 1
+    oblique = verify_oblique_projection(native)
     bridge = verify_bridge(native, adapter_exe, output_dir) if adapter_exe else None
     return {"status": "PASS", "pinned_sha256": PINNED_SHA256, "checks": checks,
             "native_calls": native.calls, "native_instructions": native.instructions,
             "modeled_crt_calls": native.math_calls,
             "worst_view_error_saber_units": worst_view_error,
             "worst_projection_error_ndc": worst_projection_error,
+            "native_oblique_projection": oblique,
             "native_producer_production_adapter": bridge,
             "scope": "Native camera arithmetic and optional production adapter/CPU constants; no scene shader, GPU resource, or headset result"}
 

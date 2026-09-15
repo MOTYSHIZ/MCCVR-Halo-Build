@@ -1,5 +1,43 @@
 # CE Anniversary per-eye HUD callback - September 15, 2026
 
+## E-CE-AHUD-5: be2140f failed admission and integrated replay correction
+
+The supplied be2140f headset log recorded zero replays, 4,890 fallbacks and
+failure 1. `FrameScope::renderFlags` was zero-initialized and never assigned
+from the native frame argument. Consequently its HUD-enable bit check always
+failed before callback/source/target validation. `FrameBody` now retains the
+actual native flags. This fixes a demonstrated admission defect; it is not a
+correction for the independently reported displaced world in one headset eye.
+
+The production runtime suite now follows `FrameBody -> OutputBody -> replay ->
+callback -> source copy -> EyeCache`, using real WARP textures and production
+HUD raster observation/mapping/restoration. Native callback/preamble/target
+push/pop are explicit fixture services. Both callback images reach their eye
+captures only when bit 4 is enabled. Missing stack capacity leaves world eyes
+available, and the following valid transaction recovers. Exact GPU raster,
+borrowed output and native stack depth restoration are checked. Earlier
+standalone target/layout tests never exercised this frame-level admission.
+
+Structured exceptions in the optional replay are contained after its cleanup
+blocks run. Verified cleanup records HUD failure 4 and preserves world capture;
+unverifiable cleanup records failure 5 and drops that frame, retaining the core
+and hooks. Fault fixtures cover callback and preamble exceptions, a mismatched
+native stack, refusal to guess a pop, and recovery after native state is valid
+again. No render-hook logging, allocation, COM getter or lock is added.
+
+Replay admission also reports whether a rejected raster transaction was
+untouched or successfully restored. An unavailable optional layout installation
+can leave numeric raster observations available while rejecting replay; that
+case must preserve the world pair. A production integration regression keeps
+observation active with layout installation absent, verifies zero native HUD
+callbacks and both original world images, then verifies recovery after layout
+installation. An attempted transaction with unknown cleanup still drops only
+the affected frame.
+
+Focused Release build/runtime tests pass locally. Actual native HUD visibility,
+authored-reticle behavior and full CE headset parity remain unconfirmed. All
+four rejected core enable flags remain false during this correction work.
+
 ## E-CE-AHUD-1: native callback omitted by the forced two-view list
 
 Halo 3 behavior being matched: the native gameplay HUD reaches both eyes,

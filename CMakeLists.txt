@@ -440,7 +440,7 @@ if(BUILD_TESTING)
     target_link_libraries(halomccvr_ce_eye_cache_tests PRIVATE d3d11)
     add_test(NAME halomccvr_ce_eye_cache_tests COMMAND halomccvr_ce_eye_cache_tests)
     add_executable(halomccvr_ce_runtime_tests tests/haloce_runtime_tests.cpp
-        src/dll/haloce_native_bindings.cpp src/dll/haloce_eye_cache.cpp src/dll/haloce_hud_layout.cpp)
+        src/dll/haloce_native_bindings.cpp src/dll/haloce_eye_cache.cpp tests/haloce_hud_layout_runtime_fixture.cpp)
     target_include_directories(halomccvr_ce_runtime_tests PRIVATE src/common src/dll)
     target_compile_definitions(halomccvr_ce_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(halomccvr_ce_runtime_tests PRIVATE d3d11 minhook)

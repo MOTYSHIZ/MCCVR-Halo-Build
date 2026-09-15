@@ -23,6 +23,9 @@ void HaloCEHudLayout_EndPrivateRaster() noexcept;
 // The native Anniversary HUD is authored at full desktop height. Its callback
 // can be replayed into one verified half-height eye source after its preamble.
 // Caller restores the native backend target stack after EndEyeReplay.
+// On rejection, cleanupVerified distinguishes an untouched/restored raster
+// from an attempted replay whose cleanup could not be verified. On success
+// it is false until the caller completes EndEyeReplay.
 bool HaloCEHudLayout_BeginEyeReplay(ID3D11DeviceContext*,UINT nativeWidth,UINT nativeHeight,
-    UINT eyeWidth,UINT eyeHeight) noexcept;
+    UINT eyeWidth,UINT eyeHeight,bool* cleanupVerified=nullptr) noexcept;
 bool HaloCEHudLayout_EndEyeReplay() noexcept;

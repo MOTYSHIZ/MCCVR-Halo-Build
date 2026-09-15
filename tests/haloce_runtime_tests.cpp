@@ -6,6 +6,7 @@
 #include <cstdio>
 
 using Microsoft::WRL::ComPtr;
+void ConfigureCeHudLayoutRuntimeFixture(uint32_t generation,bool enabled,bool installed=true);
 static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
@@ -37,8 +38,9 @@ uintptr_t depthRoot{},depthBackend{};
 std::array<std::array<uint8_t,0x118>,2> depthSurfaces{};
 ID3D11DepthStencilView* depthViews[2]{};
 ID3D11Resource* depthTextures[2]{};
+uintptr_t hudRoot{};
 uintptr_t __fastcall NativeDepthSelect(uintptr_t root)
-{ return root==depthRoot?reinterpret_cast<uintptr_t>(depthSurfaces[depthEye].data()):0; }
+{ return root==hudRoot?root:root==depthRoot?reinterpret_cast<uintptr_t>(depthSurfaces[depthEye].data()):0; }
 void SelectDepth(int eye)
 {
     depthEye=eye;
@@ -60,6 +62,68 @@ void __fastcall NativeDepthDraw(uintptr_t,uintptr_t,uintptr_t,int32_t eye)
 unsigned nativeCopies{};
 uintptr_t rendererAddress{};
 constexpr uint32_t leftColor=0xff123456,rightColor=0xffabcdef;
+void Paint(ID3D11Texture2D* texture,uint32_t color);
+constexpr uint32_t hudColor=0xff34ab78;
+unsigned hudCallbacks{};
+bool hudRasterCorrect{true};
+enum class HudFault { None,CallbackException,PreambleException,UnownedStack };
+HudFault hudFault{};
+void ObserveRaster(const D3D11_VIEWPORT& viewport,const D3D11_RECT& scissor)
+{
+    D3D11_VIEWPORT transformed{}; D3D11_RECT clipped{};
+    const bool mappedView=HaloCEHudLayout_PrepareViewports(testContext,1,&viewport,&transformed);
+    const bool mappedScissor=HaloCEHudLayout_PrepareScissors(testContext,1,&scissor,&clipped);
+    testContext->RSSetViewports(1,mappedView?&transformed:&viewport);
+    testContext->RSSetScissorRects(1,mappedScissor?&clipped:&scissor);
+}
+void __fastcall NativeHudPush()
+{
+    auto* depth=reinterpret_cast<int32_t*>(depthBackend+0x10);
+    uintptr_t storage{};Read(depthBackend+8,storage);
+    std::memcpy(reinterpret_cast<void*>(storage+0x48*(*depth)++),reinterpret_cast<void*>(depthBackend+0x18),0x48);
+}
+uint8_t __fastcall NativeHudPop()
+{
+    auto* depth=reinterpret_cast<int32_t*>(depthBackend+0x10);
+    uintptr_t storage{};Read(depthBackend+8,storage);
+    if (*depth<=0) return 0;
+    std::memcpy(reinterpret_cast<void*>(depthBackend+0x18),reinterpret_cast<void*>(storage+0x48*--(*depth)),0x48);
+    return 1;
+}
+void __fastcall NativeHudCallback()
+{
+    ++hudCallbacks;
+    D3D11_VIEWPORT view{};D3D11_RECT rect{};UINT views=1,rects=1;
+    testContext->RSGetViewports(&views,&view);testContext->RSGetScissorRects(&rects,&rect);
+    hudRasterCorrect&=views==1&&rects==1&&view.Width==testDesc.Width&&view.Height==testDesc.Height&&
+        rect.right==LONG(testDesc.Width)&&rect.bottom==LONG(testDesc.Height);
+    if (hudFault==HudFault::UnownedStack)
+        ++*reinterpret_cast<int32_t*>(depthBackend+0x10);
+    if (hudFault==HudFault::CallbackException||hudFault==HudFault::UnownedStack)
+        RaiseException(0xe042ce01,0,0,nullptr);
+    // Native callback/D3D drawing are explicit fixtures. The actual adapter
+    // admission, full/half raster mapping, copy and restoration are exercised.
+    Paint(testSource,hudColor);
+    ObserveRaster({0,0,float(testDesc.Width),float(testDesc.Height*2),0,1},
+        {0,0,LONG(testDesc.Width),LONG(testDesc.Height*2)});
+}
+void __fastcall NativeHudPreamble()
+{
+    NativeHudPush();NativeHudPop();
+    if (hudFault==HudFault::PreambleException) RaiseException(0xe042ce02,0,0,nullptr);
+    AnniversaryHudCallbackBody();
+}
+bool InstallFixtureJump(uintptr_t at,uintptr_t destination)
+{
+    DWORD previous{};
+    if (!VirtualProtect(reinterpret_cast<void*>(at),12,PAGE_EXECUTE_READWRITE,&previous)) return false;
+    // mov rax, imm64; jmp rax. This is private fixture memory, never a game module.
+    const uint8_t entry[]{0x48,0xb8}; const uint8_t tail[]{0xff,0xe0};
+    std::memcpy(reinterpret_cast<void*>(at),entry,2);
+    std::memcpy(reinterpret_cast<void*>(at+2),&destination,8);
+    std::memcpy(reinterpret_cast<void*>(at+10),tail,2);
+    return FlushInstructionCache(GetCurrentProcess(),reinterpret_cast<void*>(at),12)!=0;
+}
 using MixedAppendFn=uintptr_t(__fastcall*)(uintptr_t,const SaberCamera*,uint32_t,int32_t,
     float,float,uint32_t,float,uint16_t,uint16_t,uint64_t,uint8_t,float,float,uint8_t,uint8_t);
 bool appendArgumentsIntact{};
@@ -457,6 +521,119 @@ int main()
         check(HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"current post-effect ownership recovers after rejected observations");
         frameScope=nullptr;
         check(!HaloCE_GetAnniversaryEyeTracking(camera,borrowed),"post-effect ownership ends with the native frame scope");
+    }
+    {
+        // Cover the complete frame -> per-eye replay -> native callback ->
+        // actual GPU capture chain. be2140f lost the render flags before this
+        // boundary, which all earlier standalone layout/target tests missed.
+        std::array<uint8_t,0xb8> players{};
+        std::array<uint8_t,3> rendering{{0,0,1}};
+        std::array<uint8_t,0x18> display{};
+        std::array<uint8_t,4*0x48> targetStack{};
+        const uintptr_t playersAddress=reinterpret_cast<uintptr_t>(players.data());
+        const uintptr_t renderingAddress=reinterpret_cast<uintptr_t>(rendering.data());
+        const uintptr_t displayAddress=reinterpret_cast<uintptr_t>(display.data());
+        const uintptr_t storageAddress=reinterpret_cast<uintptr_t>(targetStack.data());
+        const uintptr_t callbackAddress=bindings.base+contract::anniversary_hud::native_hud_callback;
+        const int16_t playerCount=1;const int32_t depth=1,capacity=4;
+        const UINT height=testDesc.Height*2;
+        hudRoot=reinterpret_cast<uintptr_t>(sourceWrapper.data());
+        std::memcpy(sourceWrapper.data(),&textureVtable,8);
+        std::memcpy(mapped.data()+0x2d62890,&hudRoot,8);
+        std::memcpy(mapped.data()+0x1c33fe0,&callbackAddress,8);
+        std::memcpy(mapped.data()+0x2ea2d90,&playersAddress,8);
+        std::memcpy(players.data()+0xb4,&playerCount,2);
+        mapped[0x2d9bdd1]=mapped[0x2e3b829]=1;
+        std::memcpy(mapped.data()+0x2d91330,&renderingAddress,8);
+        std::memcpy(nativeConfig.data()+0x118,&displayAddress,8);
+        std::memcpy(display.data()+0x10,&testDesc.Width,4);
+        std::memcpy(display.data()+0x14,&height,4);
+        std::memcpy(nativeBackend.data()+8,&storageAddress,8);
+        std::memcpy(nativeBackend.data()+0x10,&depth,4);
+        std::memcpy(nativeBackend.data()+0x14,&capacity,4);
+        Camera camera{};camera.position={10,20,30};camera.forward={1,0,0};camera.up={0,0,1};
+        camera.verticalFov=1;camera.nearPlane=.01f;camera.farPlane=1000;
+        camera.window=camera.viewport={0,0,static_cast<int16_t>(height),static_cast<int16_t>(testDesc.Width)};
+        std::memcpy(mapped.data()+0x2d9cb34,&camera,sizeof(camera));
+        check(InstallFixtureJump(bindings.base+contract::anniversary_hud::native_target_push,
+                reinterpret_cast<uintptr_t>(&NativeHudPush))&&
+            InstallFixtureJump(bindings.base+contract::anniversary_hud::native_target_pop,
+                reinterpret_cast<uintptr_t>(&NativeHudPop))&&
+            InstallFixtureJump(bindings.base+contract::anniversary_hud::native_hud_preamble,
+                reinterpret_cast<uintptr_t>(&NativeHudPreamble)),"private native HUD fixture entry points");
+        anniversaryHudHook.original=reinterpret_cast<void*>(&NativeHudCallback);
+        anniversaryHudInstalled=true;ConfigureCeHudLayoutRuntimeFixture(3,true);
+        const D3D11_VIEWPORT priorViewport{2,3,20,10,.2f,.8f};
+        const D3D11_RECT priorScissor{2,3,22,13};
+        auto hudFrame=[&](uint64_t serial,uint32_t flags,bool expectedHud,
+            bool expectedPair=true,unsigned expectedCallbacks=UINT_MAX,bool expectedClean=true) {
+            publish(serial);Prepared prepared{};renderReady.Read(prepared);
+            HaloCE_PublishTracking(prepared.receipt.tracking,true);recenter=false;
+            publishedReference.Publish({{prepared.receipt.tracking.headPosition,{},7,3},referenceRevision.load()});
+            ObserveRaster(priorViewport,priorScissor);
+            const auto beforeHud=hudCallbacks;
+            FrameBody(0,flags);
+            check(hudCallbacks-beforeHud==(expectedCallbacks==UINT_MAX?(expectedHud?2u:0u):expectedCallbacks),
+                "native HUD-enable bit and guards reach the expected output callbacks");
+            check(HaloCE_AcquirePair(context.Get(),serial,7,pair)==expectedPair,
+                "HUD cleanup ownership determines whether the current world pair can be submitted");
+            if (pair.borrowId)
+            {
+                check(Pixels(device.Get(),pair.eyes[0],expectedHud?hudColor:leftColor)&&
+                    Pixels(device.Get(),pair.eyes[1],expectedHud?hudColor:rightColor),
+                    "HUD callback pixels reach the two production eye captures only when admitted");
+                HaloCE_ReleasePair(pair.borrowId);pair={};
+            }
+            if (expectedClean)
+            {
+                D3D11_VIEWPORT after{};D3D11_RECT rect{};UINT n=1,m=1;
+                testContext->RSGetViewports(&n,&after);testContext->RSGetScissorRects(&m,&rect);
+                check(n==1&&m==1&&!std::memcmp(&after,&priorViewport,sizeof(after))&&
+                    !std::memcmp(&rect,&priorScissor,sizeof(rect)),"complete replay restores exact pre-HUD GPU raster");
+            }
+            int32_t afterDepth{};uintptr_t afterOutput{};
+            Read(depthBackend+0x10,afterDepth);Read(bindings.base+0x2e3d0d0,afterOutput);
+            check((!expectedClean||afterDepth==1)&&afterOutput==0,
+                "HUD restores borrowed output and every still-owned native target stack");
+            check(!anniversaryHudReplay&&HaloCE_Armed(),
+                "optional HUD work clears its thread scope and preserves the CE core");
+        };
+        hudFrame(134,0,false);
+        hudFrame(135,0x10,true);
+        const int32_t noCapacity=2;std::memcpy(nativeBackend.data()+0x14,&noCapacity,4);
+        hudFrame(136,0x10,false);
+        std::memcpy(nativeBackend.data()+0x14,&capacity,4);
+        hudFrame(137,0x10,true);
+        hudFault=HudFault::CallbackException;
+        hudFrame(138,0x10,false,true,2);
+        check(anniversaryHudFailure.load()==4,"a restored callback exception is a feature-only fallback");
+        hudFault=HudFault::None;hudFrame(139,0x10,true);
+        hudFault=HudFault::PreambleException;
+        hudFrame(140,0x10,false);
+        check(anniversaryHudFailure.load()==4,"a restored preamble exception cannot escape the optional feature");
+        hudFault=HudFault::None;hudFrame(141,0x10,true);
+        hudFault=HudFault::UnownedStack;
+        hudFrame(142,0x10,false,false,1,false);
+        check(anniversaryHudFailure.load()==5,"unverifiable cleanup drops only the affected frame");
+        // Model the native owner restoring its own fresh stack before the
+        // next frame; the adapter must not pop an unowned stack entry.
+        int32_t preservedDepth{};Read(depthBackend+0x10,preservedDepth);
+        check(preservedDepth==3,"unowned stack entries are preserved instead of guessed away");
+        std::memcpy(nativeBackend.data()+0x10,&depth,4);
+        hudFault=HudFault::None;hudFrame(143,0x10,true);
+        // Numeric observation is available before the optional layout hook
+        // installs. Rejected replay has not mutated its raster, so it must
+        // preserve both world captures and refrain from calling native HUD.
+        ConfigureCeHudLayoutRuntimeFixture(3,true,false);
+        hudFrame(144,0x10,false);
+        check(anniversaryHudFailure.load()==3,
+            "uninstalled optional layout is a feature-only admission fallback");
+        ConfigureCeHudLayoutRuntimeFixture(3,true);
+        hudFrame(145,0x10,true);
+        check(hudRasterCorrect&&anniversaryHudDraws.load()==12,
+            "both-eye HUD raster and capture recover after rejected and faulted optional callbacks");
+        anniversaryHudInstalled=false;anniversaryHudHook={};hudRoot=0;
+        ConfigureCeHudLayoutRuntimeFixture(3,false);
     }
     {
         // The Anniversary native builder must publish its untouched center

@@ -11,7 +11,7 @@ struct AnniversaryHudReplay
     RenderContext owner;
     ID3D11DeviceContext* context{};
     UINT width{},height{},eyeWidth{},eyeHeight{};
-    bool entered{},returned{},rasterRestored{};
+    bool entered{},returned{},rasterRestored{true};
 };
 thread_local AnniversaryHudReplay* anniversaryHudReplay{};
 
@@ -20,9 +20,9 @@ void AnniversaryHudCallbackBody()
     const auto original=reinterpret_cast<AnniversaryHudFn>(anniversaryHudHook.original);
     auto* replay=anniversaryHudReplay;
     if (!replay) { original(); return; }
-    if (replay->entered||!HaloCE_RenderContextCurrent(replay->owner)||
-        !HaloCEHudLayout_BeginEyeReplay(replay->context,replay->width,replay->height,
-            replay->eyeWidth,replay->eyeHeight)) return;
+    if (replay->entered||!HaloCE_RenderContextCurrent(replay->owner)) return;
+    if (!HaloCEHudLayout_BeginEyeReplay(replay->context,replay->width,replay->height,
+        replay->eyeWidth,replay->eyeHeight,&replay->rasterRestored)) return;
     replay->entered=true;
     __try { original(); replay->returned=true; }
     __finally { replay->rasterRestored=HaloCEHudLayout_EndEyeReplay(); }
@@ -88,7 +88,7 @@ bool AnniversaryHud_ReadSource(AnniversaryHudSource& out) noexcept
         !resources.Read(next.resource,next.resource,next.record)) return false;
     out=next; return true;
 }
-void AnniversaryHud_ReplayEye(FrameScope& scope,int eye)
+void AnniversaryHud_ReplayEyeBody(FrameScope& scope,int eye,bool& cleanupVerified)
 {
     if (!anniversaryHudInstalled.load()||!scope.synthetic||!scope.capture||
         eye<0||eye>1||anniversaryHudReplay) return;
@@ -149,6 +149,7 @@ void AnniversaryHud_ReplayEye(FrameScope& scope,int eye)
         // native storage. The callback borrows kind1/2 and restores them itself.
         // Our outer push/pop restores the pre-HUD backend target and viewport.
         bool pushed=false,borrowed=false;
+        cleanupVerified=false;
         __try
         {
             reinterpret_cast<AnniversaryHudFn>(bindings.base+contract::anniversary_hud::native_target_push)();
@@ -187,7 +188,17 @@ void AnniversaryHud_ReplayEye(FrameScope& scope,int eye)
                     replay.context->RSSetScissorRects(previousScissorCount,previousScissors);
                 }
             }
+            cleanupVerified=targetRestored&&replay.rasterRestored;
         }
+    }
+    if (!cleanupVerified)
+    {
+        // Unknown target/raster ownership invalidates only this frame. Keep
+        // the native hooks and XR lifecycle available for the next frame.
+        scope.capture=false;
+        scope.diagnostic.failure=FrameFailure::IncompletePair;
+        failure=5;
+        goto failed;
     }
     failure=3;
     {
@@ -201,4 +212,22 @@ void AnniversaryHud_ReplayEye(FrameScope& scope,int eye)
 failed:
     anniversaryHudFailure.store(failure,std::memory_order_relaxed);
     anniversaryHudFallbacks.fetch_add(1,std::memory_order_relaxed);
+}
+void AnniversaryHud_ReplayEye(FrameScope& scope,int eye)
+{
+    bool cleanupVerified=true;
+    __try { AnniversaryHud_ReplayEyeBody(scope,eye,cleanupVerified); }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    {
+        // Native optional HUD callbacks can fault after taking ownership.
+        // Their finally blocks run before this handler; retain the world pair
+        // only when those blocks proved target, stack and raster restoration.
+        if (!cleanupVerified)
+        {
+            scope.capture=false;
+            scope.diagnostic.failure=FrameFailure::IncompletePair;
+        }
+        anniversaryHudFailure.store(cleanupVerified?4u:5u,std::memory_order_relaxed);
+        anniversaryHudFallbacks.fetch_add(1,std::memory_order_relaxed);
+    }
 }

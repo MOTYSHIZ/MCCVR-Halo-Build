@@ -317,7 +317,7 @@ inline constexpr uint32_t native_target_push=0x1dc1e0;
 inline constexpr uint32_t native_target_pop=0x1dc2f0;
 }
 namespace classic {
-inline constexpr std::array<Entry,18> entries={{
+inline constexpr std::array<Entry,19> entries={{
     {"classic_view_render",0xbbcf30,"40 55 53 56 57 41 54 41 56 41 57 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 48 8B 05 BF 80 FB 00 48 33 C4 48 89 85 80 01 00 00 48 8B BD F0 01",true},
     {"classic_render_target_select",0xb51670,"48 89 5C 24 18 55 56 57 41 56 41 57 48 8D 6C 24 D1 48 81 EC B0 00 00 00 48 8B 05 81 39 02 01 48 33 C4 48 89 45 1F 33 FF 45 8B F8 45 8A F1 44 0F",true},
     {"classic_saber_target_route",0xaeb00,"48 89 5C 24 18 48 89 74 24 20 41 56 48 83 EC 40 48 89 6C 24 50 48 8D 35 F4 CD D8 02 48 89 7C 24 58 45 8B F0 33 FF 48 63 EA 39 3D 55 BF AC 01 48",true},
@@ -336,8 +336,9 @@ inline constexpr std::array<Entry,18> entries={{
     {"classic_source_sampler",0xb519a0,"48 89 5C 24 08 4C 89 4C 24 20 57 48 83 EC 30 33 DB 0F B7 F9 66 83 FA 09 77 16 48 0F BF C2 48 8D 1D BB 44 03 01 4C 8D 04 40 4D 03 C0 4A 8B 1C C3",true},
     {"classic_frustum_bounds",0xb8f144,"48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 0F BF 59 38 48 8B F2 0F BF 79 2C 44 0F BF 51 34 44 0F BF 59 30 44 0F BF 49 32 41 8B C3 44 0F BF 41",true},
     {"classic_frustum_build",0xb8f690,"48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 44 0F BF 51 32 45 8A F9 0F 29 70 B8 49 8B F8 0F 29 78 A8 48 8B F1 44 0F",true},
+    {"classic_output_target_initialize",0xae410,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B 05 DA 6B AC 01 48 33 C4 48 89 44 24 78 48 8B 05 4B DC D8 02",true},
 }};
-inline constexpr std::array<Witness,119> witnesses={{
+inline constexpr std::array<Witness,131> witnesses={{
     {0xbbcf5b,"48 8B BD F0 01 00 00"},
     {0xbbcf62,"49 8B F0"},
     {0xbbcf65,"48 8B DA"},
@@ -457,8 +458,20 @@ inline constexpr std::array<Witness,119> witnesses={{
     {0xb519be,"48 8D 1D ?? ?? ?? ??"},
     {0xb519e3,"E8 ?? ?? ?? ??"},
     {0xb519e8,"48 8B 0D ?? ?? ?? ??"},
+    {0xae455,"48 8B 98 00 05 00 00"},
+    {0xae462,"FF 90 D8 00 00 00"},
+    {0xae486,"48 8B CB"},
+    {0xae490,"E8 5B F1 FF FF"},
+    {0xae49a,"48 8B 88 E0 00 00 00"},
+    {0xae4c3,"41 BD 01 00 00 00"},
+    {0xae4cd,"41 8B ED"},
+    {0xae601,"49 89 B4 DF 10 B9 E3 02"},
+    {0xae6ce,"FF C5"},
+    {0xae6d0,"83 FD 09"},
+    {0xae43e,"48 8B 05 ?? ?? ?? ??"},
+    {0xae489,"48 89 3D ?? ?? ?? ??"},
 }};
-inline constexpr std::array<Relative,50> relatives={{
+inline constexpr std::array<Relative,52> relatives={{
     {0xbbd3aa,5,1,0xb0d40},
     {0xbbcfa0,7,3,0x29af2c4},
     {0xbbcf96,7,3,0x29af318},
@@ -509,6 +522,8 @@ inline constexpr std::array<Relative,50> relatives={{
     {0xb519be,7,3,0x1b85e80},
     {0xb519e3,5,1,0xb51670},
     {0xb519e8,7,3,0x2ea2d30},
+    {0xae43e,7,3,0x2e3c090},
+    {0xae489,7,3,0x1b85e78},
 }};
 inline constexpr std::array<Pointer,1> pointers={{
     {0x17fb6e0,0x22b7b0},
@@ -531,6 +546,7 @@ inline constexpr uint32_t classic_final_quad_draw=0xbf5f08;
 inline constexpr uint32_t classic_source_sampler=0xb519a0;
 inline constexpr uint32_t classic_frustum_bounds=0xb8f144;
 inline constexpr uint32_t classic_frustum_build=0xb8f690;
+inline constexpr uint32_t classic_output_target_initialize=0xae410;
 }
 namespace comfort {
 inline constexpr std::array<Entry,1> entries={{

@@ -91,6 +91,7 @@ uint64_t lastReport{},resourceEpoch{};
 Snapshot<Tracking> trackingSnapshot;
 PreparedHandoff handoff;
 ResourceRegistry resources;
+std::atomic<uintptr_t> presentationTexture{};
 EyeCache cache;
 struct CompletedFrame { EyeCache::Key key; uint64_t referenceRevision{},capturedAtMs{}; };
 Snapshot<CompletedFrame> completedFrame;
@@ -570,6 +571,9 @@ void FrameBody(uintptr_t arg,uint32_t flags)
 {
     const auto original=reinterpret_cast<FrameFn>(hooks[Frame].original);
     FrameScope scope{}; uintptr_t renderer{}; SaberViewPair rendered{};
+    // Preserve the actual native HUD-enable bit for per-eye output replay.
+    // be2140f left this zero and rejected every otherwise eligible HUD pass.
+    scope.renderFlags=flags;
     // The native Anniversary worker can still run in Original mode. Its
     // stock work owns no Classic eye receipt, even when old synthetic lists
     // still need their packed-copy bounds protection during a switch.
@@ -938,9 +942,10 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         lastReport=now;
         LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u",
             gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load());
-        LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u",
+        LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u sourceFailure=%u",
             gen,classicInstalled.load(),classicPairs.load(),classicDrops.load(),classicStock.load(),
-            classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()));
+            classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()),
+            static_cast<unsigned>(classicSourceFailure.load()));
         LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u",
             gen,anniversaryHudInstalled.load(),anniversaryHudDraws.load(),
             anniversaryHudFallbacks.load(),anniversaryHudFailure.load());
@@ -1124,4 +1129,22 @@ void HaloCE_RecordTextureCreated(ID3D11Texture2D* texture,
     if (!identity||!(descriptor.BindFlags&(D3D11_BIND_RENDER_TARGET|D3D11_BIND_DEPTH_STENCIL))) return;
     const auto revision=resources.Revoke(identity);
     resources.Publish(identity,identity,revision,descriptor);
+}
+void HaloCE_RecordPresentationTexture(ID3D11Texture2D* texture,
+    const D3D11_TEXTURE2D_DESC& descriptor) noexcept
+{
+    const auto identity=reinterpret_cast<uintptr_t>(texture);
+    if (!identity) return;
+    const auto previous=presentationTexture.exchange(identity,std::memory_order_acq_rel);
+    if (previous&&previous!=identity) resources.Forget(previous);
+    ResourceRegistry::Record existing{};
+    if (resources.Read(identity,identity,existing)&&
+        std::memcmp(&existing.descriptor,&descriptor,sizeof(descriptor))==0) return;
+    HaloCE_RecordTextureCreated(texture,descriptor);
+}
+void HaloCE_ForgetPresentationTexture() noexcept
+{
+    const auto previous=presentationTexture.exchange(0,std::memory_order_acq_rel);
+    if (previous) resources.Forget(previous);
+    completedFrame.Publish({});
 }

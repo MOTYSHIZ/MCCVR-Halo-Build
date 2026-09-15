@@ -111,9 +111,12 @@ that call, from the selected kind-0 output, before the next eye can overwrite
 it. The later `0xBA19DC` is a conditional small native debug rectangle; it is
 not the gameplay scene or a second eye source.
 
-Kind-0 wrapper is `0x2E3B910`; its current cached RTV is `0x1B85E78`.
-`0xAE0E0` proves the mapping from native wrapper array to per-kind SRV/RTV
-cache (stride `0x30`). The verified texture wrapper vtable is `0x17FB608`,
+**Correction after the `be2140f` user result:** kind-0's wrapper is
+`(*0x2E3C090)+0x500`, and its current cached RTV is `0x1B85E78`.
+The former claim that kind 0 uses `0x2E3B910` was false; the native initializer
+populates that array only for kinds 1..8. See E-CE-C5 below.
+`0xAE0E0` proves the mapping from those nonzero native wrapper array entries
+to per-kind SRV/RTV cache (stride `0x30`). The verified texture wrapper vtable is `0x17FB608`,
 virtual `+0xD8` is `0x22B7B0`. Its selector chooses the actual surface variant;
 the selected object has resource `+0xE0` and RTV array `+0xE8`.
 The adapter runs the shared verified read-only selector and requires its RTV
@@ -142,6 +145,87 @@ must not be relabeled gameplay HUD based on the nearby address. Authored HUD
 extraction, reticle handling and the first-person feature each have separate
 runtime ownership/evidence work. Capturing Classic's final world target alone
 does not prove their desired VR presentation.
+
+## E-CE-C5: failed kind-0 source and native output ownership correction
+
+The September 15 `be2140fc440462c8ac1441186...` user log reports 610 Classic
+outputs and 610 source misses, zero completed Classic pairs, and final failure
+4 (`PairPreparation`). It is Steam, SteamVR/OpenXR 2.17.9, Oculus-family, 90 Hz.
+The missing source prevented publication of the cold eye-cache request;
+therefore the subsequent camera scope could not begin capture. It also rejected
+the render context used to admit tracked first-person palettes. The log did not
+contain a source substage, so the precise runtime pointer value was not logged.
+
+Pinned initializer `0xAE410` proves the source route independently:
+
+| Instruction | Native effect |
+| --- | --- |
+| `0xAE43E` | Load output owner from `0x2E3C090` |
+| `0xAE455` | Load that owner's texture wrapper at `+0x500` |
+| `0xAE462` | Call wrapper virtual `+0xD8` with all view indices zero |
+| `0xAE489` | Publish the resulting RTV at `0x1B85E78` (kind 0) |
+| `0xAE490` / `0xAE49A` | Select the same wrapper variant and read its resource at `+0xE0` |
+| `0xAE4C3` / `0xAE4CD` | Initialize the following wrapper-array loop to kind 1 |
+| `0xAE601` / `0xAE6CE..0xAE6D3` | Populate wrapper-array entries 1 through 8 only |
+
+The Classic adapter now follows the native kind-0 owner and requires the
+selected texture/RTV to match the native cache and immutable resource record.
+Owner identity is frozen across both eyes as well as wrapper, selected surface,
+resource revision and context. A missing owner does not fall back to the
+unrelated wrapper array. Source failures record a bounded substage; no COM
+queries, logging, allocation or scanning are added to the render hook.
+
+`tools/re/test_ce_classic_source_native.py` executes the actual pinned initializer
+from `0xAE410` through its complete kind-0 publication, stopping before allocation
+of kinds 1..8. Native virtual RTV access and variant selection execute too.
+Twelve cases cover root/two native variants, absent/decoy array element zero,
+and absent/replaced cached RTV. COM AddRef/Release/GetDesc are explicit fixtures.
+All cases pass in `out/ce-classic-source-native-20260915.json`.
+
+The production Classic WARP test now starts with no eye cache and an empty
+wrapper-array element zero. The first stock output discovers the true source;
+`HaloCE_PresentResources` then allocates storage, and the following frame retains
+distinct left/right pixels. Missing owner, decoy array, mismatched RTV and
+inter-eye owner replacement checks pass, including frame-drop recovery. The
+old test pre-seeded both the incorrect array entry and the eye cache, hiding
+this native-layout and bootstrap failure. Native contract verification includes
+the initializer signature, root/cache operands and loop witnesses.
+
+These checks establish the wrong source route and its local correction. They
+do not establish in-headset Classic parity or acceptance of the native renderer.
+
+## E-CE-C6: preexisting DXGI output metadata
+
+The kind-0 wrapper can bypass both hooked native resource management functions.
+Pinned `0x1EFE90` acquires buffer 0 through the output owner's swapchain at
+`+0x4E8`, virtual `+0x48` (`GetBuffer`), using the 2D texture IID. It creates
+the named wrapper `__PC_BACK_BUFFER__`, writes it to owner `+0x500` at
+`0x1EFF5B`, and directly assigns the returned COM texture to wrapper `+0xE0`.
+It does not call the native texture create/import functions at this boundary.
+See `out/ce-classic-host-output-create-20260915.txt` and
+`out/ce-classic-host-output-disasm-20260915.txt`. The supplied log's backbuffer
+exists before CE hooks install, so a later native import notification cannot
+be assumed to supply its descriptor.
+
+The existing cold `SubmitPreparedFrame` already holds a successful DXGI
+`GetBuffer(0)` reference and calls `GetDesc`. It now publishes that exact texture
+identity and descriptor to the CE registry. The native Classic source still
+must independently agree with its owner, selected wrapper and cached RTV; no
+screen texture is relabeled a native source by its dimensions. Repeated
+observations preserve an unchanged resource revision. Resize and VR detach
+revoke this observation before the buffer is retired, and retain no COM
+reference or texture pointer for dereferencing in a render hook.
+
+The Classic runtime suite now uses a real WARP DXGI swapchain with a hidden
+test window. It obtains the source with `GetBuffer` and supplies **no** manual
+creation/import event. An initial frame correctly fails for unknown metadata;
+the cold presentation observation admits the following source discovery, then
+the normal Present resource preparation permits the independent eye pair.
+Repeated observation, revocation and re-observation pass. A real DXGI
+`ResizeBuffers` succeeds after releasing the test's own references, proving
+the registry retained none; reacquiring and observing the replacement buffer
+restores capture. This closes a bootstrap gap that the former manually
+registered WARP texture did not exercise.
 
 ## Verification and its limits
 
