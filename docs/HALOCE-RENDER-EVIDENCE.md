@@ -561,3 +561,88 @@ GPU cache above is implemented, but live source descriptor acquisition,
 per-view output attachment and final color/crop mapping are not. Also verify
 the `0x04000001` packed native destination dimensions under forced two-view
 construction; E-CE-5 proves the transfer shape, not that allocation shape.
+
+## E-CE-12: 6e31b25 partial headset result and tracked view construction
+
+The September 15 user log identifies 6e31b255d3e242bf5b41bac36158a825fbe255b9,
+Steam / SteamVR OpenXR 2.17.9 / Oculus family / 90 Hz. It records 805 builds,
+803 pairs and 6 drops; 2912x1050 source, 2912x2100 desktop, auxiliary counts
+6/12, and prepared eye separation approximately 0.071 Saber units. User reports
+faster Anniversary switching and visible imagery, but the right eye remains
+outside/displaced and the left appears flat/head-attached. Classic is flat.
+This is partial capture progress, NOT stereo/6DoF acceptance. Preserved exact
+request/log: out/test-runs/6e31b25-ce-partial-failed-20260915/. Log SHA256:
+658DD33FFD2BC311702BD1C0138872745E0FC8B50C7235CE619FAA1BC05BFB4A.
+Separate failure-disable commit: f63254b. Accepted source remains 4e01f28.
+
+### Verified preparation discrepancy
+
+Native append 2EA720 derives more than the camera record. It rebuilds camera
+culling data at 2EA96D. Primary/secondary branches load the next origin index
+from list+BD20 at 2EA9DC / 2EAA02. The copy at 2EAB04 reads camera position
+xy (camera+30); 2EAB0F reads z. 2EAB09 increments the origin count, 2EAB12 / 1B
+store the position at list+BD24+12*index, and 2EAB50 stores the origin index in
+view+1E. The table precedes the primary count at BDE4 (16 position slots).
+The old adapter replaced only view.camera after the native builder returned.
+It therefore retained stock origin metadata alongside tracked camera positions.
+This is a code-level mismatch, not a proven cause of every reported visual fault.
+An analyzed-reference scan of BD24 found append/reset only; it does not prove
+all consumers of the table. Rendering can address it through another base.
+
+Native primary builder writes near/far from its settings at 454A7B / 454A8D.
+The native stereo branch applies those same settings to the right at 454B52 /
+454B5D. The ordinary secondary branch instead appends at 454C93 and returns
+straight into the epilogue; it does not repeat that override. New construction
+uses the primary's resulting clips for both eye cameras, then rebuilds their
+projections/culling. No constant clip distance is imported from another title.
+The actual prior log did not capture clip values; a runtime mismatch is unproven.
+
+### Implementation and guards
+
+Only exact native append calls returning to 454A6E / 454C98 inside the owned
+builder/list may receive a private tracked camera. Tracking, generation, space,
+raster and recenter reference are frozen for that construction. Both cameras
+are staged before their own native append; native code creates the origin table,
+view identity, resources and opaque fields. Finalization preserves each native
+record, checks its requested pose/FOV/raster, applies coherent native clips and
+rebuilds once more without applying tracking again. Split-player/foreign/auxiliary
+calls remain native. Incomplete construction drops the frame; it never submits
+mixed cameras. Old disabled post-build implementations are retained.
+
+Append's four register arguments and twelve ABI stack slots are forwarded
+without reinterpreting the native mixed-width stack data. A compiled mixed-type
+caller/callee regression goes through the actual production hook and confirms
+all arguments and the return value. The existing unique append signature is
+used for installation; new body witnesses pin origin stores and clip branches.
+Teardown includes the new hook in quiescence checks. No hot logging/allocation,
+COM queries, file I/O, signature scanning or new locks were added.
+
+New CE ORIGINS snapshots report native origin positions and both clip ranges
+from the worker log. They are diagnostics; texture-copy success still does not
+prove visually correct native drawing. No new shared-title behavioral code.
+
+### Validation and limits
+
+Release/eight suites and Reach consistency pass. Added construction regression
+uses translated/rotated tracking, demonstrates stale origins under append-then-
+patch ordering, verifies no double tracking, matching native clip ranges,
+per-eye opaque-data preservation and partial/changed-camera rejection. Production
+WARP scopes continue to verify real distinct copied pixels and frame recovery.
+The pinned SHA/witness and production non-executable mapped-PE checks pass.
+Tests use native-call fixtures; they do not execute MCC's renderer.
+
+Offline traces: out/ce-0915-{render-consumers,view-rebuild-disasm,clip-consumers,
+scene-callback-refs,scene-callback-bind,scene-initialize,actual-scene,
+actual-scene-disasm,camera-slot,world-consumers,origin-consumers}.txt.
+The scene callback resolves through constructor 8D032/39 and vtable 17F0A48
+(+18 -> 497BB0). It passes the supplied camera onward into scene rendering.
+Camera+220 is the source-camera/player index (4684C0 assigns it); the adapter
+preserves it. It is not interchangeable with the manufactured eye's view index.
+These traces do not establish a new controller, Classic or scene-render hook.
+An initial JAVA_HOME lookup used a stale folder name, but Ghidra ran successfully
+with its configured runtime; subsequent commands use jdk-21.0.12.1+1 explicitly.
+
+Both CE renderers, two independent tracked hands, controller aim, HUD/crosshair,
+locomotion and native state/vehicle parity remain requested and unfinished.
+Physical melee/world collision remain deferred until functional injection is
+confirmed. No install/launch/game writes/publishing or accepted-pointer advance.

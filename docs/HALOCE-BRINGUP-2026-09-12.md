@@ -1,3 +1,27 @@
+# Latest - September 15: tracked-view construction correction
+
+User tested 6e31b25: 803 captured pairs and faster visible Anniversary switching,
+but displaced/noclipped right eye and flat/head-attached left; Original remains
+flat. Exact request/log preserved under out/test-runs/6e31b25-ce-partial-failed-20260915.
+Prior delivery chat was read. This is NOT acceptance; do not resend 6e31b25.
+
+After separate disable f63254b, a correction now stages each tracked eye BEFORE
+native append builds its independent position metadata. Finalization retains
+native per-eye fields and applies the primary native clip range to both eyes.
+See E-CE-12 and HALOCE-CONSTRUCTION-2026-09-15.md for proof, tests and limits.
+Release/eight suites, Reach gate, pinned/generated and mapped-PE checks pass.
+The displaced-view cause is not fully isolated; no headset success claimed.
+
+Package the correction without -Install with current notes, verify both ZIPs,
+deliver build/source here, then WAIT for headset result/instructions. Read
+out/ce-current-handoff.json for exact final identity. No installation, MCC launch,
+game-folder modification or PR/publishing. Both editions remain supported.
+Accepted 4e01f28 and all existing input/gesture/other-title work remain preserved.
+Original stereo, CE independent tracked hands/weapons, controller aim, HUD/reticle,
+locomotion and state/vehicle parity remain REQUIRED and unfinished. Physical
+melee/world collision still await functional injection confirmation. All standing
+and deferred items remain below; do not describe this candidate as full CE VR.
+
 # Halo CE Anniversary VR bring-up — September 12, 2026
 
 ## September 14 late: actual headset failure and correction

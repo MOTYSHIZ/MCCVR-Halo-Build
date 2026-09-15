@@ -1,6 +1,7 @@
 #include "haloce_view_pair.h"
 #include "haloce_surface_transfer.h"
 #include "haloce_prepared_handoff.h"
+#include "haloce_view_construction.h"
 #include <cstdio>
 #include <limits>
 #include <thread>
@@ -60,6 +61,56 @@ int main()
     check(std::memcmp(&native,&savedNative,sizeof(native))==0,
         "staging cannot mutate live cameras, native headers or count");
     const StagedViewPair saved=staged;
+    // Model the native append's independent position table. The old sequence
+    // appends stock origins, then changes only the camera records afterward.
+    // Exercise a translated/rotated head, not only two solid-color eye copies.
+    {
+        ViewConstruction construction{};
+        construction.tracking=tracking; construction.reference=reference;
+        construction.tracking.headPosition={.4f,.2f,-.3f};
+        construction.tracking.headOrientation={0,.258819f,0,.965926f};
+        for (auto& eye:construction.tracking.eyes) eye.orientation=construction.tracking.headOrientation;
+        construction.unitsPerMeter=.33f; construction.positional=true;
+        construction.width=1920; construction.height=540;
+        SaberViewPair builtViews=native;
+        float origins[2][3]{};
+        const auto nativeRebuild=[](SaberCamera&) { return true; };
+        for (int eye=0;eye<2;++eye)
+        {
+            check(construction.PrepareEye(eye,native.views[eye].camera,nativeRebuild),
+                "tracked input camera exists before native append");
+            builtViews.views[eye].camera=construction.staged.cameras[eye];
+            std::memcpy(origins[eye],builtViews.views[eye].camera.pose.matrix+12,sizeof(origins[eye]));
+            builtViews.views[eye].camera.derived160[100]=static_cast<uint8_t>(0x70+eye);
+        }
+        // Native 454A7B/454A8D override the primary clips; ordinary secondary
+        // 454C93 returns without the corresponding native-stereo override.
+        builtViews.views[0].camera.nearPlane=.025f;
+        builtViews.views[0].camera.farPlane=1000;
+        builtViews.views[1].camera.nearPlane=.1f;
+        builtViews.views[1].camera.farPlane=10000;
+        StagedViewPair constructed{};
+        check(construction.Finish(builtViews,nativeRebuild,constructed),
+            "native pair finalizes without applying head tracking a second time");
+        for (int eye=0;eye<2;++eye)
+        {
+            check(std::memcmp(origins[eye],constructed.cameras[eye].pose.matrix+12,sizeof(origins[eye]))==0,
+                "native origin metadata describes exactly the final eye camera");
+            check(std::memcmp(native.views[eye].camera.pose.matrix+12,origins[eye],sizeof(origins[eye]))!=0,
+                "old append-then-patch sequence leaves a provably stale origin");
+            check(constructed.cameras[eye].nearPlane==.025f&&constructed.cameras[eye].farPlane==1000&&
+                constructed.cameras[eye].derived160[100]==0x70+eye,
+                "both eyes use primary native clips while retaining per-eye native opaque data");
+        }
+        check(!construction.PrepareEye(1,native.views[1].camera,nativeRebuild),"duplicate append rejected");
+        const auto complete=constructed;
+        builtViews.views[1].camera.pose.matrix[12]+=1;
+        check(!construction.Finish(builtViews,nativeRebuild,constructed)&&
+            std::memcmp(&complete,&constructed,sizeof(complete))==0,"changed native eye never publishes a partial pair");
+        construction.mask=0;
+        check(!construction.PrepareEye(1,native.views[1].camera,nativeRebuild),"out-of-order right construction rejected");
+        check(!construction.Finish(native,nativeRebuild,constructed),"missing construction cannot inherit a receipt");
+    }
     SaberViewPair fullDesktop=savedNative,rasterSource{};
     for (auto& view:fullDesktop.views)
     { view.camera.viewportWidth=2912; view.camera.viewportHeight=2100; }

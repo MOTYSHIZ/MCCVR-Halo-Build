@@ -1,7 +1,7 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "Initial CE Anniversary e17a664 rejected by headset test; primary-view receipt and source-raster correction candidate, headset result pending; Classic and motion-controller/HUD parity unfinished",
-  "recorded_date": "2026-09-14",
+  "status": "6e31b25 captured 803 pairs but failed headset stereo/6DoF; tracked-camera construction correction under local validation; Classic and controller/HUD parity remain unfinished",
+  "recorded_date": "2026-09-15",
   "retail": {
     "module": "halo1.dll",
     "source_path": "C:/Program Files (x86)/Steam/steamapps/common/Halo The Master Chief Collection/halo1/halo1.dll",
@@ -307,6 +307,26 @@
           "signature": "41 3B 77 08",
           "instruction": "cmp esi, dword ptr [r15 + 8]",
           "meaning": "culling iterates the resulting total view count including appended auxiliary views"
+        },
+        {
+          "rva": "0x2ea9dc",
+          "signature": "48 63 8F 20 BD 00 00",
+          "meaning": "E-CE-12: primary append uses next origin-table index"
+        },
+        {
+          "rva": "0x2eaa02",
+          "signature": "48 63 8F 20 BD 00 00",
+          "meaning": "E-CE-12: secondary append uses next origin-table index"
+        },
+        {
+          "rva": "0x2eab04",
+          "signature": "F2 0F 10 45 90",
+          "meaning": "E-CE-12: load camera pose position xy from local camera+0x30"
+        },
+        {
+          "rva": "0x2eab50",
+          "signature": "88 44 39 2E",
+          "meaning": "E-CE-12: store native origin index at view+0x1e"
         }
       ]
     },
@@ -412,6 +432,31 @@
           "signature": "83 B8 38 02 00 00 00",
           "instruction": "cmp dword ptr [rax + 0x238], 0",
           "meaning": "separate native stereo setting; not written by VR"
+        },
+        {
+          "rva": "0x454a7b",
+          "signature": "89 86 C0 00 00 00",
+          "meaning": "E-CE-12: primary near-clip override after append"
+        },
+        {
+          "rva": "0x454a8d",
+          "signature": "F3 0F 11 B6 C4 00 00 00",
+          "meaning": "E-CE-12: primary far-clip override"
+        },
+        {
+          "rva": "0x454b52",
+          "signature": "89 86 88 04 00 00",
+          "meaning": "E-CE-12: native stereo second near-clip uses same settings"
+        },
+        {
+          "rva": "0x454b5d",
+          "signature": "F3 0F 11 B6 8C 04 00 00",
+          "meaning": "E-CE-12: native stereo second far-clip uses same settings"
+        },
+        {
+          "rva": "0x454c93",
+          "signature": "E8 88 5A E9 FF",
+          "meaning": "E-CE-12: ordinary secondary append returns directly into epilogue"
         }
       ]
     },

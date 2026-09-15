@@ -3,6 +3,7 @@
 #include "../common/haloce_contracts.generated.h"
 #include "../common/haloce_resource_registry.h"
 #include "../common/haloce_surface_transfer.h"
+#include "../common/haloce_view_construction.h"
 #include "../common/log.h"
 #include "game.h"
 #include "title_adapter.h"
@@ -22,8 +23,14 @@ using namespace halo_ce;
 constexpr bool kRejectedCeInitialStereoEnabled=false;
 // 6e31b25 captured pairs but failed stereo/6DoF headset testing.
 constexpr bool kCeSourceRasterStereoEnabled=false;
+constexpr bool kCeConstructTrackedViewsEnabled=true;
 using PrepareFn=void(__fastcall*)(uintptr_t);
 using BuilderFn=uintptr_t(__fastcall*)(uintptr_t,SaberViewPair*,uint8_t,float*);
+// The first four append arguments are integer/pointer registers. Preserve all
+// twelve remaining 8-byte ABI stack slots verbatim (native reads mixed widths).
+using AppendFn=uintptr_t(__fastcall*)(uintptr_t,const SaberCamera*,uint32_t,int32_t,
+    uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,
+    uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 using FrameFn=void(__fastcall*)(uintptr_t,uint32_t);
 using OutputFn=void(__fastcall*)(int);
 using TransferFn=uintptr_t(__fastcall*)(uintptr_t,SurfaceTransfer*);
@@ -32,7 +39,7 @@ using ReleaseFn=void(__fastcall*)(uintptr_t);
 using CopyFn=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,ID3D11Resource*,UINT,
     UINT,UINT,UINT,ID3D11Resource*,UINT,const D3D11_BOX*);
 struct Hook { void* target{}; void* original{}; bool enabled{}; };
-enum HookIndex { Prepare,Builder,Frame,Output,Transfer,Create,Import,Release,ResetList,Copy,Count };
+enum HookIndex { Prepare,Builder,Frame,Output,Transfer,Create,Import,Release,ResetList,Copy,Append,Count };
 std::array<Hook,Count> hooks;
 NativeBindings bindings;
 HMODULE moduleReference{};
@@ -53,6 +60,8 @@ struct FrameDiagnostic
     float cameraWidth{},cameraHeight{};
     uint32_t sourceWidth{},sourceHeight{};
     float position[2][3]{};
+    float origin[2][3]{},nearPlane[2]{},farPlane[2]{};
+    uint32_t originMask{};
 };
 Snapshot<FrameDiagnostic> frameDiagnostic;
 uint32_t rejectedGeneration{};
@@ -78,6 +87,8 @@ Snapshot<Prepared> preparedLists[2],renderReady;
 std::atomic_flag preparationBusy=ATOMIC_FLAG_INIT;
 struct JobScope { uintptr_t job{},activeList{}; bool owned{}; };
 thread_local JobScope jobScope;
+struct BuildScope { uintptr_t list{}; ViewConstruction views; bool enabled{},failed{}; };
+thread_local BuildScope* buildScope{};
 struct FrameScope
 {
     bool synthetic{},capture{};
@@ -151,6 +162,43 @@ bool LiveGame() noexcept
     return Read(bindings.base+0x2e9fd68,clock)&&Read(clock,initialized)&&initialized==1&&
         Read(clock+0xc,tick)&&tick>0;
 }
+uintptr_t AppendBody(uintptr_t list,const SaberCamera* source,uint32_t flags,int32_t index,
+    uint64_t a5,uint64_t a6,uint64_t a7,uint64_t a8,uint64_t a9,uint64_t a10,
+    uint64_t a11,uint64_t a12,uint64_t a13,uint64_t a14,uint64_t a15,uint64_t a16,uintptr_t caller)
+{
+    auto* scope=buildScope;
+    const int eye=caller==bindings.base+0x454a6e?0:caller==bindings.base+0x454c98?1:-1;
+    const SaberCamera* selected=source;
+    if (scope&&scope->enabled&&scope->list==list&&eye>=0)
+    {
+        SaberCamera native{}; uint32_t count{};
+        const bool valid=!scope->failed&&(flags&~0x1000u)==(eye?0x20bu:0x10bu)&&
+            Read(list+8,count)&&count==static_cast<uint32_t>(eye)&&
+            Read(reinterpret_cast<uintptr_t>(source),native)&&
+            scope->views.PrepareEye(eye,native,
+                [](SaberCamera& camera) { return RebuildNativeCamera(bindings,camera); });
+        if (valid) selected=&scope->views.staged.cameras[eye];
+        else scope->failed=true;
+    }
+    return reinterpret_cast<AppendFn>(hooks[Append].original)(list,selected,flags,index,
+        a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16);
+}
+uintptr_t __fastcall AppendHook(uintptr_t list,const SaberCamera* source,uint32_t flags,int32_t index,
+    uint64_t a5,uint64_t a6,uint64_t a7,uint64_t a8,uint64_t a9,uint64_t a10,
+    uint64_t a11,uint64_t a12,uint64_t a13,uint64_t a14,uint64_t a15,uint64_t a16)
+{
+    Callback callback;
+    return AppendBody(list,source,flags,index,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,
+        reinterpret_cast<uintptr_t>(_ReturnAddress()));
+}
+uintptr_t ConstructViews(BuilderFn original,uintptr_t arg,SaberViewPair* list,
+    uint8_t secondary,float* settings,BuildScope* scope)
+{
+    const auto previous=buildScope;
+    buildScope=scope;
+    __try { return original(arg,list,secondary,settings); }
+    __finally { buildScope=previous; }
+}
 uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secondary,float* settings)
 {
     Callback callback;
@@ -172,18 +220,39 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
         uint64_t zero=0; firstCameraMs.compare_exchange_strong(zero,now);
     }
     const bool force=eligible&&armed.load()&&TrackingNow(tracking);
-    const auto nativeResult=original(arg,list,force?1:secondary,settings);
-    if (!scoped) return nativeResult;
-    Prepared result{address,gen,force,false,{}};
-    result.referenceRevision=referenceRevision.load(std::memory_order_acquire);
-    if (force)
+    BuildScope construction{};
+    if (force&&kCeConstructTrackedViewsEnabled)
     {
-        SaberViewPair source{},rasterSource{},committed{}; StagedViewPair staged{};
         if (recenter.exchange(false)||reference.generation!=gen||reference.spaceEpoch!=tracking.spaceEpoch)
             reference={tracking.headPosition,tracking.headOrientation,tracking.spaceEpoch,gen};
         Wanted raster{};
+        construction.list=address;
+        construction.enabled=allocated.Read(raster)&&raster.generation==gen;
+        construction.views.tracking=tracking; construction.views.reference=reference;
+        construction.views.unitsPerMeter=Game_GetWorldScale();
+        construction.views.positional=Game_IsPositionalTracking();
+        construction.views.width=raster.descriptor.Width; construction.views.height=raster.descriptor.Height;
+    }
+    const uint64_t revisionBeforeBuild=referenceRevision.load(std::memory_order_acquire);
+    const auto nativeResult=ConstructViews(original,arg,list,force?1:secondary,settings,
+        force&&kCeConstructTrackedViewsEnabled?&construction:nullptr);
+    if (!scoped) return nativeResult;
+    Prepared result{address,gen,force,false,{}};
+    result.referenceRevision=revisionBeforeBuild;
+    if (force)
+    {
+        SaberViewPair source{},rasterSource{},committed{}; StagedViewPair staged{};
+        if (!kCeConstructTrackedViewsEnabled&&
+            (recenter.exchange(false)||reference.generation!=gen||reference.spaceEpoch!=tracking.spaceEpoch))
+            reference={tracking.headPosition,tracking.headOrientation,tracking.spaceEpoch,gen};
+        Wanted raster{};
         const bool rasterReady=allocated.Read(raster)&&raster.generation==gen;
-        const auto stage=!rasterReady?PairStageResult::AwaitingRaster:
+        const auto stage=kCeConstructTrackedViewsEnabled?
+            (!construction.enabled?PairStageResult::AwaitingRaster:
+                !construction.failed&&Read(address,source)&&construction.views.Finish(source,
+                    [](SaberCamera& camera) { return RebuildNativeCamera(bindings,camera); },staged)
+                ?PairStageResult::Staged:PairStageResult::InvalidRebuiltCamera):
+            !rasterReady?PairStageResult::AwaitingRaster:
             Read(address,source)&&SelectNativeEyeRaster(source,raster.descriptor.Width,
                 raster.descriptor.Height,rasterSource)
             ? StageBoundNativePair(bindings,rasterSource,tracking,reference,
@@ -255,8 +324,19 @@ void FrameBody(uintptr_t arg,uint32_t flags)
         auto& diagnostic=scope.diagnostic;
         diagnostic.nativeCount=rendered.count; diagnostic.nativeFlags=rendered.flags;
         for (int eye=0;eye<2;++eye)
+        {
             for (int axis=0;axis<3;++axis)
                 diagnostic.position[eye][axis]=rendered.views[eye].camera.pose.matrix[12+axis];
+            diagnostic.nearPlane[eye]=rendered.views[eye].camera.nearPlane;
+            diagnostic.farPlane[eye]=rendered.views[eye].camera.farPlane;
+            // Append stores its origin index at view+0x1e and its separate
+            // 12-byte position table at list+0xbd24, bounded by list+0xbd20.
+            uint32_t originCount{};
+            const uint32_t originIndex=rendered.views[eye].native10[0x0e];
+            if (Read(renderer+0xb0+0xbd20,originCount)&&originCount<=16&&originIndex<originCount&&
+                Read(renderer+0xb0+0xbd24+12*originIndex,diagnostic.origin[eye]))
+                diagnostic.originMask|=1u<<eye;
+        }
         diagnostic.cameraWidth=scope.prepared.receipt.pair.cameras[0].viewportWidth;
         diagnostic.cameraHeight=scope.prepared.receipt.pair.cameras[0].viewportHeight;
         const bool receiptCurrent=Current()&&armed.load()&&trackingEnabled.load()&&scope.prepared.valid&&
@@ -452,7 +532,7 @@ bool Remove() noexcept
     const void* functions[Count]={reinterpret_cast<void*>(&PrepareHook),reinterpret_cast<void*>(&BuilderHook),
         reinterpret_cast<void*>(&FrameHook),reinterpret_cast<void*>(&OutputHook),reinterpret_cast<void*>(&TransferHook),
         reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void*>(&ImportHook),reinterpret_cast<void*>(&ReleaseHook),
-        reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook)};
+        reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),reinterpret_cast<void*>(&AppendHook)};
     const void* originals[Count]{};
     for (size_t i=0;i<Count;++i) originals[i]=hooks[i].original;
     // The shared verifier accepts at most eight ranges. Entries are disabled,
@@ -487,11 +567,13 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     const uintptr_t addresses[Count]={bindings.prepare,bindings.pairBuilder,bindings.frame,
         bindings.output,bindings.transfer,
         base+contract::anniversary_texture_create,base+contract::anniversary_texture_import_2d,
-        base+contract::anniversary_texture_release_resources,base+contract::anniversary_view_list_reset,copyTarget.load()};
+        base+contract::anniversary_texture_release_resources,base+contract::anniversary_view_list_reset,copyTarget.load(),
+        base+contract::anniversary_view_append};
     void* detours[Count]={reinterpret_cast<void*>(&PrepareHook),reinterpret_cast<void*>(&BuilderHook),
         reinterpret_cast<void*>(&FrameHook),reinterpret_cast<void*>(&OutputHook),reinterpret_cast<void*>(&TransferHook),
         reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void*>(&ImportHook),
-        reinterpret_cast<void*>(&ReleaseHook),reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook)};
+        reinterpret_cast<void*>(&ReleaseHook),reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),
+        reinterpret_cast<void*>(&AppendHook)};
     for (size_t i=0;i<Count;++i)
     {
         if (!addresses[i]) { Remove(); return false; }
@@ -523,7 +605,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         if (!Remove()) return false;
     }
     if (!isActive||!base||!gen) return false;
-    if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled)
+    if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled&&!kCeConstructTrackedViewsEnabled)
     {
         if (gen!=rejectedGeneration)
         {
@@ -562,6 +644,10 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
                 diagnostic.sourceWidth,diagnostic.sourceHeight,
                 diagnostic.position[0][0],diagnostic.position[0][1],diagnostic.position[0][2],
                 diagnostic.position[1][0],diagnostic.position[1][1],diagnostic.position[1][2]);
+            LOG("CE ORIGINS mask=%u origin0=(%.3f,%.3f,%.3f) origin1=(%.3f,%.3f,%.3f) clip0=%.4f/%.1f clip1=%.4f/%.1f construction=before-append",
+                diagnostic.originMask,diagnostic.origin[0][0],diagnostic.origin[0][1],diagnostic.origin[0][2],
+                diagnostic.origin[1][0],diagnostic.origin[1][1],diagnostic.origin[1][2],
+                diagnostic.nearPlane[0],diagnostic.farPlane[0],diagnostic.nearPlane[1],diagnostic.farPlane[1]);
         }
     }
     return armed.load();

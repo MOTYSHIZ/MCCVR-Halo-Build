@@ -29,6 +29,19 @@ bool invalidBox{};
 unsigned nativeCopies{};
 uintptr_t rendererAddress{};
 constexpr uint32_t leftColor=0xff123456,rightColor=0xffabcdef;
+using MixedAppendFn=uintptr_t(__fastcall*)(uintptr_t,const SaberCamera*,uint32_t,int32_t,
+    float,float,uint32_t,float,uint16_t,uint16_t,uint64_t,uint8_t,float,float,uint8_t,uint8_t);
+bool appendArgumentsIntact{};
+uintptr_t __fastcall MixedAppend(uintptr_t list,const SaberCamera* source,uint32_t flags,int32_t index,
+    float a5,float a6,uint32_t a7,float a8,uint16_t a9,uint16_t a10,
+    uint64_t a11,uint8_t a12,float a13,float a14,uint8_t a15,uint8_t a16)
+{
+    appendArgumentsIntact=list==0x1122334455667788ull&&source==reinterpret_cast<const SaberCamera*>(0x12340)&&
+        flags==0x110b&&index==-1&&a5==1.25f&&a6==-2.5f&&a7==0xdeadbeef&&a8==.125f&&
+        a9==0x1234&&a10==0xabcd&&a11==0xfedcba9876543210ull&&a12==0xff&&
+        a13==-12.5f&&a14==14.75f&&a15==2&&a16==3;
+    return 0xabcdfedc12345678ull;
+}
 void Paint(ID3D11Texture2D* texture,uint32_t color)
 {
     std::vector<uint32_t> pixels(testDesc.Width*testDesc.Height,color);
@@ -119,6 +132,12 @@ int main()
 {
     int failures=0;
     const auto check=[&](bool value,const char* why) { if (!value) { ++failures; std::fprintf(stderr,"CE runtime: %s\n",why); } };
+    hooks[Append].original=reinterpret_cast<void*>(&MixedAppend);
+    const auto forwarded=reinterpret_cast<MixedAppendFn>(&AppendHook)(0x1122334455667788ull,
+        reinterpret_cast<const SaberCamera*>(0x12340),0x110b,-1,1.25f,-2.5f,0xdeadbeef,.125f,
+        0x1234,0xabcd,0xfedcba9876543210ull,0xff,-12.5f,14.75f,2,3);
+    check(appendArgumentsIntact&&forwarded==0xabcdfedc12345678ull,
+        "production append detour preserves register arguments, mixed-width stack slots and return value");
     ComPtr<ID3D11Device> device; ComPtr<ID3D11DeviceContext> context;
     const D3D_FEATURE_LEVEL feature=D3D_FEATURE_LEVEL_11_0;
     if (FAILED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,&feature,1,D3D11_SDK_VERSION,&device,nullptr,&context))) return 1;
