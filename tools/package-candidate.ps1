@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'roomscale-left-hand-update',
+        'ce-anniversary-stereo-6dof',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 42
+        schema_version = 43
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -524,7 +524,8 @@ try {
         package_preset = $packagePreset
         titles = @(
             'Halo 3', 'Halo 3: ODST', 'Halo: Reach', 'Halo 4',
-            'Halo 2 Anniversary', 'Halo 2 Classic')
+            'Halo 2 Anniversary', 'Halo 2 Classic',
+            'Halo CE Anniversary (stereo/6DoF test)')
         embedded_build_identity = [ordered]@{
             source_commit = $commit
             odst = $true
