@@ -3,6 +3,11 @@
 // E-CE-AHUD-1..4, HALOCE-ANNIVERSARY-HUD-EVIDENCE-2026-09-15.md.
 using AnniversaryHudFn=void(__fastcall*)();
 Hook anniversaryHudHook;
+// 884de13 reached this replay once, failed native cleanup and stopped
+// presenting after the graphics switch. Keep the complete adapter dormant;
+// its native callback owns more state than our target/raster wrapper can
+// restore. See HALOCE-ANNIVERSARY-REPLAY-ROLLBACK-2026-09-15.md.
+constexpr bool kCeAnniversaryManualHudReplayEnabled=false;
 std::atomic<bool> anniversaryHudInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
 std::atomic<uint32_t> anniversaryHudFailure{};
@@ -87,6 +92,11 @@ bool AnniversaryHud_Remove() noexcept
 }
 bool AnniversaryHud_Install() noexcept
 {
+    if (!kCeAnniversaryManualHudReplayEnabled)
+    {
+        LOG("CE Anniversary HUD stock fallback: manual callback replay disabled after native cleanup failure; camera retained");
+        return false;
+    }
     const NativeContractSet set{contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,
         contract::anniversary_hud::relatives,contract::anniversary_hud::pointers};
     const char* failure{};
