@@ -1,3 +1,22 @@
+# Live diagnostic authorization - September 15, 12:40 local
+
+The user explicitly authorized ONE diagnostic launch of the existing installed
+Steam be2140f through RenderDoc, with the user loading the failing Anniversary
+scene. This exception is already granted; do not ask again or launch a second
+copy. Launch succeeded: MCC PID 26064, launcher PID 7844. Both RenderDoc and the
+unchanged be2140f mod are verified loaded in MCC. No source fixes were installed.
+The pending user step is reproducing the same displaced eye and pressing F12
+once to capture, then reporting whether the original symptom persisted.
+Capture prefix: `out/ce-renderdoc-evidence/ce-steam-be2140f`.
+Read `out/ce-renderdoc-evidence/README.md` for commands/settings. Actual capture
+file/reproduction remains pending; do not treat launch as acceptance.
+Source corrections are committed as eacd81b; all four rejected enables stay
+false and no build/source ZIP is authorized yet. Accepted source is unchanged.
+Capture/export of an isolated WARP fixture passed, including raw constants and
+immediate/deferred target/copy identities (`fixture-export-verification.json`).
+GUI GPU replay remains unverified. A rejected RenderDoc preference-change
+attempt made no change; a separate command-line export route succeeded.
+
 # Latest user result - September 15: be2140f partial progress, FAILED core VR
 
 Current correction work is preserved in

@@ -1,5 +1,28 @@
 # CE corrections held for actual world-render evidence
 
+## Live follow-up
+
+Source corrections below are committed as `eacd81b`. The user subsequently
+authorized one diagnostic launch of the existing installed Steam `be2140f`
+through RenderDoc. It succeeded at 12:40 local: MCC PID 26064 and launcher
+PID 7844. The mod and RenderDoc are both loaded. No source fix was installed.
+The user is loading the original failing Anniversary scene and has been asked
+to press F12 once only after reproducing the displaced eye. No MCC capture or
+new headset result is available yet. The launch authorization does not remove
+the package hold. Current process IDs and pending state must be rechecked
+before acting on them; never start another copy just to resume this work.
+
+Portable-tool evidence and launch settings are in
+`out/ce-renderdoc-evidence/README.md`. An isolated WARP capture succeeded.
+Command-line export recovered both immediate/deferred draw bindings, distinct
+RTV/depth resources, raw CB0 origin/matrix/color values and matching copies;
+`fixture-export-verification.json` passes. This avoids changing UI preferences.
+GUI GPU replay remains unverified. The earlier preference-change/retry attempt
+was rejected before execution with only `blocked by policy`; no app setting
+was changed. The successful export is a separate, safer analysis route.
+
+## Source-correction state before that launch
+
 The latest request is both CE Classic and Anniversary at the established VR
 baseline, with no ZIP until there is credible evidence they function correctly.
 The user confirmed that one Anniversary headset eye, as well as the lower
