@@ -1,18 +1,32 @@
-# Roomscale and left-hand update - September 2026
+# CE Original and Anniversary VR correction - September 2026
 
-This source supports **H2 Classic/Anniversary, H3, ODST, Reach and H4**, on Steam
-and Microsoft Store. The current roomscale candidate awaits headset testing;
-`4e01f28` remains the accepted baseline. Halo CE VR is not implemented.
+This cumulative source includes a **CE Original (Classic) and Anniversary VR
+correction candidate** alongside **H2 Classic/Anniversary, H3, ODST, Reach and
+H4**. Steam and Microsoft Store use the same build. The CE candidate requires
+headset testing; `4e01f28` remains the accepted baseline.
 
 Use [current installation/update instructions](installer/MANUAL-README.txt),
-[current release notes](docs/ROOMSCALE-LEFT-HAND-RELEASE-NOTES-2026-09-10.md) and
+[current release notes](docs/HALOCE-VR-CORRECTION-CANDIDATE-2026-09-15.md) and
 [build instructions](BUILDING.md). **Keep your existing config when updating.**
-Roomscale body movement is optional in F1 > Controls and defaults off. Controller
-aiming is preserved; independent head-following body yaw is deferred for this
-package. Left-handed positioning defaults to the released MCCVR-d77c9dd path;
+
+The CE corrections cover Classic output discovery, Anniversary scene-visibility
+refresh and HUD admission, and one completed-eye desktop view. Existing tracked
+hands, weapon placement and controller aiming are preserved. The previous
+Anniversary world-render failure has not yet been confirmed fixed in a headset;
+the release notes record
+the current correction and its verification limits. CE body following,
+physical melee and world collision remain deferred. Tracked leaning is part
+of its 6DoF camera path.
+
+Existing roomscale and left-hand work remains included. Roomscale body movement
+is optional in F1 > Controls and defaults off for the other supported titles.
+Independent head-following body yaw is deferred. Left-handed positioning
+defaults to the released MCCVR-d77c9dd path;
 Fix Hand Alignment (Experimental) is a separate, default-off option. The latest
-roomscale changes fix title admission and nested input cancellation. H3's failed
-dual-fire experiment stays disabled. Recovery is H3-only.
+roomscale changes address title admission and nested input cancellation and
+await headset confirmation. H3's failed dual-fire experiment stays disabled.
+Recovery is H3-only. Details remain in the
+[roomscale and left-hand notes](docs/ROOMSCALE-LEFT-HAND-RELEASE-NOTES-2026-09-10.md).
 
 [Current checkpoint](docs/ACTIVE-WORK-CHECKPOINT.md) and
 [standing work list](docs/CONTINUATION-REFINEMENT-LIST.md) distinguish implemented,

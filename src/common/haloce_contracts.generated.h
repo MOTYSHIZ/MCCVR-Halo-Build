@@ -10,7 +10,7 @@ struct Relative { uint32_t rva, size, displacement, target; };
 struct Pointer { uint32_t rva, target; };
 inline constexpr uint32_t imageSize=0x3D82000;
 inline constexpr uint32_t timestamp=0x68A0E4CF;
-inline constexpr std::array<Entry,27> entries={{
+inline constexpr std::array<Entry,32> entries={{
     {"native_player_window",0xbbca64,"48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 48 FB FF FF 48 81 EC 90 05 00 00",true},
     {"native_frustum",0xb8f690,"48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 44 0F BF 51 32",true},
     {"native_camera_build",0xac450c,"48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 A1 48 81 EC 90 00 00 00 48 8B FA 48 8B D9 48 85 D2 0F 84 46 01 00 00 F2",true},
@@ -38,8 +38,13 @@ inline constexpr std::array<Entry,27> entries={{
     {"anniversary_view_list_reset",0x2eacd0,"40 53 56 48 81 EC 78 04 00 00 48 8B 05 2F A3 88 01 48 33 C4 48 89 84 24 00 04 00 00 48 8B F1 48 89 AC 24 98 04 00 00",true},
     {"anniversary_camera_upload",0x2eb9f0,"48 89 5C 24 08 55 56 57 48 81 EC E0 00 00 00 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 D0 00 00 00 48 8B 3D ?? ?? ?? ?? 49 8B F0 F3 41 0F 10 88 3C 01 00 00",true},
     {"anniversary_depth_mesh_pass",0x4577b0,"40 53 48 83 EC 70 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 60 48 8B 0D ?? ?? ?? ?? 49 63 D9",true},
+    {"anniversary_scene_camera_update",0x5434b0,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 30 49 8B F9 49 8B F0 8B EA 48 8B D9 4D 85 C0",true},
+    {"anniversary_scene_camera_regions",0x543550,"44 89 4C 24 20 4C 89 44 24 18 89 54 24 10 53 56 41 55 41 57 48 83 EC 58 8B 81 10 01 00 00 45 8B E9",true},
+    {"anniversary_scene_refresh_consumer",0x543cb0,"40 57 48 83 EC 40 48 C7 44 24 20 FE FF FF FF 48 89 5C 24 50 48 89 6C 24 58 48 89 74 24 60 48 8B EA 48 8B D9 48 8D B1 B8 01 00 00",true},
+    {"anniversary_scene_static_visibility_rebuild",0x543af0,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 44 8B 82 50 28 00 00 33 FF 48 8B EA",true},
+    {"anniversary_scene_region_visibility_apply",0x542f00,"40 53 48 83 EC 50 48 8B D9 8B 89 A8 01 00 00 8B C1 C1 E8 0B A8 01 0F 85 A9 01 00 00 F6 C1 60 0F 84 A0 01 00 00",true},
 }};
-inline constexpr std::array<Witness,119> witnesses={{
+inline constexpr std::array<Witness,138> witnesses={{
     {0xbbccad,"E8 ?? ?? ?? ??"},
     {0xbbcee6,"E8 ?? ?? ?? ??"},
     {0xac483f,"48 8D 15 ?? ?? ?? ??"},
@@ -159,8 +164,27 @@ inline constexpr std::array<Witness,119> witnesses={{
     {0x4575d5,"48 8B 88 18 03 00 00"},
     {0x22b84e,"48 8B 80 08 01 00 00"},
     {0x456324,"E8 87 14 00 00"},
+    {0x5434ca,"8B EA"},
+    {0x543526,"85 ED 74 0A 81 8B 10 01 00 00 00 01 00 00"},
+    {0x454e60,"0F B6 93 92 00 00 00 FF 90 30 02 00 00"},
+    {0x454e7b,"C6 83 92 00 00 00 00"},
+    {0x454e8a,"48 FF A0 38 02 00 00"},
+    {0x4557ff,"C6 80 92 00 00 00 01"},
+    {0x415418,"C6 80 92 00 00 00 01"},
+    {0x543521,"E8 ?? ?? ?? ??"},
+    {0x543568,"8B 81 10 01 00 00"},
+    {0x543579,"0F BA F0 0C 89 81 10 01 00 00"},
+    {0x543589,"4D 85 C0 74 0F 4D 85 D2 74 0A 0F BA E8 0C 89 81 10 01 00 00"},
+    {0x543d30,"83 BB 28 01 00 00 00 74 59 8B C1 C1 E8 08 A8 01 75 06 0F BA F1 0B EB 09"},
+    {0x543d61,"85 FF 74 2D 81 A3 10 01 00 00 FF FE FF FF"},
+    {0x543d75,"E8 ?? ?? ?? ??"},
+    {0x543b49,"F7 41 2C 00 00 02 00 75 1C 0F B6 81 8E 00 00 00 39 79 1C 7E 06 24 F9 0C 01 EB 04 24 FE 0C 06 88 81 8E 00 00 00"},
+    {0x543c60,"39 BE 28 01 00 00 7E 26 48 8B DF 0F 1F 44 00 00 48 8B 8E 20 01 00 00 48 8B 0C 0B E8 80 F2 FF FF FF C7 48 8D 5B 08 3B BE 28 01 00 00"},
+    {0x543c7b,"E8 ?? ?? ?? ??"},
+    {0x542f09,"8B 89 A8 01 00 00 8B C1 C1 E8 0B A8 01 0F 85 A9 01 00 00 F6 C1 60 0F 84 A0 01 00 00"},
+    {0x542f2a,"8B C1 C1 E8 05 48 89 7C 24 40 83 E0 01 03 C0 4C 89 64 24 38 C1 E9 06 4C 89 6C 24 30 4C 89 7C 24 20 44 8B F8 80 E1 01 74 04 41 83 CF 04"},
 }};
-inline constexpr std::array<Relative,55> relatives={{
+inline constexpr std::array<Relative,58> relatives={{
     {0xbbccad,5,1,0xbbcf30},
     {0xbbcee6,5,1,0xbbca64},
     {0xac483f,7,3,0x2e9fe80},
@@ -216,11 +240,17 @@ inline constexpr std::array<Relative,55> relatives={{
     {0x456a81,5,1,0x2eb9f0},
     {0x457c02,5,1,0x2eb9f0},
     {0x456324,5,1,0x4577b0},
+    {0x543521,5,1,0x543550},
+    {0x543d75,5,1,0x543af0},
+    {0x543c7b,5,1,0x542f00},
 }};
-inline constexpr std::array<Pointer,3> pointers={{
+inline constexpr std::array<Pointer,6> pointers={{
     {0x17f9ea0,0x204c40},
     {0x17fb6e8,0x22b830},
     {0x17f9e08,0x205e40},
+    {0x1819888,0x5434b0},
+    {0x1819890,0x543cb0},
+    {0x1819890,0x543cb0},
 }};
 inline constexpr uint32_t native_player_window=0xbbca64;
 inline constexpr uint32_t native_frustum=0xb8f690;
@@ -249,6 +279,11 @@ inline constexpr uint32_t anniversary_texture_release_resources=0x22b0a0;
 inline constexpr uint32_t anniversary_view_list_reset=0x2eacd0;
 inline constexpr uint32_t anniversary_camera_upload=0x2eb9f0;
 inline constexpr uint32_t anniversary_depth_mesh_pass=0x4577b0;
+inline constexpr uint32_t anniversary_scene_camera_update=0x5434b0;
+inline constexpr uint32_t anniversary_scene_camera_regions=0x543550;
+inline constexpr uint32_t anniversary_scene_refresh_consumer=0x543cb0;
+inline constexpr uint32_t anniversary_scene_static_visibility_rebuild=0x543af0;
+inline constexpr uint32_t anniversary_scene_region_visibility_apply=0x542f00;
 namespace anniversary_hud {
 inline constexpr std::array<Entry,4> entries={{
     {"native_hud_callback",0x740b0,"48 8B C4 57 48 81 EC A0 00 00 00 48 C7 40 98 FE FF FF FF 48 89 58 08 48 89 70 10 0F 29 70 E8 0F 29 78 D8 33 F6 89 35 9D",true},

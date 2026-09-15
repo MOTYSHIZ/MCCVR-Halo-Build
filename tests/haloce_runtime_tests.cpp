@@ -24,6 +24,19 @@ bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t 
 
 namespace
 {
+int32_t sceneRequestedRefresh{};
+const float* scenePrimary{};
+const float* sceneSecondary{};
+void __fastcall NativeSceneCamera(uintptr_t scene,int32_t refresh,
+    const float* primary,const float* secondary)
+{
+    sceneRequestedRefresh=refresh; scenePrimary=primary; sceneSecondary=secondary;
+    // Model just the documented native previous/current camera-count flag.
+    // Actual native static-cache reconstruction is executed by the pinned
+    // test_ce_scene_refresh_native.py verifier.
+    auto* flags=reinterpret_cast<uint32_t*>(scene+0x110);
+    *flags=(*flags&~0x1000u)|(primary&&secondary?0x1000u:0u);
+}
 ID3D11DeviceContext* testContext{};
 ID3D11Texture2D* testSource{};
 ID3D11Texture2D* testDestination{};
@@ -314,6 +327,63 @@ int main()
     rendererAddress=reinterpret_cast<uintptr_t>(renderer.data());
     std::memcpy(mapped.data()+0x1bea9e0,&rendererAddress,sizeof(rendererAddress));
     installed=true; active=true; retiring=false; armed=true; generation=3; recenter=false; trackingEnabled=true;
+    {
+        std::array<uint8_t,0x118> nativeScene{};
+        const uintptr_t scene=reinterpret_cast<uintptr_t>(nativeScene.data());
+        const uintptr_t sceneVtable=bindings.base+0x1819658;
+        std::memcpy(nativeScene.data(),&sceneVtable,8);
+        auto* sceneFlags=reinterpret_cast<uint32_t*>(nativeScene.data()+0x110);
+        *sceneFlags=0xa8000042u;
+        const auto savedScope=jobScope;
+        jobScope={reinterpret_cast<uintptr_t>(job.data()),rendererAddress+0xb0,true};
+        hooks[SceneCamera].original=reinterpret_cast<void*>(&NativeSceneCamera);
+        const auto primary=reinterpret_cast<const float*>(jobScope.activeList+0x70);
+        const auto secondary=reinterpret_cast<const float*>(jobScope.activeList+0x438);
+        sceneVisibilityRefreshes=0;
+        SceneCameraHook(scene,0,primary,secondary);
+        check(sceneRequestedRefresh==1&&sceneVisibilityRefreshes==1&&
+            scenePrimary==primary&&sceneSecondary==secondary&&*sceneFlags==0xa8001042u,
+            "two-eye entry requests native static-scene refresh and preserves camera pointers/other flags");
+        SceneCameraHook(scene,0,primary,secondary);
+        check(sceneRequestedRefresh==0&&sceneVisibilityRefreshes==1,
+            "steady stereo does not rebuild the static scene every frame");
+        SceneCameraHook(scene,7,primary,secondary);
+        check(sceneRequestedRefresh==7&&sceneVisibilityRefreshes==1,
+            "authored native refresh requests remain unchanged");
+        armed=false; retiring=true;
+        SceneCameraHook(scene,0,primary,nullptr);
+        check(sceneRequestedRefresh==1&&sceneVisibilityRefreshes==2&&*sceneFlags==0xa8000042u,
+            "stock return during retirement refreshes mono masks without depending on XR arming");
+        armed=true; retiring=false;
+        const auto copiedPrimary=reinterpret_cast<const float*>(jobScope.job+0xe0);
+        const auto copiedSecondary=reinterpret_cast<const float*>(jobScope.job+0x4a8);
+        SceneCameraHook(scene,0,copiedPrimary,copiedSecondary);
+        check(sceneRequestedRefresh==1&&sceneVisibilityRefreshes==3,
+            "copied worker preparation requests the same native transition refresh");
+        jobScope.owned=false;
+        SceneCameraHook(scene,0,copiedPrimary,nullptr);
+        check(sceneRequestedRefresh==0&&sceneVisibilityRefreshes==3,
+            "unowned callbacks preserve stock refresh choice");
+        jobScope.owned=true;
+        SceneCameraHook(scene,0,primary+1,secondary);
+        check(sceneRequestedRefresh==0&&sceneVisibilityRefreshes==3,
+            "foreign primary-position pointers cannot grant transition ownership");
+        *sceneFlags&=~0x1000u;
+        SceneCameraHook(scene,0,primary,secondary+1);
+        check(sceneRequestedRefresh==0&&sceneVisibilityRefreshes==3,
+            "foreign secondary-position pointers cannot grant transition ownership");
+        *sceneFlags&=~0x1000u;
+        nativeScene[0]^=0x08;
+        SceneCameraHook(scene,0,primary,secondary);
+        check(sceneRequestedRefresh==0&&sceneVisibilityRefreshes==3,
+            "another native scene class cannot inherit the verified layout");
+        nativeScene[0]^=0x08;
+        *sceneFlags&=~0x1000u;
+        SceneCameraHook(scene,0,primary,secondary);
+        check(sceneRequestedRefresh==1&&sceneVisibilityRefreshes==4,
+            "the next owned transition recovers without stale adapter bookkeeping");
+        jobScope=savedScope;
+    }
     preparedLists[0].Publish({}); preparedLists[1].Publish({}); renderReady.Publish({});
     hooks[Copy].original=reinterpret_cast<void*>(&NativeCopy);
     hooks[Transfer].original=reinterpret_cast<void*>(&NativeTransfer);

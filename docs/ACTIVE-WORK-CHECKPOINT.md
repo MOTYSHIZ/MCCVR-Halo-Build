@@ -1,4 +1,109 @@
-# Live diagnostic authorization - September 15, 12:40 local
+# Exact continuation - September 15: CE scene-refresh correction and ZIP handoff
+
+Recovered the actual prior root chat through the quoted Original final-output /
+Anniversary scene-cache update. Pre-edit WIP preserved under
+`out/checkpoints/20260915-135529-ce-final-resume`. Resume source was `b272077`.
+The current user says continue and forget nothing; the recovered prior request
+explicitly requires build/source ZIP delivery without confirmations. Package
+without `-Install`, deliver both ZIPs, then WAIT for headset testing/instructions.
+No game launch, installation, game-folder changes, PR or publishing.
+
+The native static-scene visibility omission is now reproduced offline: adding
+a second camera updates region membership but retains first-eye-only static
+object masks until the native refresh request is made. The scoped scene-camera
+hook requests that refresh only on transitions into/out of two-camera mode;
+stable stereo does not rebuild each frame. Native authored hidden regions and
+independent geometric rejection remain active. Both active/copied preparation
+branches, stock return during retirement, and foreign scene/camera guards are
+covered. Independent hook-lifetime audit found no new defect; all 14 hooks drain
+in supported 8+6 quiescence batches. See
+`HALOCE-SCENE-REFRESH-EVIDENCE-2026-09-15.md` and the pinned native verifier.
+
+Original's final-output capture and actual dimension-changing DXGI resize
+recovery pass the production WARP fixture. Kind-zero source/Present bootstrap,
+optional Anniversary HUD isolation, working hands/aim and the committed
+single-eye desktop mirror are retained. The four failed CE enables remain FALSE;
+`kCeSceneVisibilityBaseVrEnabled` enables this corrected cumulative candidate.
+No further camera transform or global visibility override was introduced.
+
+Cumulative Release and all 20 CTest suites pass. Generated contracts, all 99
+pinned contracts, Classic/HUD fragments, 14 production mapped-image binding
+groups and Reach consistency pass. Records: `out/ce-delivery-*20260915.*`.
+Packaging repeats build/checks for the exact committed identity. Final build ZIP,
+matching source ZIP, DLL/archive hashes and source commit are recorded in
+`out/ce-current-handoff.json` after successful packaging. Candidate notes are
+`HALOCE-VR-CORRECTION-CANDIDATE-2026-09-15.md`; the package now uses these notes.
+
+The native omission is established; the user's displaced/missing Anniversary
+world is NOT headset-confirmed fixed. No new capture, screenshot or runtime
+test was requested or performed. Both CE modes and Halo 3 regression need the
+user's test. The unusual support-hand angle remains unconfirmed. Accepted
+`4e01f28`, both editions, all prior title work and EVERY standing/deferred task
+are preserved. CE body following/melee/world collision, H2 vehicles, all-title
+zoom, dual trajectory, alignment and other listed refinements remain retained.
+Do not advance `CURRENT-STATE.md` from offline evidence or redeliver `be2140f`.
+
+# Historical instruction - September 15: autonomous CE correction and ZIP delivery
+
+The user explicitly requests continuation through a build ZIP with matching
+source ZIP for BOTH CE Original and Anniversary, without being present to
+approve anything. This supersedes earlier packaging holds. Use existing
+evidence; do not take or request more screenshots of the reported failure.
+No confirmation requests, installation, game launch, game-folder writes, PR
+or publishing. Run `tools/package-candidate.ps1` without `-Install`.
+
+Resume HEAD is `b272077`, which includes the verified single-eye desktop mirror.
+The retained RenderDoc analysis and extraction/replay tools are preserved WIP.
+Offline work now checks native geometry/view-role admission, Classic's corrected
+source bootstrap and final capture integration. A final package must describe
+the actual correction and verification honestly; local tests cannot establish
+headset acceptance. Accepted `4e01f28` and all standing/deferred work remain.
+
+# Exact continuation - September 15: screenshot reviewed, capture retry diagnosed
+
+The user resumed the last chat at its recording-analysis/single-view desktop
+update, reaffirmed NO ZIP until CE works properly, and explicitly reminded us
+to inspect the screenshot already supplied. Root read the exact prior exchange
+and visually inspected `C:/Users/Shadow/Pictures/3.PNG`, matching the preserved
+`out/test-runs/be2140f-ce-partial-failed-20260915/3.PNG`: normal upper world/gun,
+below-world lower image, reticle across the split. The prior explicit report
+that one HEADSET eye shows the bad view remains authoritative. Do not ask for
+the same symptom confirmation or screenshot again.
+
+Both existing RenderDoc files are now analyzed. They retain the broken stacked
+image in INITIAL backbuffer contents, but their recorded draw streams are mono
+retries. The retained overlay and RenderDoc log prove frames 2767/3211 failed
+with `Uncapped Map()/Unmap()`; saved frames are 2768/3212. CE heartbeat expiration
+and detach also occur during each capture window. Earlier statements that the
+files contain only flat evidence were incomplete. Read
+`HALOCE-RENDERDOC-EVIDENCE-2026-09-15.md` and the reusable extraction scripts.
+
+Retained GPU constants include both eye origins, matching the pre-timeout mod
+log. Dominant world matrices are bit-identical across eyes, and camera origins
+at CB0 +0x240/+0x320 agree. The much smaller second-eye object-transform set is
+a lead for native geometry/visibility admission, not a proven cause. Current
+independent audits cover culling/list visibility and explicit secondary-view
+versus native stereo role selection. No new camera transform is justified yet.
+
+The interrupted desktop-mirror edit is now implemented and its production WARP
+fixture passes, including actual pixels, crop/gamma, source preservation,
+dynamic shader state, release/recovery and failure isolation. Review caught and
+fixed a reserved HLSL identifier and a transient linked-shader restore crash.
+See `HALOCE-DESKTOP-MIRROR-2026-09-15.md`. Cumulative Release build, all 20 CTest
+suites and the Reach consistency gate pass; records are
+`out/ce-mirror-final-{release,ctest,reach-gate}-20260915.txt`.
+
+HEAD at this resume is `0783d59`; pre-edit WIP is preserved at
+`out/checkpoints/20260915-125635-ce-capture-mirror-resume`. Corrections from
+`eacd81b`, working hands/aim, both editions and every standing/deferred task
+remain preserved. All four rejected CE core enables remain FALSE. The accepted
+pointer stays `4e01f28`. No ZIP, installation, game-folder writes or publishing.
+The previously authorized ONE RenderDoc launch already happened. MCC was no
+longer running when checked during this continuation; another launch requires
+a new explicit request. Offline replay now works through a headless helper;
+do not repeat the rejected RenderDoc preference change or identical F12 trial.
+
+# Historical live diagnostic authorization - September 15, 12:40 local
 
 The user explicitly authorized ONE diagnostic launch of the existing installed
 Steam be2140f through RenderDoc, with the user loading the failing Anniversary

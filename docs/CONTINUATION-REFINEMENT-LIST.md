@@ -1,4 +1,50 @@
-# Live diagnostic authorization - September 15, 12:40 local
+# Latest continuation - September 15: corrected CE candidate handoff
+
+The interrupted native scene-visibility refresh is implemented and reproduced
+offline. Original final-output capture/real resize recovery, Anniversary HUD
+isolation and the single-eye desktop mirror are retained, alongside working
+hands/aim. Cumulative Release, 20 CTest suites, pinned/generated/mapped-image
+bindings and Reach gate pass. Package both ZIPs without `-Install`, deliver in
+chat, then wait for the user's headset test and instructions. Exact artifact
+identity: `out/ce-current-handoff.json` after packaging. Read the latest section
+of `ACTIVE-WORK-CHECKPOINT.md` and the correction candidate notes for details.
+
+The old four failed CE enables stay false; the separate scene-visibility
+correction enable is on. The reported bad Anniversary eye is not yet confirmed
+fixed in a headset. Accepted `4e01f28` remains unchanged. BOTH editions and all
+standing/deferred scope below remain preserved. No installation, game launch,
+game-folder writes or publishing. Do not start CE melee/world collision before
+functional headset confirmation, or repeat the screenshot/capture request.
+
+# Historical instruction - September 15: autonomous CE build/source ZIP delivery
+
+Continue CE Original and Anniversary corrections through package delivery using
+the existing evidence, without confirmation requests or further screenshots.
+The latest user request supersedes older packaging holds. No installation,
+game launch, game-folder writes or publishing; package without `-Install`.
+Preserve all existing/deferred scope and the accepted `4e01f28` pointer.
+See `ACTIVE-WORK-CHECKPOINT.md` for the current implementation and verification.
+
+# Current continuation - September 15: screenshot and GPU evidence recovered
+
+The user resumes recording analysis and the single-view desktop implementation,
+with NO ZIP until proper CE VR. The already-supplied `3.PNG` was visually reviewed
+alongside the prior confirmation that one headset eye shows below-world geometry.
+Do not ask for that screenshot/report again. Both RenderDoc files retain the
+broken stereo image and per-eye shader constants in initial contents, while
+their saved draw streams are mono retries after `Uncapped Map()/Unmap()` errors
+and heartbeat detach. Read `HALOCE-RENDERDOC-EVIDENCE-2026-09-15.md`.
+
+The desktop mirror is implemented with a passing production WARP fixture;
+Release, all 20 CTest suites and Reach gate pass. World matrix/origin comparisons do not support
+another transform guess. Native secondary geometry/visibility admission remains
+under investigation. `ACTIVE-WORK-CHECKPOINT.md` holds the exact latest state.
+The one authorized diagnostic game launch is already consumed; no further game
+launch, install, game-folder writes or publishing. All four failed core flags
+remain false, accepted `4e01f28` unchanged, both editions and all deferred scope
+below preserved.
+
+# Historical live diagnostic authorization - September 15, 12:40 local
 
 The user explicitly authorized ONE diagnostic launch of the existing installed
 Steam be2140f through RenderDoc, with the user loading the failing Anniversary

@@ -227,6 +227,57 @@ the registry retained none; reacquiring and observing the replacement buffer
 restores capture. This closes a bootstrap gap that the former manually
 registered WARP texture did not exercise.
 
+## E-CE-C7: continuation audit and real output-size replacement
+
+The latest September 15 user instruction requests the build and matching source
+ZIP without another launch, screenshot request or approval. It supersedes the
+historical package hold above. Local validation remains separate from headset
+acceptance; the accepted pointer does not move.
+
+The independent continuation audit followed the corrected production path from
+the Classic render-only replay through the saved stock-center context, both
+native camera consumers, final kind-zero source selection, immediate owned-eye
+copies, and the shared `SubmitPreparedFrame` projection submission. The latter
+uses the frozen pair's FOVs and poses. Its existing strong `GetBuffer` observation
+supplies startup metadata; later source discovery and Present cache preparation
+complete the cold bootstrap. No additional Classic runtime defect was found in
+this audit. Existing hands and controller-aim code is unchanged.
+
+Pinned `0xBBCE28` was rechecked directly: primary player dispatch is
+`0xBBCEE6 -> 0xBBCA64`, while UI dispatch is the separate
+`0xBBCEF3 -> 0xBBCCE4`. The final output call at `0xBBCF0D -> 0xAE0DF4` follows
+both. The hooked primary window therefore does not accidentally reject a normal
+UI-window call. This is control-flow evidence, not execution of the world draw.
+
+The existing production WARP fixture called `ResizeBuffers` with the same
+dimensions. It now changes the real DXGI output from 32 x 16 to 48 x 24. The
+first attempted pair must drop because its old eye cache has the wrong size;
+native output discovery must publish 48 x 24; Present must replace the cache;
+the next pair must contain two complete, independent 48 x 24 images even after
+the reused source is overwritten. All checks pass without retaining a native
+backbuffer COM reference. This extends E-CE-C6 to actual dimension replacement.
+
+The final-capture fixture also distinguishes intermediate world pixels from
+completed output. Its native-view fixture paints a provisional image; only the
+native final-blit fixture paints the two expected eye images. Both owned-eye
+copies must contain the final-blit colors, including after the resized output
+is reused. This checks that capture follows the final native blit rather than
+silently accepting an earlier world-render boundary. The rebuilt fixture and
+all 11 selected camera, cache, hands, HUD and controls suites pass.
+
+Validation records:
+
+- `out/ce-classic-audit-contracts-20260915.json`: pinned HCEEK/retail hashes,
+  unique Classic signatures and operand/body witnesses pass.
+- `out/ce-classic-audit-source-native-20260915.json`: 12 actual native kind-zero
+  initialization/selection cases pass.
+- `out/ce-classic-audit-ctest-20260915.txt`: all 11 selected camera, Classic,
+  eye-cache, hands, HUD and control suites pass after rebuilding the changed
+  Classic runtime fixture.
+
+These checks do not establish native render replay behavior across every scene,
+mode switching in the headset, or Halo 3 regression acceptance.
+
 ## Verification and its limits
 
 `HALOCE-CLASSIC-CONTRACTS.json` records unique executable signatures, unwind

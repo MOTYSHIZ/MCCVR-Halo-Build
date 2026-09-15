@@ -1,6 +1,6 @@
 {
   "title": "Halo: Combat Evolved Anniversary (MCC)",
-  "status": "Integrated CE Classic/Anniversary candidate under local verification; user requests build and matching source ZIP; b9662cd headset failure remains unaccepted; local checks are not headset acceptance",
+  "status": "CE Original/Anniversary correction candidate under local verification; be2140f failed headset test; accepted source remains4e01f28; local checks are not headset acceptance",
   "recorded_date": "2026-09-15",
   "retail": {
     "module": "halo1.dll",
@@ -45,7 +45,8 @@
     "anniversary_texture_create",
     "anniversary_texture_import_2d",
     "anniversary_texture_release_resources",
-    "anniversary_view_list_reset"
+    "anniversary_view_list_reset",
+    "anniversary_scene_camera_update"
   ],
   "offline_render_contracts": [
     {
@@ -3789,6 +3790,174 @@
           "rva": "0xae6d0",
           "signature": "83 FD 09",
           "meaning": "loop stops at kind nine"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_scene_camera_update",
+      "rva": "0x5434b0",
+      "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 30 49 8B F9 49 8B F0 8B EA 48 8B D9 4D 85 C0",
+      "function_entry": true,
+      "evidence": "HALOCE-SCENE-REFRESH-EVIDENCE-2026-09-15.md",
+      "image_pointers": [
+        {
+          "rva": "0x1819888",
+          "target_rva": "0x5434b0"
+        },
+        {
+          "rva": "0x1819890",
+          "target_rva": "0x543cb0"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0x543521",
+          "target_rva": "0x543550",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x5434ca",
+          "signature": "8B EA",
+          "meaning": "Preserve caller EDX native refresh argument"
+        },
+        {
+          "rva": "0x543526",
+          "signature": "85 ED 74 0A 81 8B 10 01 00 00 00 01 00 00",
+          "meaning": "Nonzero native refresh requests scene+0x110 dirty bit0x100"
+        },
+        {
+          "rva": "0x454e60",
+          "signature": "0F B6 93 92 00 00 00 FF 90 30 02 00 00",
+          "meaning": "Native wrapper forwards manager+0x92 to scene virtual+0x230"
+        },
+        {
+          "rva": "0x454e7b",
+          "signature": "C6 83 92 00 00 00 00",
+          "meaning": "Native wrapper consumes manager refresh request"
+        },
+        {
+          "rva": "0x454e8a",
+          "signature": "48 FF A0 38 02 00 00",
+          "meaning": "Native wrapper tail-dispatches scene update virtual+0x238"
+        },
+        {
+          "rva": "0x4557ff",
+          "signature": "C6 80 92 00 00 00 01",
+          "meaning": "Native stereo-setting transition requests manager+0x92 refresh"
+        },
+        {
+          "rva": "0x415418",
+          "signature": "C6 80 92 00 00 00 01",
+          "meaning": "Native second-view setup requests manager+0x92 refresh"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_scene_camera_regions",
+      "rva": "0x543550",
+      "signature": "44 89 4C 24 20 4C 89 44 24 18 89 54 24 10 53 56 41 55 41 57 48 83 EC 58 8B 81 10 01 00 00 45 8B E9",
+      "function_entry": true,
+      "evidence": "HALOCE-SCENE-REFRESH-EVIDENCE-2026-09-15.md",
+      "instruction_witnesses": [
+        {
+          "rva": "0x543568",
+          "signature": "8B 81 10 01 00 00",
+          "meaning": "Read scene flags at +0x110"
+        },
+        {
+          "rva": "0x543579",
+          "signature": "0F BA F0 0C 89 81 10 01 00 00",
+          "meaning": "Clear previous two-camera bit0x1000"
+        },
+        {
+          "rva": "0x543589",
+          "signature": "4D 85 C0 74 0F 4D 85 D2 74 0A 0F BA E8 0C 89 81 10 01 00 00",
+          "meaning": "Set bit0x1000 only when both camera-position pointers are present"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_scene_refresh_consumer",
+      "rva": "0x543cb0",
+      "signature": "40 57 48 83 EC 40 48 C7 44 24 20 FE FF FF FF 48 89 5C 24 50 48 89 6C 24 58 48 89 74 24 60 48 8B EA 48 8B D9 48 8D B1 B8 01 00 00",
+      "function_entry": true,
+      "evidence": "HALOCE-SCENE-REFRESH-EVIDENCE-2026-09-15.md",
+      "image_pointers": [
+        {
+          "rva": "0x1819890",
+          "target_rva": "0x543cb0"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0x543d75",
+          "target_rva": "0x543af0",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x543d30",
+          "signature": "83 BB 28 01 00 00 00 74 59 8B C1 C1 E8 08 A8 01 75 06 0F BA F1 0B EB 09",
+          "meaning": "Nonempty region list and dirty bit0x100 determine static refresh"
+        },
+        {
+          "rva": "0x543d61",
+          "signature": "85 FF 74 2D 81 A3 10 01 00 00 FF FE FF FF",
+          "meaning": "Only dirty update clears0x100 and reaches native static rebuild"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_scene_static_visibility_rebuild",
+      "rva": "0x543af0",
+      "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 44 8B 82 50 28 00 00 33 FF 48 8B EA",
+      "function_entry": true,
+      "evidence": "HALOCE-SCENE-REFRESH-EVIDENCE-2026-09-15.md",
+      "relative_operands": [
+        {
+          "instruction_rva": "0x543c7b",
+          "target_rva": "0x542f00",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 ?? ?? ?? ??"
+        }
+      ],
+      "instruction_witnesses": [
+        {
+          "rva": "0x543b49",
+          "signature": "F7 41 2C 00 00 02 00 75 1C 0F B6 81 8E 00 00 00 39 79 1C 7E 06 24 F9 0C 01 EB 04 24 FE 0C 06 88 81 8E 00 00 00",
+          "meaning": "Respect object exclusion flag and initialize native per-eye visibility bits"
+        },
+        {
+          "rva": "0x543c60",
+          "signature": "39 BE 28 01 00 00 7E 26 48 8B DF 0F 1F 44 00 00 48 8B 8E 20 01 00 00 48 8B 0C 0B E8 80 F2 FF FF FF C7 48 8D 5B 08 3B BE 28 01 00 00",
+          "meaning": "Traverse authored region list and apply native visibility to referenced objects"
+        }
+      ]
+    },
+    {
+      "name": "anniversary_scene_region_visibility_apply",
+      "rva": "0x542f00",
+      "signature": "40 53 48 83 EC 50 48 8B D9 8B 89 A8 01 00 00 8B C1 C1 E8 0B A8 01 0F 85 A9 01 00 00 F6 C1 60 0F 84 A0 01 00 00",
+      "function_entry": true,
+      "evidence": "HALOCE-SCENE-REFRESH-EVIDENCE-2026-09-15.md",
+      "instruction_witnesses": [
+        {
+          "rva": "0x542f09",
+          "signature": "8B 89 A8 01 00 00 8B C1 C1 E8 0B A8 01 0F 85 A9 01 00 00 F6 C1 60 0F 84 A0 01 00 00",
+          "meaning": "Skip authored hidden region bit0x800 and absent per-eye region bits0x60"
+        },
+        {
+          "rva": "0x542f2a",
+          "signature": "8B C1 C1 E8 05 48 89 7C 24 40 83 E0 01 03 C0 4C 89 64 24 38 C1 E9 06 4C 89 6C 24 30 4C 89 7C 24 20 44 8B F8 80 E1 01 74 04 41 83 CF 04",
+          "meaning": "Convert region0x20 and0x40 to object visibility bits2 and4"
         }
       ]
     }

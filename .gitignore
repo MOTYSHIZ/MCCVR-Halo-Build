@@ -47,3 +47,4 @@ gamestate.txt
 reports/
 
 tools/re/__pycache__/
+tools/re/renderdoc_offline/__pycache__/

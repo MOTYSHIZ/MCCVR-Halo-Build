@@ -38,6 +38,7 @@ bool observedContextValid[2]{};
 uintptr_t alternativeClock{};
 uintptr_t alternativeOwner{};
 constexpr uint32_t leftColor=0xff123456,rightColor=0xffabcdef;
+constexpr uint32_t intermediateColor=0xff765432;
 
 uintptr_t __fastcall SelectSource(uintptr_t wrapper) { return wrapper; }
 void Paint(uint32_t color)
@@ -71,7 +72,9 @@ void __fastcall NativeView(int16_t,const Camera* render,const void*,const Camera
     if (scope&&scope->prepared)
     {
         observedContextValid[scope->eye]=ClassicGetRenderContext(observedContexts[scope->eye]);
-        Paint(scope->eye?rightColor:leftColor);
+        // World rendering precedes final output/postprocessing. Capturing at
+        // this boundary would retain unfinished pixels rather than the eye.
+        Paint(intermediateColor);
     }
 }
 void __fastcall NativeWindow(Window* window)
@@ -89,7 +92,12 @@ void __fastcall NativeWindow(Window* window)
     ClassicViewBody(window->player,selected,renderFrustum.data(),&window->raster,
         rasterFrustum.data(),1,0,bindings.base+0xbbccb2);
 }
-void __fastcall NativeBlit(const halo_ce::Rectangle*) { ++nativeBlits; }
+void __fastcall NativeBlit(const halo_ce::Rectangle*)
+{
+    ++nativeBlits;
+    const auto* scope=classicFrameScope;
+    if (scope&&scope->prepared) Paint(scope->eye?rightColor:leftColor);
+}
 void __fastcall NativeSaberFrame(uintptr_t,uint32_t) { }
 void __fastcall NativeGame(float delta,float interpolation)
 {
@@ -271,7 +279,7 @@ int main()
     {
         Paint(0xff000000);
         check(Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
-            "owned per-eye pixels remain distinct after the reused source is overwritten");
+            "owned eyes contain final-blit pixels and remain distinct after the reused source is overwritten");
         HaloCE_ReleasePair(pair.borrowId); pair={};
     }
     *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
@@ -334,7 +342,7 @@ int main()
     recoverGameplay();
     HaloCE_ForgetPresentationTexture();
     rtv.Reset(); source.Reset(); testSource=nullptr;
-    check(SUCCEEDED(swapchain->ResizeBuffers(1,32,16,DXGI_FORMAT_R8G8B8A8_UNORM,0)),
+    check(SUCCEEDED(swapchain->ResizeBuffers(1,48,24,DXGI_FORMAT_R8G8B8A8_UNORM,0)),
         "presentation metadata retains no COM references that block real DXGI ResizeBuffers");
     if (SUCCEEDED(swapchain->GetBuffer(0,__uuidof(ID3D11Texture2D),reinterpret_cast<void**>(source.GetAddressOf()))))
     {
@@ -345,9 +353,27 @@ int main()
         check(!ClassicSource(selectedSource)&&classicSourceFailure.load()==ClassicSourceFailure::Descriptor,
             "real resized buffer is rejected until a new strong presentation observation");
         HaloCE_RecordPresentationTexture(source.Get(),testDesc);
+        stockWindow.render.viewport=stockWindow.render.window={0,0,
+            static_cast<int16_t>(testDesc.Height),static_cast<int16_t>(testDesc.Width)};
+        stockWindow.raster.viewport=stockWindow.raster.window=stockWindow.render.viewport;
+        run(Fault::None);
+        check(!HaloCE_AcquirePair(context.Get(),serial,7,pair)&&
+            classicLastFailure.load()==ClassicFailure::PairPreparation,
+            "a differently sized DXGI buffer cannot reuse the previous eye cache");
+        check(wanted.Read(discovered)&&discovered.descriptor.Width==48&&
+            discovered.descriptor.Height==24,
+            "the resized native output publishes replacement cache dimensions");
+        HaloCE_PresentResources(device.Get(),context.Get());
         run(Fault::None);
         check(HaloCE_AcquirePair(context.Get(),serial,7,pair),"Classic capture recovers after real DXGI resize and observation");
-        if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
+        if (pair.borrowId)
+        {
+            Paint(0xff000000);
+            check(pair.descriptor.Width==48&&pair.descriptor.Height==24&&
+                Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
+                "replacement caches retain both complete resized eye images independently");
+            HaloCE_ReleasePair(pair.borrowId); pair={};
+        }
     }
     else check(false,"resized DXGI buffer is available");
     classicInstalled=false;

@@ -34,6 +34,10 @@ constexpr bool kCeConstructTrackedViewsEnabled=false;
 // be2140f: hands/aim improved, but Classic produced no pair and Anniversary
 // retained the split/displaced world. Disable before developing a correction.
 constexpr bool kCeIntegratedBaseVrEnabled=false;
+// Correct the native scene-cache transition skipped by manufactured stereo,
+// with Classic source/bootstrap and isolated HUD/mirror corrections retained.
+// Pinned native refresh/admission and production fixtures pass; headset pending.
+constexpr bool kCeSceneVisibilityBaseVrEnabled=true;
 // Preserve the unfinished body-following adapter, but keep experimental CE
 // locomotion out of the core VR candidate (September 15 user priority).
 constexpr bool kCeExperimentalRoomscaleEnabled=false;
@@ -46,6 +50,7 @@ using AppendFn=uintptr_t(__fastcall*)(uintptr_t,const SaberCamera*,uint32_t,int3
     uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
 using FrameFn=void(__fastcall*)(uintptr_t,uint32_t);
 using CameraUploadFn=void(__fastcall*)(uintptr_t,uintptr_t,const SaberCamera*);
+using SceneCameraFn=void(__fastcall*)(uintptr_t,int32_t,const float*,const float*);
 using DepthMeshFn=void(__fastcall*)(uintptr_t,uintptr_t,uintptr_t,int32_t);
 using OutputFn=void(__fastcall*)(int);
 using TransferFn=uintptr_t(__fastcall*)(uintptr_t,SurfaceTransfer*);
@@ -54,7 +59,7 @@ using ReleaseFn=void(__fastcall*)(uintptr_t);
 using CopyFn=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,ID3D11Resource*,UINT,
     UINT,UINT,UINT,ID3D11Resource*,UINT,const D3D11_BOX*);
 struct Hook { void* target{}; void* original{}; bool enabled{}; };
-enum HookIndex { Prepare,Builder,Frame,Output,Transfer,Create,Import,Release,ResetList,Copy,Append,CameraUpload,DepthMesh,Count };
+enum HookIndex { Prepare,Builder,Frame,Output,Transfer,Create,Import,Release,ResetList,Copy,Append,CameraUpload,DepthMesh,SceneCamera,Count };
 std::array<Hook,Count> hooks;
 NativeBindings bindings;
 HMODULE moduleReference{};
@@ -67,6 +72,7 @@ std::atomic<uint64_t> referenceRevision{1};
 std::atomic<uintptr_t> copyTarget{};
 std::atomic<uintptr_t> activeListAddress{};
 std::atomic<uint64_t> built{},captured{},dropped{},stock{},descriptorMiss{},previewFolded{};
+std::atomic<uint64_t> sceneVisibilityRefreshes{};
 std::atomic<uint32_t> lastPairStage{0xffffffffu};
 enum class FrameFailure : uint32_t { None,NoReceipt,InvalidReceipt,CameraChanged,CacheBegin,CopyShape,RasterChanged,EyeCopy,Destination,IncompletePair,RenderConsumer,DepthResource };
 struct FrameDiagnostic
@@ -316,7 +322,8 @@ uintptr_t __fastcall BuilderHook(uintptr_t arg,SaberViewPair* list,uint8_t secon
         uint64_t zero=0; firstCameraMs.compare_exchange_strong(zero,now);
     }
     const bool force=eligible&&armed.load()&&TrackingNow(tracking);
-    constexpr bool constructTrackedViews=kCeConstructTrackedViewsEnabled||kCeIntegratedBaseVrEnabled;
+    constexpr bool constructTrackedViews=kCeConstructTrackedViewsEnabled||
+        kCeIntegratedBaseVrEnabled||kCeSceneVisibilityBaseVrEnabled;
     const uint64_t revisionBeforeBuild=referenceRevision.load(std::memory_order_acquire);
     BuildScope construction{};
     if (force&&constructTrackedViews)
@@ -410,6 +417,35 @@ void PrepareBody(uintptr_t job)
     }
 }
 void __fastcall PrepareHook(uintptr_t job) { Callback callback; PrepareBody(job); }
+void __fastcall SceneCameraHook(uintptr_t scene,int32_t refresh,
+    const float* primary,const float* secondary)
+{
+    Callback callback;
+    // Native 543550 records two-position membership in scene+110 bit1000,
+    // but only a native refresh request rebuilds static object +8E eye masks.
+    // The ordinary split setup requests that refresh; manufactured views do
+    // not pass through that setup. Compare native previous/current membership
+    // so entering AND leaving two eyes refresh once, including stock fallback.
+    // Both preparation branches reach this callback before geometry culling.
+    const uintptr_t first=reinterpret_cast<uintptr_t>(primary);
+    const uintptr_t second=reinterpret_cast<uintptr_t>(secondary);
+    const auto ownsPositions=[&](uintptr_t list) noexcept {
+        return list&&list<=UINTPTR_MAX-0x438&&first==list+0x70&&
+            (!second||second==list+0x438);
+    };
+    uintptr_t vtable{}; uint32_t flags{};
+    if (!refresh&&jobScope.owned&&
+        (ownsPositions(jobScope.activeList)||
+            (jobScope.job<=UINTPTR_MAX-0x70&&ownsPositions(jobScope.job+0x70)))&&
+        scene&&scene<=UINTPTR_MAX-0x110&&Read(scene,vtable)&&
+        vtable==bindings.base+0x1819658&&Read(scene+0x110,flags)&&
+        static_cast<bool>(flags&0x1000u)!=static_cast<bool>(secondary))
+    {
+        refresh=1;
+        sceneVisibilityRefreshes.fetch_add(1,std::memory_order_relaxed);
+    }
+    reinterpret_cast<SceneCameraFn>(hooks[SceneCamera].original)(scene,refresh,primary,secondary);
+}
 // Native455A10 completes both depth views before later depth-derived passes
 // and shading. Distinct final color copies cannot prove independent depth.
 // Read only existing native ownership and creation-time descriptor receipts.
@@ -831,7 +867,8 @@ bool Remove() noexcept
         reinterpret_cast<void*>(&FrameHook),reinterpret_cast<void*>(&OutputHook),reinterpret_cast<void*>(&TransferHook),
         reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void*>(&ImportHook),reinterpret_cast<void*>(&ReleaseHook),
         reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),reinterpret_cast<void*>(&AppendHook),
-        reinterpret_cast<void*>(&CameraUploadHook),reinterpret_cast<void*>(&DepthMeshHook)};
+        reinterpret_cast<void*>(&CameraUploadHook),reinterpret_cast<void*>(&DepthMeshHook),
+        reinterpret_cast<void*>(&SceneCameraHook)};
     const void* originals[Count]{};
     for (size_t i=0;i<Count;++i) originals[i]=hooks[i].original;
     // The shared verifier accepts at most eight ranges. Entries are disabled,
@@ -874,12 +911,13 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
         base+contract::anniversary_texture_create,base+contract::anniversary_texture_import_2d,
         base+contract::anniversary_texture_release_resources,base+contract::anniversary_view_list_reset,copyTarget.load(),
         base+contract::anniversary_view_append,base+contract::anniversary_camera_upload,
-        base+contract::anniversary_depth_mesh_pass};
+        base+contract::anniversary_depth_mesh_pass,base+contract::anniversary_scene_camera_update};
     void* detours[Count]={reinterpret_cast<void*>(&PrepareHook),reinterpret_cast<void*>(&BuilderHook),
         reinterpret_cast<void*>(&FrameHook),reinterpret_cast<void*>(&OutputHook),reinterpret_cast<void*>(&TransferHook),
         reinterpret_cast<void*>(&CreateHook),reinterpret_cast<void*>(&ImportHook),
         reinterpret_cast<void*>(&ReleaseHook),reinterpret_cast<void*>(&ResetListHook),reinterpret_cast<void*>(&CopyHook),
-        reinterpret_cast<void*>(&AppendHook),reinterpret_cast<void*>(&CameraUploadHook),reinterpret_cast<void*>(&DepthMeshHook)};
+        reinterpret_cast<void*>(&AppendHook),reinterpret_cast<void*>(&CameraUploadHook),reinterpret_cast<void*>(&DepthMeshHook),
+        reinterpret_cast<void*>(&SceneCameraHook)};
     for (size_t i=0;i<Count;++i)
     {
         if (!addresses[i]) { Remove(); return false; }
@@ -898,7 +936,7 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     installed=true;
     (void)Classic_Install();
     if (!AnniversaryHud_Install()) LOG("CE Anniversary HUD stock fallback: optional installation failed; camera retained");
-    LOG("CE integrated base VR candidate installed: Classic/Anniversary native eyes, consumed-camera/depth checks and optional hands/HUD; waiting for fresh camera; headset result pending");
+    LOG("CE scene-visibility correction candidate installed: native mono/stereo cache refresh, Classic output bootstrap and optional hands/HUD; waiting for fresh camera; headset result pending");
     return true;
 }
 }
@@ -914,7 +952,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     }
     if (!isActive||!base||!gen) return false;
     if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled&&!kCeConstructTrackedViewsEnabled&&
-        !kCeIntegratedBaseVrEnabled)
+        !kCeIntegratedBaseVrEnabled&&!kCeSceneVisibilityBaseVrEnabled)
     {
         if (gen!=rejectedGeneration)
         {
@@ -940,8 +978,8 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     if (now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u",
-            gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load());
+        LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u sceneRefresh=%llu",
+            gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load(),sceneVisibilityRefreshes.load());
         LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u sourceFailure=%u",
             gen,classicInstalled.load(),classicPairs.load(),classicDrops.load(),classicStock.load(),
             classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()),

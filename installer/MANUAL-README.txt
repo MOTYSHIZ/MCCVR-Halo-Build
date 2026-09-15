@@ -1,12 +1,14 @@
-HALO MCC VR - CE CLASSIC / ANNIVERSARY BASE VR TEST - SEPTEMBER 2026
-==========================================================
+HALO MCC VR - CE ORIGINAL / ANNIVERSARY VR CORRECTION - SEPTEMBER 2026
+==================================================================
 
 Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
 and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
-files. This candidate adds CE Classic and Anniversary stereo/head tracking/6DoF,
-tracked hands/weapon, controller aiming and native HUD/reticle for testing.
-This is an alpha mod; the changes in
-this package have passed local checks and still need headset confirmation.
+files. This candidate corrects CE Original (Classic) output discovery and
+Anniversary scene-visibility refresh and HUD admission, adds a single
+completed-eye desktop view, and preserves tracked hands, weapon placement
+and controller aiming.
+This alpha candidate still needs headset confirmation in both CE graphics
+modes. The accepted baseline remains 4e01f28.
 Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
 exact build identity and file hashes; you do not need to edit it.
 
@@ -142,7 +144,7 @@ KNOWN LIMITS AND TROUBLESHOOTING
 
 For feedback, keep HaloMCCVR.log and HaloMCCVRLauncher.log from Halo_MCC_VR.
 State the title/mission, Steam or Store edition, headset model, runtime and
-refresh rate; for H2, state Classic or Anniversary. Include the manifest.
+refresh rate; for CE and H2, state Classic or Anniversary. Include the manifest.
 For roomscale, test physical steps with the stick idle, then normal stick
 movement, stopping, turning, recentering, pause and vehicle entry/exit.
 Check Halo 3 as well as other titles. Roomscale log entries now distinguish
