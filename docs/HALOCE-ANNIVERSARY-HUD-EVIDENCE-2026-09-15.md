@@ -1,5 +1,12 @@
 # CE Anniversary per-eye HUD callback - September 15, 2026
 
+> Current status: manual HUD replay is disabled after `884de13` reached native
+> work, failed cleanup and froze on the graphics switch. See
+> [the rollback and recovery regression](HALOCE-ANNIVERSARY-REPLAY-ROLLBACK-2026-09-15.md).
+> The historical replay tests below substitute fixture services for the native
+> gameplay callback; they do not prove its complete native state or cleanup.
+> Anniversary HUD visibility remains unresolved. The camera path stays enabled.
+
 ## E-CE-AHUD-5: be2140f failed admission and integrated replay correction
 
 The supplied be2140f headset log recorded zero replays, 4,890 fallbacks and

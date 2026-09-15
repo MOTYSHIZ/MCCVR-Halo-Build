@@ -12,6 +12,36 @@ void Name(AnimationNode& node,const char* name,int parent)
 }
 int main(int argc,char** argv)
 {
+    if (argc==4&&std::strcmp(argv[1],"--particle-constants")==0)
+    {
+        std::ifstream input(argv[2],std::ios::binary);float constants[201*4]{};
+        CHECK(input.read(reinterpret_cast<char*>(constants),sizeof(constants)));
+        unsigned changed{};CHECK(SelectSaberTrackedParticleProjection(constants,201,changed));
+        std::ofstream output(argv[3],std::ios::binary);
+        CHECK(output.write(reinterpret_cast<const char*>(constants),sizeof(constants)));
+        return 0;
+    }
+    {
+        std::array<float,201*4> constants{};constants.fill(7);
+        for (size_t emitter=0;emitter<9;++emitter) constants[(21+emitter*20+10)*4]=emitter%2?0.0f:1.0f;
+        const auto before=constants;unsigned changed{};
+        CHECK(SelectSaberTrackedParticleProjection(constants.data(),201,changed)&&changed==5);
+        for (size_t index=0;index<constants.size();++index)
+        {
+            bool selector=false;
+            for (size_t emitter=0;emitter<9;++emitter) selector|=index==(21+emitter*20+10)*4;
+            CHECK(constants[index]==(selector?0:before[index]));
+        }
+        for (float invalid:{.5f,-1.0f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()})
+        {
+            constants=before;constants[(21+8*20+10)*4]=invalid;const auto malformed=constants;
+            CHECK(!SelectSaberTrackedParticleProjection(constants.data(),201,changed)&&changed==0);
+            CHECK(!std::memcmp(constants.data(),malformed.data(),sizeof(constants)));
+        }
+        constants=before;
+        CHECK(!SelectSaberTrackedParticleProjection(constants.data(),200,changed));
+        CHECK(constants==before&&!SelectSaberTrackedParticleProjection(nullptr,201,changed));
+    }
     if (argc==4&&std::strcmp(argv[1],"--floating-mesh-fixture")==0)
     {
         std::ifstream input(argv[2],std::ios::binary);

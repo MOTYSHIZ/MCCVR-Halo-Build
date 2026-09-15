@@ -62,6 +62,28 @@ inline bool SelectSaberTrackedProjection(uint32_t modelFlags,float (&selector)[4
     for (float& value:selector) value=0;
     return true;
 }
+// E-CE-FP-9: CB_PASS_PARTICLES has 21 header vectors followed by nine
+// 20-vector emitter records. Emitter vector 10.x selects the alternate fixed
+// first-person lens in the native shaders. Change only that copied selector;
+// authored muzzle transforms, particle motion and the source emitter stay native.
+inline constexpr size_t kSaberParticleConstantVectors=201;
+inline bool SelectSaberTrackedParticleProjection(float* constants,size_t vectors,
+    unsigned& changed) noexcept
+{
+    changed=0;
+    if (!constants||vectors!=kSaberParticleConstantVectors) return false;
+    for (size_t emitter=0;emitter<9;++emitter)
+    {
+        const float value=constants[(21+emitter*20+10)*4];
+        if (value!=0&&value!=1) return false;
+    }
+    for (size_t emitter=0;emitter<9;++emitter)
+    {
+        float& selector=constants[(21+emitter*20+10)*4];
+        if (selector==1) { selector=0;++changed; }
+    }
+    return true;
+}
 inline bool ApplySaberFirstPersonScale(float scale,SaberBoneMatrix& matrix) noexcept
 {
     if (!std::isfinite(scale)||scale<=0.000001f||scale>=100) return false;

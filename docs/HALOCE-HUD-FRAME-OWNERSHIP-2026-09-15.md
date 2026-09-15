@@ -1,5 +1,12 @@
 # CE Anniversary HUD frame ownership - September 15, 2026
 
+> Current status: the frozen frame receipt correction remains, but manual HUD
+> replay is disabled after the `884de13` graphics-switch failure. See
+> [the rollback and recovery regression](HALOCE-ANNIVERSARY-REPLAY-ROLLBACK-2026-09-15.md).
+> Historical replay tests below validate adapter behavior around fixture native
+> callback services, not the real callback's complete native state or cleanup.
+> Anniversary HUD visibility remains unresolved; camera ownership is retained.
+
 Halo 3 behavior being matched: both eyes receive the native gameplay HUD while
 the world camera continues independently of optional HUD admission failures.
 The CE callback, native target stack and full-to-half raster adapter remain

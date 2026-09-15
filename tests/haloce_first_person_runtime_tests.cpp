@@ -9,6 +9,8 @@ static uint32_t testGeneration=3;
 static halo_ce::RenderContext testContext{};
 static halo_ce::RenderContext anniversaryEyeContext{};
 static bool anniversaryEyeValid=true;
+static bool anniversaryPrimaryValid=true;
+static halo_ce::SaberCamera particleCamera{};
 static bool contextValid=true,renderContextValid=true,nativeSawInvalidated=true;
 static bool lensFault{},lensRebuild{};
 static float lensArgument{};
@@ -35,7 +37,13 @@ bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& candidate) noexce
 bool HaloCE_GetAnniversaryPrimaryEyeTracking(halo_ce::Tracking& tracking) noexcept
 {
     tracking={};
-    if (!anniversaryEyeValid||!renderContextValid||!HaloCE_RenderContextCurrent(anniversaryEyeContext)) return false;
+    if (!anniversaryPrimaryValid||!anniversaryEyeValid||!renderContextValid||!HaloCE_RenderContextCurrent(anniversaryEyeContext)) return false;
+    tracking=anniversaryEyeContext.tracking;return true;
+}
+bool HaloCE_GetAnniversaryEyeTracking(const halo_ce::SaberCamera* camera,halo_ce::Tracking& tracking) noexcept
+{
+    tracking={};
+    if (camera!=&particleCamera||!anniversaryEyeValid||!renderContextValid||!HaloCE_RenderContextCurrent(anniversaryEyeContext)) return false;
     tracking=anniversaryEyeContext.tracking;return true;
 }
 bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState&) noexcept { return false; }
@@ -59,6 +67,48 @@ void __fastcall NativeLensFixture(float fov,bool rebuild)
 bool InvokeLensFaultFixture()
 {
     __try { ClassicLensHook(.9671381116f,true); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
+    return false;
+}
+static ParticleBuffer* particleSource{};
+static std::array<float,4096*4> particleBacking{},particleBaseline{},particleUploaded{};
+static bool particleNativeChecks=true,particleExpectCorrection{},particleThrow{},particleMutate{},particleNested{},particleRevoke{};
+static unsigned particleNativeCalls{};
+void __fastcall NativeParticleCommitFixture(uintptr_t address,uintptr_t backend,bool immediate)
+{
+    ++particleNativeCalls;
+    auto& buffer=*reinterpret_cast<ParticleBuffer*>(address);
+    particleNativeChecks&=backend==123&&immediate&&buffer.gpu==particleSource->gpu;
+    particleNativeChecks&=std::memcmp(particleBacking.data(),particleBaseline.data(),sizeof(particleBacking))==0;
+    particleNativeChecks&=particleExpectCorrection?(address!=reinterpret_cast<uintptr_t>(particleSource)&&buffer.data!=particleSource->data):address==reinterpret_cast<uintptr_t>(particleSource);
+    if (buffer.capacity>0&&buffer.capacity<=4096)
+        std::memcpy(particleUploaded.data(),buffer.data,size_t(buffer.capacity)*16);
+    if (particleMutate) { particleSource->first=7;particleSource->end=11; }
+    if (particleThrow) RaiseException(0xE000CEA2,0,0,nullptr);
+    buffer.first=buffer.capacity;buffer.end=0;
+}
+void __fastcall NativeParticleDrawFixture(const halo_ce::SaberCamera* camera,uintptr_t texture,int pass,uintptr_t batch)
+{
+    particleNativeChecks&=texture==55&&pass==2&&batch==66;
+    const auto* outer=particleScope;
+    if (particleNested)
+    {
+        particleNested=false;particleExpectCorrection=false;
+        halo_ce::SaberCamera auxiliary{};
+        // The auxiliary draw masks the outer scope even though its tracking
+        // serial would otherwise be the same. Restore the native dirty range.
+        const auto before=*particleSource;
+        ParticleDrawHook(&auxiliary,55,2,66);
+        *particleSource=before;
+        particleExpectCorrection=true;
+        particleNativeChecks&=particleScope==outer;
+    }
+    if (particleRevoke) anniversaryPrimaryValid=false;
+    CommitParticleProjection(reinterpret_cast<uintptr_t>(particleSource),123,true,true);
+}
+bool InvokeParticleFaultFixture()
+{
+    __try { ParticleDrawHook(&particleCamera,55,2,66); }
     __except(EXCEPTION_EXECUTE_HANDLER) { return true; }
     return false;
 }
@@ -215,14 +265,77 @@ int main()
     // The shared production stack verifier rejects batches above eight. A
     // blocked second batch must retain the entire native lifetime for retry.
     // No real game hooks/module are needed to verify this admission boundary.
-    blockedQuiescenceCount=2;
+    // Actual production particle draw + upload hooks own a private full-capacity
+    // copy, with only FP lens selectors changed. Source emitters/backing stay
+    // exact through partial offsets, exceptions and nested auxiliary draws.
+    CHECK(publish());renderContextValid=true;anniversaryEyeValid=true;anniversaryPrimaryValid=true;
+    particleProjectionInstalled=true;
+    particleDrawHook.original=reinterpret_cast<void*>(&NativeParticleDrawFixture);
+    particleCommitHook.original=reinterpret_cast<void*>(&NativeParticleCommitFixture);
+    for (const auto shape: {std::pair{0,201},std::pair{117,4096}})
+    {
+        const int first=shape.first,capacity=shape.second;
+        particleBacking.fill(77);
+        for (size_t emitter=0;emitter<9;++emitter)
+            particleBacking[size_t(first)*4+(21+emitter*20+10)*4]=emitter%2?0.0f:1.0f;
+        particleBaseline=particleBacking;
+        ParticleBuffer nativeBuffer{moduleBase+0x17f8c78,first,first+201,capacity,0,particleBacking.data(),0,789};
+        particleSource=&nativeBuffer;particleExpectCorrection=true;
+        ParticleDrawHook(&particleCamera,55,2,66);
+        CHECK(particleNativeChecks&&callbacks.load()==0&&!particleScope);
+        CHECK(nativeBuffer.first==capacity&&nativeBuffer.end==0);
+        for (size_t index=0;index<size_t(capacity)*4;++index)
+        {
+            bool selector=false;
+            for (size_t emitter=0;emitter<9;++emitter)
+                selector|=index==size_t(first)*4+(21+emitter*20+10)*4;
+            CHECK(particleUploaded[index]==(selector?0.0f:particleBaseline[index]));
+        }
+        CHECK(particleBacking==particleBaseline);
+        nativeBuffer.first=first;nativeBuffer.end=first+201;
+        particleThrow=true;const ParticleBuffer before=nativeBuffer;
+        CHECK(InvokeParticleFaultFixture());particleThrow=false;
+        CHECK(particleNativeChecks&&!std::memcmp(&nativeBuffer,&before,sizeof(before)));
+        CHECK(particleBacking==particleBaseline&&callbacks.load()==0&&!particleScope);
+        particleNested=true;ParticleDrawHook(&particleCamera,55,2,66);
+        CHECK(particleNativeChecks&&!particleScope&&callbacks.load()==0);
+        nativeBuffer=before;particleMutate=true;
+        ParticleDrawHook(&particleCamera,55,2,66);particleMutate=false;
+        CHECK(nativeBuffer.first==7&&nativeBuffer.end==11&&particleBacking==particleBaseline);
+        nativeBuffer=before;particleRevoke=true;particleExpectCorrection=false;
+        ParticleDrawHook(&particleCamera,55,2,66);particleRevoke=false;anniversaryPrimaryValid=true;
+        CHECK(particleNativeChecks&&particleBacking==particleBaseline);
+        nativeBuffer=before;
+        anniversaryPrimaryValid=false;
+        const auto observedDraws=particleDrawObserved.load(),refusedEyes=particleEyeRefused.load();
+        ParticleDrawHook(&particleCamera,55,2,66);anniversaryPrimaryValid=true;
+        CHECK(particleNativeChecks&&particleBacking==particleBaseline);
+        CHECK(particleDrawObserved.load()==observedDraws+1&&particleEyeRefused.load()==refusedEyes+1);
+        nativeBuffer=before;nativeBuffer.gpu=0;
+        ParticleDrawHook(&particleCamera,55,2,66);
+        CHECK(particleNativeChecks&&particleBacking==particleBaseline);
+        nativeBuffer=before;nativeBuffer.first=capacity+1;
+        ParticleDrawHook(&particleCamera,55,2,66);
+        CHECK(particleNativeChecks&&particleBacking==particleBaseline);
+        nativeBuffer=before;
+        particleBacking[size_t(first)*4+31*4]=.5f;particleBaseline=particleBacking;
+        ParticleDrawHook(&particleCamera,55,2,66);
+        CHECK(particleNativeChecks&&particleBacking==particleBaseline);
+        nativeBuffer=before;nativeBuffer.first=INT_MAX;nativeBuffer.end=INT_MIN;
+        // A malformed range falls through unchanged to this explicit fake
+        // native service; no arithmetic overflow or optional feature write.
+        ParticleDrawHook(&particleCamera,55,2,66);
+        CHECK(particleNativeChecks&&particleBacking==particleBaseline);
+    }
+    CHECK(particleNativeCalls>=14);
+    blockedQuiescenceCount=4;
     CHECK(!Remove());CHECK(retiring.load()&&generation.load()==testGeneration);
     CHECK(prepareHook.original==reinterpret_cast<void*>(&NativePrepareFixture));
-    CHECK(quiescenceCalls==2&&quiescenceRanges==10);
+    CHECK(quiescenceCalls==2&&quiescenceRanges==12);
     blockedQuiescenceCount=0;quiescenceCalls=quiescenceRanges=0;
     CHECK(Remove());CHECK(!retiring.load()&&!generation.load()&&!prepareHook.original);
-    CHECK(quiescenceCalls==2&&quiescenceRanges==10);
+    CHECK(quiescenceCalls==2&&quiescenceRanges==12);
     CHECK(VirtualFree(native,0,MEM_RELEASE));
-    std::puts("PASS production CE first-person receipt: Classic/Anniversary scale/projection, failed prepare, renderer/recenter/generation/tracking, recovery and ten-hook retirement");
+    std::puts("PASS production CE first-person receipt: Classic/Anniversary scale/projection, isolated particle uploads, nested/exception admission, recovery and twelve-hook retirement");
     return 0;
 }

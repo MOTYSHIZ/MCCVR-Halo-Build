@@ -1,4 +1,19 @@
-# Latest continuation - September 15: CE hand/HUD/startup/exit refinement
+# Latest continuation - September 15: Anniversary freeze and muzzle alignment
+
+User tested `884de13`: Original injection, hands and muzzle flashes work.
+Anniversary freezes on graphics switch; its muzzle flashes were also reported
+offset from the gun's muzzle. Restore Anniversary VR and trace/correct its
+native muzzle effects while preserving Original's successful behavior. Continue
+autonomously through a NEW build ZIP and matching source ZIP, package without
+`-Install`, deliver both here, then WAIT for testing/instructions. Both editions
+remain supported. No install, game launch, game-folder writes, PR or publication.
+
+Read the latest ACTIVE-WORK-CHECKPOINT.md and HALOCE-884DE13-TEST-2026-09-15.md.
+All standing/deferred scope below is preserved. Do not divert this candidate
+into other-title changes or CE melee/collision/body following. Accepted source
+`4e01f28` remains unchanged; local checks cannot establish headset acceptance.
+
+# Historical continuation - September 15: CE hand/HUD/startup/exit refinement
 
 User tested e524d21: both CE modes inject, gun scale good, Original HUD good.
 Latest requested scope is stretched Original arms, initial Original flicker,

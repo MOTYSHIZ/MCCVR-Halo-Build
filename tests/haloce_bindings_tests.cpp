@@ -209,6 +209,7 @@ int main(int argc,char** argv)
             {contract::first_person_aim::entries,contract::first_person_aim::witnesses,contract::first_person_aim::relatives,contract::first_person_aim::pointers},
             {contract::first_person_skin::entries,contract::first_person_skin::witnesses,contract::first_person_skin::relatives,contract::first_person_skin::pointers},
             {contract::first_person_projection::entries,contract::first_person_projection::witnesses,contract::first_person_projection::relatives,contract::first_person_projection::pointers},
+            {contract::first_person_particles::entries,contract::first_person_particles::witnesses,contract::first_person_particles::relatives,contract::first_person_particles::pointers},
             {contract::hud::entries,contract::hud::witnesses,contract::hud::relatives,contract::hud::pointers},
             {contract::hud_layout::entries,contract::hud_layout::witnesses,contract::hud_layout::relatives,contract::hud_layout::pointers},
             {contract::hud_target::entries,contract::hud_target::witnesses,contract::hud_target::relatives,contract::hud_target::pointers},

@@ -843,6 +843,23 @@ int main()
         check(!handoff.Current(renderedReceipt.receipt.ticket)&&anniversaryHudFailure.load()==0,
             "recycled preparation source cannot revoke the frozen in-flight HUD eye receipt");
         recyclePreparedSource=false;
+        // The live 884de13 replay reached native work and failed cleanup once
+        // before rendering stopped. Above, the preserved dormant adapter
+        // reproduces that unsafe native-stack case. The shipping rollback
+        // must refuse entry while the same fault remains armed, yet produce
+        // fresh, distinct world images on successive Anniversary frames.
+        anniversaryHudInstalled=false;
+        check(!AnniversaryHud_Install(),"failed manual HUD replay remains disabled at native installation");
+        hudFault=HudFault::UnownedStack;
+        const auto fallbackBefore=anniversaryHudFallbacks.load();
+        const auto drawsBefore=anniversaryHudDraws.load();
+        const auto capturedBefore=captured.load();
+        hudFrame(149,0x10,false);
+        hudFrame(150,0x10,false);
+        check(captured.load()==capturedBefore+2&&anniversaryHudFallbacks.load()==fallbackBefore&&
+            anniversaryHudDraws.load()==drawsBefore&&HaloCE_Armed(),
+            "disabled unsafe callback leaves consecutive Anniversary pairs and camera ownership alive");
+        hudFault=HudFault::None;
         anniversaryHudInstalled=false;anniversaryHudHook={};hudRoot=0;
         ConfigureCeHudLayoutRuntimeFixture(3,false);
     }

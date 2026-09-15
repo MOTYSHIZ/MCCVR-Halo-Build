@@ -1,4 +1,59 @@
-# Current continuation - September 15: CE hands, HUD and stability
+# Current continuation - September 15: Anniversary freeze and muzzle alignment
+
+Latest user tested `884de13`: Original injects successfully, hands look correct,
+and Original muzzle flashes work. Preserve these positive headset results.
+Switching to Anniversary freezes rendering. Anniversary muzzle flashes were
+also reported moving with the gun but missing its actual muzzle. Current scope
+is to restore Anniversary VR and trace/correct its native muzzle-flash path.
+The user explicitly requests continued autonomous work until a NEW build ZIP
+and matching source ZIP are ready, then wait for headset testing/instructions.
+
+Package with `tools/package-candidate.ps1` WITHOUT `-Install`. No installation,
+game launch, game-folder changes, PR or publication. Both editions and every
+standing/deferred request remain supported/preserved. Accepted source remains
+`4e01f28`; partial Original success does not accept failed Anniversary behavior.
+
+The failed manual Anniversary HUD replay was disabled separately in `03814d4`.
+Two consecutive Anniversary WARP frame captures pass with the same failing
+callback left armed but never entered. Original's runtime regression passes.
+Anniversary HUD visibility remains unresolved; do not re-enable this callback
+without complete native-state/lifetime evidence. Read
+`HALOCE-ANNIVERSARY-REPLAY-ROLLBACK-2026-09-15.md` for the failure evidence and
+limits: a native lock leak is NOT established by the log or ordinary call trace.
+
+The Anniversary muzzle correction is implemented in the optional first-person
+particle upload feature. Native firing effects resolve authored marker names
+through the same tracked first-person palette. The particle emitter view
+transform uses the actual current camera; a separate shader selector chose the
+fixed first-person lens while the gun chose the VR world lens. The correction
+changes only those selectors in a complete bounded private upload snapshot.
+It preserves native emitter/backing data, attachment transforms, shell choice,
+shot origin and world particles. Exact current-eye and primary-stage ownership
+are both required; rejected/auxiliary/nested draws keep their native path.
+Read `HALOCE-ANNIVERSARY-MUZZLE-PROJECTION-2026-09-15.md` and
+`HALOCE-MUZZLE-TRIGGER-EVIDENCE-2026-09-15.md`. The flashlight-only `0x7D350`
+route is explicitly not muzzle evidence. Cold counters distinguish observed
+particle draws, rejected eye ownership and refused upload correction.
+
+Pre-package cumulative Release, all 20 CTest suites and Reach consistency pass.
+Both actual particle shaders pass 144 WARP draws; the native uploader passes
+15 cases. All 104 pinned contracts, generated contracts and 16 production
+mapped-image groups pass. Results are under `out/ce-anniversary-recovery-*` and
+`out/ce-muzzle-particle-commit-native-20260915.json`. Packaging repeats required
+checks after the final commit; only a verified new build/source archive pair
+may update `out/ce-current-handoff.json`. Delivery notes are
+`HALOCE-ANNIVERSARY-RECOVERY-CANDIDATE-2026-09-15.md`. The headset still determines
+whether graphics switching and visible muzzle alignment are fixed. Broader
+transition stability, all weapons/effect variants and frame rate are unproven.
+
+New input is preserved under
+`out/test-runs/884de13-ce-anniversary-feedback-20260915/`; read
+`HALOCE-884DE13-TEST-2026-09-15.md` for exact identity and observations. Compare
+the previous preserved logs before drawing conclusions. Retain successful
+Original startup, hands, scale, HUD, aim and effects. Do not redeliver the old
+`out/ce-current-handoff.json` pointer until a new package is verified.
+
+# Historical continuation - September 15: CE hands, HUD and stability
 
 Latest user tested `e524d21`: BOTH CE modes inject, gun scale is excellent in
 both, and Original HUD works. Preserve these results. Current concrete defects:

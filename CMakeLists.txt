@@ -428,6 +428,10 @@ if(BUILD_TESTING)
     add_executable(halomccvr_ce_first_person_shader_tests tests/haloce_first_person_shader_tests.cpp)
     target_compile_definitions(halomccvr_ce_first_person_shader_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(halomccvr_ce_first_person_shader_tests PRIVATE d3d11 d3dcompiler)
+    # External, pinned mesh/sprite particle shaders; see CE muzzle evidence.
+    add_executable(halomccvr_ce_particle_shader_tests tests/haloce_particle_shader_tests.cpp)
+    target_compile_definitions(halomccvr_ce_particle_shader_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_ce_particle_shader_tests PRIVATE d3d11 d3dcompiler)
     add_executable(halomccvr_ce_bindings_tests
         tests/haloce_bindings_tests.cpp src/dll/haloce_native_bindings.cpp)
     target_include_directories(halomccvr_ce_bindings_tests PRIVATE src/common src/dll)

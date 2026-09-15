@@ -1,5 +1,11 @@
 # CE tracked first person and controller shot evidence
 
+Latest September 15 Anniversary muzzle refinement: see
+[HALOCE-ANNIVERSARY-MUZZLE-PROJECTION-2026-09-15.md](HALOCE-ANNIVERSARY-MUZZLE-PROJECTION-2026-09-15.md)
+for E-CE-FP-9, the separate particle lens selector, private native constant
+submission, actual shader verification and remaining headset limits. The prior
+Classic effect-lens coverage below did not cover Anniversary particles.
+
 September 15, 2026. Local implementation and consumer verification for the CE
 candidate; no headset result or accepted-pointer change is claimed. Both CE graphics
 modes and both MCC editions remain required; physical melee and world collision

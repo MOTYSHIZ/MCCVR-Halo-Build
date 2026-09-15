@@ -23,6 +23,8 @@ using LegacyRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,float*,bool,bool);
 using PlayerRayFn=int16_t(__fastcall*)(uint32_t,Vec3*,Vec3*);
 using SkinConvertFn=void(__fastcall*)(const NodeMatrix*,SaberBoneMatrix*);
 using ClassicLensFn=void(__fastcall*)(float,bool);
+using ParticleDrawFn=void(__fastcall*)(const SaberCamera*,uintptr_t,int,uintptr_t);
+using ParticleCommitFn=void(__fastcall*)(uintptr_t,uintptr_t,bool);
 using GltConstantsFn=void(__fastcall*)(uintptr_t,float*,uintptr_t,const uint32_t*,
     uintptr_t,uintptr_t,uintptr_t,const float*);
 struct Hook { void* target{};void* original{};bool enabled{}; };
@@ -31,6 +33,7 @@ Hook modernRayHook,legacyRayHook,assistRayHook;
 Hook skinConvertHook;
 Hook projectionHook,zfillProjectionHook,sfxProjectionHook;
 Hook classicLensHook;
+Hook particleDrawHook,particleCommitHook;
 HMODULE retainedModule{};
 uintptr_t moduleBase{};
 std::atomic<uint32_t> generation{},callbacks{};
@@ -43,17 +46,22 @@ std::atomic<bool> projectionInstalled{};
 bool projectionRetiring{};
 std::atomic<bool> classicLensInstalled{};
 bool classicLensRetiring{};
+std::atomic<bool> particleProjectionInstalled{};
+bool particleProjectionRetiring{};
 std::atomic<uint64_t> observed{},applied{},refused{},exceptions{},lastApplied{};
 std::atomic<uint64_t> aimObserved{},aimApplied{},aimRefused{};
 std::atomic<uint64_t> assistApplied{};
 std::atomic<uint64_t> skinApplied{},skinRefused{};
 std::atomic<uint64_t> projectionApplied{},projectionRefused{};
 std::atomic<uint64_t> classicLensApplied{},classicLensRefused{};
+std::atomic<uint64_t> particleProjectionApplied{},particleProjectionRefused{};
+std::atomic<uint64_t> particleDrawObserved{},particleEyeRefused{};
 uint32_t failedGeneration{};
 uint32_t aimFailedGeneration{};
 uint32_t skinFailedGeneration{};
 uint32_t projectionFailedGeneration{};
 uint32_t classicLensFailedGeneration{};
+uint32_t particleProjectionFailedGeneration{};
 uint64_t lastReport{};
 struct Scope
 {
@@ -68,6 +76,18 @@ struct PaletteReceipt
 };
 Snapshot<PaletteReceipt> paletteReceipt;
 thread_local Scope* scope{};
+struct ParticleScope { const SaberCamera* camera{};Tracking eye{}; };
+thread_local const ParticleScope* particleScope{};
+struct ParticleBuffer
+{
+    uintptr_t vtable{};
+    int32_t first{},end{},capacity{};
+    uint32_t reserved{};
+    float* data{};
+    uint64_t trailing{};
+    uintptr_t gpu{};
+};
+static_assert(sizeof(ParticleBuffer)==0x30&&offsetof(ParticleBuffer,data)==0x18&&offsetof(ParticleBuffer,gpu)==0x28);
 struct Callback
 {
     Callback() { callbacks.fetch_add(1,std::memory_order_acq_rel); }
@@ -336,6 +356,106 @@ __declspec(noinline) void __fastcall SfxProjectionHook(uintptr_t material,float*
     if (ApplyTrackedProjection(constants,model,0x70)) projectionApplied.fetch_add(1,std::memory_order_relaxed);
     else projectionRefused.fetch_add(1,std::memory_order_relaxed);
 }
+bool ReadParticleProjection(uintptr_t buffer,ParticleBuffer& source) noexcept
+{
+    const auto* owner=particleScope;
+    Tracking current{},primary{};
+    if (!owner||!Current()||!particleProjectionInstalled.load(std::memory_order_acquire)||
+        !HaloCE_GetAnniversaryEyeTracking(owner->camera,current)||
+        !HaloCE_GetAnniversaryPrimaryEyeTracking(primary)||
+        primary.generation!=current.generation||primary.spaceEpoch!=current.spaceEpoch||primary.serial!=current.serial||
+        current.generation!=owner->eye.generation||current.spaceEpoch!=owner->eye.spaceEpoch||
+        current.serial!=owner->eye.serial||current.controllers.controlsPresentationBlocked||
+        !Read(buffer,source)||source.vtable!=moduleBase+0x17f8c78||!source.data||!source.gpu||
+        source.capacity<=0||source.capacity>4096||source.first<0||source.first>source.capacity||
+        source.end<source.first||source.end>source.capacity||
+        source.end-source.first!=int(kSaberParticleConstantVectors)||
+        reinterpret_cast<uintptr_t>(source.data)>std::numeric_limits<uintptr_t>::max()-size_t(source.capacity)*16)
+        return false;
+    return true;
+}
+bool CopyParticleBacking(const ParticleBuffer& source,float* copy) noexcept
+{
+    __try { std::memcpy(copy,source.data,size_t(source.capacity)*16);return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+}
+void CommitParticleDirtyRange(uintptr_t buffer,const ParticleBuffer& source,const ParticleBuffer& submitted) noexcept
+{
+    __try
+    {
+        // This is the only native bookkeeping changed by 0x202B10. Do not
+        // overwrite a newer allocation if the source descriptor changed during
+        // a nested call. No backing pointer or emitter bytes are ever written.
+        if (std::memcmp(reinterpret_cast<const void*>(buffer),&source,sizeof(source))==0)
+        {
+            std::memcpy(reinterpret_cast<void*>(buffer+8),&submitted.first,sizeof(int32_t)*2);
+        }
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { exceptions.fetch_add(1,std::memory_order_relaxed); }
+}
+__declspec(noinline) bool SubmitTrackedParticleProjection(uintptr_t buffer,uintptr_t backend,bool immediate)
+{
+    ParticleBuffer source{};
+    if (!ReadParticleProjection(buffer,source)) return false;
+    // The D3D11 fallback uploads the complete buffer, not just its dirty range.
+    // A bounded stack snapshot preserves that contract and prevents any write
+    // to a worker's native backing store. No allocation or TLS scratch alias.
+    alignas(16) float copied[4096*4];
+    if (!CopyParticleBacking(source,copied)) return false;
+    unsigned changed{};
+    if (!SelectSaberTrackedParticleProjection(copied+size_t(source.first)*4,
+            kSaberParticleConstantVectors,changed)) return false;
+    ParticleBuffer revalidated{};
+    if (!ReadParticleProjection(buffer,revalidated)||std::memcmp(&source,&revalidated,sizeof(source))) return false;
+    ParticleBuffer submitted=source;submitted.data=copied;
+    reinterpret_cast<ParticleCommitFn>(particleCommitHook.original)(reinterpret_cast<uintptr_t>(&submitted),backend,immediate);
+    // A native exception propagates, discarding the private snapshot. Normal
+    // completion preserves the engine's dirty-range reset, including recursion.
+    CommitParticleDirtyRange(buffer,source,submitted);
+    particleProjectionApplied.fetch_add(changed,std::memory_order_relaxed);
+    return true;
+}
+void CommitParticleProjection(uintptr_t buffer,uintptr_t backend,bool immediate,bool nativeCallsite)
+{
+    const auto original=reinterpret_cast<ParticleCommitFn>(particleCommitHook.original);
+    if (!original) return;
+    if (nativeCallsite&&particleScope)
+    {
+        if (SubmitTrackedParticleProjection(buffer,backend,immediate)) return;
+        particleProjectionRefused.fetch_add(1,std::memory_order_relaxed);
+    }
+    original(buffer,backend,immediate);
+}
+__declspec(noinline) void __fastcall ParticleCommitHook(uintptr_t buffer,uintptr_t backend,bool immediate)
+{
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try
+    {
+        CommitParticleProjection(buffer,backend,immediate,
+            reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0x678796);
+    }
+    __finally { callbacks.fetch_sub(1,std::memory_order_release); }
+}
+__declspec(noinline) void __fastcall ParticleDrawHook(const SaberCamera* camera,uintptr_t texture,int pass,uintptr_t batch)
+{
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    const auto original=reinterpret_cast<ParticleDrawFn>(particleDrawHook.original);
+    const auto* previous=particleScope;
+    ParticleScope owner{};owner.camera=camera;Tracking primary{};
+    particleScope=nullptr;
+    if (particleProjectionInstalled.load(std::memory_order_acquire)&&Current())
+    {
+        particleDrawObserved.fetch_add(1,std::memory_order_relaxed);
+        if (HaloCE_GetAnniversaryEyeTracking(camera,owner.eye)&&
+            HaloCE_GetAnniversaryPrimaryEyeTracking(primary)&&
+            primary.generation==owner.eye.generation&&primary.spaceEpoch==owner.eye.spaceEpoch&&primary.serial==owner.eye.serial&&
+            owner.eye.generation==generation.load(std::memory_order_acquire)&&
+            !owner.eye.controllers.controlsPresentationBlocked) particleScope=&owner;
+        else particleEyeRefused.fetch_add(1,std::memory_order_relaxed);
+    }
+    __try { if (original) original(camera,texture,pass,batch); }
+    __finally { particleScope=previous;callbacks.fetch_sub(1,std::memory_order_release); }
+}
 bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexcept
 {
     AnimationNode nodes[kFirstPersonMaxNodes]{};
@@ -413,8 +533,8 @@ __declspec(noinline) void __fastcall PrepareHook(int16_t user)
 }
 bool Remove() noexcept
 {
-    active=false;retiring=true;installed=false;aimInstalled=false;skinInstalled=false;projectionInstalled=false;classicLensInstalled=false;
-    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook})
+    active=false;retiring=true;installed=false;aimInstalled=false;skinInstalled=false;projectionInstalled=false;classicLensInstalled=false;particleProjectionInstalled=false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook,&particleDrawHook,&particleCommitHook})
     {
         if (!hook->target||!hook->enabled) continue;
         const auto result=MCCVR_DisableHookForRetirement(hook->target);
@@ -425,20 +545,21 @@ bool Remove() noexcept
         reinterpret_cast<const void*>(&ModernRayHook),reinterpret_cast<const void*>(&LegacyRayHook),
         reinterpret_cast<const void*>(&AssistRayHook),reinterpret_cast<const void*>(&SkinConvertHook),
         reinterpret_cast<const void*>(&ProjectionHook),reinterpret_cast<const void*>(&ZfillProjectionHook),
-        reinterpret_cast<const void*>(&SfxProjectionHook),reinterpret_cast<const void*>(&ClassicLensHook)};
-    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original,classicLensHook.original};
+        reinterpret_cast<const void*>(&SfxProjectionHook),reinterpret_cast<const void*>(&ClassicLensHook),
+        reinterpret_cast<const void*>(&ParticleDrawHook),reinterpret_cast<const void*>(&ParticleCommitHook)};
+    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original,classicLensHook.original,particleDrawHook.original,particleCommitHook.original};
     // The shared native stack verifier admits at most eight detour ranges.
-    // All ten entries above are disabled before either batch is checked;
+    // All twelve entries above are disabled before either batch is checked;
     // keep every trampoline/module alive until both batches are quiescent.
     if (!WaitForNativeDetourQuiescence(functions,trampolines,8,callbacks)||
-        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,2,callbacks)) return false;
-    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook})
+        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,4,callbacks)) return false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook,&particleDrawHook,&particleCommitHook})
     {
         if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
         *hook={};
     }
     if (retainedModule) { FreeLibrary(retainedModule);retainedModule=nullptr; }
-    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;skinRetiring=false;projectionRetiring=false;classicLensRetiring=false;
+    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;skinRetiring=false;projectionRetiring=false;classicLensRetiring=false;particleProjectionRetiring=false;
     return true;
 }
 bool RemoveSkin() noexcept
@@ -526,6 +647,57 @@ bool InstallProjection(uintptr_t base,size_t size,uint32_t gen) noexcept
     }
     projectionInstalled=true;
     LOG("CE Anniversary FP projection installed: native GLT color, ZFILL depth and SFX share the current primary-eye world lens independently of palette scheduling");
+    return true;
+}
+bool RemoveParticleProjection() noexcept
+{
+    particleProjectionInstalled=false;particleProjectionRetiring=true;
+    for (Hook* hook:{&particleDrawHook,&particleCommitHook})
+    {
+        if (!hook->target||!hook->enabled) continue;
+        const auto result=MCCVR_DisableHookForRetirement(hook->target);
+        if (result!=MH_OK&&result!=MH_ERROR_DISABLED) return false;
+        hook->enabled=false;
+    }
+    const void* functions[]={reinterpret_cast<const void*>(&ParticleDrawHook),reinterpret_cast<const void*>(&ParticleCommitHook)};
+    const void* trampolines[]={particleDrawHook.original,particleCommitHook.original};
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,2,callbacks)) return false;
+    for (Hook* hook:{&particleDrawHook,&particleCommitHook})
+    {
+        if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
+        *hook={};
+    }
+    particleProjectionRetiring=false;return true;
+}
+bool InstallParticleProjection(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::first_person_particles::entries,
+        contract::first_person_particles::witnesses,contract::first_person_particles::relatives,
+        contract::first_person_particles::pointers};
+    if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
+    { LOG("CE Anniversary muzzle projection stock fallback: binding verification failed: %s",failure?failure:"unknown");return false; }
+    const uintptr_t addresses[]={base+contract::first_person_particles::first_person_particle_draw,
+        base+contract::first_person_particles::first_person_particle_commit};
+    void* detours[]={reinterpret_cast<void*>(&ParticleDrawHook),reinterpret_cast<void*>(&ParticleCommitHook)};
+    Hook* hooks[]={&particleDrawHook,&particleCommitHook};
+    for (size_t i=0;i<2;++i)
+    {
+        void* target=reinterpret_cast<void*>(addresses[i]);
+        const auto result=MH_CreateHook(target,detours[i],&hooks[i]->original);
+        if (result!=MH_OK)
+        { LOG("CE Anniversary muzzle projection stock fallback: create hook %zu status %d",i,result);(void)RemoveParticleProjection();return false; }
+        hooks[i]->target=target;
+    }
+    for (Hook* hook:hooks)
+    {
+        const auto result=MH_EnableHook(hook->target);
+        if (result!=MH_OK)
+        { LOG("CE Anniversary muzzle projection stock fallback: enable hook status %d",result);(void)RemoveParticleProjection();return false; }
+        hook->enabled=true;
+    }
+    particleProjectionInstalled=true;
+    LOG("CE Anniversary muzzle projection installed: authored FP emitter attachments use the tracked weapon's primary-eye world lens; source emitters stay native");
     return true;
 }
 bool RemoveClassicLens() noexcept
@@ -671,6 +843,9 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
     if (projectionRetiring&&!RemoveProjection()) return HaloCEFirstPerson_Armed();
     if (installed.load()&&!projectionInstalled.load()&&gen!=projectionFailedGeneration&&!retiring.load())
         if (!InstallProjection(base,size,gen)) projectionFailedGeneration=gen;
+    if (particleProjectionRetiring&&!RemoveParticleProjection()) return HaloCEFirstPerson_Armed();
+    if (installed.load()&&!particleProjectionInstalled.load()&&gen!=particleProjectionFailedGeneration&&!retiring.load())
+        if (!InstallParticleProjection(base,size,gen)) particleProjectionFailedGeneration=gen;
     if (classicLensRetiring&&!RemoveClassicLens()) return HaloCEFirstPerson_Armed();
     if (installed.load()&&!classicLensInstalled.load()&&gen!=classicLensFailedGeneration&&!retiring.load())
         if (!InstallClassicLens(base,size,gen)) classicLensFailedGeneration=gen;
@@ -688,6 +863,9 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
             gen,projectionInstalled.load(),projectionApplied.load(),projectionRefused.load());
         LOG("CE Original FP projection gen=%u installed=%d applied=%llu stock=%llu",
             gen,classicLensInstalled.load(),classicLensApplied.load(),classicLensRefused.load());
+        LOG("CE Anniversary muzzle projection gen=%u installed=%d draws=%llu eyeRefused=%llu emitters=%llu stock=%llu",
+            gen,particleProjectionInstalled.load(),particleDrawObserved.load(),particleEyeRefused.load(),
+            particleProjectionApplied.load(),particleProjectionRefused.load());
     }
     return HaloCEFirstPerson_Armed();
 }

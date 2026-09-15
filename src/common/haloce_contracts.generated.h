@@ -809,6 +809,46 @@ inline constexpr uint32_t shot_unit_origin=0xb04d00;
 inline constexpr uint32_t shot_player_assist=0xb67b00;
 inline constexpr uint32_t shot_assist_director_ray=0xb14f14;
 }
+namespace first_person_particles {
+inline constexpr std::array<Entry,3> entries={{
+    {"first_person_particle_draw",0x6770d0,"40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 58 E6 FF FF B8 A8 1A 00 00 E8 71 FD F8 00 48 2B",true},
+    {"first_person_particle_commit",0x202b10,"48 89 5C 24 20 56 48 83 EC 60 48 8B 05 EF 24 97 01 48 33 C4 48 89 44 24 58",true},
+    {"first_person_particle_buffer_allocate",0x20a190,"48 89 5C 24 20 55 41 54 41 56 48 83 EC 20 44 0F B6 51 44 4C 8B F2 45 0F B7 E0 48 8B D9 BA 00 10",true},
+}};
+inline constexpr std::array<Witness,22> witnesses={{
+    {0x677380,"33 D2 41 B8 44 0B 00 00 48 8D 8D 50 01 00 00 E8 9B C2 D1 00"},
+    {0x677593,"4B 8D 0C B6 48 C1 E1 06"},
+    {0x6776ce,"41 8B 85 E8 00 00 00 42 89 84 39 A0 00 00 00"},
+    {0x67869b,"44 0F B7 C0 48 8D 55 D0 49 8B 8F A0 01 00 00 E8 E1 1A B9 FF"},
+    {0x6786e3,"48 8D 88 50 01 00 00 48 8B D6 41 B8 40 0B 00 00 E8 B9 E8 F8 00"},
+    {0x678786,"48 8B 4D D0 48 8B 01 41 B0 01 48 8B D3 FF 50 08"},
+    {0x678799,"4C 8D 4D D0 BA 03 00 00 00 44 8D 42 04 48 8B CB FF 90 C0 00 00 00 45"},
+    {0x671c39,"F3 44 0F 10 05 B6 F2 18 01"},
+    {0x671db4,"0F 57 FF"},
+    {0x67277c,"48 8B 43 20"},
+    {0x672790,"F7 40 28 00 00 00 10 74 3A"},
+    {0x672799,"48 8B 80 80 00 00 00 48 8D 0D A1 B9 17 01 48 85 C0 48 8D 15 57 51 1B 01 48 0F 45 C8"},
+    {0x6727c0,"0F B6 04 39 48 FF C7 3A 44 3A FF 75 29 48 83 FF 07 75 ED F3 0F 11 BB E8 00 00 00"},
+    {0x6727f6,"F3 44 0F 11 83 E8 00 00 00 EB DA"},
+    {0x202b29,"8B 41 0C 48 8B F2 48 8B D9 39 41 08 0F 8D CF 00 00 00"},
+    {0x202b5e,"48 63 53 08 4C 8D 4C 24 40 48 8B 8E E8 0C 00 00 8B C2 C1 E0 04 33"},
+    {0x202b7c,"8B 43 0C C1 E0 04 89 44 24 4C"},
+    {0x202bad,"48 C1 E0 04 48 03 43 18 89 7C 24 30 89 7C 24 28 48 89 44 24 20 41 FF 92 A0 03 00 00 EB 2E 48 8B 8E E0 0C"},
+    {0x202bcb,"48 8B 8E E0 0C 00 00 33 FF 48 8B 43 18 45 33 C9 48 8B 53 28 45 33 C0 89 7C 24 30 4C 8B 11 89 7C 24 28 48 89 44 24 20 41 FF 92 80 01 00 00"},
+    {0x202bf9,"8B 43 10 89 7B 0C 48 8B BC 24 80 00 00 00 89 43 08"},
+    {0x202c80,"39 51 08 44 8B CA 48 63 C2 44 0F 4C 49 08 44 03 C2 44 39 41 0C 44 89 49 08 44 0F 4F 41 0C 48 C1 E0 04 44 89 41 0C 48 03 41 18 C3"},
+    {0x20a276,"66 41 89 6E 08 48 8B 43 28 48 63 53 38 48 8B 08 48 8B 04 D1 49 89 06 66 45 89 66 0A 66 44 01 63 3C 49 8B 0E 45 0F BF 46 0A 41 0F BF 56 08 48 8B 01 48 8B 5C 24 58 48 83 C4 20 41 5E 41 5C 5D"},
+}};
+inline constexpr std::array<Relative,0> relatives={{
+}};
+inline constexpr std::array<Pointer,2> pointers={{
+    {0x17f8c80,0x202b10},
+    {0x17f8c90,0x202c80},
+}};
+inline constexpr uint32_t first_person_particle_draw=0x6770d0;
+inline constexpr uint32_t first_person_particle_commit=0x202b10;
+inline constexpr uint32_t first_person_particle_buffer_allocate=0x20a190;
+}
 namespace first_person_projection {
 inline constexpr std::array<Entry,3> entries={{
     {"first_person_glt_constants",0x264080,"48 89 5C 24 08 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 81 EC 80 00 00 00 48 8B AC 24 E8 00 00 00",true},
