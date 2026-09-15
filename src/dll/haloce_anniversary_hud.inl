@@ -8,6 +8,10 @@ Hook anniversaryHudHook;
 // its native callback owns more state than our target/raster wrapper can
 // restore. See HALOCE-ANNIVERSARY-REPLAY-ROLLBACK-2026-09-15.md.
 constexpr bool kCeAnniversaryManualHudReplayEnabled=false;
+// 22cb813 counted completed late HUD copies while the headset showed no HUD.
+// Retain the adapter, but disable its unprepared raster/target transaction
+// before implementing its independently verified replacement.
+constexpr bool kCeAnniversaryUnpreparedHudReplayEnabled=false;
 std::atomic<bool> anniversaryHudInstalled{};
 std::atomic<bool> anniversaryHudNaturalInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
@@ -218,6 +222,8 @@ bool AnniversaryHud_Install() noexcept
 
 bool AnniversaryHud_InstallNatural() noexcept
 {
+    if (!kCeAnniversaryUnpreparedHudReplayEnabled)
+    { LOG("CE Anniversary unprepared HUD replay disabled after 22cb813 headset failure; camera retained");return false; }
     const NativeContractSet set{contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,
         contract::anniversary_hud::relatives,contract::anniversary_hud::pointers};
     const char* failure{};
