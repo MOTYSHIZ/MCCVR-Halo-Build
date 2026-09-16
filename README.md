@@ -8,10 +8,11 @@ An independently maintained continuation of
 maintained here by **moistman42069**. Original contributor credit, history, and
 the MIT license are preserved.
 
-## Latest release: Alpha 0.4.0 — All Campaigns in VR
+## Latest release: Alpha 0.4.1 — Experimental Manual Reload, Holsters & Menu Pointer
 
-This is the first cumulative release in which every Halo: The Master Chief
-Collection campaign has a playable VR path:
+Alpha 0.4.1 adds optional experimental manual reload, weapon holsters and a
+controller menu pointer. Every Halo: The Master Chief Collection campaign
+retains a playable VR path:
 
 - Halo: Combat Evolved Anniversary — Original and Anniversary graphics
 - Halo 2: Anniversary — Classic and Anniversary graphics
@@ -21,10 +22,10 @@ Collection campaign has a playable VR path:
 - Halo 4
 
 The same build supports Steam and Microsoft Store / Xbox app. This remains an
-alpha prerelease: complete campaign coverage does not mean every feature,
+alpha: complete campaign coverage does not mean every feature,
 mission, transition, headset, or runtime combination is finished.
 
-Read the [complete Alpha 0.4.0 release notes](releases/0.4.0/RELEASE-NOTES.md)
+Read the [complete Alpha 0.4.1 release notes](releases/0.4.1/RELEASE-NOTES.md)
 for the detailed title-by-title breakdown, exact limits, planned work, and
 artifact hashes.
 
@@ -39,19 +40,30 @@ artifact hashes.
   launcher, and load the destination campaign again.
 - **Do not switch Halo CE Original/Anniversary graphics during cinematics.**
   Switch during gameplay after the cinematic has ended.
+- **CE compatibility:** avoid stacking graphics wrappers or render-interception
+  mods on top of MCCVR; they can interfere with injection.
 - Keep your existing `halomccvr.cfg` when updating.
 - Launch only with anti-cheat disabled. Do not use the mod in matchmaking.
 
 ## Downloads
 
-- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/Halo-MCC-VR.zip)** — the mod for players.
-- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/Halo-MCC-VR-Source.zip) — complete source and build instructions for developers.
-- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/SHA256.txt)
+- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.1/Halo-MCC-VR.zip)** — the mod for players.
+- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.1/Halo-MCC-VR-Source.zip) — complete source and build instructions for developers.
+- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.1) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.1/SHA256.txt)
 
 The player ZIP contains only the DLL, launcher, default config, and `README.txt`,
 all at the ZIP root. Existing users should **keep their own config**.
-The published runtime is the exact tested **d47a98c** build, without recompiling.
-The release tag/source archive adds the updated documentation to that runtime.
+The published runtime is the exact tested **46c124b** build, without recompiling.
+The release tag and matching source ZIP point to that same runtime source.
+
+## Quick controller reference
+
+- **VR settings:** click both controller sticks together, or press F1.
+- **D-pad:** hold the left hand beside the left side of your head and move the
+  left stick.
+- **CE/H2 graphics switch:** hold the left hand beside your head and click the
+  left stick. In CE, wait until any cinematic has ended.
+- **Recenter:** press F3 after entering gameplay.
 
 ## Required MCC settings
 
@@ -70,7 +82,47 @@ native aim can keep up with the controller reticle.
 
 ## Major features
 
-### New in this release
+### New in Alpha 0.4.1 (experimental)
+
+These features are **off by default**. Enable them individually in F1 and keep
+your existing configuration when upgrading. Both handedness modes are supported.
+
+- **Manual Reload — Weapon & Aim:** hold support-hand grip at the support-side
+  hip, bring the reload part just below the gun hand, then release. Releasing
+  elsewhere cancels. Includes 42 reload-part meshes across all six games and
+  adjustable grab/insertion radii. Unfamiliar valid modded weapon models can use
+  an optional blue generic reload item.
+- **Needler shake reload:** with Manual Reload and Shake to reload needle
+  weapons enabled, make one rapid out-and-back shake of the gun hand in any
+  direction. No grip press is required. Let the hand settle before repeating.
+  Supports recognized Needlers and Reach's Needle Rifle.
+- **Weapon Holsters — Weapon & Aim:** use the weapon-side shoulder or hip zone
+  to switch carried weapons. Choose grip-and-draw, a grip click, or both;
+  click takes precedence when both are enabled. Radius and draw distance are
+  adjustable. Release grip before another switch.
+- **Menu pointer — Controls > Point at game menus:** aim the primary controller
+  at the displayed native menu and use its trigger to click or drag. A white
+  cursor shows pointer position. MCC must have focus; F1 pointing remains
+  available independently.
+- **Comfort corrections:** refined CE Anniversary beam-flare handling and
+  Halo 3 Cortana cinematic-facing transitions.
+- **CE vehicles carried forward:** controller-directed steering/gunner aim
+  and seated native crosshair capture in Original and Anniversary graphics.
+  Head look remains independent; native throttle, physics and aim limits apply.
+
+Match each game's **MCC Reload button** and **MCC Switch Weapon button** to its
+controller layout. Reload/holster gestures apply to focused, tracked, on-foot,
+single-weapon gameplay; ordinary buttons remain available. Halo still owns
+ammo, inventory, automatic reloads and animation timing. Holsters do not add
+inventory slots or visible body-mounted guns.
+
+Reload parts use simple grey shading without native textures or world occlusion
+and may show through nearby surfaces. The native gun retains its normal reload
+animation and magazine. Generic items do not reproduce custom magazine geometry
+or identify custom ammo types. See the [release notes](releases/0.4.1/RELEASE-NOTES.md)
+for full controls, cancellation behavior and remaining coverage limits.
+
+### Earlier additions retained
 
 - **Halo CE Anniversary is now playable in VR**, alongside Original graphics:
   stereo/6DOF, tracked hands and guns, native HUD and reticles, full-resolution
@@ -113,7 +165,7 @@ native aim can keep up with the controller reticle.
 
 | Campaign | Current VR coverage | Notable limits |
 | --- | --- | --- |
-| Halo CE | Original/Anniversary stereo and 6DOF, hands, weapons, aim, native HUD/reticles, muzzle effects, gameplay graphics switching, both-controller haptics, contact and melee | Do not switch graphics during cinematics; body-following is deferred; exact custom/replacement mesh contact is not guaranteed |
+| Halo CE | Original/Anniversary stereo and 6DOF, hands, weapons, aim, native HUD/reticles, muzzle effects, gameplay graphics switching, both-controller haptics, contact/melee, controller-directed vehicle steering/aiming and seated crosshairs | New vehicle controls cover normal following-camera seats; broader seat/custom-vehicle coverage remains open; do not switch graphics during cinematics; body-following is deferred; exact custom/replacement mesh contact is not guaranteed |
 | Halo 2 | Classic/Anniversary stereo and 6DOF, hands/weapons, controller aim, native HUD/reticle handling, contact/melee, snap turn and handedness | HUD presentation/control parity and first-person vehicles remain unfinished; independent secondary-gun trajectory is unfinished |
 | Halo 3 | Mature stereo/6DOF path, articulated arms/hands, native HUD/reticle, scopes, cutscenes, vehicles, contact/melee and comfort controls | Independent dual-fire remains disabled; some visibility/calibration work remains |
 | ODST | Stereo/6DOF, hands/weapons, HUD/reticle, cutscenes, vehicles, contact/melee and recovery | First captioned opening scene can be black; broader vehicle/co-op coverage is open |
@@ -209,18 +261,22 @@ Attach `HaloMCCVR.log` and `HaloMCCVRLauncher.log`, and include:
 
 ## Validation
 
-- Exact Release x64 candidate packaging passed.
-- All 33 CTest suites passed.
-- Eight title-specific palm-marker comparisons and all twelve stock CE weapon
-  graphs at three scales passed.
-- Reach consistency checks passed.
-- The user confirmed campaign playability on the d47a98c runtime; the supplied
-  Steam/SteamVR 2.17.9 log contains all six titles at 90 Hz. Other edition/runtime
-  combinations and every optional feature are not claimed newly retested.
-- Build ZIP, source ZIP, sidecar, staged files, embedded source identity, and
-  exact source-archive bytes were verified before acceptance.
+- The author approved **46c124b** as the Alpha 0.4.1 release baseline after
+  headset testing. The supplied log identifies Steam, SteamVR/OpenXR 2.17.10
+  and an Oculus-family headset at 90 Hz.
+- Release x64, all **39 CTest suites**, the Reach consistency gate, 14,820
+  interaction checks and 4,945 accessory checks passed locally.
+- Published build/source downloads and checksums were verified. The DLL,
+  launcher and default config match the tested candidate byte for byte.
+- The earlier d47a98c baseline established all-six-campaign smoke-test coverage.
+  The new release does not claim exhaustive retesting of every title, feature,
+  mission, custom mod, edition or runtime. Experimental interactions still need
+  broader headset feedback.
 
 This is an unofficial derivative of
 [pancreations/Halo-MCC-VR](https://github.com/pancreations/Halo-MCC-VR), under
 the MIT license. It is not affiliated with Microsoft or Halo Studios and
-contains no MCC game binaries or editing-kit assets.
+contains no MCC game binaries or complete editing-kit files. The optional
+reload accessories include isolated Halo-derived geometry, which remains
+artwork of its respective owners; original kit tags, textures and executables
+are not included.
