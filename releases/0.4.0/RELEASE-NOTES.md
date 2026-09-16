@@ -1,4 +1,4 @@
-# Halo MCC VR Alpha 0.4.0 — All Campaigns Release
+# Halo MCC VR Alpha 0.4.0 — All Campaigns in VR
 
 Alpha 0.4.0 is the first cumulative MCCVR release in which every Master Chief
 Collection campaign has a playable VR path:
@@ -32,6 +32,26 @@ features and transition cases remain under active refinement.
 5. Launch only with anti-cheat disabled. Do not use the mod in matchmaking.
 
 ## Headline additions
+
+### New in this release
+
+- **Halo CE Anniversary is now playable in VR**, alongside Original graphics:
+  stereo/6DOF, tracked hands and guns, native HUD and reticles, full-resolution
+  Anniversary eye targets, muzzle effects, gameplay graphics switching, world
+  contact, physical melee, and restored vibration on both controllers.
+- **Fixed opt-in left-hand alignment across all six titles**, including both
+  CE and Halo 2 graphics modes. Enable Left-handed main weapon, then Fix Hand
+  Alignment (Experimental). It uses title-specific authored grips, preserves
+  gun placement, and remains off by default. Native finger animations and
+  unusual/custom weapon grips can still need refinement.
+- **Adjustable D-pad head radius:** 10–50 cm, with the existing 30 cm default.
+- **Optional Quest 3 thumb-rest D-pad:** hold the physical left thumb rest and
+  move the physical right stick for D-pad directions. Release to restore normal
+  stick use. This stays independent of weapon handedness and is off by default.
+  Existing head gestures and graphics-switch clicks remain available; sensor
+  delivery depends on your runtime/controller connection.
+- **All-title automatic re-entry and Force Inject / Recover VR improvements**,
+  plus Reach's native HUD-height control and retained CE haptics.
 
 ### Halo CE joins the playable campaign lineup
 
@@ -98,8 +118,8 @@ size and width remain independent. Reach HUD curvature is still not implemented.
 
 | Campaign | Playable VR coverage | Important remaining limits |
 | --- | --- | --- |
-| Halo CE | Original and Anniversary stereo/6DOF, hands, weapons, aiming, native HUD/reticles, muzzle effects, gameplay graphics switching, contact and melee | Do not switch graphics during cinematics; CE body-following is deferred; exact replacement/custom mesh contact is not guaranteed |
-| Halo 2 | Classic and Anniversary stereo/6DOF, hands/weapons, controller aim, reticle work, contact/melee, snap turn and handedness | No complete VR HUD; full H3-style vehicle policy and first-person vehicles remain unfinished; independent secondary-gun trajectory remains unfinished |
+| Halo CE | Original and Anniversary stereo/6DOF, hands, weapons, aiming, native HUD/reticles, muzzle effects, gameplay graphics switching, both-controller haptics, contact and melee | Do not switch graphics during cinematics; CE body-following is deferred; exact replacement/custom mesh contact is not guaranteed |
+| Halo 2 | Classic and Anniversary stereo/6DOF, hands/weapons, controller aim, native HUD/reticle handling, contact/melee, snap turn and handedness | HUD presentation/control parity still needs refinement; full H3-style vehicle policy and first-person vehicles remain unfinished; independent secondary-gun trajectory remains unfinished |
 | Halo 3 | Mature stereo/6DOF path, arms/hands, native HUD/reticle, scopes, cutscenes, first-person vehicles, contact/melee and comfort controls | Experimental independent dual-fire remains disabled; some lower-edge visibility and calibration work remains |
 | Halo 3: ODST | Stereo/6DOF, hands/weapons, native HUD/reticle, cutscenes, first-person vehicles, contact/melee and recovery | The first captioned opening cinematic can still be black; broader vehicle/co-op coverage remains open |
 | Halo: Reach | Stereo/6DOF, hands/weapons, native HUD/reticle, cutscenes, first-person vehicles, contact/melee, and native HUD height | HUD curvature remains unavailable; passenger hands and some mission/version-specific effects and clarity reports remain open |
@@ -123,6 +143,8 @@ size and width remain independent. Reach HUD curvature is still not implemented.
   and disable runtime motion smoothing/ASW before judging native performance.
 - Vehicle seat positions are starting points. Tune the active seat in
   F1 > Vehicles; saved seat trims are intentionally personal.
+- The previously reported Halo 2 reticle issue after leaving a tank remains
+  open; it is not claimed fixed by this release.
 - Independent per-gun projectile direction is unfinished. Presentation of two
   weapons does not imply independent bullet trajectories.
 - Hardware/runtime, co-op, multiplayer, every mission, every vehicle, and
@@ -151,7 +173,7 @@ size and width remain independent. Reach HUD curvature is still not implemented.
 
 ## Install or update
 
-For a fresh install, extract the Build ZIP and place `HaloMCCVR.dll`,
+For a fresh install, extract `Halo-MCC-VR.zip` and place `HaloMCCVR.dll`,
 `HaloMCCVRLauncher.exe`, and `halomccvr.cfg` in a folder named `Halo_MCC_VR` at
 the MCC installation root. Start the headset connection/OpenXR runtime, then
 launch through `HaloMCCVRLauncher.exe` with anti-cheat disabled.
@@ -163,20 +185,34 @@ Microsoft Store installations have separate mod folders if both are installed.
 Set MCC's per-title campaign FOV to 120°, V-Sync off, maximum frame rate 120,
 and MCC FSR off. Recenter with F3 after entering gameplay.
 
-## Exact accepted identity
+## Downloads and accepted build
 
-The release publishes the exact headset-accepted candidate; the DLL was not
-rebuilt during release preparation.
+**Most players need only [Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/Halo-MCC-VR.zip).**
+It contains exactly four files at its root: `HaloMCCVR.dll`,
+`HaloMCCVRLauncher.exe`, `halomccvr.cfg`, and `README.txt`. Instructions,
+credits, and bundled component licenses are combined in the README.
+
+Developers: [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/Halo-MCC-VR-Source.zip)
+contains the complete source tree, build instructions, tests, evidence documents,
+and updated release documentation. Runtime source is **d47a98c947dc60dd98d7259a29a7582d5f46df7f**;
+the release tag adds documentation only. No runtime was rebuilt for publication.
+The DLL, launcher and default config are byte-identical to the tested candidate.
+[SHA256.txt](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/SHA256.txt) identifies both downloads and runtime files.
+
+The user accepts this build after testing the campaign lineup. The supplied log
+corroborates all six titles in one Steam session, SteamVR/OpenXR 2.17.9,
+Oculus-family headset at 90 Hz (Quest 3 identified by the user). It is a campaign
+smoke test, not proof of every mission, optional toggle, weapon, runtime or
+Store-edition scenario. Previous limitations remain open unless explicitly
+listed as corrected above.
+
+Validation: Release x64, all **33 automated test suites**, Reach consistency,
+eight title-specific palm-marker comparisons, and twelve stock CE weapon graphs
+at three scales passed. Both graphics modes share the relevant hand corrections.
 
 ```text
-Runtime source  5ac02f53a7896ffd6b8dff37ddc5bc4700890559
-Build ZIP       1E75D939B0D65136AAFD29718EEE0BEAC269C44E4930E1E5C0C1D3E7DB958C2C
-Source ZIP      FB3563A2DE33CD5EFC1002B641FCA289FF8830D5849203621C259FAAD6B10A8A
-HaloMCCVR.dll   55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63
-Launcher        BF009D5D54CCC60D01BD6B3FFB5EBCF43F8511F845FFF242A21A47D0A16FACC1
-Config          E67114F4BD30A06A4750F57EC925D0598775C617454D76DCD57FF3902292AB3B
+Runtime source  d47a98c947dc60dd98d7259a29a7582d5f46df7f
+HaloMCCVR.dll   ADAB506E9E3BFB1E04DBBF767FDD907EFD414526863AB5C837FD65E7FAB95922
+Launcher        EB9B23F68F5B32FA83120308513CEB9B2B7DEB644CF7914AE3B6FA5091524845
+Config          D5AC7F5653ACEC01CA76F902E4DB155F4F4B259AB5D0268E4F79D349C2AD8CA8
 ```
-
-The matching source archive contains the exact Git bytes for runtime commit
-`5ac02f5`. The release tag additionally contains the release-facing
-documentation prepared after headset acceptance.

@@ -1,177 +1,558 @@
-HALO MCC VR ALPHA 0.4.0 - ALL CAMPAIGNS RELEASE - SEPTEMBER 2026
-================================================================
+HALO MCC VR — ALPHA 0.4.0 — ALL CAMPAIGNS IN VR
+================================================
 
-Every MCC campaign now has a playable VR path: Halo CE in Original and
-Anniversary graphics; Halo 2 in Classic and Anniversary graphics; Halo 3;
-Halo 3: ODST; Halo: Reach; and Halo 4. Steam and Microsoft Store / Xbox app /
-Game Pass use the same files. The exact accepted runtime source is 5ac02f5.
+Every MCC campaign now has a playable VR path: Halo CE Original/Anniversary,
+Halo 2 Classic/Anniversary, Halo 3, ODST, Reach, and Halo 4.
+One build supports Steam and Microsoft Store / Xbox app / Game Pass.
+This is an alpha: broad campaign coverage, with the refinements below still open.
 
-IMPORTANT: after entering a title or level, wait at least seven seconds before
-using Force injection / recover VR. Some engines need about seven seconds to
-load and establish current camera, display and resource proofs. Using recovery
-earlier can make normal initialization look like a failure.
+Download Halo-MCC-VR.zip for playing. Its four files are:
+  HaloMCCVR.dll
+  HaloMCCVRLauncher.exe
+  halomccvr.cfg
+  README.txt (this guide, credits and license notices)
+Developers can use Halo-MCC-VR-Source.zip; players do not need it.
+Release notes and the full supported-games table:
+https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0
 
-Campaign switching can occasionally crash MCC or leave the destination flat.
-If that happens, fully close MCC, restart through HaloMCCVRLauncher.exe and
-load the destination again. Also, do not switch Halo CE Original/Anniversary
-graphics during a cinematic; wait until the cinematic has ended.
-
-Read RELEASE-NOTES.md and the repository's releases/0.4.0/RELEASE-NOTES.md for
-the complete title status, limitations and planned refinements.
-
-For CE, compare both graphics modes during gameplay, switch while looking around,
-check gun/hand size and firing effects, then pause and resume in each mode.
-Read RELEASE-NOTES.md for the exact status and test steps. CE world collision
-and physical melee are available through their separate Body & Hands controls.
-CE contact uses hand/weapon nodes; complete weapon surfaces remain unproven.
-CE physical roomscale body following remains deferred. Ordinary tracked leaning
-is part of CE 6DoF.
-CE graphics switching: physical left hand beside the left side of the head,
-then click the movement stick. Both graphics modes have a VR path. Do not use
-this switch during cinematics; wait until normal gameplay resumes.
-
-BEFORE YOU START
-----------------
-- A Windows x64 PC with MCC and the campaign(s) you want to play installed.
-  Run MCC normally once to finish its first-run setup and game dependencies.
-- A working PCVR headset connection, controllers and an active OpenXR runtime.
-  Start the headset connection before the mod. SteamVR is the runtime used in
-  the latest user feedback; other runtimes/headsets need separate testing.
-- Steam running and signed in for the Steam edition; a working Xbox app/game
-  entitlement for the Store edition. No special Steam launch options are
-  required by this package: use the supplied launcher.
-- You do not need Visual Studio, CMake, the source ZIP or a separate OpenXR SDK.
-  The mod's C++ runtime and OpenXR loader are included in its compiled DLL.
-  Your headset's OpenXR runtime and MCC's normal dependencies are still needed.
-
-FRESH INSTALL
--------------
-1. Fully close MCC. Extract the Build ZIP before running anything inside it.
-2. Find your MCC installation:
-   Steam: Library > Halo: The Master Chief Collection > Manage > Browse local files.
+INSTALL
+-------
+1. Fully close MCC. Extract the ZIP before running anything inside it.
+2. Find the MCC root folder containing MCC\Binaries\Win64:
+   Steam: Library > MCC > Manage > Browse local files.
    Xbox app: MCC > Manage > Files > Browse; open Content if necessary.
-   Choose the folder containing MCC\Binaries\Win64.
-3. Create a folder named Halo_MCC_VR there. The result should look like:
+3. Create Halo_MCC_VR in that root and copy the DLL, launcher and config there.
+   Keep this README for reference. Do not replace original game files or place
+   the mod DLL in MCC\Binaries\Win64.
+4. Start your headset connection and active OpenXR runtime, then run
+   HaloMCCVRLauncher.exe from Halo_MCC_VR. SteamVR is the tested route.
+5. Use anti-cheat-disabled MCC. Do not use the mod in matchmaking.
+   For Store, let the launcher activate the game package; do not rename the
+   MCC executable. Store's first launch can take several extra seconds.
+6. Set each campaign's FOV to 120 degrees, V-Sync off, max frame rate 120,
+   and MCC FSR off. In ODST, set look sensitivity to maximum and acceleration off.
+7. Load a campaign, allow initialization, then press F3 to recenter.
 
-   Halo The Master Chief Collection\
-     MCC\Binaries\Win64\...
-     Halo_MCC_VR\
-       HaloMCCVR.dll
-       HaloMCCVRLauncher.exe
-       halomccvr.cfg
+You need Windows x64, MCC with the desired campaigns installed, controllers,
+and a working PCVR/OpenXR setup. Run MCC normally once for first-run setup.
+No Visual Studio, source ZIP or separate OpenXR SDK is needed to play.
 
-4. Copy those three files from the extracted Build ZIP into Halo_MCC_VR.
-   Keep the included instructions, release notes, manifest and licenses for reference.
-   Do not replace original game files or copy the mod DLL into MCC\Binaries\Win64.
-5. Start your headset connection and OpenXR runtime, then run
-   HaloMCCVRLauncher.exe from Halo_MCC_VR. Make a shortcut to it if convenient.
-   The launcher starts MCC in its anti-cheat-disabled mode and loads the mod.
-   If MCC presents a launch choice, select the anti-cheat-disabled option.
-   Do not use the mod in anti-cheat-enabled matchmaking.
-6. For Store, let the launcher activate the game package. Do not prelaunch MCC
-   or rename its executable. If package activation fails, follow the launcher's
-   displayed instructions. A first Store launch can take longer to load.
-7. Load a supported campaign. VR enters automatically with the supplied defaults.
-   Recenter with F3 once you are standing or seated comfortably. If automatic
-   entry does not occur, wait at least seven seconds before Force Inject.
-
-UPDATING AN EXISTING INSTALL
----------------------------
-With MCC closed, back up your old mod DLL, launcher and halomccvr.cfg.
-Replace ONLY HaloMCCVR.dll and HaloMCCVRLauncher.exe with the new pair.
-KEEP your existing halomccvr.cfg: controls, alignment and seat preferences
-remain saved. Missing settings use current defaults. Roomscale and experimental
-hand alignment are off by default, though an existing roomscale setting is kept.
-
-For very old installs, keep obsolete halo3xr.dll / halo3xr_launcher.exe in your
-backup outside the game folder. Do not load both versions. If you use both MCC
-editions, update EACH edition's Halo_MCC_VR folder. Each has its own config.
+UPDATING
+--------
+Close MCC and back up your old mod folder. Replace the DLL and launcher.
+KEEP YOUR EXISTING halomccvr.cfg to retain alignment, controls and seat settings.
+Missing settings receive defaults. Each MCC edition has its own Halo_MCC_VR
+folder. Keep obsolete halo3xr files in a backup outside the game folder.
 Extracting this ZIP does not install anything automatically.
 
-LEFT-HANDED MODE
-----------------
-Open F1 > Weapon & Aim and enable Left-handed main weapon.
-The primary weapon, aim and trigger follow the physical left controller; the
-right controller supports it or carries a secondary weapon. Stick and face-button
-bindings retain their existing physical layout.
+IMPORTANT HICCUPS
+-----------------
+- WAIT AT LEAST SEVEN SECONDS after entering a title/level before using Force
+  Inject / Recover VR. Some titles take that long to initialize. Then use
+  the launcher or F1 > Status recovery once and allow the camera-ready delay.
+- Campaign switching can occasionally crash or leave the next game flat.
+  Fully close MCC, restart through the launcher, and load that campaign again.
+  Recovery cannot recreate a lost OpenXR session; restart MCC in that case.
+- CE Original/Anniversary graphics switching works DURING GAMEPLAY, not during
+  cinematics. Wait for the cutscene to end before switching either direction.
+- Disable/remove OpenXR Toolkit when troubleshooting. If cadence drops to half
+  refresh, try lower VR resolution and disable runtime motion smoothing/ASW.
 
-Default positioning now follows the released MCCVR-d77c9dd behavior requested
-by the user. It can retain reversed hands or imperfect orientation, but the
-newer anatomical correction no longer replaces that positioning automatically.
-The current weapon-collision and physical-melee improvements are preserved.
+WHAT IS NEW
+-----------
+- Halo CE Original AND Anniversary VR, native HUD/reticles, full-resolution
+  Anniversary eye rendering, muzzle effects, gameplay graphics switching,
+  world contact, physical melee, and vibration on both controllers.
+- Fixed opt-in left-hand alignment across all six titles and both CE/H2 modes.
+  F1 > Weapon & Aim > Left-handed main weapon > Fix Hand Alignment (Experimental).
+  The alignment option stays off by default; gun placement is preserved.
+- F1 > Controls > D-pad head radius: 10–50 cm; default 30 cm.
+- Optional Quest 3 left thumb-rest D-pad: hold the PHYSICAL LEFT thumb rest and
+  move the PHYSICAL RIGHT stick. Release to restore normal stick use. It is off
+  by default and independent of weapon handedness. Runtime sensor support varies.
+  Existing head gestures and stick-click functions are retained. For CE graphics
+  switching, put the physical left hand beside the left side of your head and
+  click the movement stick. The thumb-rest gesture adds directions, not a new
+  graphics-switch click.
+- All-title automatic re-entry/recovery improvements and Reach HUD-height control.
 
-Fix Hand Alignment (Experimental) appears directly underneath only while
-left-handed mode is enabled. Leave it OFF for the released positioning.
-Turn it on to try the newer anatomical hand/arm correction. It remains
-experimental and can misalign hands. Turn it off to return to the default.
-Config keys: left_handed = 1; experimental_hand_alignment = 0 (recommended).
+CAMPAIGN COVERAGE
+-----------------
+CE: Original/Anniversary stereo, 6DOF, tracked hands/guns, native HUD/reticles,
+    haptics, contact/melee. No cinematic graphics switching or body following.
+H2: Classic/Anniversary stereo, 6DOF, tracked hands/guns, HUD/reticle handling,
+    haptics and contact/melee. HUD/vehicle/scope parity and dual trajectory open.
+H3: Stereo, 6DOF, hands/arm IK, HUD/reticle, scopes, first-person vehicles,
+    cutscenes, contact/melee. Independent dual-fire and visibility refinements open.
+ODST: Stereo, 6DOF, hands, HUD/reticle, first-person vehicles, cutscenes,
+      contact/melee. First captioned opening scene can be black; skip it once.
+Reach: Stereo, 6DOF, hands, HUD/reticle, first-person vehicles, contact/melee,
+       HUD height. HUD curvature and some passenger/effects/clarity work open.
+H4: Stereo, 6DOF, floating hands, HUD/reticle controls, cutscenes, contact/melee.
+    Full arm IK/first-person vehicles unfinished; reported damage blackout open.
 
-ROOMSCALE BODY MOVEMENT
-----------------------
-This section applies to H2 Classic/Anniversary, H3, ODST, Reach and H4.
-CE body following remains deferred; CE still has positional head tracking.
-Open F1 > Controls and enable Roomscale body movement. Head tracking and
-positional tracking must be enabled. Recenter with F3, close F1, and begin in
-an open, level area with the movement stick idle. Take small forward, backward
-and sideways steps. The CHARACTER BODY should follow those physical steps.
-Config key: roomscale_movement = 1; use 0 to disable.
+CONTROLS AND REFINEMENTS
+-----------------------
+F1 opens settings; F3 recenters. L3+R3 together recenters and toggles F1.
+Settings save automatically. Slider arrows provide small, repeatable adjustments.
+World collision, true physical melee and gesture melee have separate controls
+under Body & Hands. Physical melee defaults to a 5 m/s threshold (0.30–10 m/s).
+Snap/smooth turning and speed/angle are under Controls. Tune supported vehicle
+seats under Vehicles. Scale/alignment preferences can be adjusted in F1; keep
+MCC's per-campaign FOV at 120 degrees before tuning them.
 
-This update fixes title admission and input cancellation that prevented follow
-commands from working. Native walking handles ground, walls and steps. As the
-body travels, the matching tracked offset is consumed so the step is not added
-twice. Catch-up speed depends on the game's movement settings; headset validation
-of this fix remains pending. The movement stick takes priority and cancels
-pending follow motion. Vertical head movement remains leaning/crouching, not
-jumping. Roomscale does not stop the tracked camera leaning through a wall.
+Optional roomscale body translation is available for H2/H3/ODST/Reach/H4; CE
+currently supports tracked leaning, not native body following. This remains
+experimental. Head/stick movement, recentering, vehicles and menus can affect
+body-following admission. Independent native body-yaw following is future work.
 
-Body following suspends for menus, pause, vehicles/turrets, unavailable on-foot
-evidence and stale tracking/input. F3 resets the reference. Switching roomscale
-off returns to the previous tracked-lean behavior. Controller aiming and
-head-relative walking are retained. Independently turning the native body to
-follow head direction remains deferred; this option adds physical translation.
+Still planned or under refinement: more reliable campaign switching; CE
+cinematic graphics switching; independent per-gun dual-wield aim/fire/damage;
+H2 vehicle controls and H2/H4 first-person vehicles; all-title zoom/scopes;
+sliding contact and custom/modded weapon geometry; unarmed/secondary/world-object
+melee damage; automatic per-weapon profiles and gun-stock calibration; visibility
+edges; Reach effects/clarity; headset/runtime, co-op and long-session coverage.
+CE uses conservative envelopes from all 12 stock weapon models, not exact Saber
+replacement/custom meshes. Native finger animations are retained by alignment.
+The reported H2 tank-exit reticle issue and H4 damage-blackout case remain open.
+These plans are not features promised by this build or a delivery schedule.
 
-EVERYDAY CONTROLS
-----------------
-F1: VR settings. F3: recenter. L3+R3 together: recenter and toggle F1.
-F1 > Controls: snap/smooth turning and angle/speed.
-World contact, physical melee and gesture melee have separate settings.
-For this CE test, enable World collision and True physical melee individually in
-F1 > Body & Hands. New configs leave these off; existing choices are preserved.
-Physical melee uses a 5 m/s default threshold. Test both hands in both CE modes.
-Slider arrows move by the last displayed digit. F1 saves changes.
-H3, ODST and Reach have first-person vehicles; F1 > Vehicles adjusts the seat.
+REPORTING / REMOVAL
+------------------
+Report issues on the repository with HaloMCCVR.log and HaloMCCVRLauncher.log,
+campaign/mission/graphics mode, Steam or Store, headset/connection, OpenXR
+runtime/refresh rate, and what happened immediately beforehand.
+With MCC closed, remove only Halo_MCC_VR and its shortcut to uninstall; retain
+a config backup if desired. No original game files need replacing.
 
-KNOWN LIMITS AND TROUBLESHOOTING
-------------------------------
-- Independent dual-weapon trajectories are unfinished across titles. H3's
-  rejected experimental dual-fire hooks remain disabled. Left-handed mode alone
-  does not provide independent secondary-gun shots.
-- H2/H4 first-person vehicle parity, complete scope parity, some visibility
-  edges and further weapon calibration remain unfinished. Specific modded
-  weapons and unarmed/secondary melee damage need individual testing.
-- H4's reported black screen/fade after damage and H2's reported reticle issue
-  after leaving a tank remain unresolved.
-- F1 > Status and the launcher offer Force injection / recover VR for the
-  selected CE, H2, H3, ODST, Reach or H4 engine. Wait at least seven seconds
-  after entering the title/level before using it. It retries the title's
-  verified setup and does not recreate a lost OpenXR session. If VR remains
-  flat, restart MCC; do not inject duplicate DLLs.
-- Switching campaigns can occasionally crash or leave the destination flat.
-  Fully restart MCC through the supplied launcher, then load it again.
-- CE Original/Anniversary graphics switching is not supported during
-  cinematics. Wait until the cinematic ends before switching.
-- If performance falls to half refresh rate, try a lower VR resolution.
-  Settings marked next-launch require restarting MCC.
+BUILD IDENTITY
+--------------
+Tested runtime source: d47a98c947dc60dd98d7259a29a7582d5f46df7f
+DLL SHA-256: ADAB506E9E3BFB1E04DBBF767FDD907EFD414526863AB5C837FD65E7FAB95922
+DLL/launcher/config are the exact tested files, not rebuilt for publication.
+The source archive/release tag adds updated documentation only. SHA256.txt on
+GitHub identifies the downloads. The user confirms the campaign smoke test;
+every mission, weapon and optional feature is not claimed exhaustively tested.
 
-For feedback, keep HaloMCCVR.log and HaloMCCVRLauncher.log from Halo_MCC_VR.
-State the title/mission, Steam or Store edition, headset model, runtime and
-refresh rate; for CE and H2, state Classic or Anniversary. Include the manifest.
-For roomscale, test physical steps with the stick idle, then normal stick
-movement, stopping, turning, recentering, pause and vehicle entry/exit.
-Check Halo 3 as well as other titles. Roomscale log entries now distinguish
-command requests, unavailable conditions and consumed native travel.
+CREDITS AND LICENSES
+-------------------
+Continuation maintained by moistman42069, based on pancreations/Halo-MCC-VR.
+Not affiliated with Microsoft or Halo Studios. No game or editing-kit assets
+are distributed. Required notices are included below to keep this ZIP simple.
 
-TO REMOVE
----------
-With MCC closed, move or remove only Halo_MCC_VR and its shortcut. Original
-game files do not need replacing. Keep a copy of your config if desired.
+MIT License
+
+Copyright (c) 2026 pancreations
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+NOTE ON AUTHORSHIP
+
+The code in this repository was written by AI coding assistants -- Anthropic's
+Claude and OpenAI's Codex -- working under the direction of a human modder who
+did the testing, made the design decisions, and verified every result in a VR
+headset. The copyright line above exists so the warranty disclaimer has a named
+party; it is not a claim of authorship, and no restriction beyond the MIT terms
+is intended. Use it, learn from it, fork it, take it apart.
+
+Halo is a trademark of Microsoft. This project is not affiliated with or
+endorsed by Microsoft or Halo Studios, and redistributes no game files.
+
+
+Third-party licenses for components included in Halo MCC VR
+
+
+Dear ImGui
+==========
+
+The MIT License (MIT)
+
+Copyright (c) 2014-2026 Omar Cornut
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+MinHook
+-------
+
+ï»¿MinHook - The Minimalistic API Hooking Library for x64/x86
+Copyright (C) 2009-2017 Tsuda Kageyu.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+ 1. Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
+OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+Portions of this software are Copyright (c) 2008-2009, Vyacheslav Patkov.
+================================================================================
+Hacker Disassembler Engine 32 C
+Copyright (c) 2008-2009, Vyacheslav Patkov.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+ 1. Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+-------------------------------------------------------------------------------
+Hacker Disassembler Engine 64 C
+Copyright (c) 2008-2009, Vyacheslav Patkov.
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+ 1. Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+OpenXR SDK loader
+=================
+
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+
+JsonCpp (OpenXR loader dependency)
+==================================
+
+The JsonCpp library's source code, including accompanying documentation,
+tests and demonstration applications, are licensed under the following
+conditions...
+
+Baptiste Lepilleur and The JsonCpp Authors explicitly disclaim copyright in all
+jurisdictions which recognize such a disclaimer. In such jurisdictions,
+this software is released into the Public Domain.
+
+In jurisdictions which do not recognize Public Domain property (e.g. Germany as of
+2010), this software is Copyright (c) 2007-2010 by Baptiste Lepilleur and
+The JsonCpp Authors, and is released under the terms of the MIT License (see below).
+
+In jurisdictions which recognize Public Domain property, the user of this
+software may choose to accept it either as 1) Public Domain, 2) under the
+conditions of the MIT License (see below), or 3) under the terms of dual
+Public Domain/MIT License conditions described here, as they choose.
+
+The MIT License is about as close to Public Domain as a license can get, and is
+described in clear, concise terms at:
+
+   http://en.wikipedia.org/wiki/MIT_License
+
+The full text of the MIT License follows:
+
+========================================================================
+Copyright (c) 2007-2010 Baptiste Lepilleur and The JsonCpp Authors
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+========================================================================
+(END LICENSE TEXT)
+
+The MIT license is compatible with both the GPL and commercial
+software, affording one all of the rights of Public Domain with the
+minor nuisance of being required to keep the above copyright notice
+and license text in the source code. Note also that by accepting the
+Public Domain "license" you can re-license your copy using whatever
+license you like.

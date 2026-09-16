@@ -1,4 +1,4 @@
-# MCCVR Halo Build
+# Halo MCC VR
 
 _**OpenXR Toolkit may cause performance or compatibility issues. Disable or
 remove it while troubleshooting.**_
@@ -8,7 +8,7 @@ An independently maintained continuation of
 maintained here by **moistman42069**. Original contributor credit, history, and
 the MIT license are preserved.
 
-## Latest release: Alpha 0.4.0 — All Campaigns Release
+## Latest release: Alpha 0.4.0 — All Campaigns in VR
 
 This is the first cumulative release in which every Halo: The Master Chief
 Collection campaign has a playable VR path:
@@ -42,27 +42,16 @@ artifact hashes.
 - Keep your existing `halomccvr.cfg` when updating.
 - Launch only with anti-cheat disabled. Do not use the mod in matchmaking.
 
-## Downloads and exact identity
+## Downloads
 
-- Build ZIP:
-  `HaloMCCVR-5ac02f5-all-title-reentry-recovery-20260916-010940918Z-Build.zip`
-- Matching source ZIP:
-  `HaloMCCVR-5ac02f5-all-title-reentry-recovery-20260916-010940918Z-Source.zip`
-- SHA-256 sidecar:
-  `HaloMCCVR-5ac02f5-all-title-reentry-recovery-20260916-010940918Z-SHA256.txt`
-- Runtime source: `5ac02f53a7896ffd6b8dff37ddc5bc4700890559`
-- Build ZIP SHA-256:
-  `1E75D939B0D65136AAFD29718EEE0BEAC269C44E4930E1E5C0C1D3E7DB958C2C`
-- Source ZIP SHA-256:
-  `FB3563A2DE33CD5EFC1002B641FCA289FF8830D5849203621C259FAAD6B10A8A`
-- DLL SHA-256:
-  `55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63`
-- Launcher SHA-256:
-  `BF009D5D54CCC60D01BD6B3FFB5EBCF43F8511F845FFF242A21A47D0A16FACC1`
+- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/Halo-MCC-VR.zip)** — the mod for players.
+- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/Halo-MCC-VR-Source.zip) — complete source and build instructions for developers.
+- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.0/SHA256.txt)
 
-The published build is the exact headset-accepted candidate. It was not rebuilt
-for release. The matching source ZIP reproduces the runtime commit's Git bytes;
-the release tag adds release-facing documentation after acceptance.
+The player ZIP contains only the DLL, launcher, default config, and `README.txt`,
+all at the ZIP root. Existing users should **keep their own config**.
+The published runtime is the exact tested **d47a98c** build, without recompiling.
+The release tag/source archive adds the updated documentation to that runtime.
 
 ## Required MCC settings
 
@@ -80,6 +69,28 @@ For ODST, also set Look Sensitivity to maximum and Look Acceleration off so
 native aim can keep up with the controller reticle.
 
 ## Major features
+
+### New in this release
+
+- **Halo CE Anniversary is now playable in VR**, alongside Original graphics:
+  stereo/6DOF, tracked hands and guns, native HUD and reticles, full-resolution
+  Anniversary eye targets, muzzle effects, gameplay graphics switching, world
+  contact, physical melee, and restored vibration on both controllers.
+- **Fixed opt-in left-hand alignment across all six titles**, including both
+  CE and Halo 2 graphics modes. Enable Left-handed main weapon, then Fix Hand
+  Alignment (Experimental). It uses title-specific authored grips, preserves
+  gun placement, and remains off by default. Native finger animations and
+  unusual/custom weapon grips can still need refinement.
+- **Adjustable D-pad head radius:** 10–50 cm, with the existing 30 cm default.
+- **Optional Quest 3 thumb-rest D-pad:** hold the physical left thumb rest and
+  move the physical right stick for D-pad directions. Release to restore normal
+  stick use. This stays independent of weapon handedness and is off by default.
+  Existing head gestures and graphics-switch clicks remain available; sensor
+  delivery depends on your runtime/controller connection.
+- **All-title automatic re-entry and Force Inject / Recover VR improvements**,
+  plus Reach's native HUD-height control and retained CE haptics.
+
+### Core features
 
 - Per-eye stereo rendering and 6DOF head tracking across all six campaigns.
 - Motion-controller aiming, tracked hands and weapons, melee, grenades, and
@@ -102,8 +113,8 @@ native aim can keep up with the controller reticle.
 
 | Campaign | Current VR coverage | Notable limits |
 | --- | --- | --- |
-| Halo CE | Original/Anniversary stereo and 6DOF, hands, weapons, aim, native HUD/reticles, muzzle effects, gameplay graphics switching, contact and melee | Do not switch graphics during cinematics; body-following is deferred; exact custom/replacement mesh contact is not guaranteed |
-| Halo 2 | Classic/Anniversary stereo and 6DOF, hands/weapons, controller aim, reticle work, contact/melee, snap turn and handedness | Complete VR HUD and first-person vehicles remain unfinished; independent secondary-gun trajectory is unfinished |
+| Halo CE | Original/Anniversary stereo and 6DOF, hands, weapons, aim, native HUD/reticles, muzzle effects, gameplay graphics switching, both-controller haptics, contact and melee | Do not switch graphics during cinematics; body-following is deferred; exact custom/replacement mesh contact is not guaranteed |
+| Halo 2 | Classic/Anniversary stereo and 6DOF, hands/weapons, controller aim, native HUD/reticle handling, contact/melee, snap turn and handedness | HUD presentation/control parity and first-person vehicles remain unfinished; independent secondary-gun trajectory is unfinished |
 | Halo 3 | Mature stereo/6DOF path, articulated arms/hands, native HUD/reticle, scopes, cutscenes, vehicles, contact/melee and comfort controls | Independent dual-fire remains disabled; some visibility/calibration work remains |
 | ODST | Stereo/6DOF, hands/weapons, HUD/reticle, cutscenes, vehicles, contact/melee and recovery | First captioned opening scene can be black; broader vehicle/co-op coverage is open |
 | Reach | Stereo/6DOF, hands/weapons, HUD/reticle, cutscenes, vehicles, contact/melee and native HUD height | HUD curvature is unavailable; passenger hands and some effects/clarity reports remain open |
@@ -111,13 +122,13 @@ native aim can keep up with the controller reticle.
 
 ## Fresh installation
 
-1. Fully close MCC and extract the **Build ZIP** somewhere temporary.
+1. Fully close MCC and extract the **Halo-MCC-VR.zip** somewhere temporary.
 2. Open MCC's installation root—the folder containing `MCC\Binaries\Win64`:
    - Steam: Library > Halo: The Master Chief Collection > Manage > Browse local files.
    - Xbox app: MCC > Manage > Files > Browse, then open `Content` if needed.
 3. Create a folder named exactly `Halo_MCC_VR` in that root.
 4. Copy `HaloMCCVR.dll`, `HaloMCCVRLauncher.exe`, and `halomccvr.cfg` from the
-   extracted Build ZIP into `Halo_MCC_VR`. Do not put the Source ZIP there and
+   extracted ZIP into `Halo_MCC_VR`. Do not put the Source ZIP there and
    do not replace files in `MCC\Binaries\Win64`.
 5. Start your headset connection and active OpenXR runtime. SteamVR is the
    recommended/tested route.
@@ -171,6 +182,7 @@ lost OpenXR session.
   before assuming it crashed.
 - If performance locks to half refresh, lower `resolution_scale` and disable
   runtime motion smoothing/ASW.
+- The reported Halo 2 tank-exit reticle issue remains open.
 - Hardware/runtime, co-op, multiplayer, mission, vehicle, and long-session
   coverage remains incomplete. MCC updates can invalidate native signatures.
 
@@ -188,9 +200,13 @@ Attach `HaloMCCVR.log` and `HaloMCCVRLauncher.log`, and include:
 ## Validation
 
 - Exact Release x64 candidate packaging passed.
-- All 28 CTest suites passed.
+- All 33 CTest suites passed.
+- Eight title-specific palm-marker comparisons and all twelve stock CE weapon
+  graphs at three scales passed.
 - Reach consistency checks passed.
-- The separate manual cold-retry fixture passed 46 checks.
+- The user confirmed campaign playability on the d47a98c runtime; the supplied
+  Steam/SteamVR 2.17.9 log contains all six titles at 90 Hz. Other edition/runtime
+  combinations and every optional feature are not claimed newly retested.
 - Build ZIP, source ZIP, sidecar, staged files, embedded source identity, and
   exact source-archive bytes were verified before acceptance.
 
