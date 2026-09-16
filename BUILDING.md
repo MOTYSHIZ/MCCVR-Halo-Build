@@ -12,6 +12,7 @@ installation.
 - Windows x64.
 - Visual Studio 2022 with **Desktop development with C++**.
 - CMake 3.24 or newer.
+- Python 3.10 or newer for production-function test generation.
 - Git and network access for the first dependency download.
 
 OpenXR, MinHook, and Dear ImGui are pinned to exact commits in

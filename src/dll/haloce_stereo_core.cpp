@@ -1095,7 +1095,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     if (!fresh&&armed.exchange(false))
     { recenter=true; LOG("CE core disarmed by HaloCE_Poll: camera heartbeat expired; hooks retained for re-entry"); firstCameraMs=0; }
     constexpr uint32_t capabilities=TitleCapability_Stereo|TitleCapability_RoomScale|
-        TitleCapability_ControllerInput|TitleCapability_RuntimeModes;
+        TitleCapability_ControllerInput|TitleCapability_RuntimeModes|TitleCapability_Haptics;
     TitleAdapter_PublishLifecycle(GameTitle::HaloCE,gen,{installed.load(),armed.load(),retiring.load(),armed.load()?capabilities:0});
     if (fresh) TitleAdapter_PublishHeartbeat(GameTitle::HaloCE,gen,last);
     if (now-lastReport>=2000)

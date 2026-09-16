@@ -15,7 +15,9 @@ static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
 uint32_t TitleAdapter_GetGeneration(GameTitle) { return testGeneration; }
-bool TitleAdapter_PublishLifecycle(GameTitle,uint32_t,const TitleRuntimeLifecycle&) { return true; }
+static TitleRuntimeLifecycle publishedLifecycle{};
+bool TitleAdapter_PublishLifecycle(GameTitle,uint32_t,const TitleRuntimeLifecycle& value)
+{ publishedLifecycle=value; return true; }
 bool TitleAdapter_PublishHeartbeat(GameTitle,uint32_t,uint64_t) { return true; }
 float Game_GetWorldScale() { return 1.0f/3.048f; }
 bool Game_IsPositionalTracking() { return true; }
@@ -720,6 +722,31 @@ int main()
     rendererAddress=reinterpret_cast<uintptr_t>(renderer.data());
     std::memcpy(mapped.data()+0x1bea9e0,&rendererAddress,sizeof(rendererAddress));
     installed=true; active=true; retiring=false; armed=true; generation=3; recenter=false; trackingEnabled=true;
+    {
+        // Run the production worker publication in both native graphics modes.
+        // Haptics must follow the existing armed-camera boundary, with no new
+        // grant before readiness or after the camera heartbeat expires.
+        for (int32_t mode : {0,1})
+        {
+            *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=mode;
+            firstCameraMs=0;lastCameraMs=0;armed=false;
+            lastReport=GetTickCount64();
+            (void)HaloCE_Poll(bindings.base,mapped.size(),3,true);
+            check(!publishedLifecycle.armed&&!(publishedLifecycle.enabledCapabilities&TitleCapability_Haptics),
+                "CE haptics stay closed before a fresh camera in either graphics mode");
+            const uint64_t now=GetTickCount64();
+            firstCameraMs=now-1100;lastCameraMs=now;
+            check(HaloCE_Poll(bindings.base,mapped.size(),3,true)&&publishedLifecycle.armed&&
+                    (publishedLifecycle.enabledCapabilities&TitleCapability_Haptics),
+                "armed CE publishes haptics in Original and Anniversary");
+            lastCameraMs=now-600;
+            (void)HaloCE_Poll(bindings.base,mapped.size(),3,true);
+            check(!publishedLifecycle.armed&&!(publishedLifecycle.enabledCapabilities&TitleCapability_Haptics),
+                "expired CE camera withdraws haptics in either graphics mode");
+        }
+        firstCameraMs=0;lastCameraMs=0;lastReport=0;
+        armed=true;recenter=false;
+    }
     {
         std::array<uint8_t,0x3000> pool{};
         resolutionPool=reinterpret_cast<uintptr_t>(pool.data());resolutionDevice=device.Get();

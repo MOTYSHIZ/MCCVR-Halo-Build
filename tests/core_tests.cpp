@@ -13067,6 +13067,9 @@ int main()
         const bool admitted = descriptor &&
             (descriptor->admissionCapabilities &
                 TitleCapability_ControllerInput) != 0;
+        Check(descriptor && (descriptor->capabilities & TitleCapability_Haptics) &&
+                  !(descriptor->admissionCapabilities & TitleCapability_Haptics),
+            "CE offers native rumble only through an armed runtime, in both graphics modes");
         Check(admitted && TitleRegistry_AllowsSharedControllerInput(
                   GameTitle::HaloCE, false, false, true, admitted),
             "CE receives the existing virtual-controller transport without granting unimplemented aiming");

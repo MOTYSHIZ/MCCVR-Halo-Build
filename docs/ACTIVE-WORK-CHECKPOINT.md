@@ -1,4 +1,34 @@
-# Current continuation - September 15/16: publish the accepted all-campaign baseline
+# Current continuation - September 15/16: CE controller haptics only
+
+The user explicitly CANCELS the GitHub task and accepts the most recent
+**5ac02f5** runtime as flawless apart from absent CE vibration. Preserve every
+other behavior. Restore native gun/gameplay vibration to BOTH controllers in
+CE Original and Anniversary through the same bridge used by Halo 3. No new
+rendering, tracking, input, title-recovery or HUD behavior belongs in this task.
+
+The supplied source-5ac02f5 Steam / SteamVR / Oculus-family log is preserved in
+`out/test-runs/5ac02f5-ce-haptics-20260915/user.log`. CE already publishes the
+needed gameplay modes and the common XInput hooks are installed. Both its
+descriptor and armed runtime capability mask omit `TitleCapability_Haptics`,
+so existing input/output policy clears game and contact vibration. Read
+`CE-HAPTICS-2026-09-15.md` for the evidence and verification limits.
+
+Prepare and verify this single behavior correction, then package the build ZIP
+and matching source ZIP with `tools/package-candidate.ps1` WITHOUT `-Install`.
+Deliver both in chat and WAIT for user testing/instructions. Do not install,
+write game-folder files, launch MCC, open a PR or publish a release. The user
+plans GitHub publication after haptics testing; it is not the current task.
+Both editions stay supported. Accepted source stays **5ac02f5** until the user
+accepts the new haptics candidate in the headset.
+
+Implemented: exactly two CE Haptics capability grants, with all other runtime
+source byte-identical to accepted 5ac02f5. Baseline regressions reproduce the
+missing capability; corrected Release, all 29 CTest suites, the Reach gate and
+339 production haptic fixture checks pass. Package the committed source and
+verify both archives; final identity is `out/ce-haptics-current-handoff.json`.
+Current candidate notes: `CE-HAPTICS-CANDIDATE-2026-09-15.md`.
+
+# Historical continuation - September 15/16: cancelled publication request
 
 The user explicitly accepts the delivered **5ac02f5** candidate as a good
 baseline and requests preservation and GitHub publication as the first release

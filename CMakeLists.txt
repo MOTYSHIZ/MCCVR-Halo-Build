@@ -415,6 +415,24 @@ if(BUILD_TESTING)
         HALOMCCVR_HALO2_RENDER_PROBE=$<BOOL:${HALOMCCVR_HALO2_RENDER_PROBE}>
         HALOMCCVR_HALO2_ANNIVERSARY_STEREO=$<BOOL:${HALOMCCVR_HALO2_ANNIVERSARY_STEREO}>)
     add_test(NAME halomccvr_core_tests COMMAND halomccvr_core_tests)
+    # Exercise shipping XInput/OpenXR haptic functions with captured XR output.
+    # This also checks the real title masks, ownership and short-pulse retention.
+    find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+    set(HALOMCCVR_HAPTICS_FIXTURE "${HALOMCCVR_GENERATED_DIR}/haptics_runtime_functions.inl")
+    add_custom_command(OUTPUT "${HALOMCCVR_HAPTICS_FIXTURE}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_haptics_runtime_fixture.py"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${HALOMCCVR_HAPTICS_FIXTURE}"
+        DEPENDS tools/generate_haptics_runtime_fixture.py src/dll/input.cpp src/dll/vr.cpp
+            src/dll/game.cpp src/dll/haloce_stereo_core.cpp
+        VERBATIM)
+    add_executable(halomccvr_haptics_runtime_tests tests/haptics_runtime_tests.cpp
+        "${HALOMCCVR_HAPTICS_FIXTURE}" src/common/input_logic.cpp
+        src/common/title_registry.cpp src/common/title_runtime_state.cpp
+        src/common/config.cpp src/common/log.cpp)
+    target_include_directories(halomccvr_haptics_runtime_tests PRIVATE
+        "${HALOMCCVR_GENERATED_DIR}" "${openxr_SOURCE_DIR}/include")
+    target_compile_definitions(halomccvr_haptics_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_haptics_runtime_tests COMMAND halomccvr_haptics_runtime_tests)
     add_executable(halomccvr_ce_render_tests tests/haloce_render_tests.cpp)
     target_include_directories(halomccvr_ce_render_tests PRIVATE src/common)
     add_test(NAME halomccvr_ce_render_tests COMMAND halomccvr_ce_render_tests)

@@ -3,8 +3,10 @@
 > **CURRENT ACCEPTED ALL-CAMPAIGN BASELINE: `5ac02f5` (user headset,
 > 2026-09-15).** Source `5ac02f53a7896ffd6b8dff37ddc5bc4700890559`,
 > DLL SHA-256 `55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63`.
-> The user explicitly accepted the delivered candidate as a good baseline and
-> requested publication as the first release with every MCC campaign playable.
+> The user explicitly accepts this runtime as flawless apart from absent CE
+> vibration. The earlier GitHub publication request is CANCELLED. Current work
+> is CE Original/Anniversary haptics only, then a new build/source ZIP pair for
+> testing; see `CE-HAPTICS-2026-09-15.md`. Do not publish or install.
 > Exact build ZIP SHA-256
 > `1E75D939B0D65136AAFD29718EEE0BEAC269C44E4930E1E5C0C1D3E7DB958C2C`;
 > matching source ZIP SHA-256

@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'all-title-reentry-recovery',
+        'ce-controller-haptics',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 48
+        schema_version = 49
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1133,9 +1133,18 @@ try {
             requires_left_handed = $true
             headset_accepted = $false
         }
-        current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
+        current_accepted_source = '5ac02f53a7896ffd6b8dff37ddc5bc4700890559'
+        ce_haptics = [ordered]@{
+            behavior = 'enable-existing-native-XInput-to-OpenXR-vibration-for-both-controllers'
+            graphics = 'Original-and-Anniversary'
+            runtime_change = 'CE-descriptor-and-armed-runtime-Haptics-capability-only'
+            reference = 'unchanged-Halo3-motor-blend-short-pulse-intensity-and-stop-policy'
+            accepted_runtime_preserved = '5ac02f53a7896ffd6b8dff37ddc5bc4700890559'
+            evidence = 'docs/CE-HAPTICS-2026-09-15.md'
+            headset_accepted = $false
+        }
         halo_ce_candidate = [ordered]@{
-            previous_headset_result = '558fb2c-CE-Original-and-Anniversary-perfect-user-accepted; subsequent-Reach-entry-failed; Reach-height-still-untested'
+            previous_headset_result = '5ac02f5-all-campaign-runtime-user-accepted-as-flawless-except-absent-CE-haptics'
             rejected_previous_candidate = '2cf002b-switch-crash; prepared-HUD-disabled-separately-in-8b6fd06; dump-later-proves-native-shader-lifecycle-failure-before-target-preparation; Original-feature-confirmation-preserved'
             correction = 'preserve-native-HUD-resource-lifetime-through-full-resolution-rebuild; guard-disposed-native-HUD-even-on-ordinary-fallback; repair-owned-partial-target-cleanup; Reach-native-height-control'
             graphics = 'Classic-and-Anniversary-558fb2c-headset-accepted-engine-implementation-preserved'
@@ -1189,17 +1198,17 @@ try {
             titles = 'CE-Original-and-Anniversary; Halo2-Classic-and-Anniversary; Halo3; ODST; Reach; Halo4'
             preserved_ce_source = '558fb2c2237492c0458b5cee02c690be652285fe'
             ce_scoped_headset_accepted = $true
-            new_recovery_headset_accepted = $false
+            new_recovery_headset_accepted = $true
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this recovery candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Current candidate scope is ce_haptics and RELEASE-NOTES.md; accepted runtime is 5ac02f5, new haptics headset acceptance is pending; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'All-title re-entry and Force Inject recovery from user-tested 558fb2c. CE Original and Anniversary engine implementation preserved. Reach HUD height still needs headset testing. Local checks do not establish new lifecycle acceptance. Keep existing config. Both editions; package only; cumulative accepted pointer unchanged.'
+        note = 'CE Original and Anniversary controller vibration through the existing shared bridge. Only two CE haptics capability grants change runtime behavior from accepted 5ac02f5. Keep existing config. Both editions; package only; no GitHub publication; new haptics headset acceptance pending.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/ALL-TITLE-RECOVERY-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-HAPTICS-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

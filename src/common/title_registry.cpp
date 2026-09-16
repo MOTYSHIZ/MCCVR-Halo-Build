@@ -127,7 +127,7 @@ namespace
           kHalo4Capabilities, kHalo4AdmissionCapabilities },
         { GameTitle::HaloCE, L"halo1.dll", "Halo: CE Anniversary", false,
           TitleCapability_Stereo | TitleCapability_RoomScale |
-          TitleCapability_ControllerInput | TitleCapability_RuntimeModes,
+          TitleCapability_ControllerInput | TitleCapability_RuntimeModes | TitleCapability_Haptics,
           TitleCapability_ControllerInput },
         { GameTitle::Halo2, L"halo2.dll", "Halo 2 Anniversary", false,
           kHalo2Capabilities, kHalo2AdmissionCapabilities },
