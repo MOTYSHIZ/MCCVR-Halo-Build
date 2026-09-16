@@ -7831,6 +7831,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad)
     {
+        // User reports 59f2a82 native pointing failed. Disable that optional
+        // behavior before correcting it; preserve all existing camera/F1 code.
+        return;
         static bool pressed = false;
         const bool headLocked = quad.space == g_viewSpace;
         if (!g_config.game_menu_pointer || Menu_IsOpen() ||
