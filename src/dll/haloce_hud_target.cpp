@@ -139,6 +139,22 @@ bool DetachedDepthCurrent(const CeHudTargetSnapshot& saved,SelectFn select) noex
     const auto view=ReadValue<ID3D11DepthStencilView*>(surface+(saved.descriptor[0x44]?0x110:0x108));
     return view==saved.dsv;
 }
+bool PreparedIntentCurrent(const CeHudTargetSnapshot& original,
+    const std::array<uint8_t,0x48>& preparedDescriptor,SelectFn select) noexcept
+{
+    auto prepared=original;prepared.descriptor=preparedDescriptor;
+    if (CaptureSourceCurrentBody(prepared,select)||CaptureSourceCurrentBody(original,select)) return true;
+    // 205E40 -> 1DC120 publishes zero dimensions after copying the descriptor
+    // and before attachment validation. A native failure can therefore leave
+    // this exact partial intent with the old view cache. Only these two owned
+    // descriptors with that proven eight-byte change may reach repair; all
+    // wrapper, source, backend and context lifetime checks still run.
+    std::memset(prepared.descriptor.data()+0x38,0,8);
+    if (CaptureSourceCurrentBody(prepared,select)) return true;
+    auto partialOriginal=original;
+    std::memset(partialOriginal.descriptor.data()+0x38,0,8);
+    return CaptureSourceCurrentBody(partialOriginal,select);
+}
 CeHudTargetRestoreResult RestoreBody(const CeHudTargetSnapshot& saved,SelectFn select,BindFn bind) noexcept
 {
     CeHudTargetSnapshot latest{};
@@ -196,8 +212,7 @@ bool HaloCEHudTarget_RestorePrepared(const CeHudTargetSnapshot& original,
         CeHudTargetSnapshot current{};
         if (ReadBody(original.moduleBase,original.context,current,select)&&SameIntent(original,current))
         { result=current;return true; }
-        auto prepared=original;prepared.descriptor=preparedDescriptor;
-        if ((!CaptureSourceCurrentBody(prepared,select)&&!CaptureSourceCurrentBody(original,select))||
+        if (!PreparedIntentCurrent(original,preparedDescriptor,select)||
             !DetachedDepthCurrent(original,select)) return false;
         if (!bind(original.backend,original.descriptor.data())||
             !ReadBody(original.moduleBase,original.context,result,select)) return false;

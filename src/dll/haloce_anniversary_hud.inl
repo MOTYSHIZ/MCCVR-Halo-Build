@@ -16,6 +16,10 @@ constexpr bool kCeAnniversaryUnpreparedHudReplayEnabled=false;
 // Disable this candidate's new native binder transaction separately before
 // replacing it; preserve Original reticles and the shared contact refinements.
 constexpr bool kCeAnniversaryPreparedHudTargetsEnabled=false;
+// The dump exonerated target preparation: native gameplay dereferenced a
+// disposed shader in the ordinary fallback first. The corrected lifecycle,
+// native-resource guard and partial-bind cleanup enable this separate path.
+constexpr bool kCeAnniversaryNativeReadyHudTargetsEnabled=true;
 std::atomic<bool> anniversaryHudInstalled{};
 std::atomic<bool> anniversaryHudNaturalInstalled{};
 std::atomic<uint64_t> anniversaryHudDraws{},anniversaryHudFallbacks{};
@@ -312,7 +316,8 @@ bool AnniversaryHud_Install() noexcept
 
 bool AnniversaryHud_InstallNatural() noexcept
 {
-    if (!kCeAnniversaryUnpreparedHudReplayEnabled&&!kCeAnniversaryPreparedHudTargetsEnabled)
+    if (!kCeAnniversaryUnpreparedHudReplayEnabled&&!kCeAnniversaryPreparedHudTargetsEnabled&&
+        !kCeAnniversaryNativeReadyHudTargetsEnabled)
     { LOG("CE Anniversary unprepared HUD replay disabled after 22cb813 headset failure; camera retained");return false; }
     const NativeContractSet set{contract::anniversary_hud::entries,contract::anniversary_hud::witnesses,
         contract::anniversary_hud::relatives,contract::anniversary_hud::pointers};

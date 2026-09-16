@@ -10,6 +10,9 @@ static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 static halo_ce::RenderContext testOwner{};
 static bool ownerValid=true,crosshairScopeAvailable=true;
+static bool nativeResourcesReady=true;
+static uintptr_t nativeResourceCheckedBase{};
+static uint32_t nativeResourceCheckedGeneration{};
 static ID3D11DeviceContext* testDeviceContext{};
 static UINT failureCount{},nativeCalls{},scenario{};
 static UINT fullResolutionEyeTop{};
@@ -21,6 +24,11 @@ static bool Near(float a,float b) { return std::fabs(a-b)<0.001f; }
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
 uint32_t TitleAdapter_GetGeneration(GameTitle) { return testGeneration; }
 bool HaloCE_Armed() noexcept { return testTitle==GameTitle::HaloCE; }
+bool HaloCE_NativeHudResourcesReady(uintptr_t base,uint32_t gen) noexcept
+{
+    nativeResourceCheckedBase=base;nativeResourceCheckedGeneration=gen;
+    return nativeResourcesReady;
+}
 bool HaloCE_BeginAnniversaryHudGameplay(ID3D11DeviceContext*,UINT&,UINT&) noexcept { return false; }
 void HaloCE_EndAnniversaryHudGameplay(bool) noexcept {}
 bool HaloCEHud_HasCrosshairScope() noexcept { return crosshairScopeAvailable; }
@@ -208,7 +216,16 @@ int main()
         "other-title fast path does not update CE observations");
     active=true;
     Check(Near(ActualViewport().Width,1000),"fresh native observations recover on next frame");
-    Seed();scenario=5;ownerValid=false;MainHook();ownerValid=true;
+    Seed();scenario=5;ownerValid=false;
+    const auto beforeResourceFailure=nativeCalls;
+    nativeResourcesReady=false;MainHook();
+    Check(nativeCalls==beforeResourceFailure&&callbacks==0&&!scope&&HaloCE_Armed(),
+        "disposed native effects block the ordinary fallback draw without leaking callbacks or disarming VR");
+    Check(nativeResourceCheckedBase==moduleBase&&nativeResourceCheckedGeneration==generation.load(),
+        "HUD readiness is requested for this layout hook's exact module and generation");
+    nativeResourcesReady=true;MainHook();ownerValid=true;
+    Check(nativeCalls==beforeResourceFailure+1,
+        "native resource recreation restores the ordinary fallback draw on the next call");
     Check(Near(ActualViewport().Width,1000),"missing owner remains stock without core teardown");
     crosshairScopeAvailable=false;MainHook();
     Check(Near(ActualViewport().Width,1000),

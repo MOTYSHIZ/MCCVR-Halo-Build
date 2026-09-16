@@ -8,6 +8,9 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t generation,bool active) noe
 // Cold optional proof captured before the core detours overlapping native
 // bodies. Revoked on retirement and valid only for the exact retained module.
 bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t generation) noexcept;
+// Ordinary native HUD callbacks must also wait for a managed renderer reset
+// to restore its effects. This check does not depend on camera heartbeats.
+bool HaloCE_NativeHudResourcesReady(uintptr_t expectedBase,uint32_t expectedGeneration) noexcept;
 bool HaloCE_Armed() noexcept;
 void HaloCE_Recenter() noexcept;
 void HaloCE_PublishTracking(const halo_ce::Tracking& tracking,bool enabled) noexcept;

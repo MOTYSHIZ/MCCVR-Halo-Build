@@ -409,15 +409,18 @@ inline constexpr uint32_t native_hud_scissor_state=0x202d70;
 inline constexpr uint32_t native_hud_backend_clear_state=0x203c00;
 }
 namespace anniversary_resolution {
-inline constexpr std::array<Entry,6> entries={{
+inline constexpr std::array<Entry,9> entries={{
     {"resolution_pool_initialize",0x2d44b0,"48 89 5C 24 20 55 56 57 41 55 41 56 48 83 EC 50 4C 8B 05 11 79 B6 02 48 8B E9 49 8B 80 18 01 00",true},
     {"resolution_pool_entry",0x20a9b0,"48 89 5C 24 10 44 89 4C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 40 44 8B BC 24 B0 00 00",true},
     {"resolution_split_child",0x1f9d20,"48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 48 83 EC 40 8B 99 88 00 00 00 41 8B F9 45 33 C9",true},
     {"resolution_management",0x455700,"4C 8B DC 49 89 4B 08 56 57 41 54 41 56 41 57 48 81 EC 10 01 00 00 48 C7 44 24 20 FE FF FF FF 49",true},
     {"resolution_release",0x4f1ad0,"48 83 EC 28 48 8B 0D 9D B2 94 02 48 85 C9 74 05 E8 7B 40 F3 FF 48 8B 05 44 23 74 01 48 8B 48 18",true},
     {"resolution_reconfigure",0x4f11e0,"48 8B C4 55 41 54 41 55 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00 48 C7 44 24 60 FE FF FF",true},
+    {"resolution_legacy_reload",0x80dd0,"40 55 41 54 41 55 41 56 41 57 48 8D AC 24 A0 E3 FF FF B8 60 1D 00 00 E8 74 60 58 01 48 2B E0 48",true},
+    {"resolution_legacy_dispose",0x82170,"41 54 41 55 48 83 EC 38 4C 8B E1 45 33 ED 48 8B 0D DB 97 DB 02 48 85 C9 74 0C E8 01 7F 18 00 4C",true},
+    {"resolution_legacy_hud_quad",0xb0ec20,"48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 80 48 81 EC 80 01 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 48 8B 05 BE 63 06 01 48 33 C4 48 89 45 40 45 33 E4 48 89 54 24 20 44 38 25 0A E8 06 01 4C 8B FA 48 8B F9 0F 84 C0 0E 00 00 45 8D 6C 24 01 66 44 39 2D FF 18 ED",true},
 }};
-inline constexpr std::array<Witness,9> witnesses={{
+inline constexpr std::array<Witness,18> witnesses={{
     {0x20ac2b,"48 8B BC 24 B8 00 00 00 48 89 44 1A 10"},
     {0x20acf5,"41 FF 92 A8 00 00 00 48 63 43 0C 48 6B C8 38 44 89 7C 19 18"},
     {0x20ad4b,"48 63 4B 0C 8D 41 01 89 43 0C"},
@@ -427,14 +430,33 @@ inline constexpr std::array<Witness,9> witnesses={{
     {0x1f4307,"E8 14 5A 00 00"},
     {0x1f4375,"E8 A6 59 00 00"},
     {0x4551b2,"E8 49 05 00 00"},
+    {0x80e43,"0F 84 56 08 00 00"},
+    {0x80e3c,"44 39 35 19 1F E2 02"},
+    {0x82196,"44 39 2D BF 0B E2 02"},
+    {0x821c1,"44 89 2D 94 0B E2 02"},
+    {0x822b7,"4C 8D 3D D2 9F AF 01"},
+    {0x822be,"48 8D 1D 0B B1 AF 01"},
+    {0xb0f2f6,"48 8D 35 D3 DE 06 01"},
+    {0xb0f3cb,"4C 8D 05 1E DE 06 01"},
+    {0xb0f4c2,"48 8D 35 47 DD 06 01"},
 }};
-inline constexpr std::array<Relative,3> relatives={{
+inline constexpr std::array<Relative,11> relatives={{
     {0x1f4307,5,1,0x1f9d20},
     {0x1f4375,5,1,0x1f9d20},
     {0x4551b2,5,1,0x455700},
+    {0x80e3c,7,3,0x2ea2d5c},
+    {0x82196,7,3,0x2ea2d5c},
+    {0x821c1,7,3,0x2ea2d5c},
+    {0x822b7,7,3,0x1b7c290},
+    {0x822be,7,3,0x1b7d3d0},
+    {0xb0f2f6,7,3,0x1b7d1d0},
+    {0xb0f3cb,7,3,0x1b7d1f0},
+    {0xb0f4c2,7,3,0x1b7d210},
 }};
-inline constexpr std::array<Pointer,1> pointers={{
+inline constexpr std::array<Pointer,3> pointers={{
     {0x1815368,0x2d44b0},
+    {0x17f0cf8,0x80dd0},
+    {0x17f0d08,0x82170},
 }};
 inline constexpr uint32_t resolution_pool_initialize=0x2d44b0;
 inline constexpr uint32_t resolution_pool_entry=0x20a9b0;
@@ -442,6 +464,15 @@ inline constexpr uint32_t resolution_split_child=0x1f9d20;
 inline constexpr uint32_t resolution_management=0x455700;
 inline constexpr uint32_t resolution_release=0x4f1ad0;
 inline constexpr uint32_t resolution_reconfigure=0x4f11e0;
+inline constexpr uint32_t resolution_legacy_reload=0x80dd0;
+inline constexpr uint32_t resolution_legacy_dispose=0x82170;
+inline constexpr uint32_t resolution_legacy_hud_quad=0xb0ec20;
+inline constexpr uint32_t resolution_legacy_initialized=0x2ea2d5c;
+inline constexpr uint32_t resolution_legacy_effects_begin=0x1b7c290;
+inline constexpr uint32_t resolution_legacy_effects_end=0x1b7d3d0;
+inline constexpr uint32_t resolution_legacy_hud_screen=0x1b7d1d0;
+inline constexpr uint32_t resolution_legacy_hud_meter=0x1b7d1f0;
+inline constexpr uint32_t resolution_legacy_hud_meter_background=0x1b7d210;
 }
 namespace classic {
 inline constexpr std::array<Entry,19> entries={{

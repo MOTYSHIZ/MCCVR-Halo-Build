@@ -27,6 +27,20 @@ def contract_lines(contracts):
         lines += [f'inline constexpr std::array<{kind},{len(values)}> {name}={{{{'] + values + ['}};']
     for item in contracts:
         lines.append(f'inline constexpr uint32_t {item["name"]}={item["rva"]};')
+    targets = {}
+    for item in contracts:
+        for edge in item.get("relative_operands", []):
+            name = edge.get("target_name")
+            if name is None:
+                continue
+            if not name.isidentifier() or name in {entry["name"] for entry in contracts}:
+                raise ValueError(f"Invalid relative target name {name!r}")
+            target = edge["target_rva"]
+            if name in targets and targets[name] != target:
+                raise ValueError(f"Conflicting relative target {name!r}")
+            targets[name] = target
+    for name, target in targets.items():
+        lines.append(f'inline constexpr uint32_t {name}={target};')
     return lines
 
 

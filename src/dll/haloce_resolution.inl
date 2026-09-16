@@ -12,6 +12,7 @@ using ReconfigureFn=uintptr_t(__fastcall*)(int32_t,uint8_t);
 enum Index { Initialize,Entry,Child,Manage,HookCount };
 std::array<Hook,HookCount> hooks;
 std::atomic<bool> enabled{};
+std::atomic<bool> legacyLifecycleVerified{};
 std::atomic<uint32_t> callbacks{};
 std::atomic<uint64_t> rebuilds{},failures{},children{},packedAllocations{};
 std::atomic<uint64_t> retryAtMs{};
@@ -24,6 +25,66 @@ thread_local EntryAllocation allocating;
 thread_local bool managing{};
 ReleaseFn release{};
 ReconfigureFn reconfigure{};
+
+struct LegacyOwner { uintptr_t base{},backend{};uint32_t generation{}; };
+Snapshot<LegacyOwner> legacyReloadPending;
+bool SameLegacyOwner(const LegacyOwner& a,const LegacyOwner& b) noexcept
+{ return a.base==b.base&&a.backend==b.backend&&a.generation==b.generation; }
+bool LegacyOwnerCurrent(const LegacyOwner& owner) noexcept
+{
+    uintptr_t backend{},vtable{},reload{},dispose{};
+    using namespace contract::anniversary_resolution;
+    return owner.base&&owner.backend&&bindings.base==owner.base&&
+        bindings.generation==owner.generation&&generation.load(std::memory_order_acquire)==owner.generation&&
+        TitleAdapter_GetGeneration(GameTitle::HaloCE)==owner.generation&&
+        TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&!retiring.load(std::memory_order_acquire)&&
+        Read(owner.base+0x2e3bdd8,backend)&&backend==owner.backend&&Read(backend,vtable)&&vtable&&
+        Read(vtable+0x60,reload)&&reload==owner.base+resolution_legacy_reload&&
+        Read(vtable+0x70,dispose)&&dispose==owner.base+resolution_legacy_dispose;
+}
+bool SetLegacyInitialized(const LegacyOwner& owner,LONG expected,LONG desired) noexcept
+{
+    if (!LegacyOwnerCurrent(owner)) return false;
+    __try
+    {
+        return InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(owner.base+
+            contract::anniversary_resolution::resolution_legacy_initialized),desired,expected)==expected;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool LegacyEffectsReady(bool allEffects) noexcept
+{
+    using namespace contract::anniversary_resolution;
+    uint32_t initialized{};
+    if (!Read(bindings.base+resolution_legacy_initialized,initialized)||initialized!=1) return false;
+    if (allEffects)
+    {
+        for (uint32_t rva=resolution_legacy_effects_begin;rva<resolution_legacy_effects_end;rva+=0x20)
+        {
+            uintptr_t effect{};
+            if (!Read(bindings.base+rva,effect)||!effect) return false;
+        }
+        return true;
+    }
+    for (const uint32_t rva:{resolution_legacy_hud_screen,resolution_legacy_hud_meter,
+        resolution_legacy_hud_meter_background})
+    {
+        uintptr_t effect{};
+        if (!Read(bindings.base+rva,effect)||!effect) return false;
+    }
+    return true;
+}
+bool NativeHudResourcesReady(uintptr_t expectedBase,uint32_t expectedGeneration) noexcept
+{
+    if (!expectedBase||bindings.base!=expectedBase||bindings.generation!=expectedGeneration||
+        generation.load(std::memory_order_acquire)!=expectedGeneration||
+        TitleAdapter_GetGeneration(GameTitle::HaloCE)!=expectedGeneration) return false;
+    // If this optional transaction was never admitted, leave native behavior
+    // alone. Once admitted, its proof outlives camera heartbeat admission and
+    // covers ordinary HUD fallbacks as well as owned VR draws.
+    if (!legacyLifecycleVerified.load(std::memory_order_acquire)) return true;
+    return LegacyEffectsReady(false);
+}
 
 bool Dimensions(uint32_t& width,uint32_t& height) noexcept
 {
@@ -148,24 +209,59 @@ void ManageBody(uint64_t a,uint64_t b,uint64_t c,uint64_t d)
     if (managing||!Desired()||!TrackingNow(tracking)||!Dimensions(width,height)||
         !Read(bindings.base+0x1bea8a0,pool)||!pool||!release||!reconfigure) return;
     requestedWidth=width;requestedHeight=height;
+    LegacyOwner pending{};
+    if (!legacyReloadPending.Read(pending)) return;
     if (completed.Read(ready)&&ready.full&&ready.address==pool&&ready.generation==generation.load()&&
-        ready.width==width&&ready.height==height) return;
+        ready.width==width&&ready.height==height&&!pending.base) return;
     const uint64_t now=GetTickCount64();
     if (now<retryAtMs.load(std::memory_order_acquire)) return;
     retryAtMs.store(now+1000,std::memory_order_release);
+    LegacyOwner owner{bindings.base,0,generation.load(std::memory_order_acquire)};
+    uint32_t initialized{};
+    if (!Read(owner.base+0x2e3bdd8,owner.backend)||!LegacyOwnerCurrent(owner)||
+        !Read(owner.base+contract::anniversary_resolution::resolution_legacy_initialized,initialized)||initialized>1)
+    { failures.fetch_add(1);lastFailure=3;return; }
+    // A failed native reload clears its initialized flag. Only this retained
+    // proof of an originally active, exact owner may retry that lost lifetime.
+    // An unrelated prior-zero renderer can never acquire this intent.
+    const bool restoreLifetime=initialized==1||(pending.base&&SameLegacyOwner(owner,pending));
+    if (!legacyReloadPending.Publish(restoreLifetime?owner:LegacyOwner{})) return;
     managing=true;
+    bool lentInitialization{},reconfigured{},nativeResourcesRestored{};
     __try
     {
         RevokeCopiedWorkerList();completedFrame.Publish({});renderReady.Publish({});wanted.Publish({});
         handoff.Invalidate(PreparationOrigin::ActiveList);handoff.Invalidate(PreparationOrigin::CopiedList);
         preparedLists[0].Publish({});preparedLists[1].Publish({});completed.Publish({});
         release();
-        if (reconfigure(0,0)&&completed.Read(ready)&&ready.full&&ready.address==pool&&
+        // E-CE-RES-LIFETIME-1: native +70 clears the Classic lifetime flag and
+        // destroys all 138 effects. Native +60 reloads them only while that
+        // same lifetime is active. Preserve the prior, proven initialized
+        // owner across this deliberately requested reset; never initialize
+        // a previously inactive Classic renderer or another module/backend.
+        if (restoreLifetime)
+        {
+            lentInitialization=SetLegacyInitialized(owner,0,1);
+            if (!lentInitialization) { failures.fetch_add(1);lastFailure=4;__leave; }
+        }
+        if (!LegacyOwnerCurrent(owner)) { failures.fetch_add(1);lastFailure=4;__leave; }
+        reconfigured=reconfigure(0,0)!=0;
+        nativeResourcesRestored=reconfigured&&LegacyOwnerCurrent(owner)&&
+            (!restoreLifetime||LegacyEffectsReady(true));
+        if (nativeResourcesRestored) legacyReloadPending.Publish({});
+        if (nativeResourcesRestored&&completed.Read(ready)&&ready.full&&ready.address==pool&&
             ready.generation==generation.load()&&ready.width==width&&ready.height==height)
         { rebuilds.fetch_add(1);lastFailure=0;retryAtMs=0; }
         else { failures.fetch_add(1);lastFailure=2; }
     }
-    __finally { managing=false; }
+    __finally
+    {
+        // Native failures/exceptions keep their original propagation. A
+        // partially restored renderer must not advertise usable HUD effects.
+        if (lentInitialization&&!nativeResourcesRestored)
+            (void)SetLegacyInitialized(owner,1,0);
+        managing=false;
+    }
 }
 void __fastcall ManageHook(uint64_t a,uint64_t b,uint64_t c,uint64_t d)
 {
@@ -198,6 +294,8 @@ bool Remove() noexcept
 }
 bool Install() noexcept
 {
+    legacyLifecycleVerified=false;
+    legacyReloadPending.Publish({});
     using namespace contract::anniversary_resolution;
     const NativeContractSet contracts{entries,witnesses,relatives,pointers};
     const char* failure{};
@@ -227,6 +325,7 @@ bool Install() noexcept
         }
         hook.enabled=true;
     }
+    legacyLifecycleVerified.store(true,std::memory_order_release);
     return true;
 }
 }

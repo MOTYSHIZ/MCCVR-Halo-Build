@@ -24,6 +24,7 @@ bool enabled{};
 std::atomic<bool> installed{},active{},retiring{},observationAvailable{};
 std::atomic<uint32_t> generation{},callbacks{};
 std::atomic<uint64_t> observationEpoch{1},draws{},fallbacks{};
+std::atomic<uint64_t> nativeResourceRefusals{};
 uint32_t rejectedGeneration{};
 uint64_t lastReport{};
 struct MutationSlot
@@ -258,6 +259,12 @@ void MainLayoutBody()
 }
 void MainBody()
 {
+    // The real switch dump reached the ordinary original() fallback, before
+    // target preparation. A disposed native effect table must not be consumed
+    // by that fallback either. The outer native callback still owns cleanup;
+    // only this gameplay HUD draw waits for native resource reconstruction.
+    if (!HaloCE_NativeHudResourcesReady(moduleBase,generation.load(std::memory_order_acquire)))
+    { nativeResourceRefusals.fetch_add(1,std::memory_order_relaxed);return; }
     RenderContext owner{};ID3D11DeviceContext* context{};UINT width{},height{};
     if (scope||suspensions||!Current()||!NativeOwner(owner,context)||
         !HaloCE_BeginAnniversaryHudGameplay(context,width,height))
@@ -433,7 +440,8 @@ bool HaloCEHudLayout_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive)
     if (installed.load()&&now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE HUD layout gen=%u draws=%llu stockFallbacks=%llu curvature=native-flat",gen,draws.load(),fallbacks.load());
+        LOG("CE HUD layout gen=%u draws=%llu stockFallbacks=%llu nativeResourcesUnavailable=%llu curvature=native-flat",
+            gen,draws.load(),fallbacks.load(),nativeResourceRefusals.load());
     }
     return Current();
 }

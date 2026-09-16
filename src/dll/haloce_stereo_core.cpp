@@ -1053,6 +1053,8 @@ bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t gen) n
         bindings.base==base&&bindings.size==size&&bindings.generation==gen&&
         generation.load(std::memory_order_acquire)==gen;
 }
+bool HaloCE_NativeHudResourcesReady(uintptr_t expectedBase,uint32_t expectedGeneration) noexcept
+{ return ce_resolution::NativeHudResourcesReady(expectedBase,expectedGeneration); }
 
 bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
 {

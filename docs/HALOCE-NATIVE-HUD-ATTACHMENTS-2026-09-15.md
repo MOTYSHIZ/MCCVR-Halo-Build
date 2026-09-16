@@ -118,3 +118,35 @@ they do not execute all real MCC HUD drawing descendants or establish headset
 acceptance. The user must still confirm Anniversary HUD visibility/controls and
 the retained Original HUD and smooth rendering. The accepted pointer is not
 advanced by local verification.
+
+## September 15 evening: native partial-bind correction
+
+The `2cf002b` graphics-switch crash is now attributed to disposed native
+shader resources, **before** target preparation. See
+`HALOCE-RENDERER-RESOURCE-LIFETIME-EVIDENCE-2026-09-15.md`. The prepared-path
+enable described above was disabled separately in `8b6fd06`. The corrected
+candidate uses `kCeAnniversaryNativeReadyHudTargetsEnabled`; the earlier
+manual, unprepared and prepared enables remain false.
+
+An independent execution of actual `+205E40 -> +1DC120` binder instructions
+found another bounded cleanup case. After copying the descriptor, native code
+zeros its width/height at descriptor `+38/+3C` before validating attachments.
+A refusal or exception can leave this descriptor alongside the previous view
+cache. The old cleanup checked only the complete original/prepared descriptor
+and therefore refused its own partially published state.
+
+Cleanup now also recognizes either exact owned descriptor with only those
+eight bytes zero. All existing source, backend, context, wrapper, revision and
+detached-depth checks remain required. No arbitrary foreign target is repaired.
+The production fixture reproduces failures during both preparation and
+restoration: two assertions fail before this correction and pass afterward,
+including the next successful draw and the existing foreign/stale cases.
+
+`tools/re/test_ce_hud_target_native.py` covers ten actual native cases. It
+also verifies native dimension constants, clearing of 160 pending counts,
+alias removal from six native shader caches, preservation of unrelated state
+and unchanged effect pointers. The driver setters and gameplay draw are
+stubs; this is not a headset result or the cause of the observed shader crash.
+Reports: `out/ce-hud-target-prepared-final-20260915.json`,
+`out/ce-hud-native-partial-before-20260915.txt` and
+`out/ce-hud-native-partial-after-20260915.txt`.

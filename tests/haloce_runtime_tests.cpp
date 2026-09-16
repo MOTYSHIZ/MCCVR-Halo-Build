@@ -39,6 +39,31 @@ unsigned resolutionReleases{},resolutionReconfigures{},resolutionManagements{};
 bool resolutionFault{};
 bool resolutionEntryFault{};
 bool resolutionReconfigureFail{},resolutionNested{};
+bool resolutionReleaseFault{},resolutionReconfigureFault{},resolutionChangeGeneration{};
+uintptr_t resolutionReplacementBackend{};
+bool resolutionOmitHudEffect{},resolutionReconfigureSawInitialized{};
+unsigned resolutionLegacyReloads{};
+void ResolutionLegacyEffects(bool ready)
+{
+    using namespace contract::anniversary_resolution;
+    for (uint32_t rva=resolution_legacy_effects_begin;rva<resolution_legacy_effects_end;rva+=0x20)
+    {
+        const uintptr_t effect=ready?bindings.base+rva+8:0;
+        std::memcpy(reinterpret_cast<void*>(bindings.base+rva),&effect,sizeof(effect));
+    }
+}
+void ResolutionLegacyInitialized(uint32_t initialized)
+{
+    std::memcpy(reinterpret_cast<void*>(bindings.base+
+        contract::anniversary_resolution::resolution_legacy_initialized),&initialized,sizeof(initialized));
+}
+uint32_t ResolutionLegacyInitialized()
+{
+    uint32_t initialized{};
+    std::memcpy(&initialized,reinterpret_cast<const void*>(bindings.base+
+        contract::anniversary_resolution::resolution_legacy_initialized),sizeof(initialized));
+    return initialized;
+}
 std::array<uint64_t,2> resolutionChildOpaque{};
 std::array<std::array<uint32_t,2>,2> resolutionInitialChildHeights{};
 uintptr_t __fastcall ResolutionEntryNative(uintptr_t pool,uintptr_t,uint64_t,
@@ -99,13 +124,41 @@ void __fastcall ResolutionManageNative(uint64_t,uint64_t,uint64_t,uint64_t) { ++
 void __fastcall ResolutionReleaseNative()
 {
     ++resolutionReleases;ce_resolution::completed.Publish({});
+    // Actual pinned +4f1ad0 -> backend+70/+82170 destroys the complete
+    // effect table and clears the lifetime gate consumed by backend+60.
+    // test_ce_resolution_lifecycle_native.py independently executes it.
+    if (ResolutionLegacyInitialized())
+    { ResolutionLegacyInitialized(0);ResolutionLegacyEffects(false); }
     if (resolutionNested) ce_resolution::ManageHook(1,2,3,4);
+    if (resolutionChangeGeneration) ++testGeneration;
+    if (resolutionReplacementBackend)
+        std::memcpy(reinterpret_cast<void*>(bindings.base+0x2e3bdd8),&resolutionReplacementBackend,8);
+    if (resolutionReleaseFault) RaiseException(0xece01001u,0,0,nullptr);
 }
 uintptr_t __fastcall ResolutionReconfigureNative(int32_t mode,uint8_t value)
 {
     ++resolutionReconfigures;
-    if (mode||value||resolutionReconfigureFail) return 0;
+    resolutionReconfigureSawInitialized=ResolutionLegacyInitialized()==1;
+    if (resolutionReconfigureFault) RaiseException(0xece01001u,0,0,nullptr);
+    if (mode||value||resolutionReconfigureFail)
+    { ResolutionLegacyInitialized(0);ResolutionLegacyEffects(false);return 0; }
+    if (resolutionReconfigureSawInitialized)
+    {
+        ++resolutionLegacyReloads;ResolutionLegacyEffects(true);
+        if (resolutionOmitHudEffect)
+        {
+            const uintptr_t absent{};
+            std::memcpy(reinterpret_cast<void*>(bindings.base+
+                contract::anniversary_resolution::resolution_legacy_hud_meter),&absent,8);
+        }
+    }
     return ce_resolution::InitializeHook(resolutionPool);
+}
+bool ResolutionCaughtManagementFault()
+{
+    __try { ce_resolution::ManageHook(1,2,3,4); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return GetExceptionCode()==0xece01001u; }
+    return false;
 }
 bool ResolutionCaughtFault(bool initialize)
 {
@@ -236,7 +289,7 @@ bool naturalForeignCaller{},naturalUnobservedRaster{},naturalRepeatGameplay{};
 bool naturalSwapSelectedSource{},naturalRetireContext{};
 bool naturalIncompatibleDepth{};
 bool naturalTargetRestoreCorrect{true};
-enum class NaturalBindFault { None,BeforeMutation,AfterMutation,Readback,ForeignTarget };
+enum class NaturalBindFault { None,BeforeMutation,ZeroDimensions,AfterMutation,Readback,ForeignTarget };
 NaturalBindFault naturalBindFault{};
 unsigned naturalBindFaultAt=1,naturalBindCalls{};
 bool naturalForeignRasterPreserved{true},naturalRevokeDepth{},naturalChangeDepthView{};
@@ -259,6 +312,11 @@ bool __fastcall NaturalHudTargetBind(uintptr_t backend,const void* descriptor)
     if (fault&&naturalBindFault==NaturalBindFault::BeforeMutation)
         RaiseException(0xe042ce05,0,0,nullptr);
     std::memmove(reinterpret_cast<void*>(backend+0x18),descriptor,0x48);
+    // Actual 205E40 publishes the descriptor, then 1DC120 clears dimensions
+    // before attachment validation. A fault here retains the old view cache.
+    std::memset(reinterpret_cast<void*>(backend+0x50),0,8);
+    if (fault&&naturalBindFault==NaturalBindFault::ZeroDimensions)
+        RaiseException(0xe042ce05,0,0,nullptr);
     const auto* bytes=reinterpret_cast<const uint8_t*>(backend+0x18);
     uintptr_t color{},depth{};std::memcpy(&color,bytes+0x10,8);std::memcpy(&depth,bytes+0x30,8);
     if (color!=packedHudRoot) return false;
@@ -272,6 +330,8 @@ bool __fastcall NaturalHudTargetBind(uintptr_t backend,const void* descriptor)
     const uint32_t count=1;std::memcpy(reinterpret_cast<void*>(backend+0xcf8),&count,4);
     std::memcpy(reinterpret_cast<void*>(backend+0xd00),&packedHudView,8);
     std::memcpy(reinterpret_cast<void*>(backend+0xd20),&dsv,8);
+    const UINT dimensions[]{testDesc.Width,testDesc.Height*2};
+    std::memcpy(reinterpret_cast<void*>(backend+0x50),dimensions,8);
     testContext->OMSetRenderTargets(1,&packedHudView,dsv);
     ObserveRaster({0,0,float(testDesc.Width),float(testDesc.Height*2),0,1},
         {0,0,LONG(testDesc.Width),LONG(testDesc.Height*2)});
@@ -325,6 +385,8 @@ void __fastcall NaturalHudCallback()
     auto* backend=reinterpret_cast<uint8_t*>(depthBackend);
     std::memset(backend+0x18,0,0x48);
     std::memcpy(backend+0x28,&packedHudRoot,8);
+    const UINT dimensions[]{testDesc.Width,testDesc.Height*2};
+    std::memcpy(backend+0x50,dimensions,8);
     const uint32_t count=1;std::memcpy(backend+0xcf8,&count,4);
     std::memcpy(backend+0xd00,&packedHudView,8);
     std::memset(backend+0xd08,0,0x20);
@@ -664,6 +726,13 @@ int main()
         const uintptr_t config=reinterpret_cast<uintptr_t>(resolutionConfig.data());
         std::memcpy(mapped.data()+0x1bea8a0,&resolutionPool,8);
         std::memcpy(nativeConfig.data()+0x118,&config,8);
+        const uintptr_t lifecycleVtable=bindings.base+0x17f0c98;
+        const uintptr_t lifecycleReload=bindings.base+contract::anniversary_resolution::resolution_legacy_reload;
+        const uintptr_t lifecycleDispose=bindings.base+contract::anniversary_resolution::resolution_legacy_dispose;
+        std::memcpy(nativeConfig.data(),&lifecycleVtable,8);
+        std::memcpy(reinterpret_cast<void*>(lifecycleVtable+0x60),&lifecycleReload,8);
+        std::memcpy(reinterpret_cast<void*>(lifecycleVtable+0x70),&lifecycleDispose,8);
+        ResolutionLegacyInitialized(1);ResolutionLegacyEffects(true);
         std::memcpy(resolutionConfig.data()+0x20,&testDesc.Width,4);
         std::memcpy(resolutionConfig.data()+0x24,&testDesc.Height,4);
         ce_resolution::hooks[ce_resolution::Initialize].original=reinterpret_cast<void*>(&ResolutionInitializeNative);
@@ -672,6 +741,7 @@ int main()
         ce_resolution::hooks[ce_resolution::Manage].original=reinterpret_cast<void*>(&ResolutionManageNative);
         ce_resolution::release=&ResolutionReleaseNative;ce_resolution::reconfigure=&ResolutionReconfigureNative;
         ce_resolution::enabled=true;ce_resolution::completed.Publish({});
+        ce_resolution::legacyLifecycleVerified=true;ce_resolution::legacyReloadPending.Publish({});
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
         check(ce_resolution::InitializeHook(resolutionPool)==1&&resolutionSizes[0][1]==16&&
             resolutionSizes[1][1]==16&&resolutionSizes[2][1]==16&&resolutionSizes[3][1]==16&&
@@ -687,6 +757,9 @@ int main()
             resolutionInitialChildHeights[0][0]==16&&resolutionInitialChildHeights[0][1]==16&&
             resolutionInitialChildHeights[1][0]==16&&resolutionInitialChildHeights[1][1]==16,
             "managed native release/reconfigure expands only Anniversary packed outputs once, including nested callback");
+        check(resolutionReconfigureSawInitialized&&resolutionLegacyReloads==1&&
+            ResolutionLegacyInitialized()==1&&ce_resolution::LegacyEffectsReady(true),
+            "managed reset restores the prior active native lifetime before conditional effect reconstruction");
         ce_resolution::ManageHook(1,2,3,4);
         check(resolutionReleases==1&&resolutionReconfigures==1,
             "steady Anniversary full-resolution pool never reallocates per frame");
@@ -728,8 +801,98 @@ int main()
             "failed optional full-resolution rebuild backs off and keeps the camera core armed");
         resolutionReconfigureFail=false;ce_resolution::retryAtMs=0;
         ce_resolution::ManageHook(1,2,3,4);
-        check(ce_resolution::lastFailure.load()==0&&!ce_resolution::managing,
-            "a later native management callback recovers the allocation transaction");
+        ce_resolution::LegacyOwner pending{};
+        check(ce_resolution::lastFailure.load()==0&&!ce_resolution::managing&&
+            ce_resolution::LegacyEffectsReady(true)&&ce_resolution::legacyReloadPending.Read(pending)&&!pending.base,
+            "a later management callback restores the retained native lifetime after failed reconfigure");
+
+        // A driver-success/pool-success result cannot conceal a missing
+        // native effect. Retained lifetime intent must override that completed
+        // pool receipt on the next management callback.
+        resolutionOmitHudEffect=true;ce_resolution::completed.Publish({});
+        ce_resolution::retryAtMs=0;HaloCE_PublishTracking(tracking,true);
+        ce_resolution::ManageHook(1,2,3,4);
+        ce_resolution::Pool completedPool{};
+        check(ce_resolution::lastFailure.load()==2&&ResolutionLegacyInitialized()==0&&
+            ce_resolution::completed.Read(completedPool)&&completedPool.full&&
+            ce_resolution::legacyReloadPending.Read(pending)&&pending.base==bindings.base,
+            "missing native effect rejects successful pool rebuild and retains only its original active lifetime");
+        const auto beforeEffectRetry=resolutionReleases;
+        resolutionOmitHudEffect=false;ce_resolution::retryAtMs=0;
+        ce_resolution::ManageHook(1,2,3,4);
+        check(resolutionReleases==beforeEffectRetry+1&&ce_resolution::lastFailure.load()==0&&
+            ce_resolution::LegacyEffectsReady(true)&&ce_resolution::legacyReloadPending.Read(pending)&&!pending.base,
+            "pending effect reconstruction bypasses an otherwise complete pool receipt and recovers");
+
+        // This guard protects the ordinary native HUD fallback even when VR
+        // heartbeat admission is absent; it must not use camera arming.
+        active=false;armed=false;trackingEnabled=false;
+        check(HaloCE_NativeHudResourcesReady(bindings.base,3),"usable native HUD effects remain available while camera is unarmed");
+        const uint32_t hudSlot=contract::anniversary_resolution::resolution_legacy_hud_meter;
+        const uintptr_t absent{};std::memcpy(mapped.data()+hudSlot,&absent,8);
+        check(!HaloCE_NativeHudResourcesReady(bindings.base,3),"missing native HUD effect refuses ordinary fallback without a VR heartbeat");
+        ce_resolution::legacyLifecycleVerified=false;
+        check(HaloCE_NativeHudResourcesReady(bindings.base,3)&&
+            !HaloCE_NativeHudResourcesReady(bindings.base+8,3)&&
+            !HaloCE_NativeHudResourcesReady(bindings.base,2),
+            "optional proof fallback is allowed only for the exact HUD caller module and generation");
+        ce_resolution::legacyLifecycleVerified=true;
+        ResolutionLegacyEffects(true);active=true;armed=true;HaloCE_PublishTracking(tracking,true);
+
+        // A previously inactive native owner must never be fabricated by this
+        // optional target resize. No retained intent exists in this case.
+        ResolutionLegacyInitialized(0);ResolutionLegacyEffects(false);
+        ce_resolution::completed.Publish({});ce_resolution::legacyReloadPending.Publish({});
+        ce_resolution::retryAtMs=0;
+        const auto beforeInactiveReload=resolutionLegacyReloads;
+        ce_resolution::ManageHook(1,2,3,4);
+        check(!resolutionReconfigureSawInitialized&&ResolutionLegacyInitialized()==0&&
+            resolutionLegacyReloads==beforeInactiveReload&&ce_resolution::lastFailure.load()==0&&
+            ce_resolution::legacyReloadPending.Read(pending)&&!pending.base,
+            "an unrelated prior-zero native renderer remains inactive through target reconfiguration");
+        ResolutionLegacyInitialized(1);ResolutionLegacyEffects(true);
+
+        for (int phase=0;phase<2;++phase)
+        {
+            ce_resolution::completed.Publish({});ce_resolution::retryAtMs=0;
+            resolutionReleaseFault=phase==0;resolutionReconfigureFault=phase==1;
+            check(ResolutionCaughtManagementFault()&&ce_resolution::callbacks.load()==0&&
+                !ce_resolution::managing&&ResolutionLegacyInitialized()==0&&
+                ce_resolution::legacyReloadPending.Read(pending)&&pending.base==bindings.base,
+                "release and reconfigure SEH unwind ownership while retaining the originally active retry intent");
+            resolutionReleaseFault=false;resolutionReconfigureFault=false;ce_resolution::retryAtMs=0;
+            ce_resolution::ManageHook(1,2,3,4);
+            check(ce_resolution::lastFailure.load()==0&&ce_resolution::LegacyEffectsReady(true),
+                "the next management callback reconstructs native effects after isolated SEH fixture failure");
+        }
+
+        ce_resolution::completed.Publish({});ce_resolution::retryAtMs=0;
+        resolutionChangeGeneration=true;
+        const auto beforeStaleGeneration=resolutionReconfigures;
+        ce_resolution::ManageHook(1,2,3,4);resolutionChangeGeneration=false;
+        check(resolutionReconfigures==beforeStaleGeneration&&ResolutionLegacyInitialized()==0&&
+            ce_resolution::lastFailure.load()==4&&!ce_resolution::managing,
+            "a title generation change during native release forbids the old lifetime write and reconfigure");
+        --testGeneration;ce_resolution::retryAtMs=0;
+        ce_resolution::ManageHook(1,2,3,4);
+        check(ce_resolution::LegacyEffectsReady(true),"restored fixture generation can recover its own retained lifetime");
+
+        std::array<uint8_t,0x330> replacementBackend{};
+        std::memcpy(replacementBackend.data(),&lifecycleVtable,8);
+        std::memcpy(replacementBackend.data()+0x118,&config,8);
+        resolutionReplacementBackend=reinterpret_cast<uintptr_t>(replacementBackend.data());
+        ce_resolution::completed.Publish({});ce_resolution::retryAtMs=0;
+        const auto beforeStaleBackend=resolutionReconfigures;
+        ce_resolution::ManageHook(1,2,3,4);resolutionReplacementBackend=0;
+        check(resolutionReconfigures==beforeStaleBackend&&ResolutionLegacyInitialized()==0&&
+            ce_resolution::lastFailure.load()==4,
+            "backend replacement during release cannot receive the departed owner's initialization intent");
+        ce_resolution::retryAtMs=0;ce_resolution::ManageHook(1,2,3,4);
+        check(!resolutionReconfigureSawInitialized&&ResolutionLegacyInitialized()==0&&
+            ce_resolution::legacyReloadPending.Read(pending)&&!pending.base,
+            "a new prior-zero backend discards the stale owner's retry token instead of inheriting it");
+        std::memcpy(mapped.data()+0x2e3bdd8,&configAddress,8);
+        ResolutionLegacyInitialized(1);ResolutionLegacyEffects(true);
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=0;
         ce_resolution::InitializeHook(resolutionPool);
         child=ce_resolution::ChildHook(parent,0,32,8,0,0);
@@ -737,6 +900,7 @@ int main()
         check(desc.Height==8&&resolutionSizes[2][1]==17,"Original native reinitialization restores stock split/output dimensions");
         *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=1;
         ce_resolution::enabled=false;ce_resolution::completed.Publish({});ce_resolution::hooks={};
+        ce_resolution::legacyLifecycleVerified=false;ce_resolution::legacyReloadPending.Publish({});
         ce_resolution::release=nullptr;ce_resolution::reconfigure=nullptr;
         resolutionGpuChildren.clear();resolutionDevice=nullptr;
         std::memset(mapped.data()+0x1bea8a0,0,8);std::memset(nativeConfig.data()+0x118,0,8);
@@ -1467,6 +1631,15 @@ int main()
         check(!anniversaryNaturalHud&&depthAfterFault==depthRoot&&naturalBindCalls==2&&HaloCE_Armed(),
             "gameplay SEH restores the original native depth descriptor and leaves the camera armed");
         naturalFrame(183,true,2);naturalIncompatibleDepth=false;
+        naturalIncompatibleDepth=true;
+        naturalBindFault=NaturalBindFault::ZeroDimensions;naturalFrame(184,false,1);
+        check(naturalTargetRestoreCorrect&&naturalBindCalls==2,
+            "native zero-dimension partial preparation restores exact original target");
+        naturalBindFaultAt=2;naturalFrame(185,false,2);
+        check(naturalTargetRestoreCorrect&&naturalBindCalls==3,
+            "native zero-dimension partial restoration repairs once without replaying gameplay");
+        naturalBindFault=NaturalBindFault::None;naturalBindFaultAt=1;
+        naturalFrame(186,true,2);naturalIncompatibleDepth=false;
         const auto callbacksBefore=callbacks.load();
         anniversaryHudHook.original=reinterpret_cast<void*>(&NativeHudHookFault);
         check(InvokeActualHudHookFault()&&callbacks.load()==callbacksBefore&&!anniversaryNaturalHud,
