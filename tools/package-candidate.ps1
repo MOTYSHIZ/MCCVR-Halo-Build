@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-vehicle-crosshair',
+        'ce-beam-h3-cortana',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 52
+        schema_version = 53
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1136,6 +1136,15 @@ try {
             headset_accepted = $false
         }
         current_accepted_source = 'd47a98c947dc60dd98d7259a29a7582d5f46df7f'
+        beam_cortana_comfort = [ordered]@{
+            baseline_source = '35a4d096b1c535582134ab7be211eda739564aff'
+            tester_source_is_latest = $true
+            ce_anniversary = 'bound-residual-offscreen-source-halos-at-native-.8-width-envelope; preserve-in-raster-and-near-peripheral-flares'
+            halo3 = 'automatic-facing-rebase-requires-valid-scene-and-shot; unknown-is-not-exit; generation-scoped-history'
+            evidence = 'docs/CE-BEAM-H3-CORTANA-2026-09-16.md'
+            headset_accepted = $false
+            scope_limit = 'no-synchronized-beam-capture-or-new-headset-reproduction; symptom-resolution-and-regression-await-testing'
+        }
         ce_vehicle_controls = [ordered]@{
             baseline_source = '8d9638139f02bdceae46e13c4fb8fe6966bfa0f7'
             graphics = 'Original-and-Anniversary'
@@ -1246,13 +1255,13 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate corrects CE seated crosshair capture on user-tested 115778a steering; new visual behavior and rebuilt artifact require headset testing. Earlier CE refinements and standing/deferred scope are preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate targets CE Anniversary beam glare and Halo 3 Cortana facing above latest 35a4d09; both corrections require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE seated crosshair correction based on user-tested 115778a vehicle steering. Keep existing config. Both graphics modes and MCC editions; package only; no installation, launch or publication. Main HUD framing, controls and native vehicle physics are preserved; headset testing remains required.'
+        note = 'CE Anniversary residual offscreen flare guard and Halo 3 shot-qualified cinematic facing. Keep existing config. Both MCC editions supported; package only; no installation, launch or publication. Read RELEASE-NOTES.md for test steps and evidence limits.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-VEHICLE-CROSSHAIR-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-BEAM-H3-CORTANA-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

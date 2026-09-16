@@ -145,6 +145,7 @@ int main()
     ce_flare::projection.original=reinterpret_cast<void*>(&NativeFlareProjection);
     ce_flare::draw.original=reinterpret_cast<void*>(&NativeFlareSprite);
     eyeCamera.pose.matrix[10]=1;eyeCamera.nearPlane=.025f;
+    eyeCamera.viewportWidth=2912;eyeCamera.viewportHeight=2100;
     for (flareIndex=0;flareIndex<2;++flareIndex)
     {
         for (float depth:{10.0f,.025f,.024f,0.0f,-1.0f})
@@ -155,11 +156,53 @@ int main()
         }
     }
     flareIndex=0;
+    for (const auto raster: {std::array<float,2>{2912,2100}, {3788,2732}, {2204,2204}, {1000,3000}})
+    {
+        eyeCamera.viewportWidth=raster[0];eyeCamera.viewportHeight=raster[1];
+        for (const auto point: {std::array<float,2>{0,0}, {raster[0],raster[1]},
+            {raster[0]*.5f,raster[1]*.5f}, {-raster[0]*.1f,raster[1]*.5f}})
+        {
+            flareScreen[0]=point[0];flareScreen[1]=point[1];
+            const auto before=flareDraws;Flare(10);
+            Check(flareDraws==before+1,"in-raster and modest peripheral flares retain the original native draw");
+        }
+        for (flareIndex=0;flareIndex<2;++flareIndex)
+        {
+            flareScreen[0]=raster[0]*1.5f;flareScreen[1]=raster[1]*.5f;
+            const auto before=flareDraws;const auto rejected=ce_flare::offscreen.load();
+            Flare(10);
+            Check(flareDraws==before&&ce_flare::offscreen.load()==rejected+1,
+                "both native records reject residual offscreen halos despite positive safe depth");
+            admitted=false;Flare(10);admitted=true;
+            Check(flareDraws==before+1,"the offscreen envelope never suppresses an unowned native callback");
+        }
+    }
+    flareIndex=0;eyeCamera.viewportWidth=2912;eyeCamera.viewportHeight=2100;
+    flareScreen[0]=600;flareScreen[1]=400;
     flareScreen[1]=std::numeric_limits<float>::infinity();
     const auto finiteBefore=flareDraws;Flare(10);
     Check(flareDraws==finiteBefore,"nonfinite projected coordinates never reach the sprite draw");
     flareScreen[1]=400;
     const auto provenCamera=eyeCamera;
+    for (unsigned reason=0;reason<8;++reason)
+    {
+        switch(reason)
+        {
+        case 0:eyeCamera.viewportWidth=0;break;
+        case 1:eyeCamera.viewportHeight=-1;break;
+        case 2:eyeCamera.viewportWidth=std::numeric_limits<float>::quiet_NaN();break;
+        case 3:eyeCamera.viewportHeight=std::numeric_limits<float>::infinity();break;
+        case 4:eyeCamera.viewportWidth=16385;break;
+        case 5:eyeCamera.viewportHeight=2100.5f;break;
+        case 6:eyeCamera.viewportX=1;break;
+        case 7:eyeCamera.viewportY=std::numeric_limits<float>::quiet_NaN();break;
+        }
+        const auto before=flareDraws;const auto unknown=ce_flare::unproven.load();
+        flareScreen[0]=100000;Flare(10);
+        Check(flareDraws==before+1&&ce_flare::unproven.load()==unknown+1,
+            "invalid raster proof leaves a front-facing native flare untouched");
+        eyeCamera=provenCamera;flareScreen[0]=600;
+    }
     for (unsigned reason=0;reason<6;++reason)
     {
         switch(reason)

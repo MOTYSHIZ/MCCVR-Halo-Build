@@ -9,7 +9,7 @@ HMODULE retained{};
 uintptr_t base{};
 std::atomic<uint32_t> generation{},callbacks{};
 std::atomic<bool> installed{},active{},retiring{};
-std::atomic<uint64_t> clipped{},passed{},unproven{},exceptions{};
+std::atomic<uint64_t> clipped{},offscreen{},passed{},unproven{},exceptions{};
 uint32_t rejectedGeneration{};
 uint64_t lastReport{};
 bool cleanupReported{};
@@ -79,6 +79,8 @@ void DrawBody(uintptr_t effect,const float* point,uintptr_t record,uintptr_t cal
                 const auto disposition=halo_ce::ClassifySaberFlare(camera,light,screen);
                 if (disposition==halo_ce::SaberFlareDisposition::Clipped)
                 { clipped.fetch_add(1,std::memory_order_relaxed);return; }
+                if (disposition==halo_ce::SaberFlareDisposition::Offscreen)
+                { offscreen.fetch_add(1,std::memory_order_relaxed);return; }
                 if (disposition==halo_ce::SaberFlareDisposition::Visible)
                     passed.fetch_add(1,std::memory_order_relaxed);
                 else unproven.fetch_add(1,std::memory_order_relaxed);
@@ -162,7 +164,7 @@ InstallResult Install(uintptr_t module,size_t size,uint32_t gen) noexcept
         hook.enabled=true;
     }
     installed=true;
-    LOG("CE flare guard installed: Anniversary primary eyes clip light sprites at their own near plane; native lighting and visible flares preserved");
+    LOG("CE flare guard installed: Anniversary primary eyes clip near-plane and residual offscreen halos beyond the native .8-width envelope; native lighting and visible flares preserved");
     return InstallResult::Installed;
 }
 void Poll(uintptr_t module,size_t size,uint32_t gen,bool isActive) noexcept
@@ -178,8 +180,8 @@ void Poll(uintptr_t module,size_t size,uint32_t gen,bool isActive) noexcept
     if (now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE flare guard gen=%u installed=%d clipped=%llu visible=%llu unproven=%llu exceptions=%llu",
-            gen,installed.load(),clipped.load(),passed.load(),unproven.load(),exceptions.load());
+        LOG("CE flare guard gen=%u installed=%d clipped=%llu offscreen=%llu visible=%llu unproven=%llu exceptions=%llu",
+            gen,installed.load(),clipped.load(),offscreen.load(),passed.load(),unproven.load(),exceptions.load());
     }
 }
 }

@@ -1,3 +1,51 @@
+# Current candidate - September 16: CE Anniversary beam glare / H3 Cortana facing
+
+The user supplies HaloMCCVR (17).log and explicitly requests both corrections
+and a ZIP for testing. The log DOES identify latest delivered/published 35a4d09,
+Steam/OpenXR 2.17.10/Oculus-family/72 Hz. Read
+`CE-BEAM-H3-CORTANA-2026-09-16.md` for exact preserved identity, evidence and
+test steps. Two isolated changes in the requested combined candidate:
+CE's existing optional flare hook bounds residual offscreen halos at the
+native envelope; H3 automatic facing requires a real scene/shot and cannot
+interpret Unknown as an exit. Preserve all 35a4d09 vehicle/reticle behavior.
+
+Focused and cumulative local tests pass; complete the committed package
+workflow without -Install, verify both ZIPs and record identities under
+`out/beam-cortana-current-handoff.json`. Deliver build/source ZIPs, then WAIT
+for user testing/instructions. No installation, game launch, game-folder
+writes, publication or PR. Both editions supported; accepted d47a98c stays
+unchanged. Beam-specific visual attribution and Cortana symptom/regression
+testing remain unconfirmed; never present offline checks as headset success.
+The previous publication checkpoint's uncommitted text is preserved below.
+
+# Previous publication - September 16: CE vehicle release update complete
+
+The user explicitly requested updating ONLY the latest existing GitHub release
+with the latest delivered 35a4d09 candidate, a minimal player ZIP, and vehicle
+changes added to the existing September 16 notes. COMPLETE on the same page:
+https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0
+Release ID 389612781; title, tag, tag target and prerelease status unchanged.
+No new release, rebuild, installation, game launch, game-folder writes or PR.
+
+`Halo-MCC-VR.zip` contains exactly HaloMCCVR.dll, HaloMCCVRLauncher.exe,
+halomccvr.cfg and README.txt (installation guide plus bundled licenses).
+All three mod files are byte-identical to delivered source 35a4d09.
+Player ZIP SHA-256:
+`E26C75703ECD262C8B7B2D27E5785466E029ED2251BF65DF3B78EFF73CBA832D`.
+`Halo-MCC-VR-Source.zip` is the exact delivered matching source archive;
+SHA-256 `6037557BEFEC0F628EF5CF8C556D5558936AF9FC589BC462DAAC77AEEBF306F7`.
+SHA256.txt and release notes identify the new build; all three final public
+assets were downloaded and byte-verified. Previous assets and metadata are
+preserved in `out/update-release-0.4.0-35a4d09/backup` and `before.json`.
+Exact publication record: `out/updated-0.4.0-35a4d09-handoff.json`.
+
+Notes retain earlier CE changes and the Multiplayer-content requirement,
+add controller vehicle steering/aiming and seated crosshair capture, and
+separate confirmed 115778a steering from pending 35a4d09 crosshair headset
+coverage. Publication does not advance accepted d47a98c. The release tag stays
+at its original commit; use the attached matching source ZIP. Wait for the
+user's next instruction. Older publication/package holds below are historical.
+
 # Current handoff - September 16: CE seated crosshair correction
 
 The user confirms 115778a vehicle steering follows the right hand with no
