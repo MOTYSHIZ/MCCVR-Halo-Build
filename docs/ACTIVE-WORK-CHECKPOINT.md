@@ -1,4 +1,34 @@
-# Current continuation - September 15 night: all-title re-entry and recovery
+# Current continuation - September 15/16: publish the accepted all-campaign baseline
+
+The user explicitly accepts the delivered **5ac02f5** candidate as a good
+baseline and requests preservation and GitHub publication as the first release
+where all MCC campaigns are playable. Publish the exact existing build ZIP and
+matching source ZIP; do not rebuild the runtime. Release title/tag:
+`Halo MCC VR Alpha 0.4.0 — All Campaigns Release` /
+`MCC_VR_ALPHA_0.4.0`.
+
+Accepted identity: source
+`5ac02f53a7896ffd6b8dff37ddc5bc4700890559`, DLL SHA-256
+`55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63`,
+build ZIP SHA-256
+`1E75D939B0D65136AAFD29718EEE0BEAC269C44E4930E1E5C0C1D3E7DB958C2C`,
+source ZIP SHA-256
+`FB3563A2DE33CD5EFC1002B641FCA289FF8830D5849203621C259FAAD6B10A8A`.
+
+Release documentation must clearly state three user-supplied limitations:
+
+- campaign switching can occasionally crash; fully restart MCC and load the
+  destination again;
+- some titles need about seven seconds to initialize, so wait at least seven
+  seconds after title/level entry before Force Inject;
+- Halo CE Original/Anniversary graphics switching is unavailable during
+  cinematics and remains planned refinement work.
+
+Retain the complete implemented/pending breakdown in
+`releases/0.4.0/RELEASE-NOTES.md`. The published release remains an Alpha
+prerelease even though every campaign now has a playable VR path.
+
+# Historical continuation - September 15 night: all-title re-entry and recovery
 
 User-tested **558fb2c** is explicitly accepted for CE Original and Anniversary:
 "perfect now ... dont change anything there." Preserve the accepted CE engine

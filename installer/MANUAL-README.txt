@@ -1,18 +1,25 @@
-HALO MCC VR - CE RESOLUTION, RETICLE AND CONTACT - SEPTEMBER 2026
-=============================================================
+HALO MCC VR ALPHA 0.4.0 - ALL CAMPAIGNS RELEASE - SEPTEMBER 2026
+================================================================
 
-Supports Halo 2 Classic and Anniversary, Halo 3, Halo 3: ODST, Halo: Reach
-and Halo 4. Steam and Microsoft Store / Xbox app / Game Pass use the same
-files. This CE candidate adds full-resolution Anniversary eye targets, reticle
-visibility/aim corrections, HUD mapping, hand-material contention and resource
-identity fixes, plus CE world collision and physical melee. Original's working
-camera/hands, the single-eye desktop mirror and controller aiming are retained.
-This alpha candidate still needs headset confirmation in both CE graphics
-modes. The accepted baseline remains 4e01f28.
-Read RELEASE-NOTES.md for this update. CANDIDATE-MANIFEST.json records the
-exact build identity and file hashes; you do not need to edit it.
+Every MCC campaign now has a playable VR path: Halo CE in Original and
+Anniversary graphics; Halo 2 in Classic and Anniversary graphics; Halo 3;
+Halo 3: ODST; Halo: Reach; and Halo 4. Steam and Microsoft Store / Xbox app /
+Game Pass use the same files. The exact accepted runtime source is 5ac02f5.
 
-For the CE test, compare both graphics modes, switch while looking around,
+IMPORTANT: after entering a title or level, wait at least seven seconds before
+using Force injection / recover VR. Some engines need about seven seconds to
+load and establish current camera, display and resource proofs. Using recovery
+earlier can make normal initialization look like a failure.
+
+Campaign switching can occasionally crash MCC or leave the destination flat.
+If that happens, fully close MCC, restart through HaloMCCVRLauncher.exe and
+load the destination again. Also, do not switch Halo CE Original/Anniversary
+graphics during a cinematic; wait until the cinematic has ended.
+
+Read RELEASE-NOTES.md and the repository's releases/0.4.0/RELEASE-NOTES.md for
+the complete title status, limitations and planned refinements.
+
+For CE, compare both graphics modes during gameplay, switch while looking around,
 check gun/hand size and firing effects, then pause and resume in each mode.
 Read RELEASE-NOTES.md for the exact status and test steps. CE world collision
 and physical melee are available through their separate Body & Hands controls.
@@ -20,7 +27,8 @@ CE contact uses hand/weapon nodes; complete weapon surfaces remain unproven.
 CE physical roomscale body following remains deferred. Ordinary tracked leaning
 is part of CE 6DoF.
 CE graphics switching: physical left hand beside the left side of the head,
-then click the movement stick. Both graphics modes have a VR path in this test.
+then click the movement stick. Both graphics modes have a VR path. Do not use
+this switch during cinematics; wait until normal gameplay resumes.
 
 BEFORE YOU START
 ----------------
@@ -64,7 +72,8 @@ FRESH INSTALL
    or rename its executable. If package activation fails, follow the launcher's
    displayed instructions. A first Store launch can take longer to load.
 7. Load a supported campaign. VR enters automatically with the supplied defaults.
-   Recenter with F3 once you are standing or seated comfortably.
+   Recenter with F3 once you are standing or seated comfortably. If automatic
+   entry does not occur, wait at least seven seconds before Force Inject.
 
 UPDATING AN EXISTING INSTALL
 ---------------------------
@@ -142,10 +151,15 @@ KNOWN LIMITS AND TROUBLESHOOTING
   weapons and unarmed/secondary melee damage need individual testing.
 - H4's reported black screen/fade after damage and H2's reported reticle issue
   after leaving a tank remain unresolved.
-- F1 > Status and the launcher offer Force injection / recover VR. With the
-  current DLL already loaded, this requests H3 camera recovery only. It does
-  not recreate a lost OpenXR session. If VR remains flat, restart MCC; do not
-  inject duplicate DLLs. All-title transition recovery is not confirmed.
+- F1 > Status and the launcher offer Force injection / recover VR for the
+  selected CE, H2, H3, ODST, Reach or H4 engine. Wait at least seven seconds
+  after entering the title/level before using it. It retries the title's
+  verified setup and does not recreate a lost OpenXR session. If VR remains
+  flat, restart MCC; do not inject duplicate DLLs.
+- Switching campaigns can occasionally crash or leave the destination flat.
+  Fully restart MCC through the supplied launcher, then load it again.
+- CE Original/Anniversary graphics switching is not supported during
+  cinematics. Wait until the cinematic ends before switching.
 - If performance falls to half refresh rate, try a lower VR resolution.
   Settings marked next-launch require restarting MCC.
 

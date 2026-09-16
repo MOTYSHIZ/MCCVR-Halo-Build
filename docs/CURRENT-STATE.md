@@ -1,5 +1,23 @@
 # Current state
 
+> **CURRENT ACCEPTED ALL-CAMPAIGN BASELINE: `5ac02f5` (user headset,
+> 2026-09-15).** Source `5ac02f53a7896ffd6b8dff37ddc5bc4700890559`,
+> DLL SHA-256 `55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63`.
+> The user explicitly accepted the delivered candidate as a good baseline and
+> requested publication as the first release with every MCC campaign playable.
+> Exact build ZIP SHA-256
+> `1E75D939B0D65136AAFD29718EEE0BEAC269C44E4930E1E5C0C1D3E7DB958C2C`;
+> matching source ZIP SHA-256
+> `FB3563A2DE33CD5EFC1002B641FCA289FF8830D5849203621C259FAAD6B10A8A`.
+> This promotes the cumulative CE Original/Anniversary implementation, Reach
+> display admission and HUD height, all-title re-entry, and all-title manual
+> recovery in that exact artifact. Known release limitations remain: campaign
+> switching can occasionally crash and require an MCC restart; wait at least
+> seven seconds after entering a title or level before Force Inject; and CE
+> Original/Anniversary graphics cannot currently be switched during cinematics.
+> Release records: `releases/0.4.0/RELEASE-NOTES.md` and
+> `releases/0.4.0/manifest.json`.
+
 > **CE ORIGINAL AND ANNIVERSARY ACCEPTED; ALL-TITLE RE-ENTRY FIX (2026-09-15).**
 > User-tested source `558fb2c2237492c0458b5cee02c690be652285fe` is explicitly
 > confirmed perfect for CE in both graphics modes. Preserve its renderer,

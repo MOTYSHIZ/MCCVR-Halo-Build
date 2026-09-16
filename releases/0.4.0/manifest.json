@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "release": "MCC_VR_ALPHA_0.4.0",
+  "title": "Halo MCC VR Alpha 0.4.0 — All Campaigns Release",
+  "repository": "https://github.com/moistman42069/MCCVR-Halo-Build",
+  "release_url": "https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0",
+  "prerelease": true,
+  "supersedes": "MCC_VR_ALPHA_0.3.5",
+  "runtime_source_commit": "5ac02f53a7896ffd6b8dff37ddc5bc4700890559",
+  "runtime_rebuilt_for_release": false,
+  "accepted": true,
+  "titles": [
+    "Halo: Combat Evolved Anniversary (Original and Anniversary graphics)",
+    "Halo 2: Anniversary (Classic and Anniversary graphics)",
+    "Halo 3",
+    "Halo 3: ODST",
+    "Halo: Reach",
+    "Halo 4"
+  ],
+  "published_artifacts": {
+    "build_zip": {
+      "name": "HaloMCCVR-5ac02f5-all-title-reentry-recovery-20260916-010940918Z-Build.zip",
+      "sha256": "1E75D939B0D65136AAFD29718EEE0BEAC269C44E4930E1E5C0C1D3E7DB958C2C",
+      "bytes": 1587136
+    },
+    "source_zip": {
+      "name": "HaloMCCVR-5ac02f5-all-title-reentry-recovery-20260916-010940918Z-Source.zip",
+      "sha256": "FB3563A2DE33CD5EFC1002B641FCA289FF8830D5849203621C259FAAD6B10A8A",
+      "bytes": 4627693,
+      "exact_git_bytes": true
+    },
+    "sha256_sidecar": {
+      "name": "HaloMCCVR-5ac02f5-all-title-reentry-recovery-20260916-010940918Z-SHA256.txt",
+      "sha256": "0E3EBD0A9365B0B6F5CC69343A5EE61A3DE5F5DCA2D129B87BC0405E7B724BD8",
+      "bytes": 342
+    },
+    "HaloMCCVR.dll": {
+      "sha256": "55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63",
+      "bytes": 3691520
+    },
+    "HaloMCCVRLauncher.exe": {
+      "sha256": "BF009D5D54CCC60D01BD6B3FFB5EBCF43F8511F845FFF242A21A47D0A16FACC1",
+      "bytes": 233984
+    },
+    "halomccvr.cfg": {
+      "sha256": "E67114F4BD30A06A4750F57EC925D0598775C617454D76DCD57FF3902292AB3B",
+      "bytes": 37572
+    }
+  },
+  "validation": {
+    "ctest_suites": 28,
+    "reach_gate": "pass",
+    "manual_cold_retry_checks": 46,
+    "build_and_source_archives_verified": true
+  },
+  "critical_notes": [
+    "Wait at least seven seconds after entering a title or level before Force Inject.",
+    "Occasional cross-title crashes may require a full MCC restart.",
+    "Do not switch Halo CE Original/Anniversary graphics during cinematics."
+  ]
+}
