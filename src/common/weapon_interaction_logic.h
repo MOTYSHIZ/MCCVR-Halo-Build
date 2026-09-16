@@ -1,0 +1,219 @@
+#pragma once
+
+#include "runtime_types.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
+// Body gestures are an optional controller-input layer. They never mutate
+// inventory, ammo, animation clocks, native tags or camera ownership.
+namespace weapon_interaction
+{
+inline constexpr unsigned kTitleCount = 6;
+inline constexpr const char* kTitleKeys[kTitleCount]{"halo3", "odst", "reach", "halo4", "ce", "halo2"};
+inline constexpr const char* kTitleNames[kTitleCount]{"Halo 3", "ODST", "Reach", "Halo 4", "Halo CE", "Halo 2"};
+inline constexpr const char* kButtonNames = "X\0Right bumper\0Left bumper\0B\0Y\0A\0Left trigger\0Right trigger\0";
+inline constexpr uint32_t kButtons[]{0x4000, 0x200, 0x100, 0x2000, 0x8000, 0x1000, 1u<<16, 1u<<17};
+inline constexpr int TitleIndex(GameTitle title) noexcept
+{
+    const int value = static_cast<int>(title);
+    return value >= 1 && value <= 6 ? value - 1 : -1;
+}
+inline constexpr uint32_t Button(int index) noexcept
+{
+    return index >= 0 && index < 8 ? kButtons[index] : 0;
+}
+struct Vec { float x{}, y{}, z{}; };
+struct Quat { float x{}, y{}, z{}, w{1}; };
+inline Vec operator+(Vec a, Vec b) noexcept { return {a.x+b.x,a.y+b.y,a.z+b.z}; }
+inline Vec operator-(Vec a, Vec b) noexcept { return {a.x-b.x,a.y-b.y,a.z-b.z}; }
+inline Vec operator*(Vec a, float s) noexcept { return {a.x*s,a.y*s,a.z*s}; }
+inline float Dot(Vec a, Vec b) noexcept { return a.x*b.x+a.y*b.y+a.z*b.z; }
+inline bool Finite(Vec a) noexcept { return std::isfinite(a.x)&&std::isfinite(a.y)&&std::isfinite(a.z); }
+inline bool Normal(Quat q) noexcept
+{
+    const float n=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+    return std::isfinite(n)&&n>0.98f&&n<1.02f;
+}
+inline Vec Rotate(Quat q, Vec v) noexcept
+{
+    const Vec u{q.x,q.y,q.z};
+    const Vec c{u.y*v.z-u.z*v.y,u.z*v.x-u.x*v.z,u.x*v.y-u.y*v.x};
+    return u*(2*Dot(u,v))+v*(q.w*q.w-Dot(u,u))+c*(2*q.w);
+}
+inline bool Near(Vec a, Vec b, float r) noexcept { const Vec d=a-b; return Dot(d,d)<=r*r; }
+inline float Setting(float v,float low,float high,float fallback) noexcept
+{ return std::isfinite(v)?std::clamp(v,low,high):fallback; }
+
+struct Settings
+{
+    bool reload{}, holsters{}, leftHanded{};
+    float pouchDown{0.50f}, zoneRadius{0.20f};
+    // 0 shoulder, 1 hip. A single reserve slot exchanges the two native guns.
+    int holsterLocation{};
+    uint32_t reloadButton{0x4000}, swapButton{0x8000};
+};
+struct Sample
+{
+    uint64_t now{}, space{};
+    uint32_t generation{};
+    GameTitle title{GameTitle::None};
+    bool ready{}, dualWield{};
+    Vec head{}, primary{}, support{};
+    Quat headRotation{}, primaryRotation{};
+    float primaryGrip{}, supportGrip{};
+    bool otherAction{};
+};
+struct Output
+{
+    bool consumePrimary{}, consumeSupport{}, releaseTwoHand{};
+    bool reloadRequested{}, swapRequested{}, pickedMagazine{}, grabbedHolster{};
+    float primaryHaptic{}, supportHaptic{};
+    uint32_t buttons{};
+    uint64_t pulseUntil{};
+};
+
+inline bool Zones(const Sample& s,const Settings& c,Vec& pouch,Vec& holster) noexcept
+{
+    if(!Finite(s.head)||!Finite(s.primary)||!Finite(s.support)||
+       !Normal(s.headRotation)||!Normal(s.primaryRotation)) return false;
+    Vec forward=Rotate(s.headRotation,{0,0,-1}); forward.y=0;
+    const float n=Dot(forward,forward);
+    if(!std::isfinite(n)) return false;
+    if(n<0.04f)
+    {
+        // Looking straight down at the pouch must not destroy body yaw.
+        Vec side=Rotate(s.headRotation,{1,0,0});side.y=0;
+        const float length=Dot(side,side);
+        if(!std::isfinite(length)||length<0.04f) return false;
+        side=side*(1/std::sqrt(length));forward={side.z,0,-side.x};
+    }
+    else forward=forward*(1/std::sqrt(n));
+    const Vec right{-forward.z,0,forward.x};
+    const float side=c.leftHanded?-1.0f:1.0f;
+    pouch=s.head+right*(-side*0.25f)+forward*0.06f+Vec{0,-Setting(c.pouchDown,0.25f,0.85f,0.50f),0};
+    holster=c.holsterLocation==1
+        ?s.head+right*(side*0.27f)+Vec{0,-Setting(c.pouchDown,0.25f,0.85f,0.50f),0}
+        :s.head+right*(side*0.22f)+forward*(-0.13f)+Vec{0,-0.20f,0};
+    return true;
+}
+
+class State
+{
+public:
+    void Reset() noexcept { *this=State{}; }
+    void Cancel() noexcept
+    { phase_=0;pulseUntil_=0;pulse_=0;armedP_=armedS_=false;available_=false;last_=0; }
+    bool HasClaimedGrip() const noexcept { return ownedP_||ownedS_; }
+    Output Update(const Sample& s,const Settings& c) noexcept
+    {
+        Output out{};
+        const bool validP=std::isfinite(s.primaryGrip)&&s.primaryGrip>=0&&s.primaryGrip<=1;
+        const bool validS=std::isfinite(s.supportGrip)&&s.supportGrip>=0&&s.supportGrip<=1;
+        const bool heldP=validP&&s.primaryGrip>0.55f;
+        const bool heldS=validS&&s.supportGrip>0.55f;
+        const bool releasedP=validP&&s.primaryGrip<0.35f;
+        const bool releasedS=validS&&s.supportGrip<0.35f;
+        const bool identity=title_!=s.title||generation_!=s.generation||space_!=s.space||
+            left_!=c.leftHanded||reload_!=c.reload||holsters_!=c.holsters||
+            reloadButton_!=c.reloadButton||swapButton_!=c.swapButton||location_!=c.holsterLocation;
+        const bool gap=!last_||s.now<last_||s.now-last_>200;
+        const bool ready=s.ready&&s.now&&s.space&&s.generation&&TitleIndex(s.title)>=0&&
+            (c.reload||c.holsters)&&!s.dualWield&&
+            validP&&validS;
+        Vec pouch{},holster{};
+        const bool poses=Zones(s,c,pouch,holster);
+        const bool resumed=ready&&poses&&!available_;
+        if(identity||gap||!ready||!poses||resumed)
+        {
+            // A held grip on re-entry is not a new gesture. Keep ownership of
+            // an already claimed press until release, including cancellation.
+            phase_=0; pulseUntil_=0; pulse_=0;
+            armedP_=armedS_=false;
+            if(left_!=c.leftHanded) std::swap(ownedP_,ownedS_);
+        }
+        title_=s.title;generation_=s.generation;space_=s.space;left_=c.leftHanded;
+        reload_=c.reload;holsters_=c.holsters;reloadButton_=c.reloadButton;
+        swapButton_=c.swapButton;location_=c.holsterLocation;last_=s.now;
+        available_=ready&&poses;
+        if(releasedP) armedP_=true;
+        if(releasedS) armedS_=true;
+        // Ownership includes the release frame, then ends. Ordinary grips are
+        // never consumed unless the player deliberately began in a body zone.
+        out.consumePrimary=ownedP_;out.consumeSupport=ownedS_;
+        if(releasedP) ownedP_=false;
+        if(releasedS) ownedS_=false;
+        if(!ready||!poses||identity||gap||resumed) return out;
+
+        if(s.otherAction || (phase_&&s.now-started_>4000)) phase_=0;
+        if(phase_==1)
+        {
+            out.consumeSupport=true;out.releaseTwoHand=true;
+            if(!Near(s.support,pouch,Setting(c.zoneRadius,0.12f,0.28f,0.20f)+0.08f)) leftPouch_=true;
+            if(releasedS)
+            {
+                // Insert beside/under the firing-hand grip. Controller-local
+                // offset, not an invented per-title magazine marker.
+                const Vec receiver=s.primary+Rotate(s.primaryRotation,{0,-0.06f,-0.04f});
+                if(!s.otherAction&&leftPouch_&&s.now-started_>=120&&
+                   Near(s.support,receiver,0.18f)&&!Near(s.support,pouch,0.24f)&&
+                   !Near(s.support,grabbedAt_,0.20f))
+                {
+                    pulse_=c.reloadButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
+                    out.reloadRequested=true;out.supportHaptic=0.45f;out.primaryHaptic=0.20f;
+                }
+                phase_=0;
+            }
+        }
+        else if(phase_==2)
+        {
+            out.consumePrimary=true;out.releaseTwoHand=true;
+            if(releasedP) phase_=0;
+            else if(!s.otherAction&&s.now-started_>=120&&
+                !Near(s.primary,holster,Setting(c.zoneRadius,0.12f,0.28f,0.20f)+0.12f)&&
+                !Near(s.primary,grabbedAt_,0.25f))
+            {
+                pulse_=c.swapButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
+                out.swapRequested=true;out.primaryHaptic=0.45f;phase_=0;
+            }
+        }
+        else if(!s.otherAction&&s.now>=cooldown_)
+        {
+            const float radius=Setting(c.zoneRadius,0.12f,0.28f,0.20f);
+            if(c.holsters&&c.swapButton&&armedP_&&heldP&&Near(s.primary,holster,radius))
+            {
+                phase_=2;started_=s.now;grabbedAt_=s.primary;ownedP_=true;
+                out.consumePrimary=true;out.releaseTwoHand=true;
+                out.grabbedHolster=true;out.primaryHaptic=0.20f;
+            }
+            else if(c.reload&&c.reloadButton&&armedS_&&heldS&&Near(s.support,pouch,radius))
+            {
+                phase_=1;started_=s.now;leftPouch_=false;ownedS_=true;grabbedAt_=s.support;
+                out.consumeSupport=true;out.releaseTwoHand=true;
+                out.pickedMagazine=true;out.supportHaptic=0.20f;
+            }
+        }
+        if(heldP) armedP_=false;
+        if(heldS) armedS_=false;
+        if(s.now<pulseUntil_&&!s.otherAction) { out.buttons=pulse_;out.pulseUntil=pulseUntil_; }
+        else { pulseUntil_=0;pulse_=0; }
+        return out;
+    }
+private:
+    GameTitle title_{GameTitle::None}; uint32_t generation_{};
+    uint64_t space_{},last_{},started_{},cooldown_{},pulseUntil_{};
+    uint32_t pulse_{},reloadButton_{},swapButton_{};
+    int phase_{},location_{};
+    bool left_{},reload_{},holsters_{},armedP_{},armedS_{},ownedP_{},ownedS_{},leftPouch_{},available_{};
+    Vec grabbedAt_{};
+};
+
+// Snapshot transport is validated again on XInput's thread. Render suspension,
+// pause or title changes must never replay a cached reload/switch command.
+inline bool Fresh(uint64_t now,uint64_t sampled,GameTitle title,GameTitle sampledTitle,
+    uint32_t generation,uint32_t sampledGeneration,bool gameplay) noexcept
+{
+    return gameplay&&TitleIndex(title)>=0&&title==sampledTitle&&generation&&
+        generation==sampledGeneration&&sampled&&now>=sampled&&now-sampled<=150;
+}
+} // namespace weapon_interaction

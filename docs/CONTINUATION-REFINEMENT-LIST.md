@@ -1,3 +1,62 @@
+# Latest user addition - September 16: weapon holsters AND manual reload
+
+The user explicitly adds WEAPON HOLSTERS alongside MANUAL RELOAD, each with an
+optional toggle in Weapon & Aim, with interaction design delegated to the agent.
+Both apply across ALL supported titles (CE/H2 both graphics modes, H3, ODST,
+Reach, H4), preserving Steam and Microsoft Store support. The user explicitly
+requires this entire scope to survive a new chat. Do not deliver the staged
+918e2f2 pair: it lacks both additions.
+
+Final candidate scope, ALL required before packaging/delivery:
+1. Preserve 918e2f2 CE Anniversary beam-glare correction.
+2. Preserve 918e2f2 Halo 3 Cortana cinematic-facing correction.
+3. Implement optional Manual Reload in Weapon & Aim across all titles.
+4. Implement optional Weapon Holsters in Weapon & Aim across all titles.
+5. Verify cumulative behavior/build/tests and final packaging process exit code,
+   then deliver a NEW matching build ZIP and source ZIP, and WAIT for testing.
+
+Keep existing CE vehicle steering/crosshairs and all prior standing/deferred
+scope. Accepted pointer stays d47a98c. No game launch, installation, game-folder
+writes, publication or PR. Package WITHOUT -Install. Prior packaging exit-code
+issue was already resolved in the preceding chat (direct process code 0; only
+MinHook CMake deprecation warning); retain separate stdout/stderr capture.
+Implementation and final local verification are COMPLETE: cumulative Release,
+all 36 CTest suites, Reach gate, 1,281 gesture checks and 570 production
+OpenXR/pad checks pass. Native CE/H3 comfort fixes, CE vehicle/crosshair paths,
+launcher source and CURRENT-STATE.md were audited unchanged from 918e2f2;
+game.cpp adds only the cold optional-gesture reporter call. Read
+WEAPON-INTERACTIONS-2026-09-16.md for gestures, configurable per-title MCC
+buttons, native animation/inventory limits, and headset test steps.
+
+Finish committed packaging without -Install and exact archive verification.
+Final identity/status belongs in out/weapon-interactions-current-handoff.json
+(with out/beam-cortana-current-handoff.json as compatibility pointer). If that
+record reports VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST, deliver
+that NEW matching pair and WAIT. Never redeliver 918e2f2's two-fix-only ZIPs.
+All four items require the user's headset testing; local checks are not acceptance.
+
+# Current priority - September 16: manual reload joins beam/Cortana candidate
+
+Recovered directly from the preceding chat after the checkpoint omitted the
+user's steering: BEFORE packaging/delivery, add an optional Manual Reload toggle
+under Weapons and Aim for ALL titles. The user delegates interaction design;
+grip gestures, native animation and haptics were suggestions. Preserve the CE
+Anniversary beam-glare and Halo 3 Cortana-facing corrections in 918e2f2, CE
+vehicle/crosshair behavior, both editions and all prior standing/deferred scope.
+The staged 918e2f2 two-fix ZIPs are NOT the requested final handoff. Hold delivery
+until manual reload is implemented and verified with a new matching ZIP pair.
+
+The previous chat already verified packaging's direct process exit code 0,
+all 35 tests and Reach gate passed; stderr contained only the MinHook CMake
+deprecation warning. The earlier failure indication came from PowerShell warning
+handling. Capture stdout/stderr and the actual exit code separately on the final
+package. Do not repeat that investigation instead of implementing manual reload.
+
+Package with tools/package-candidate.ps1 WITHOUT -Install. No installation,
+game-folder writes, MCC launch, publication or PR. Deliver new build/source ZIPs,
+then WAIT for headset testing. Accepted cumulative d47a98c stays unchanged.
+Current manual-reload implementation: investigation in progress; no behavior yet.
+
 # Current handoff - September 16: CE seated crosshair correction
 
 The user confirms 115778a vehicle steering follows the right hand with no

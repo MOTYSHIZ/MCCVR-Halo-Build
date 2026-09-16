@@ -789,6 +789,16 @@ struct Config
     // Preserve released controller-role positioning unless explicitly opted in.
     bool experimental_hand_alignment = false;
 
+    // Optional body gestures; each title keeps its own MCC controller layout.
+    bool manual_reload = false;
+    bool weapon_holsters = false;
+    float weapon_pouch_down_m = 0.50f;
+    float weapon_body_zone_radius_m = 0.20f;
+    int weapon_holster_location = 0; // 0 shoulder, 1 hip
+    // X, RB, LB, B, Y, A, LT, RT. H3, ODST, Reach, H4, CE, H2.
+    int weapon_reload_button[6]{0,0,0,0,0,0};
+    int weapon_switch_button[6]{4,4,4,4,4,4};
+
     // Two-handed weapon aiming: when you bring your left hand up to the gun
     // (support-hand grip), aim along the line from the right hand to the left
     // hand instead of the right wrist alone — steadier, and the barrel points

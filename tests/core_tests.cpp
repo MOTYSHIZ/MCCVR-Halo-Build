@@ -13344,6 +13344,7 @@ int main()
         "legacy configs inherit the enabled cutscene-theatre defaults");
     Check(!g_config.roomscale_movement, "legacy config leaves roomscale off");
     Check(!g_config.experimental_hand_alignment, "legacy config preserves released hand positioning");
+    Check(!g_config.manual_reload&&!g_config.weapon_holsters,"legacy config leaves both weapon gestures off");
     Check(!g_config.world_collision,
         "legacy configs inherit the opt-in world-collision default");
     Check(!g_config.physical_melee && !g_config.gesture_melee &&
@@ -13396,6 +13397,32 @@ int main()
         }
     }
 
+    {
+        {
+            std::ofstream file(primary);
+            file << "manual_reload = 1\nweapon_holsters = 1\nweapon_pouch_down_m = 0.625\n"
+                "weapon_body_zone_radius_m = 0.225\nweapon_holster_location = 1\n"
+                "weapon_reload_button_ce = 1\nweapon_switch_button_halo2 = 2\n"
+                "weapon_reload_button_reach = invalid\nweapon_switch_button_odst = 999\n";
+        }
+        ConfigLoad(primary.c_str());
+        Check(g_config.manual_reload&&g_config.weapon_holsters&&g_config.weapon_pouch_down_m==0.625f&&
+            g_config.weapon_body_zone_radius_m==0.225f&&g_config.weapon_holster_location==1&&
+            g_config.weapon_reload_button[4]==1&&g_config.weapon_switch_button[5]==2&&
+            g_config.weapon_reload_button[2]==0&&g_config.weapon_switch_button[1]==4,
+            "weapon gestures load independently with per-title layouts and reject malformed buttons");
+        ConfigSave();g_config=Config{};ConfigLoad(primary.c_str());
+        Check(g_config.manual_reload&&g_config.weapon_holsters&&g_config.weapon_reload_button[4]==1&&
+            g_config.weapon_switch_button[5]==2&&g_config.weapon_pouch_down_m==0.625f,
+            "weapon gesture toggles, ergonomics and distinct title layouts survive save/load");
+        {
+            std::ofstream file(primary);
+            file << "weapon_pouch_down_m = nan\nweapon_body_zone_radius_m = 99\n";
+        }
+        ConfigLoad(primary.c_str());
+        Check(!g_config.manual_reload&&!g_config.weapon_holsters&&g_config.weapon_pouch_down_m==0.50f&&
+            g_config.weapon_body_zone_radius_m==0.28f,"invalid geometry stays finite, bounded and opt-in");
+    }
     {
         std::ofstream file(primary);
         file << "config_version = 5\n";

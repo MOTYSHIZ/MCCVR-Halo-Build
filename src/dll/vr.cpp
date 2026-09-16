@@ -1,5 +1,6 @@
 #include "../common/vr_interaction_refinement_logic.h"
 #include "../common/weapon_hand_logic.h"
+#include "../common/weapon_interaction_logic.h"
 #include "../common/title_runtime_state.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -7018,6 +7019,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // multi-call aim getter). `active` mirrors it for the menu indicator.
     std::atomic<bool> g_twoHandLatched{false};
     std::atomic<bool> g_twoHandActive{false};
+    weapon_interaction::State g_weaponInteraction;
+    std::atomic<unsigned> g_weaponGestureGrabs{0},g_weaponReloadRequests{0},g_weaponSwapRequests{0};
+    std::atomic<uint64_t> g_weaponGestureReadyMs{0};
     std::array<RecentSecondaryWeaponPresentation, kTitleRuntimeSlotCount>
         g_secondaryWeaponPresentation;
 
@@ -7246,7 +7250,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     void UpdateTwoHandLatch(bool rightValid, const XrPosef& rpose,
                             bool leftValid, const XrPosef& lpose, float gripL,
-                            bool rolesChanged)
+                            bool rolesChanged, bool weaponGesture = false)
     {
         // Track the physical grip edge even while tracking/handedness resets
         // invalidate the poses. A held grip is not a new grab on recovery.
@@ -7257,7 +7261,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         static SupportGripAdmission admission;
         const bool grabAllowed = admission.Observe(
             gripHeld, SecondaryWeaponPresentationActive(), rolesChanged);
-        if (!grabAllowed || !g_config.two_handed_aim || !rightValid || !leftValid)
+        if (!grabAllowed || !g_config.two_handed_aim || !rightValid || !leftValid || weaponGesture)
         {
             g_twoHandLatched.store(false);
             g_twoHandActive.store(false);
@@ -7429,12 +7433,24 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             touch.isActive && touch.currentState == XR_TRUE;
     }
 
+    void InvalidateWeaponInteractionSample()
+    {
+        g_weaponInteraction.Cancel();
+        g_weaponGestureReadyMs.store(0,std::memory_order_release);
+        EnterCriticalSection(&g_headCs);
+        g_padState.weaponSampleMs=0;
+        g_padState.weaponButtons=0;
+        g_padState.weaponConsumePrimary=g_padState.weaponConsumeSupport=false;
+        LeaveCriticalSection(&g_headCs);
+    }
+
     bool CaptureRightControllerPose(XrTime time)
     {
         if (g_gameplayActions == XR_NULL_HANDLE || g_rightAimAction == XR_NULL_HANDLE ||
             g_rightAimSpace == XR_NULL_HANDLE)
         {
             g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
+            InvalidateWeaponInteractionSample();
             return false;
         }
         XrActiveActionSet active{g_gameplayActions, XR_NULL_PATH};
@@ -7444,6 +7460,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (XR_FAILED(xrSyncActions(g_session, &sync)))
         {
             g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
+            InvalidateWeaponInteractionSample();
             return false;
         }
         XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
@@ -7633,12 +7650,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             { outX = st.currentState.x; outY = st.currentState.y; pad.valid = true; }
         };
         auto getF = [&](XrAction action, float& out) {
-            if (action == XR_NULL_HANDLE) return;
+            if (action == XR_NULL_HANDLE) return false;
             XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
             gi.action = action;
             XrActionStateFloat st{XR_TYPE_ACTION_STATE_FLOAT};
             if (XR_SUCCEEDED(xrGetActionStateFloat(g_session, &gi, &st)) && st.isActive)
-            { out = st.currentState; pad.valid = true; }
+            { out = st.currentState; pad.valid = true; return true; }
+            return false;
         };
         auto getB = [&](XrAction action, bool& out) {
             if (action == XR_NULL_HANDLE) return;
@@ -7652,8 +7670,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         getV2(g_actTurn, pad.turnX, pad.turnY);
         getF(g_actTrigL, pad.trigL);
         getF(g_actTrigR, pad.trigR);
-        getF(g_actGripL, pad.gripL);
-        getF(g_actGripR, pad.gripR);
+        const bool supportGripActive = getF(g_actGripL, pad.gripL);
+        const bool primaryGripActive = getF(g_actGripR, pad.gripR);
         if (leftHanded)
         {
             std::swap(pad.trigL, pad.trigR);
@@ -7692,6 +7710,73 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (pad.x && !previousPad.x) LOG("controller edge: X");
         if (pad.y && !previousPad.y) LOG("controller edge: Y");
         previousPad = pad;
+        const float rawSupportGrip=pad.gripL;
+        weapon_interaction::Output weaponGesture{};
+        if(g_config.manual_reload || g_config.weapon_holsters || g_weaponInteraction.HasClaimedGrip())
+        {
+            // Use the same predicted-time head and controller space. This
+            // optional extra locate does not change the late camera sample.
+            XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
+            constexpr XrSpaceLocationFlags tracked = XR_SPACE_LOCATION_POSITION_VALID_BIT |
+                XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_TRACKED_BIT |
+                XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+            const bool headValid=XR_SUCCEEDED(xrLocateSpace(g_viewSpace,g_localSpace,time,&head))&&
+                (head.locationFlags&tracked)==tracked&&NormalizeTrackedPose(head.pose);
+            weapon_interaction::Sample sample{};
+            sample.now=inputNow;sample.title=TitleAdapter_GetActiveTitle();
+            sample.generation=TitleAdapter_GetGeneration(sample.title);
+            sample.space=g_contactSpaceEpoch.load(std::memory_order_acquire);
+            sample.dualWield=SecondaryWeaponPresentationActive();
+            sample.ready=pad.valid&&valid&&leftValid&&headValid&&!handChanged&&
+                primaryGripActive&&supportGripActive&&
+                (location.locationFlags&tracked)==tracked&&(leftLocation.locationFlags&tracked)==tracked&&
+                g_sessionState==XR_SESSION_STATE_FOCUSED&&Game_IsHeadTracking()&&VR_IsStereoEnabled()&&
+                TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay&&!Menu_IsOpen()&&
+                !VR_IsPausePresentation()&&!VR_IsPausePresentationTarget()&&!VR_IsCutsceneTheaterActive();
+            sample.head={head.pose.position.x,head.pose.position.y,head.pose.position.z};
+            sample.headRotation={head.pose.orientation.x,head.pose.orientation.y,head.pose.orientation.z,head.pose.orientation.w};
+            sample.primary={location.pose.position.x,location.pose.position.y,location.pose.position.z};
+            sample.primaryRotation={location.pose.orientation.x,location.pose.orientation.y,location.pose.orientation.z,location.pose.orientation.w};
+            sample.support={leftLocation.pose.position.x,leftLocation.pose.position.y,leftLocation.pose.position.z};
+            sample.primaryGrip=pad.gripR;sample.supportGrip=pad.gripL;
+            if(!primaryGripActive||!supportGripActive)
+                sample.primaryGrip=sample.supportGrip=std::numeric_limits<float>::quiet_NaN();
+            sample.otherAction=pad.trigL>0.15f||pad.trigR>0.15f||pad.menu||pad.a||pad.b||pad.x||pad.y||
+                pad.clickL||pad.clickR||pad.thumbrestDpad;
+            weapon_interaction::Settings settings{};
+            settings.reload=g_config.manual_reload;settings.holsters=g_config.weapon_holsters;
+            settings.leftHanded=leftHanded;settings.pouchDown=g_config.weapon_pouch_down_m;
+            settings.zoneRadius=g_config.weapon_body_zone_radius_m;
+            settings.holsterLocation=g_config.weapon_holster_location;
+            const int index=weapon_interaction::TitleIndex(sample.title);
+            settings.reloadButton=index>=0?weapon_interaction::Button(g_config.weapon_reload_button[index]):0;
+            settings.swapButton=index>=0?weapon_interaction::Button(g_config.weapon_switch_button[index]):0;
+            weaponGesture=g_weaponInteraction.Update(sample,settings);
+            pad.weaponButtons=weaponGesture.buttons;
+            pad.weaponSampleMs=inputNow;pad.weaponPulseUntilMs=weaponGesture.pulseUntil;
+            pad.weaponTitle=sample.title;pad.weaponGeneration=sample.generation;
+            pad.weaponSpace=sample.space;
+            pad.weaponOptions=(settings.reload?1u:0u)|(settings.holsters?2u:0u)|(leftHanded?4u:0u);
+            pad.weaponReloadBinding=settings.reloadButton;pad.weaponSwitchBinding=settings.swapButton;
+            pad.weaponConsumePrimary=weaponGesture.consumePrimary;
+            pad.weaponConsumeSupport=weaponGesture.consumeSupport;
+            // Consume before publishing to ALL native/title consumers. A
+            // cancelled/stale command must not resurrect its original bumper.
+            if(pad.weaponConsumePrimary) pad.gripR=0;
+            if(pad.weaponConsumeSupport) pad.gripL=0;
+            if(weaponGesture.primaryHaptic>0) VR_PulseContactHaptics(false,weaponGesture.primaryHaptic);
+            if(weaponGesture.supportHaptic>0) VR_PulseContactHaptics(true,weaponGesture.supportHaptic);
+            if(weaponGesture.pickedMagazine||weaponGesture.grabbedHolster)
+                g_weaponGestureGrabs.fetch_add(1,std::memory_order_relaxed);
+            if(weaponGesture.reloadRequested) g_weaponReloadRequests.fetch_add(1,std::memory_order_relaxed);
+            if(weaponGesture.swapRequested) g_weaponSwapRequests.fetch_add(1,std::memory_order_relaxed);
+            g_weaponGestureReadyMs.store(sample.ready&&!sample.dualWield?inputNow:0,std::memory_order_release);
+        }
+        else
+        {
+            g_weaponInteraction.Reset();
+            g_weaponGestureReadyMs.store(0,std::memory_order_release);
+        }
         g_scopeZoomStickY.store(pad.valid?pad.turnY:0.0f,
                                 std::memory_order_release);
         EnterCriticalSection(&g_headCs);
@@ -7700,7 +7785,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             std::memory_order_release);
         LeaveCriticalSection(&g_headCs);
         UpdateTwoHandLatch(valid, location.pose, leftValid, leftLocation.pose,
-                           pad.gripL, handChanged);
+                           rawSupportGrip, handChanged, weaponGesture.releaseTwoHand ||
+                               pad.weaponConsumePrimary || pad.weaponConsumeSupport);
         ApplyControllerHaptics(valid && leftValid);
         static bool padLogged = false;
         if (pad.valid && !padLogged)
@@ -14713,6 +14799,23 @@ void VR_GetPadState(VrPadState& out)
     EnterCriticalSection(&g_headCs);
     out = g_padState;
     const uint64_t now = GetTickCount64();
+    const GameTitle weaponTitle=TitleAdapter_GetActiveTitle();
+    const int weaponIndex=weapon_interaction::TitleIndex(weaponTitle);
+    const unsigned weaponOptions=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u);
+    if(out.weaponOptions!=weaponOptions||out.weaponSpace!=g_contactSpaceEpoch.load(std::memory_order_acquire)||
+        weaponIndex<0||out.weaponReloadBinding!=weapon_interaction::Button(g_config.weapon_reload_button[weaponIndex])||
+        out.weaponSwitchBinding!=weapon_interaction::Button(g_config.weapon_switch_button[weaponIndex])||
+        !weapon_interaction::Fresh(now,out.weaponSampleMs,weaponTitle,out.weaponTitle,
+        TitleAdapter_GetGeneration(weaponTitle),out.weaponGeneration,
+        (g_config.manual_reload||g_config.weapon_holsters)&&Game_IsHeadTracking()&&VR_IsStereoEnabled()&&
+        TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay&&
+        g_sessionStateShared.load(std::memory_order_acquire)==XR_SESSION_STATE_FOCUSED&&
+        !Menu_IsOpen()&&!VR_IsPausePresentation()&&!VR_IsPausePresentationTarget()&&!VR_IsCutsceneTheaterActive()))
+    {
+        out.weaponButtons=0;
+        out.weaponConsumePrimary=out.weaponConsumeSupport=false;
+    }
+    if(now>=out.weaponPulseUntilMs) out.weaponButtons=0;
     const uint64_t sampled = g_thumbrestDpadSampleMs.load(std::memory_order_acquire);
     if (!g_config.quest_thumbrest_dpad || !sampled || now < sampled || now-sampled > 250 ||
         g_sessionStateShared.load(std::memory_order_acquire) != XR_SESSION_STATE_FOCUSED || Menu_IsOpen())
@@ -14721,6 +14824,38 @@ void VR_GetPadState(VrPadState& out)
         out.dpadX = out.dpadY = 0.0f;
     }
     LeaveCriticalSection(&g_headCs);
+}
+
+void VR_ReportWeaponInteractions(uint64_t nowMs)
+{
+    static uint64_t lastReport=0;
+    static GameTitle previousTitle=GameTitle::None;
+    static unsigned previousOptions=0,previousGrabs=0,previousReloads=0,previousSwaps=0;
+    static uint32_t previousBindings=0;
+    static bool previousReady=false;
+    const GameTitle title=TitleAdapter_GetActiveTitle();
+    const int index=weapon_interaction::TitleIndex(title);
+    const unsigned options=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u);
+    const uint32_t bindings=index>=0?static_cast<uint32_t>(
+        (g_config.weapon_reload_button[index]&0xFF)|((g_config.weapon_switch_button[index]&0xFF)<<8)):0;
+    const bool changed=options!=previousOptions||title!=previousTitle||bindings!=previousBindings;
+    if(!changed&&nowMs>=lastReport&&nowMs-lastReport<5000) return;
+    const uint64_t readyAt=g_weaponGestureReadyMs.load(std::memory_order_acquire);
+    const bool ready=readyAt&&nowMs>=readyAt&&nowMs-readyAt<=150;
+    const unsigned grabs=g_weaponGestureGrabs.load(std::memory_order_relaxed);
+    const unsigned reloads=g_weaponReloadRequests.load(std::memory_order_relaxed);
+    const unsigned swaps=g_weaponSwapRequests.load(std::memory_order_relaxed);
+    if(((options|previousOptions)&3)&&(changed||ready!=previousReady||grabs!=previousGrabs||
+        reloads!=previousReloads||swaps!=previousSwaps))
+        LOG("Weapon gestures: title=%s reload=%u holsters=%u leftHanded=%u readiness=%s "
+            "configuredReload=0x%05X configuredSwitch=0x%05X grabs=%u reloadRequests=%u swapRequests=%u "
+            "(requests only; native ammo/inventory determine outcome)",
+            index>=0?weapon_interaction::kTitleNames[index]:"none",options&1,(options>>1)&1,(options>>2)&1,
+            ready?"ready":"stock input; waiting for focused tracked on-foot single-weapon play",
+            index>=0?weapon_interaction::Button(g_config.weapon_reload_button[index]):0,
+            index>=0?weapon_interaction::Button(g_config.weapon_switch_button[index]):0,grabs,reloads,swaps);
+    previousOptions=options;previousTitle=title;previousBindings=bindings;previousReady=ready;
+    previousGrabs=grabs;previousReloads=reloads;previousSwaps=swaps;lastReport=nowMs;
 }
 
 void VR_SetScopeActive(bool active)

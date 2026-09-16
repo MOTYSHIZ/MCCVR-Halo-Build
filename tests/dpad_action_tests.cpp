@@ -4,6 +4,7 @@
 #include <openxr/openxr.h>
 #include "../src/dll/vr.h"
 #include "../src/common/config.h"
+#include "../src/common/weapon_interaction_logic.h"
 #include <atomic>
 #include <algorithm>
 #include <cstdio>
@@ -34,6 +35,15 @@ VrPadState g_padState{};
 std::atomic<uint64_t> g_thumbrestDpadSampleMs{};
 std::atomic<int> g_sessionStateShared{XR_SESSION_STATE_FOCUSED};
 uint64_t fixtureNow=1000;
+std::atomic<uint64_t> g_contactSpaceEpoch{1};
+GameTitle fixtureTitle=GameTitle::Halo3;
+RuntimeMode fixtureMode=RuntimeMode::Gameplay;
+uint32_t fixtureGeneration=1;
+bool fixtureHeadTracking=true,fixtureStereo=true,fixturePause=false,fixturePauseTarget=false,fixtureTheater=false;
+GameTitle TitleAdapter_GetActiveTitle() { return fixtureTitle; }
+uint32_t TitleAdapter_GetGeneration(GameTitle) { return fixtureGeneration; }
+RuntimeMode TitleAdapter_GetRuntimeMode() { return fixtureMode; }
+bool Game_IsHeadTracking() { return fixtureHeadTracking; }
 uint64_t FixtureTick() { return fixtureNow; }
 struct Action { std::string name;XrActionType type;std::vector<XrPath> subactions; };
 struct Binding { std::string action,path; };
@@ -99,6 +109,10 @@ extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrGetActionStateBoolean(
 }
 
 bool Menu_IsOpen() { return fixtureMenu; }
+bool VR_IsStereoEnabled() { return fixtureStereo; }
+bool VR_IsPausePresentation() { return fixturePause; }
+bool VR_IsPausePresentationTarget() { return fixturePauseTarget; }
+bool VR_IsCutsceneTheaterActive() { return fixtureTheater; }
 #define LOG(...) ((void)0)
 #define GetTickCount64 FixtureTick
 #include "dpad_action_functions.inl"
@@ -196,6 +210,47 @@ int main()
     g_thumbrestDpadSampleMs=1001;read(false); // Clock must not run backwards.
     g_thumbrestDpadSampleMs=750;read(true);
     g_thumbrestDpadSampleMs=749;read(false);
+    // Exercise the shipping XInput-facing snapshot validator, not a model of
+    // it. No action may escape into another title, mode or controller role.
+    for(int title=1;title<=6;++title)
+    {
+        fixtureTitle=static_cast<GameTitle>(title);
+        const int index=title-1;
+        g_config.manual_reload=g_config.weapon_holsters=true;
+        g_padState.weaponTitle=fixtureTitle;g_padState.weaponGeneration=fixtureGeneration;
+        g_padState.weaponSpace=1;g_padState.weaponOptions=3;
+        g_padState.weaponSampleMs=fixtureNow;g_padState.weaponPulseUntilMs=fixtureNow+120;
+        g_padState.weaponReloadBinding=weapon_interaction::Button(g_config.weapon_reload_button[index]);
+        g_padState.weaponSwitchBinding=weapon_interaction::Button(g_config.weapon_switch_button[index]);
+        g_padState.weaponButtons=0x4000;g_padState.weaponConsumeSupport=true;
+        const auto gestureRead=[&](bool expected) {
+            VrPadState pad{};VR_GetPadState(pad);
+            Check((pad.weaponButtons==0x4000)==expected&&pad.weaponConsumeSupport==expected,
+                "shipping pad reader admits only current focused gesture publication");
+            Check(pad.valid&&pad.b&&pad.moveX==0.4f,"gesture validation preserves ordinary gamepad input");
+        };
+        gestureRead(true);
+        for(auto mode:{RuntimeMode::Shell,RuntimeMode::Loading,RuntimeMode::Paused,RuntimeMode::Cutscene,
+                      RuntimeMode::Vehicle,RuntimeMode::Turret,RuntimeMode::Dead,RuntimeMode::Unsupported})
+        {fixtureMode=mode;gestureRead(false);}
+        fixtureMode=RuntimeMode::Gameplay;
+        fixturePause=true;gestureRead(false);fixturePause=false;
+        fixturePauseTarget=true;gestureRead(false);fixturePauseTarget=false;
+        fixtureTheater=true;gestureRead(false);fixtureTheater=false;
+        fixtureStereo=false;gestureRead(false);fixtureStereo=true;
+        fixtureHeadTracking=false;gestureRead(false);fixtureHeadTracking=true;
+        fixtureMenu=true;gestureRead(false);fixtureMenu=false;
+        g_sessionStateShared=XR_SESSION_STATE_VISIBLE;gestureRead(false);g_sessionStateShared=XR_SESSION_STATE_FOCUSED;
+        ++fixtureGeneration;gestureRead(false);--fixtureGeneration;
+        ++g_contactSpaceEpoch;gestureRead(false);--g_contactSpaceEpoch;
+        g_config.left_handed=true;gestureRead(false);g_config.left_handed=false;
+        g_config.manual_reload=false;gestureRead(false);g_config.manual_reload=true;
+        ++g_config.weapon_reload_button[index];gestureRead(false);--g_config.weapon_reload_button[index];
+        g_padState.weaponTitle=GameTitle::None;gestureRead(false);g_padState.weaponTitle=fixtureTitle;
+        g_padState.weaponSampleMs=fixtureNow-151;gestureRead(false);g_padState.weaponSampleMs=fixtureNow;
+        g_padState.weaponPulseUntilMs=fixtureNow;VrPadState expired{};VR_GetPadState(expired);
+        Check(!expired.weaponButtons&&expired.weaponConsumeSupport,"pulse expires while claimed grip remains consumed");
+    }
     g_headCsInit=false;VrPadState absent{};absent.valid=true;absent.thumbrestDpad=true;
     VR_GetPadState(absent);Check(!absent.valid&&!absent.thumbrestDpad&&!absent.dpadX&&!absent.dpadY,
         "An unavailable controller snapshot cannot retain D-pad input");

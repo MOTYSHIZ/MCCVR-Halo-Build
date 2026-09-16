@@ -769,8 +769,20 @@ struct VrPadState
     // of weapon handedness. These axes have already been removed from turn.
     bool thumbrestDpad = false;
     float dpadX = 0.0f, dpadY = 0.0f;
+    // Optional body-gesture output, validated again before XInput delivery.
+    uint32_t weaponButtons = 0;
+    uint64_t weaponSampleMs = 0;
+    uint64_t weaponPulseUntilMs = 0;
+    uint32_t weaponGeneration = 0;
+    uint64_t weaponSpace = 0;
+    unsigned weaponOptions = 0;
+    uint32_t weaponReloadBinding = 0, weaponSwitchBinding = 0;
+    GameTitle weaponTitle{};
+    bool weaponConsumePrimary = false, weaponConsumeSupport = false;
 };
 void VR_GetPadState(VrPadState& out);
+// Cold worker only: optional gesture status/counters, never render-hook logs.
+void VR_ReportWeaponInteractions(uint64_t nowMs);
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 // One immutable, exact-serial OpenXR tracking snapshot for Reach's complete
 // outer visibility + inner stereo transaction. The reader is lock-free and

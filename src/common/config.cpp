@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include "config.h"
+#include "weapon_interaction_logic.h"
 #include "log.h"
 
 Config g_config;
@@ -615,6 +616,39 @@ void ConfigLoad(const wchar_t* path)
         if (ParseTitleProfileKey(key, val))
             continue;
         // Keep new keys outside the already-at-limit legacy else-if chain.
+        bool weaponButtonKey = false;
+        for (unsigned i=0;i<weapon_interaction::kTitleCount;++i)
+        {
+            char reloadKey[64]{},switchKey[64]{};
+            sprintf_s(reloadKey,"weapon_reload_button_%s",weapon_interaction::kTitleKeys[i]);
+            sprintf_s(switchKey,"weapon_switch_button_%s",weapon_interaction::kTitleKeys[i]);
+            int* setting=!strcmp(key,reloadKey)?&g_config.weapon_reload_button[i]:
+                !strcmp(key,switchKey)?&g_config.weapon_switch_button[i]:nullptr;
+            if (!setting) continue;
+            char* end=nullptr;
+            const long value=strtol(val,&end,10);
+            if (end!=val&&end&&*end==0&&value>=0&&value<8) *setting=static_cast<int>(value);
+            else LOG("config: invalid weapon gesture button '%s' ignored",key);
+            weaponButtonKey=true;
+            break;
+        }
+        if (weaponButtonKey) continue;
+        if (!strcmp(key,"manual_reload")) { g_config.manual_reload=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_pouch_down_m"))
+        {
+            ParseFloatSetting(key,val,g_config.weapon_pouch_down_m);
+            g_config.weapon_pouch_down_m=std::clamp(g_config.weapon_pouch_down_m,0.25f,0.85f);
+            continue;
+        }
+        if (!strcmp(key,"weapon_body_zone_radius_m"))
+        {
+            ParseFloatSetting(key,val,g_config.weapon_body_zone_radius_m);
+            g_config.weapon_body_zone_radius_m=std::clamp(g_config.weapon_body_zone_radius_m,0.12f,0.28f);
+            continue;
+        }
+        if (!strcmp(key,"weapon_holster_location"))
+        { g_config.weapon_holster_location=atoi(val)==1?1:0;continue; }
         if (!strcmp(key, "dpad_head_radius"))
         {
             ParseFloatSetting(key, val, g_config.dpad_head_radius);
@@ -1708,6 +1742,21 @@ void ConfigSave()
     fprintf(f, "# Automatically enter VR when a level loads (no F2/F11 needed).\n");
     fprintf(f, "# (default %d)\n", d.auto_vr ? 1 : 0);
     fprintf(f, "auto_vr = %d\n\n", g_config.auto_vr ? 1 : 0);
+    fprintf(f, "# Optional pouch-to-gun reload and shoulder/hip reserve-weapon draw.\n");
+    fprintf(f, "# Off by default; native ammo, reload animation and inventory rules remain.\n");
+    fprintf(f, "manual_reload = %d\nweapon_holsters = %d\n",g_config.manual_reload?1:0,g_config.weapon_holsters?1:0);
+    fprintf(f, "weapon_pouch_down_m = %.3f\nweapon_body_zone_radius_m = %.3f\n",
+        g_config.weapon_pouch_down_m,g_config.weapon_body_zone_radius_m);
+    fprintf(f, "# Holster location: 0 = weapon-side shoulder, 1 = weapon-side hip.\n");
+    fprintf(f, "weapon_holster_location = %d\n",g_config.weapon_holster_location);
+    fprintf(f, "# Match each title's MCC Reload and Switch Weapon controller buttons.\n");
+    fprintf(f, "# 0=X, 1=RB, 2=LB, 3=B, 4=Y, 5=A, 6=LT, 7=RT. CE/H2 share both graphics modes.\n");
+    for(unsigned i=0;i<weapon_interaction::kTitleCount;++i)
+    {
+        fprintf(f,"weapon_reload_button_%s = %d\n",weapon_interaction::kTitleKeys[i],g_config.weapon_reload_button[i]);
+        fprintf(f,"weapon_switch_button_%s = %d\n",weapon_interaction::kTitleKeys[i],g_config.weapon_switch_button[i]);
+    }
+    fprintf(f,"\n");
     fprintf(f, "# Two-handed aiming: put your left hand on the gun front and use the\n");
     fprintf(f, "# left grip to steady aim along the two-hand line. 1 = on.\n");
     fprintf(f, "# (default %d)\n", d.two_handed_aim ? 1 : 0);

@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-beam-h3-cortana',
+        'reload-holsters-ce-beam-h3-cortana',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1136,6 +1136,19 @@ try {
             headset_accepted = $false
         }
         current_accepted_source = 'd47a98c947dc60dd98d7259a29a7582d5f46df7f'
+        weapon_interactions = [ordered]@{
+            base_with_preserved_comfort_fixes = '918e2f23fb519c00aa920fde2970af0dc7df70eb'
+            titles = 'CE-Original-and-Anniversary; Halo2-Classic-and-Anniversary; Halo3; ODST; Reach; Halo4'
+            default_enabled = $false
+            manual_reload = 'support-hip-grip-pickup; carry-to-primary-grip-and-release; native-reload-request'
+            holsters = 'primary-side-shoulder-or-hip-grip; draw-25cm; native-carried-weapon-exchange'
+            input_mapping = 'user-selected-MCC-reload-and-switch-buttons-saved-per-title; initial-X-and-Y'
+            admission = 'focused-tracked-on-foot-single-weapon; same-title-generation-space-options-and-bindings'
+            limits = 'native-auto-reload-ammo-inventory-and-animation-retained; no-separate-magazine-or-holstered-gun-model; no-extra-inventory-or-empty-hand-state'
+            shared_input_tests = 'gesture-timelines; both-hands; all-six-titles; cancellation-and-held-grip-release; production-pad-reader; config-roundtrip'
+            evidence = 'docs/WEAPON-INTERACTIONS-2026-09-16.md'
+            headset_accepted = $false
+        }
         beam_cortana_comfort = [ordered]@{
             baseline_source = '35a4d096b1c535582134ab7be211eda739564aff'
             tester_source_is_latest = $true
@@ -1255,13 +1268,13 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate targets CE Anniversary beam glare and Halo 3 Cortana facing above latest 35a4d09; both corrections require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds optional manual reload and weapon holsters across all six titles and preserves 918e2f2 CE Anniversary beam glare and Halo 3 Cortana facing corrections above 35a4d09. All four items require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE Anniversary residual offscreen flare guard and Halo 3 shot-qualified cinematic facing. Keep existing config. Both MCC editions supported; package only; no installation, launch or publication. Read RELEASE-NOTES.md for test steps and evidence limits.'
+        note = 'Optional manual reload and weapon holsters, CE Anniversary residual offscreen flare guard, and Halo 3 shot-qualified cinematic facing. Keep existing config; new toggles default off in Weapon & Aim. Match per-title reload/switch inputs to MCC controller settings. Both editions; package only; no installation, launch or publication. Read RELEASE-NOTES.md for steps and limits.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-BEAM-H3-CORTANA-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/WEAPON-INTERACTIONS-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

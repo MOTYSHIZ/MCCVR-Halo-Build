@@ -17,6 +17,7 @@
 #include "d3d11_hook.h"
 #include "../common/log.h"
 #include "../common/config.h"
+#include "../common/weapon_interaction_logic.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -1042,6 +1043,47 @@ namespace
 
         if (g_activeCategory == Cat_WeaponAim)
         {
+        ImGui::Text("Reload and holsters");
+        changed |= ImGui::Checkbox("Manual Reload", &g_config.manual_reload);
+        if (g_config.manual_reload)
+            ImGui::TextDisabled("Hold your support grip at your hip to take a magazine.\n"
+                "Bring it below your weapon hand, then release to reload.\n"
+                "Halo plays its normal reload; ammo and automatic reload rules still apply.");
+        changed |= ImGui::Checkbox("Weapon Holsters", &g_config.weapon_holsters);
+        if (g_config.weapon_holsters)
+        {
+            changed |= ImGui::Combo("Holster location", &g_config.weapon_holster_location,
+                "Weapon-side shoulder\0Weapon-side hip\0");
+            ImGui::TextDisabled("Hold your weapon-hand grip at the holster, then draw it away.\n"
+                "Exchanges your current weapon with the other carried weapon.\n"
+                "The holster is a gesture zone; no extra weapon model is shown.");
+        }
+        if (g_config.manual_reload || g_config.weapon_holsters)
+        {
+            changed |= vr_menu::SliderFloat("Pouch / hip depth below head (m)",
+                &g_config.weapon_pouch_down_m,0.25f,0.85f,"%.2f");
+            changed |= vr_menu::SliderFloat("Body grab radius (m)",
+                &g_config.weapon_body_zone_radius_m,0.12f,0.28f,"%.2f");
+            static int layoutTitle=0;
+            static GameTitle previousLayoutTitle=GameTitle::None;
+            const GameTitle active=TitleAdapter_GetActiveTitle();
+            const int activeIndex=weapon_interaction::TitleIndex(active);
+            if(active!=previousLayoutTitle&&activeIndex>=0) layoutTitle=activeIndex;
+            previousLayoutTitle=active;
+            ImGui::Combo("Controller layout for",&layoutTitle,weapon_interaction::kTitleNames,6);
+            if(g_config.manual_reload)
+                changed |= ImGui::Combo("MCC Reload button",&g_config.weapon_reload_button[layoutTitle],
+                    weapon_interaction::kButtonNames);
+            if(g_config.weapon_holsters)
+                changed |= ImGui::Combo("MCC Switch Weapon button",&g_config.weapon_switch_button[layoutTitle],
+                    weapon_interaction::kButtonNames);
+            ImGui::TextDisabled("Match these buttons to that game's MCC controller settings.\n"
+                "Defaults are X / Y. Saved per title, including both CE/H2 graphics modes.\n"
+                "Mirrors for left-handed play. On foot with one weapon in hand only.\n"
+                "A short vibration marks each grab and completed gesture.\n"
+                "Regular buttons remain available.");
+        }
+        ImGui::Separator();
         ImGui::Text("Hand-held weapon");
         changed |= vr_menu::SliderFloat("Weapon size", &g_config.gun_scale, 0.3f, 3.0f, "%.2fx");
         ImGui::TextDisabled("Uniform scale of RIGHT hand + weapon about your grip (Home/End in-game).");

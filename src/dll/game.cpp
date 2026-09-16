@@ -41068,6 +41068,7 @@ namespace
                 }
             }
             RefreshGestureMeleeBinding(activeTitle,activeLevelRunning,pollNow);
+            VR_ReportWeaponInteractions(pollNow);
             {
                 uintptr_t ceBase=0; size_t ceSize=0;
                 const bool ceActive=activeTitle&&activeTitle->title==GameTitle::HaloCE&&
