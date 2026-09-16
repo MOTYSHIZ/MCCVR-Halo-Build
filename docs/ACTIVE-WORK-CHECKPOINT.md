@@ -1,5 +1,13 @@
 # Current publication — accepted d47a98c all-campaign release
 
+Publication COMPLETE: [Alpha 0.4.0 — All Campaigns in VR](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0).
+Release commit `aae5cf1a3037e5b2883052f9dadd907413abd357`; tested runtime remains `d47a98c`.
+All three public assets were downloaded and byte-verified after publication.
+The player ZIP contains exactly DLL, launcher, config and README. Source includes
+updated documentation and unchanged runtime source. Exact downloaded hashes are
+in `out/published-0.4.0-handoff.json` and the public SHA256.txt asset. No game was
+installed or launched. Wait for the next user instruction; publication is done.
+
 The user headset-ACCEPTS **d47a98c** and explicitly requests GitHub publication
 on the existing moistman42069/MCCVR-Halo-Build repository. This supersedes the
 older publication holds below. Publish Alpha 0.4.0 — All Campaigns in VR,
