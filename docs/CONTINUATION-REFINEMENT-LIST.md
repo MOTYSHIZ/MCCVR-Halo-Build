@@ -1,4 +1,29 @@
-# Latest continuation - September 15: native CE HUD and authored stock gun contact
+# Latest continuation - September 15 evening: CE switch crash and Reach HUD height
+
+Continue from user-tested **2cf002b**. CE Original's reticle, muzzle flash,
+tracking and overall behavior are now explicitly confirmed. Preserve those
+results and every existing contact/melee/gun-envelope feature. Fix the crash
+switching to Anniversary, retain complete Anniversary parity, and connect
+Reach's missing HUD-height control. The exact user log and matching Windows
+crash dump are preserved; read the newest checkpoint and
+`HALOCE-2CF002B-TEST-2026-09-15.md`. Do not stop at a HUD-hidden workaround.
+All prior standing/deferred work is retained, with this scope taking priority.
+
+Work autonomously through NEW build/source ZIPs with `package-candidate.ps1`
+without `-Install`. Deliver both in chat, then WAIT for testing/instructions.
+No launch, installation, game-folder writes, PR or publication. Both editions
+remain supported; cumulative accepted source stays `4e01f28`.
+
+The diagnosed native shader lifetime failure is corrected with owned retry
+and caller-bound HUD readiness; compatible Anniversary HUD replay and bounded
+partial-bind cleanup remain enabled through a new explicit path. Reach height
+uses its independently verified native anchor basis. Cumulative Release and
+all 24 suites pass. Read the latest checkpoint and
+`HALOCE-SWITCH-REACH-HEIGHT-CANDIDATE-2026-09-15.md` for verification and limits.
+Final archive identity is recorded only after verification in
+`out/ce-current-handoff.json`; deliver that new pair, then wait for testing.
+
+# Historical continuation - September 15: native CE HUD and authored stock gun contact
 
 Continue from user-tested `22cb813` through a NEW build ZIP and matching source
 ZIP. Both CE modes' injection, smooth VR, equal quality and muzzle alignment

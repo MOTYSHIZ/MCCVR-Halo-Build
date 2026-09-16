@@ -1,4 +1,72 @@
-# Current continuation - September 15: native CE HUD/reticles and weapon surfaces
+# Current continuation - September 15 evening: CE graphics switch and Reach height
+
+User-tested **2cf002b** confirms CE Original reticle, muzzle flash, gun tracking
+and overall behavior are correct. Preserve that base and all implemented
+contact/melee/weapon-envelope features. Original -> Anniversary crashes;
+Reach HUD height has no effect. User requests autonomous correction through a
+NEW build ZIP and matching source ZIP. Read `HALOCE-2CF002B-TEST-2026-09-15.md`.
+All standing/deferred scope remains. No launch, installation, game-folder write,
+PR or publication; package without `-Install`, deliver both ZIPs, then WAIT.
+
+Matching crash dump PID26776 is preserved with its log under
+`out/test-runs/2cf002b-ce-reach-feedback-20260915/`. Dump SHA-256
+`98E8590634329CE53B2872807D483CC913B36EB4E06FF38CCDB8B594C4305863`.
+Native HUD `halo1+B0EBC1` reads null shader `hud_meters` at slot `1B7D1F0`.
+All 138 native effect slots are empty and native initialized flag `2EA2D5C`
+is zero. The exact dumped mod branches show ordinary HUD fallback, before
+prepared target binding or eye replay. Do not attribute this crash to binder
+mutation. The prepared HUD enable was disabled separately in **8b6fd06**;
+retain its code. Native backend disposal `82170` clears the shader-ready flag,
+and reinitializer `80DD0` only restores effects when that flag remains set.
+The correction preserves the previously active native lifetime across the
+management-owned rebuild, validates all 138 restored effects and retains exact
+module/generation/backend intent for failed-reload retries. Previously inactive
+owners cannot inherit readiness. Ordinary HUD fallback now requires its own
+module/generation and native HUD resources even without an armed camera.
+Offline stack and native traces are under `out/ce-crash-*` and
+`out/ce-switch-unwound-stack-20260915.txt`. Read
+`HALOCE-RENDERER-RESOURCE-LIFETIME-EVIDENCE-2026-09-15.md`.
+
+Reach's absent height consumer is implemented through its own HREK-proven
+six-argument native anchor basis, isolated from captured reticles and camera
+ownership. Read `REACH-HUD-HEIGHT-2026-09-15.md` and its native verifier.
+An independent native target-binder audit also reproduced a partial-failure
+cleanup defect: dimensions are zeroed before attachment validation. The
+production guard now accepts only that exact owned intermediate descriptor;
+new production regressions fail before correction and pass afterward. This
+is not the observed shader crash cause. The separately enabled
+`kCeAnniversaryNativeReadyHudTargetsEnabled` retains the full-resolution late
+HUD for both eyes; all three older replay enables remain disabled.
+
+Final cumulative Release, all **24 CTest suites**, all **126 pinned contracts**,
+generated contracts, **19 production binding groups** and the Reach gate pass.
+CE production tests cover failed reload/retry, successful pool with missing
+effects, prior-zero isolation, SEH cleanup, stale generation/backend and
+caller-bound fallback readiness. Native lifecycle verification passes five
+cases; it executes the reload gate and cache loader separately, not complete
+driver initialization. Native target binding passes ten cases. Reach passes
+48 native HREK/retail cases and 175 production wrapper checks. Preserved CE
+weapon geometry, visibility, material and WARP particle checks also pass.
+Final reports use `out/ce-switch-reach-final-*`,
+`out/ce-resolution-lifecycle-native-20260915.json`,
+`out/ce-hud-target-prepared-final-20260915.json` and
+`out/reach-hud-height-native-20260915.json`.
+
+Release notes: `HALOCE-SWITCH-REACH-HEIGHT-CANDIDATE-2026-09-15.md`.
+Package the committed candidate without `-Install`; the script repeats build,
+tests and Reach gate. Verify both ZIPs, their sidecar hashes, embedded identity
+and exact source archive before updating the handoff. Deliver both, then WAIT
+for the user's headset testing/instructions. No further autonomous deployment.
+
+Accepted cumulative source stays `4e01f28`. Local checks never establish
+headset acceptance. Exact new archive identity belongs in
+`out/ce-current-handoff.json` only after complete archive/source/hash validation.
+Do not redeliver the old `2cf002b` pair. Existing exact-Saber/custom weapon
+surface, native melee target/selector and CE body-following limitations remain;
+all previous standing scope is retained. Test Reach height, CE switches both
+ways, Anniversary HUD and both modes' contact, plus the Halo 3 regression.
+
+# Historical continuation - September 15: native CE HUD/reticles and weapon surfaces
 
 Latest user test is **22cb813**, preserved under
 `out/test-runs/22cb813-ce-feedback-20260915/`. Read

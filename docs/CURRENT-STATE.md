@@ -1,5 +1,14 @@
 # Current state
 
+> **CE ORIGINAL CONFIRMED; SWITCH/REACH FIXES REQUIRED (2026-09-15).**
+> User-tested `2cf002b6b41dd69b2515469bde82cd2b1553d50d`: CE Original reticle,
+> muzzle flash, gun tracking and overall behavior are confirmed working.
+> Switching to Anniversary crashes, and Reach HUD height has no visible effect.
+> Read `HALOCE-2CF002B-TEST-2026-09-15.md`. Preserve Original and all previously
+> implemented contact/tracking features while correcting those failures.
+> This scoped result does not advance cumulative accepted source `4e01f28`.
+> Delivery remains new build/source ZIPs only, followed by waiting for testing.
+
 > **CE WORKING BASE CONFIRMED, REFINEMENT REQUIRED (2026-09-15).**
 > User-tested source `22cb8134e02ea84fc455d4ef3a2f284268ffe49b` gives
 > smooth working VR in Original and Anniversary, equivalent image quality,

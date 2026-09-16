@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-native-hud-weapon-contact',
+        'ce-switch-reach-hud-height',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1135,23 +1135,24 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
-            previous_headset_result = '22cb813-both-CE-modes-inject-and-run-smoothly-with-equal-quality-and-correct-muzzles; Original-HUD-good; both-reticles-temporary; Anniversary-HUD-missing; hands-contact-but-guns-do-not'
-            rejected_previous_candidate = '22cb813-partial-success-not-cumulative-acceptance; failed-unprepared-Anniversary-HUD-disabled-separately-in-48cf9b0; working-base-preserved'
-            correction = 'CE-native-RGB-reticle-coverage-and-authored-upload-alpha; prepared-Anniversary-HUD-attachments; all-12-stock-CE-weapon-envelopes-through-live-bones-for-world-contact-and-physical-strikes'
+            previous_headset_result = '2cf002b-Original-reticle-muzzle-tracking-and-overall-behavior-confirmed; Original-to-Anniversary-crashes; Reach-height-inert'
+            rejected_previous_candidate = '2cf002b-switch-crash; prepared-HUD-disabled-separately-in-8b6fd06; dump-later-proves-native-shader-lifecycle-failure-before-target-preparation; Original-feature-confirmation-preserved'
+            correction = 'preserve-native-HUD-resource-lifetime-through-full-resolution-rebuild; guard-disposed-native-HUD-even-on-ordinary-fallback; repair-owned-partial-target-cleanup; Reach-native-height-control'
             graphics = 'Classic-and-Anniversary-stereo-6DoF-test'
             native_views = 'Anniversary-prepared-before-culling; Classic-native-render-only-eye-replay'
             submitted_pose = 'exact-native-preparation-receipt'
             source_storage = 'owned-D3D11-per-eye-textures'
             graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
-            controller_aim_hands_hud_parity = '22cb813-working-Original-HUD-and-both-mode-hands-preserved; native-reticle-pixels-and-Anniversary-HUD-refined; new-headset-test-required'
+            controller_aim_hands_hud_parity = '2cf002b-working-Original-reticle-HUD-hands-aim-muzzles-preserved; Anniversary-full-resolution-HUD-and-contact-features-retained; new-headset-test-required'
             world_render_failure = 'earlier-58f71a4-copy-shape-failure-absent-in-22cb813-supplied-run; user-confirms-working-both-mode-VR; long-session-and-all-relaunch-scenarios-not-established'
             anniversary_resolution = 'full-native-height-independent-color-depth-eye-targets; double-height-packed-output; native-HUD-canvas-kept-separate; managed-owner-thread-reallocation'
             native_resolution_verifier = 'tools/re/test_ce_resolution_native.py'
+            native_resolution_lifecycle_verifier = 'tools/re/test_ce_resolution_lifecycle_native.py'
             native_contact_verifier = 'tools/re/test_ce_contact_native.py'
             scene_refresh = 'native-request-only-at-one-two-camera-transition; authored-hidden-and-geometric-culling-preserved'
             desktop_mirror = 'one-completed-eye-aspect-and-gamma-correct; both-eye-submissions-preserved'
             native_scene_refresh_verifier = 'tools/re/test_ce_scene_refresh_native.py'
-            anniversary_hud_replay = 'manual-outer-callback-and-unprepared-adapter-disabled; prepared-late-native-gameplay-HUD-targets-both-packed-eye-regions; optional-failure-preserves-world'
+            anniversary_hud_replay = 'old-manual-unprepared-and-prepared-enables-remain-disabled; separate-native-ready-path-retains-coherent-late-targets-both-eye-regions; optional-failure-preserves-world'
             floating_hands = 'official-CE-arm-geometry-collapses-at-own-tracked-wrist; old-camera-origin-collapse-disabled-in-separate-commit'
             anniversary_skin_scale = 'native-copied-bone-source-owns-its-scale-through-next-prepare; stock-scale-one-byte-identical'
             anniversary_weapon_lens = 'native-material-worker-policy; current-generation-reference-gameplay-and-native-FP-selector-proof; each-eye-later-selects-own-world-matrix'
@@ -1168,7 +1169,7 @@ try {
             native_pause = 'native-pause-retained; CE-ownership-loss-clears-head-lock-even-with-resident-module; shared-YB-shortcut'
             classic_weapon_effect_lens = 'optional-proven-first-person-consumers-retain-tracked-world-lens; native-depth-and-restore-preserved'
             performance = '22cb813-user-confirms-smooth-equal-quality-both-mode-VR; log-still-records-missed-display-deadlines; no-native-90-FPS-claim'
-            transition_crashes = 'failed-manual-HUD-replay-remains-disabled; metadata-reallocation-recovery-verified-locally; broad-long-session-recovery-unproven'
+            transition_crashes = 'PID26776-dump-proves-null-hud_meters-after-native-resource-disposal; native-initialized-lifetime-preserved-for-authored-reload; ordinary-HUD-fallback-guarded; broad-long-session-recovery-unproven'
             physical_melee_world_collision = 'all-12-stock-CE-model-envelopes-from-21180-weapon-vertices-and-58-weighted-bones; 14-weapon-samples-plus-hand-nodes; every-weapon-sample-enters-world-and-melee-sweeps; native-biped-damage; new-headset-test-required'
             weapon_geometry_limit = 'stock-CE-physical-envelope-shared-deliberately-by-Original-and-Anniversary; triangle-exact-Saber-replacement-and-custom-model-surfaces-not-established; unknown-graphs-retain-logged-node-contact'
             native_reticle_verifier = 'tools/re/test_ce_reticle_blend_native.py'
@@ -1177,14 +1178,20 @@ try {
             headset_accepted = $false
             editions = 'Steam-and-Microsoft-Store'
         }
+        reach_hud_height = [ordered]@{
+            implementation = 'HREK-proven-six-argument-native-anchor-basis; one-height-translation-after-parent-composition; captured-aim-reticle-excluded'
+            native_verifier = 'tools/re/verify_reach_hud_height.py'
+            evidence = 'docs/REACH-HUD-HEIGHT-2026-09-15.md'
+            headset_accepted = $false
+        }
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE native HUD and weapon contact refinement from user-tested 22cb813: native RGB reticle capture/upload, prepared Anniversary HUD attachments, and all stock CE weapon envelopes for contact/physical strikes. Working camera/resolution/muzzles/Original HUD preserved. Build/native/GPU checks do not establish new headset acceptance. Keep existing config. Both editions; package only; cumulative accepted pointer unchanged.'
+        note = 'CE graphics-switch shader lifecycle correction and Reach HUD height from user-tested 2cf002b. Preserve Original reticle/tracking/muzzles and both-mode full resolution, hands, gun contact and physical melee. Build/native/GPU checks do not establish new headset acceptance. Keep existing config. Both editions; package only; cumulative accepted pointer unchanged.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-NATIVE-HUD-WEAPON-CONTACT-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-SWITCH-REACH-HEIGHT-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6
