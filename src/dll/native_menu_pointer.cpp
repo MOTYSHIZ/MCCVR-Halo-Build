@@ -14,6 +14,10 @@ std::atomic<uint64_t> sample{0};
 std::atomic<bool> queued{false};
 std::atomic<bool> delivered{false};
 std::atomic<unsigned> postFailures{0};
+std::atomic<uint64_t> visual{0};
+std::atomic<unsigned> moveCount{0}, clickCount{0};
+std::atomic<unsigned> cursorFailures{0};
+std::atomic<const char*> frameStatus{"no-screen"}, deliveryStatus{"idle"};
 // All remaining state belongs exclusively to MCC's window thread.
 game_menu_pointer::Pointer pointer;
 UINT_PTR timer = 0;
@@ -36,10 +40,12 @@ bool Button(bool down)
     input.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
     if (SendInput(1, &input, sizeof(input)) != 1) return false;
     mouseDown = down;
+    if (down) clickCount.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 void Fault()
 {
+    deliveryStatus.store("Windows-input-failed");
     if (!faultLogged) {
         LOG("game menu pointer: Windows mouse delivery unavailable; native menu controls retained");
         faultLogged = true;
@@ -48,6 +54,7 @@ void Fault()
 void Cancel()
 {
     delivered.store(false, std::memory_order_release);
+    visual.store(0, std::memory_order_release);
     pointer.Reset();
     if (!Button(false)) Fault();
     // Retry a failed release on the existing timer. Never forget a sent down.
@@ -64,14 +71,14 @@ void Apply()
     const bool allowed = Allowed() && GetClientRect(window, &client);
     const auto result = pointer.Update(sample.load(std::memory_order_acquire),
         GetTickCount(), allowed, client.right-client.left, client.bottom-client.top);
-    if (!result.move) { Cancel(); return; }
+    if (!result.move) { deliveryStatus.store(allowed ? "inactive-ray" : "focus-or-menu-gate"); Cancel(); return; }
     // Do not take over a physical mouse drag. An injected down is tracked
     // separately and always balanced on miss, focus loss, F1 or stale input.
-    if (!mouseDown && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)) { Cancel(); return; }
+    if (!mouseDown && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)) { deliveryStatus.store("physical-drag"); Cancel(); return; }
     POINT target{result.x, result.y};
     if (!ClientToScreen(window, &target)) { Cancel(); Fault(); return; }
     const HWND under = WindowFromPoint(target);
-    if (under != window && !IsChild(window, under)) { Cancel(); return; }
+    if (under != window && !IsChild(window, under)) { deliveryStatus.store("window-covered"); Cancel(); return; }
     if (!timer) timer = SetTimer(nullptr, 0, 50, Watchdog);
     if (!timer) { Cancel(); Fault(); return; }
     // Our DLL caller bypasses MCC's fitted-window coordinate remap. Send
@@ -82,7 +89,14 @@ void Apply()
         Cancel(); Fault(); return;
     }
     if (!Button(result.pressed)) { Cancel(); Fault(); }
-    else delivered.store(true, std::memory_order_release);
+    else {
+        moveCount.fetch_add(1, std::memory_order_relaxed);
+        deliveryStatus.store("delivered");
+        visual.store(game_menu_pointer::Pack(GetTickCount(), true,
+            float(result.x) / (client.right-client.left),
+            float(result.y) / (client.bottom-client.top), mouseDown), std::memory_order_release);
+        delivered.store(true, std::memory_order_release);
+    }
 }
 }
 
@@ -113,8 +127,33 @@ bool NativeMenuPointer_ConsumesTrigger()
 }
 void NativeMenuPointer_ReportFailures()
 {
+    if(cursorFailures.exchange(0))
+        LOG("game menu cursor: frame submission rejected; optional ring disabled for this session, native input and core VR retained");
     const unsigned failures = postFailures.exchange(0, std::memory_order_relaxed);
     if (failures) LOG("game menu pointer: %u window-message delivery failures; native controls retained", failures);
+    static DWORD lastReport = 0;
+    static int lastEnabled = -1;
+    const int enabled = g_config.game_menu_pointer ? 1 : 0;
+    const DWORD now = GetTickCount();
+    if (lastEnabled != enabled || (enabled && DWORD(now-lastReport) >= 2000)) {
+        lastReport = now; lastEnabled = enabled;
+        LOG("game menu pointer: enabled=%d hand=%s mode=%u frame=%s delivery=%s active=%d moves=%u clicks=%u",
+            enabled, g_config.left_handed ? "left" : "right", unsigned(TitleAdapter_GetRuntimeMode()),
+            frameStatus.load(), deliveryStatus.load(),
+            int(game_menu_pointer::FreshActive(visual.load(), now)), moveCount.load(), clickCount.load());
+    }
+}
+void NativeMenuPointer_FrameStatus(const char* status) { frameStatus.store(status, std::memory_order_relaxed); }
+void NativeMenuPointer_CursorFailed() { cursorFailures.fetch_add(1, std::memory_order_relaxed); }
+bool NativeMenuPointer_ReadVisual(float& u, float& v, bool& pressed)
+{
+    const auto packet = visual.load(std::memory_order_acquire);
+    if (!delivered.load(std::memory_order_acquire) ||
+        !game_menu_pointer::FreshActive(packet, GetTickCount())) return false;
+    u = float(packet & 32767) / 32767.0f;
+    v = float((packet >> 15) & 32767) / 32767.0f;
+    pressed = (packet & (1ull << 30)) != 0;
+    return true;
 }
 bool NativeMenuPointer_Message(UINT msg)
 {

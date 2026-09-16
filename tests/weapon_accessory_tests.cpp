@@ -43,6 +43,15 @@ int main(int argc,char** argv)
             Sample s{};s.title=model.title;s.now=1000;s.generation=2;s.space=4;s.ready=true;
             s.weaponGraph=model.identity;s.head={0,1.6f,0};s.primary={.2f,1.2f,-.5f};s.support={-.2f,1.2f,-.5f};
             Settings c{};c.reload=true;c.leftHanded=left;
+            for(bool holsters:{false,true}) for(bool held:{false,true}) {
+                auto disabled=c;disabled.reload=false;disabled.holsters=holsters;
+                Output output{};output.holdingMagazine=held;
+                Check(!weapon_accessory::Build(s,disabled,output,{}).model,
+                    "manual reload off hides every authored part, including holster-only and stale held state");
+                auto custom=s;custom.weaponGraph=0xF123456789ABCDEF;
+                Check(!weapon_accessory::Build(custom,disabled,output,{}).model,
+                    "manual reload off hides generic custom-weapon item with either holster state");
+            }
             auto p=weapon_accessory::Build(s,c,{},{});
             Check((p.model!=nullptr)==(model.vertexCount!=0),"only actual reload geometry creates presentation");
             if(p.model)

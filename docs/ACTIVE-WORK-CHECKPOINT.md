@@ -1,3 +1,34 @@
+# CURRENT: repair native-menu pointer; magazine visibility audit
+
+User confirms 59f2a82 is otherwise tolerable and asks to package it first, then
+fix the enabled right-hand pointer in MCC menus. Follow-up: investigate mags
+visible before Manual Reload and fix if confirmed. No other standing work.
+
+The unchanged 59f2a82 source was packaged BEFORE changes and its two archives
+verified: out/pointer-preserved-baseline-handoff.json. The pointer failure was
+disabled in its own commit 5666e83 before correction; legacy code stays dormant.
+The supplied log proves the six-module shell is RuntimeMode::Unsupported, which
+the previous pointer rejected. New optional menu gate admits that screen;
+visible white VR cursor follows successful native mouse delivery. F1 and all
+camera, weapon, reload, holster, edition and earlier behavior remain preserved.
+Read GAME-MENU-POINTER-FIX-2026-09-16.md for source/log evidence and limits.
+
+Magazine suspicion was NOT confirmed: log records reload=1 before first draw;
+production preparation and draw gates reject disabled reload. Added coverage
+checks all models/hands, holsters-only, generic and retained held-item states.
+No speculative magazine behavior change. Release, all 39 CTest suites, Reach
+consistency gate, 158 pointer checks and 4,945 accessory checks PASS locally.
+
+Finalize commit/package WITHOUT -Install, verify both archives, deliver the
+new pair and WAIT for testing. Exact correction handoff:
+out/game-menu-pointer-current-handoff.json. VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST
+means ready to deliver, not headset success. Pointer/native-widget behavior,
+Halo 3 regression and both-edition coverage still need user testing. No install,
+game launch, game-folder writes, publication or PR. CURRENT-STATE.md and the
+cumulative accepted d47a98c pointer stay unchanged. Preserve historical scope.
+
+# Historical checkpoint follows
+
 # CURRENT: optional native game-menu pointing above b4ffa80
 
 Latest user request: preserve the most recently delivered reload/accessory ZIP
@@ -369,9 +400,9 @@ body/grenade/audio feel, light streaks, melee tuning and Halo 3 regression all
 require the user's test. Accepted d47a98c and all prior deferred scope remain
 intact. Never advance `CURRENT-STATE.md` from local checks alone.
 
-# Current publication — accepted d47a98c all-campaign release
+# Current publication â€” accepted d47a98c all-campaign release
 
-Publication COMPLETE: [Alpha 0.4.0 — All Campaigns in VR](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0).
+Publication COMPLETE: [Alpha 0.4.0 â€” All Campaigns in VR](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0).
 Release commit `aae5cf1a3037e5b2883052f9dadd907413abd357`; tested runtime remains `d47a98c`.
 All three public assets were downloaded and byte-verified after publication.
 The player ZIP contains exactly DLL, launcher, config and README. Source includes
@@ -381,7 +412,7 @@ installed or launched. Wait for the next user instruction; publication is done.
 
 The user headset-ACCEPTS **d47a98c** and explicitly requests GitHub publication
 on the existing moistman42069/MCCVR-Halo-Build repository. This supersedes the
-older publication holds below. Publish Alpha 0.4.0 — All Campaigns in VR,
+older publication holds below. Publish Alpha 0.4.0 â€” All Campaigns in VR,
 tag `MCC_VR_ALPHA_0.4.0`, preserving the exact tested DLL, launcher and config.
 No rebuild, game installation or launch. Runtime source: `d47a98c947dc60dd98d7259a29a7582d5f46df7f`.
 DLL SHA-256: `ADAB506E9E3BFB1E04DBBF767FDD907EFD414526863AB5C837FD65E7FAB95922`.
@@ -471,7 +502,7 @@ The user explicitly accepts the delivered **5ac02f5** candidate as a good
 baseline and requests preservation and GitHub publication as the first release
 where all MCC campaigns are playable. Publish the exact existing build ZIP and
 matching source ZIP; do not rebuild the runtime. Release title/tag:
-`Halo MCC VR Alpha 0.4.0 — All Campaigns Release` /
+`Halo MCC VR Alpha 0.4.0 â€” All Campaigns Release` /
 `MCC_VR_ALPHA_0.4.0`.
 
 Accepted identity: source
@@ -1428,7 +1459,7 @@ OpenXR/title admission is wired yet; no claim of functioning injection. Release,
 five tests and Reach consistency pass; packaging remains held. Accepted pointer
 stays 4e01f28. Do not repeat completed offline investigation or package scaffolding.
 
-# ACTIVE — September 12, 2026: Halo CE Anniversary VR bring-up
+# ACTIVE â€” September 12, 2026: Halo CE Anniversary VR bring-up
 
 LATEST delivery instruction: package a test ZIP as soon as the CE implementation
 reaches a state reasonably expected to work. Do not wait for complete CE parity
@@ -1458,7 +1489,7 @@ Read HALOCE-BRINGUP-2026-09-12.md for current CE progress and exact blockers.
 Preserve existing title behavior, both MCC editions, and accepted pointer 4e01f28.
 No installation, MCC launch, game-file modification or GitHub action is authorized.
 
-# Historical pause — September 11, 2026: weekly usage checkpoint
+# Historical pause â€” September 11, 2026: weekly usage checkpoint
 
 User explicitly requested saving this checkpoint and stopping; wait until they
 say to resume. Latest exact stopping point is the new first section in
@@ -1470,7 +1501,7 @@ but NOT written. GitHub release task was cancelled because user uploaded it.
 Preserve main-gun-hand-directed vehicle controls; do not replace with wheel/stick.
 H2 AI feedback and source/history explanation are recorded in the detailed pause.
 
-# Historical resume — September 11, 2026: Halo 2 vehicles and all-title zoom
+# Historical resume â€” September 11, 2026: Halo 2 vehicles and all-title zoom
 
 LATEST vehicle clarification: user observes the other games following the right
 controller/main gun hand wherever it points and explicitly wants that retained.
@@ -1493,7 +1524,7 @@ this is positive user feedback, not cumulative build acceptance. Vehicle control
 and zoom remain the priorities. Packaging stays held until both are implemented
 and checked, then deliver build/source ZIPs without installation or game launch.
 
-# Historical pause — September 11, 2026: exact delivered-build continuation
+# Historical pause â€” September 11, 2026: exact delivered-build continuation
 
 User requested a checkpoint and STOP; wait for their explicit resume instruction.
 Read [VEHICLE-ZOOM-PAUSED-2026-09-11.md](VEHICLE-ZOOM-PAUSED-2026-09-11.md)
@@ -1589,7 +1620,7 @@ handoff, not an accepted pointer. Further refinements remain in the standing lis
 
 ## Historical checkpoint entries (preserved for continuity)
 
-# Active MCCVR work checkpoint — September 9, 2026
+# Active MCCVR work checkpoint â€” September 9, 2026
 
 ## Latest continuation instruction (supersedes the historical WIP hold below)
 

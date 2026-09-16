@@ -790,7 +790,7 @@ namespace
         changed |= ImGui::Checkbox("Point at game menus", &g_config.game_menu_pointer);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Aim your primary controller at MCC's main or pause menu, then pull its trigger to click.\n"
-                              "Uses the same hand as the F1 pointer. MCC must have desktop focus.\n"
+                              "A white ring marks the cursor and shrinks when clicked. MCC must have desktop focus.\n"
                               "Release the trigger before your first click. Off preserves normal menu controls.");
         ImGui::TextDisabled("L3+R3 recenters and toggles this menu; the right trigger clicks the VR pointer.");
         }

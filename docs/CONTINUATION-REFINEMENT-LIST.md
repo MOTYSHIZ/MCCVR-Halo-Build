@@ -1,3 +1,34 @@
+# CURRENT: repair native-menu pointer; magazine visibility audit
+
+User confirms 59f2a82 is otherwise tolerable and asks to package it first, then
+fix the enabled right-hand pointer in MCC menus. Follow-up: investigate mags
+visible before Manual Reload and fix if confirmed. No other standing work.
+
+The unchanged 59f2a82 source was packaged BEFORE changes and its two archives
+verified: out/pointer-preserved-baseline-handoff.json. The pointer failure was
+disabled in its own commit 5666e83 before correction; legacy code stays dormant.
+The supplied log proves the six-module shell is RuntimeMode::Unsupported, which
+the previous pointer rejected. New optional menu gate admits that screen;
+visible white VR cursor follows successful native mouse delivery. F1 and all
+camera, weapon, reload, holster, edition and earlier behavior remain preserved.
+Read GAME-MENU-POINTER-FIX-2026-09-16.md for source/log evidence and limits.
+
+Magazine suspicion was NOT confirmed: log records reload=1 before first draw;
+production preparation and draw gates reject disabled reload. Added coverage
+checks all models/hands, holsters-only, generic and retained held-item states.
+No speculative magazine behavior change. Release, all 39 CTest suites, Reach
+consistency gate, 158 pointer checks and 4,945 accessory checks PASS locally.
+
+Finalize commit/package WITHOUT -Install, verify both archives, deliver the
+new pair and WAIT for testing. Exact correction handoff:
+out/game-menu-pointer-current-handoff.json. VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST
+means ready to deliver, not headset success. Pointer/native-widget behavior,
+Halo 3 regression and both-edition coverage still need user testing. No install,
+game launch, game-folder writes, publication or PR. CURRENT-STATE.md and the
+cumulative accepted d47a98c pointer stay unchanged. Preserve historical scope.
+
+# Historical checkpoint follows
+
 # CURRENT: optional native game-menu pointing above b4ffa80
 
 Latest user request: preserve the most recently delivered reload/accessory ZIP
@@ -747,7 +778,7 @@ Use the latest section of HALOCE-BRINGUP-2026-09-12.md and E-CE-7 for the exact
 handoff; retain every completed and deferred item below. Accepted pointer stays
 4e01f28 and packaging stays held for credible comparable 6DoF.
 
-# Latest override — September 12 Halo CE Anniversary priority
+# Latest override â€” September 12 Halo CE Anniversary priority
 
 Package the first credible CE test implementation promptly, per latest user
 instruction; do not wait for full parity or the deferred refinements. Include
@@ -765,7 +796,7 @@ The all-title zoom task is retained after the new CE priority. Older statements
 excluding CE or requiring vehicle+zoom completion before any new scope are
 superseded. See ACTIVE-WORK-CHECKPOINT.md and HALOCE-BRINGUP-2026-09-12.md.
 
-# Historical override — September 11 weekly usage pause
+# Historical override â€” September 11 weekly usage pause
 
 User requested checkpoint and STOP until explicit resume. See the latest first
 section of VEHICLE-ZOOM-PAUSED-2026-09-11.md. No vehicle/zoom implementation or
@@ -773,7 +804,7 @@ new tests exist yet; HEAD is still cfb22ed. Retain the clarified hand-directed
 vehicle priority, positive H2 AI feedback, and all-title zoom requirement below.
 GitHub release task is cancelled/completed manually by the user.
 
-# Historical override — September 11 vehicle/zoom work resumed
+# Historical override â€” September 11 vehicle/zoom work resumed
 
 Vehicle clarification: retain the observed main-gun-hand-directed steering/aim
 in other games and make H2 follow that same behavior. Pointing the right/main
@@ -788,7 +819,7 @@ responsive/attentive AI in both renderers, apparently fixed. Source/history chec
 is requested, but no AI behavior change absent a demonstrated need. Exact test
 identity/log is not supplied and the accepted pointer remains unchanged.
 
-# Historical override — September 11 vehicle/zoom work paused
+# Historical override â€” September 11 vehicle/zoom work paused
 
 User explicitly requested "save a checkpoint here and stop" and will say when
 to resume. See [VEHICLE-ZOOM-PAUSED-2026-09-11.md](VEHICLE-ZOOM-PAUSED-2026-09-11.md).
@@ -856,7 +887,7 @@ H4 damage blackout and the minor H2 tank-exit reticle report remain deferred.
 Older packaging holds and "no roomscale code" entries below are historical and
 superseded. Use ACTIVE-WORK-CHECKPOINT.md for exact current status.
 
-# Standing user refinement list — September 9, 2026
+# Standing user refinement list â€” September 9, 2026
 
 User approved this list and requested that it guide every future "continue",
 including a new chat. Read ACTIVE-WORK-CHECKPOINT.md for the exact resume point;

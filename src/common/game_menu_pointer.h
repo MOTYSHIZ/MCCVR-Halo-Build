@@ -7,7 +7,11 @@
 namespace game_menu_pointer {
 inline bool MenuMode(RuntimeMode mode, bool pauseScreen) noexcept
 {
-    return mode == RuntimeMode::Shell || mode == RuntimeMode::Paused || pauseScreen;
+    // MCC's shell preloads all six modules. The camera-owner resolver calls
+    // that Unsupported; it is not evidence that the displayed menu is absent.
+    // Callers additionally require an actual stock-screen submission.
+    return mode == RuntimeMode::Shell || mode == RuntimeMode::Unsupported ||
+        mode == RuntimeMode::Paused || pauseScreen;
 }
 
 // One atomic word carries coordinates, button and freshness together. A missed

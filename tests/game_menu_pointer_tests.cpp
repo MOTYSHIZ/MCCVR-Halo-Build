@@ -6,6 +6,7 @@
 #include <vector>
 #include "config.h"
 #include "game_menu_pointer.h"
+#include "game_menu_pointer_xr.h"
 
 static HWND fakeWindow = reinterpret_cast<HWND>(uintptr_t{1});
 static bool focused = true, minimized = false, f1 = false, pauseScreen = false;
@@ -72,8 +73,45 @@ int main()
 {
     using namespace game_menu_pointer;
     for (int m=0;m<=int(RuntimeMode::Unsupported);++m)
-        Check(MenuMode(RuntimeMode(m),false)==(m==int(RuntimeMode::Shell)||m==int(RuntimeMode::Paused)),
-            "only shell/pause runtime modes admit pointing");
+        Check(MenuMode(RuntimeMode(m),false)==(m==int(RuntimeMode::Shell)||m==int(RuntimeMode::Paused)||m==int(RuntimeMode::Unsupported)),
+            "preloaded shell and pause admit pointing; live gameplay/loading do not");
+    XrCompositionLayerQuad quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    quad.pose={{0,0,0,1},{0,0,-2.4f}};quad.size={4,4*2100.0f/2912};
+    XrPosef head{{0,0,0,1},{0,0,0}},aim=head;
+    float hitU=0,hitV=0;
+    Check(RayHit(quad,aim,head,false,hitU,hitV)&&std::fabs(hitU-.5f)<.0001f&&std::fabs(hitV-.5f)<.0001f,
+        "main-menu ray hits actual 2912x2100 stock quad center");
+    for(bool view:{false,true}) for(float yaw:{0.0f,2.474877f}) for(float u:{.1f,.5f,.9f}) for(float v:{.1f,.5f,.9f}) {
+        const XrQuaternionf rotation{0,std::sin(yaw/2),0,std::cos(yaw/2)};
+        const XrVector3f anchor{-3,-.2f,-1.3f};
+        head={rotation,anchor};aim.orientation=rotation;
+        const auto hand=RotatePoint(rotation,{(u-.5f)*4,(.5f-v)*quad.size.height,0});
+        aim.position={anchor.x+hand.x,anchor.y+hand.y,anchor.z+hand.z};
+        quad.pose={{0,0,0,1},{0,0,-2.4f}};
+        if(!view) {
+            quad.pose.orientation=rotation;
+            const auto center=RotatePoint(rotation,{0,0,-2.4f});
+            quad.pose.position={anchor.x+center.x,anchor.y+center.y,anchor.z+center.z};
+        }
+        Check(RayHit(quad,aim,head,view,hitU,hitV)&&std::fabs(hitU-u)<.0001f&&std::fabs(hitV-v)<.0001f,
+            "rotated/recentered local shell and view-space pause map full menu");
+        const auto cursorQuad=CursorQuad(quad,XR_NULL_HANDLE,u,v,false);
+        auto cursorLocal=InversePoint(quad.pose,cursorQuad.pose.position);
+        Check(std::fabs(cursorLocal.x-(u-.5f)*4)<.0001f&&std::fabs(cursorLocal.y-(.5f-v)*quad.size.height)<.0001f,
+            "visible cursor overlays exact delivered hover coordinates");
+        Check(cursorQuad.space==quad.space&&cursorQuad.subImage.imageRect.extent.width==32&&
+            cursorQuad.size.width>CursorQuad(quad,XR_NULL_HANDLE,u,v,true).size.width,
+            "cursor keeps screen space and contracts on click");
+    }
+    quad.pose={{0,0,0,1},{0,0,-2.4f}};head={{0,0,0,1},{0,0,0}};aim=head;
+    aim.orientation={0,1,0,0};Check(!RayHit(quad,aim,head,false,hitU,hitV),"backward ray rejects");
+    aim=head;aim.position.x=3;Check(!RayHit(quad,aim,head,false,hitU,hitV),"off-menu ray rejects");
+    aim=head;aim.position.z=-3;Check(!RayHit(quad,aim,head,false,hitU,hitV),"behind-menu ray rejects");
+    aim=head;aim.orientation.w=0;Check(!RayHit(quad,aim,head,false,hitU,hitV),"invalid pose rejects");
+    aim=head;quad.size.width=std::numeric_limits<float>::quiet_NaN();
+    Check(!RayHit(quad,aim,head,false,hitU,hitV),"nonfinite quad rejects");
+    Check(CursorPixel(0,0)==0&&CursorPixel(16,16)==0&&CursorPixel(16,5)==0xFFFFFFFFu&&
+        CursorPixel(16,1)==0xFF101010u,"cursor has transparent surround/center and contrasting ring");
     Pointer p;
     Check(!FreshActive(Pack(now,true,std::numeric_limits<float>::quiet_NaN(),.5f,false),now),"NaN rejects");
     Check(!FreshActive(Pack(now,true,1.01f,.5f,false),now),"outside rejects");
@@ -98,7 +136,11 @@ int main()
     const int beforeMoves=moves; Frame(true,true);
     Check(moves==beforeMoves,"background cannot move pointer");
     focused=true; Frame(true); Frame(true,true);
+    float visualU=0,visualV=0;bool visualPressed=false;
+    Check(NativeMenuPointer_ReadVisual(visualU,visualV,visualPressed)&&visualPressed,
+        "visible cursor receives successfully delivered mouse press");
     f1=true; Watchdog(nullptr,0,0,0); Check(!mouseDown,"F1 releases"); f1=false;
+    Check(!NativeMenuPointer_ReadVisual(visualU,visualV,visualPressed),"F1 cancellation hides native cursor");
     Frame(true); Frame(true,true); now+=201; Watchdog(nullptr,0,0,0);
     Check(!mouseDown&&!timer,"stalled render watchdog releases and stops timer");
     Frame(true); Frame(true,true); mode=RuntimeMode::Gameplay;
@@ -106,6 +148,9 @@ int main()
     Frame(true); Check(!NativeMenuPointer_ConsumesTrigger(),"gameplay never consumes trigger");
     mode=RuntimeMode::Paused; Frame(true);
     Check(NativeMenuPointer_ConsumesTrigger(),"pause hover consumes VR trigger only");
+    mode=RuntimeMode::Unsupported; Frame(true); Frame(true,true);
+    Check(mouseDown&&NativeMenuPointer_ConsumesTrigger(),"reported six-module shell now delivers trigger click");
+    Frame(true);
     physicalDown=true; Frame(true,true); Check(!mouseDown,"physical drag remains native"); physicalDown=false;
     covered=true; Frame(true); Check(!mouseDown,"covered window cannot click"); covered=false;
     Frame(true); sendOk=false; Frame(true,true); Check(!mouseDown&&logs>0,"send failure stays optional and logs"); sendOk=true;

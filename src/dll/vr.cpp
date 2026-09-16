@@ -28,6 +28,7 @@
 #include "menu.h"
 #include "native_menu_pointer.h"
 #include "../common/game_menu_pointer.h"
+#include "../common/game_menu_pointer_xr.h"
 #include "game.h"
 #include "haloce_stereo_core.h"
 #include "../common/haloce_pause_logic.h"
@@ -161,6 +162,10 @@ namespace
     uint32_t g_screenW = 0, g_screenH = 0;
     std::vector<ID3D11Texture2D*> g_screenImages;
     std::vector<ID3D11RenderTargetView*> g_screenRtvs;
+    XrSwapchain g_nativeCursorChain = XR_NULL_HANDLE;
+    std::vector<ID3D11Texture2D*> g_nativeCursorImages;
+    std::vector<ID3D11RenderTargetView*> g_nativeCursorRtvs;
+    bool g_nativeCursorReady = false;
     XrSwapchain g_menuChain = XR_NULL_HANDLE;
     std::vector<ID3D11Texture2D*> g_menuImages;
     std::vector<ID3D11RenderTargetView*> g_menuRtvs;
@@ -7829,7 +7834,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         float u = 0, v = 0;
     } g_nativePointerFrame;
 
-    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad)
+    [[maybe_unused]] void UpdateNativeMenuPointerLegacy(const XrCompositionLayerQuad& quad)
     {
         // User reports 59f2a82 native pointing failed. Disable that optional
         // behavior before correcting it; preserve all existing camera/F1 code.
@@ -7866,6 +7871,31 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const float d[]{direction.x, direction.y, direction.z};
         const auto hit = IntersectMenuQuad(o, d, 1.0f, quad.size.width, quad.size.height, 0);
         g_nativePointerFrame = {hit.hit, pressed, hit.u, hit.v};
+    }
+
+    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad)
+    {
+        static bool pressed = false;
+        const bool headLocked = quad.space == g_viewSpace;
+        if (!g_config.game_menu_pointer || Menu_IsOpen()) {
+            NativeMenuPointer_FrameStatus("disabled-or-F1"); pressed=false; return;
+        }
+        if (!game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+                VR_IsPausePresentation() && VR_IsPausePresentationTarget()) ||
+            VR_IsCutsceneTheaterActive()) {
+            NativeMenuPointer_FrameStatus("non-menu-mode"); pressed=false; return;
+        }
+        if (g_sessionState != XR_SESSION_STATE_FOCUSED || !g_padState.valid ||
+            GetTickCount64()-g_physicalControllerAtMs > 200 ||
+            !g_rightAimPoseValid || (headLocked && !g_headPoseValid)) {
+            NativeMenuPointer_FrameStatus("focus-or-tracking"); pressed=false; return;
+        }
+        if (g_padState.trigR >= 0.65f) pressed = true;
+        else if (g_padState.trigR <= 0.35f) pressed = false;
+        float u=0,v=0;
+        const bool hit=game_menu_pointer::RayHit(quad,g_rightAimPose,g_headPose,headLocked,u,v);
+        g_nativePointerFrame = {hit, pressed, u, v};
+        NativeMenuPointer_FrameStatus(hit ? "hit" : "ray-miss");
     }
 
     void UpdateMenuPointer(bool headLocked)
@@ -8149,6 +8179,32 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
         if (!Menu_Init(scd.OutputWindow, g_device, g_context, UnormSibling((DXGI_FORMAT)g_xrFormat)))
             LOG("WARNING: menu failed to initialize; F1 menu unavailable");
+
+        // Optional cursor uploads once. Reuse its released image each frame;
+        // any initialization failure leaves the native input and VR core alive.
+        g_nativeCursorReady=false;
+        const bool cursorFormat=g_xrFormat==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+            g_xrFormat==DXGI_FORMAT_R8G8B8A8_UNORM || g_xrFormat==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB ||
+            g_xrFormat==DXGI_FORMAT_B8G8R8A8_UNORM;
+        if (cursorFormat && CreateChain(32,32,g_nativeCursorChain,g_nativeCursorImages,g_nativeCursorRtvs,"game menu cursor")) {
+            uint32_t index=0;
+            XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            wait.timeout=1000000000;
+            XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            if (xrAcquireSwapchainImage(g_nativeCursorChain,&acquire,&index)==XR_SUCCESS &&
+                xrWaitSwapchainImage(g_nativeCursorChain,&wait)==XR_SUCCESS) {
+                if(index<g_nativeCursorImages.size()&&g_nativeCursorImages[index]) {
+                    uint32_t pixels[32*32];
+                    for(int y=0;y<32;++y) for(int x=0;x<32;++x)
+                        pixels[y*32+x]=game_menu_pointer::CursorPixel(x,y);
+                    g_context->UpdateSubresource(g_nativeCursorImages[index],0,nullptr,pixels,32*4,0);
+                    g_nativeCursorReady=xrReleaseSwapchainImage(g_nativeCursorChain,&release)==XR_SUCCESS;
+                } else xrReleaseSwapchainImage(g_nativeCursorChain,&release);
+            }
+        }
+        if(!g_nativeCursorReady) DestroyChain(g_nativeCursorChain,g_nativeCursorImages,g_nativeCursorRtvs);
+        LOG("game menu cursor: %s; optional visual only",g_nativeCursorReady?"ready":"unavailable");
 
         strcpy_s(g_status.sessionState, "starting");
         LogHeadsetPanelRate();
@@ -9451,7 +9507,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
         }
 
-        XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, scopeQuad, fadeQuad;
+        XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, scopeQuad, fadeQuad, nativeCursorQuad;
         XrCompositionLayerQuad theaterQuads[2]{};
         XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         XrCompositionLayerProjection theaterProjection{
@@ -11378,6 +11434,19 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
 #endif
         }
+        // Evaluate against this frame's actual native quad before composition.
+        // The cursor follows the last successfully delivered smoothed mouse UV.
+        if (comfortFadeAlpha <= 0.01f &&
+            std::find(layers.begin(),layers.end(),
+                reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end()) {
+            UpdateNativeMenuPointer(screenQuad);
+            float u=0,v=0;bool pressed=false;
+            if(g_nativePointerFrame.active && g_nativeCursorReady &&
+                NativeMenuPointer_ReadVisual(u,v,pressed)) {
+                nativeCursorQuad=game_menu_pointer::CursorQuad(screenQuad,g_nativeCursorChain,u,v,pressed);
+                layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeCursorQuad));
+            }
+        }
         if (fs.shouldRender)
             AppendComfortFade(comfortFadeAlpha, fadeQuad, layers);
 
@@ -11422,10 +11491,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (g_beginFrameQpc.QuadPart)
             g_renderWindowMs.Add(QpcMs(endStart.QuadPart - g_beginFrameQpc.QuadPart));
         XrResult r = xrEndFrame(g_session, &ei);
-        if (r == XR_SUCCESS && comfortFadeAlpha <= 0.01f &&
-            std::find(layers.begin(), layers.end(),
-                reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end())
-            UpdateNativeMenuPointer(screenQuad);
+        if (r != XR_SUCCESS) {
+            if(std::find(layers.begin(),layers.end(),
+                reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeCursorQuad)) != layers.end()) {
+                // Drop this frame, then retire only the optional cursor layer.
+                // Never let a rejected extra layer repeatedly poison core VR.
+                g_nativeCursorReady=false;
+                NativeMenuPointer_CursorFailed();
+            }
+            g_nativePointerFrame={};
+            NativeMenuPointer_FrameStatus("submission-failed");
+        }
         QueryPerformanceCounter(&endEnd);
         g_endFrameDurationsMs.Add(QpcMs(endEnd.QuadPart - endStart.QuadPart));
 #if HALOMCCVR_HALO2_STEREO6DOF
@@ -12738,6 +12814,7 @@ namespace
 void VR_BeforePresent(IDXGISwapChain* sc)
 {
     g_nativePointerFrame = {};
+    NativeMenuPointer_FrameStatus("no-native-screen");
     struct PublishNativePointerOnExit {
         ~PublishNativePointerOnExit() {
             NativeMenuPointer_Publish(g_nativePointerFrame.active,

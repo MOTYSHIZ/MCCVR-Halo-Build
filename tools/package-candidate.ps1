@@ -1273,7 +1273,7 @@ try {
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds optional manual reload and weapon holsters across all six titles and preserves 918e2f2 CE Anniversary beam glare and Halo 3 Cortana facing corrections above 35a4d09. All four items require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Optional Point at game menus under Controls, default off. Continues b4ffa80 with reload accessories, custom-model fallback, needle shake, independent radii and holsters preserved. Earlier CE vehicle, beam and H3 Cortana changes preserved. Keep existing config. Both editions; package only. Read RELEASE-NOTES.md and RELOAD-ACCESSORIES-NOTES.md; headset testing pending.'
+        note = 'Corrects 59f2a82 native menu pointer rejection in the preloaded six-module shell; adds a visible VR cursor ring and mouse-delivery diagnostics. Point at game menus stays default off. Magazine audit found no disabled-reload draw path; all-title holsters-only and disabled held/generic-item tests pass. Earlier reload/accessory, CE vehicle/beam and H3 Cortana behavior preserved. Keep existing config. Both editions; package only; headset testing pending. Read RELEASE-NOTES.md and RELOAD-ACCESSORIES-NOTES.md.'
 
     }
 

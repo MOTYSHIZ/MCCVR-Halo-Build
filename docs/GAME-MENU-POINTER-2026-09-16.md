@@ -1,5 +1,9 @@
 # Optional controller mouse for native MCC menus
 
+Historical 59f2a82 implementation. The user reports native pointing failed;
+read `GAME-MENU-POINTER-FIX-2026-09-16.md` for the log-proven mode rejection,
+correction, visible cursor and magazine visibility audit.
+
 User request: continue from the latest packaged b4ffa80, preserve its complete
 reload/accessory/holster work, and extend F1-style mouse pointing to the actual
 game menus with a toggle. No other standing/deferred work is advanced here.
