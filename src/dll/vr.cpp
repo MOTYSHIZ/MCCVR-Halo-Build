@@ -26,6 +26,8 @@
 #include <type_traits>
 #include "vr.h"
 #include "menu.h"
+#include "native_menu_pointer.h"
+#include "../common/game_menu_pointer.h"
 #include "game.h"
 #include "haloce_stereo_core.h"
 #include "../common/haloce_pause_logic.h"
@@ -7819,6 +7821,50 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    // Optional native-menu input has no effect on any eye/camera transaction.
+    // Publish only after a real stock-screen quad was successfully submitted.
+    struct NativePointerFrame
+    {
+        bool active = false, pressed = false;
+        float u = 0, v = 0;
+    } g_nativePointerFrame;
+
+    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad)
+    {
+        static bool pressed = false;
+        const bool headLocked = quad.space == g_viewSpace;
+        if (!g_config.game_menu_pointer || Menu_IsOpen() ||
+            g_sessionState != XR_SESSION_STATE_FOCUSED || !g_padState.valid ||
+            GetTickCount64()-g_physicalControllerAtMs > 200 ||
+            !g_rightAimPoseValid || (headLocked && !g_headPoseValid) ||
+            !game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+                VR_IsPausePresentation() && VR_IsPausePresentationTarget()) ||
+            VR_IsCutsceneTheaterActive()) { pressed = false; return; }
+        if (g_padState.trigR >= 0.65f) pressed = true;
+        else if (g_padState.trigR <= 0.35f) pressed = false;
+
+        XrVector3f origin = g_rightAimPose.position;
+        XrVector3f direction = Rotate(g_rightAimPose.orientation, {0, 0, -1});
+        if (headLocked) {
+            const XrQuaternionf inverseHead{-g_headPose.orientation.x,
+                -g_headPose.orientation.y, -g_headPose.orientation.z, g_headPose.orientation.w};
+            origin = Rotate(inverseHead, {origin.x-g_headPose.position.x,
+                origin.y-g_headPose.position.y, origin.z-g_headPose.position.z});
+            direction = Rotate(inverseHead, direction);
+        }
+        const XrQuaternionf inverseQuad{-quad.pose.orientation.x,
+            -quad.pose.orientation.y, -quad.pose.orientation.z, quad.pose.orientation.w};
+        origin = Rotate(inverseQuad, {origin.x-quad.pose.position.x,
+            origin.y-quad.pose.position.y, origin.z-quad.pose.position.z});
+        direction = Rotate(inverseQuad, direction);
+        if (direction.z >= -1e-5f || origin.z <= 0) return;
+        // Translate the quad-local z=0 plane to the existing helper's z=-1.
+        const float o[]{origin.x, origin.y, origin.z-1.0f};
+        const float d[]{direction.x, direction.y, direction.z};
+        const auto hit = IntersectMenuQuad(o, d, 1.0f, quad.size.width, quad.size.height, 0);
+        g_nativePointerFrame = {hit.hit, pressed, hit.u, hit.v};
+    }
+
     void UpdateMenuPointer(bool headLocked)
     {
         static bool triggerPressed = false;
@@ -11373,6 +11419,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (g_beginFrameQpc.QuadPart)
             g_renderWindowMs.Add(QpcMs(endStart.QuadPart - g_beginFrameQpc.QuadPart));
         XrResult r = xrEndFrame(g_session, &ei);
+        if (r == XR_SUCCESS && comfortFadeAlpha <= 0.01f &&
+            std::find(layers.begin(), layers.end(),
+                reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end())
+            UpdateNativeMenuPointer(screenQuad);
         QueryPerformanceCounter(&endEnd);
         g_endFrameDurationsMs.Add(QpcMs(endEnd.QuadPart - endStart.QuadPart));
 #if HALOMCCVR_HALO2_STEREO6DOF
@@ -12684,6 +12734,13 @@ namespace
 
 void VR_BeforePresent(IDXGISwapChain* sc)
 {
+    g_nativePointerFrame = {};
+    struct PublishNativePointerOnExit {
+        ~PublishNativePointerOnExit() {
+            NativeMenuPointer_Publish(g_nativePointerFrame.active,
+                g_nativePointerFrame.u, g_nativePointerFrame.v, g_nativePointerFrame.pressed);
+        }
+    } publishNativePointerOnExit;
     if constexpr (kEnableFramePacingTransitionCapture)
     {
         LARGE_INTEGER pacingBeforePresent{};
@@ -12897,6 +12954,7 @@ void VR_AfterPresent(IDXGISwapChain* sc, int64_t presentStartQpc,
 
 void VR_FramePacingWorkerPoll()
 {
+    NativeMenuPointer_ReportFailures();
     // Keep exceptional pipeline reporting off the game's render path. Packet
     // misses are counted there with one atomic increment and summarized here.
     static uint64_t reportedPacketMisses = 0;
@@ -14866,6 +14924,12 @@ void VR_GetPadState(VrPadState& out)
     }
     EnterCriticalSection(&g_headCs);
     out = g_padState;
+    // The menu trigger must not also navigate native tabs or fire on resume.
+    // Drain a consumed hold through release, even if the option is switched off.
+    static std::atomic<bool> nativeMenuTriggerHeld{false};
+    if (out.trigR <= 0.35f) nativeMenuTriggerHeld.store(false);
+    else if (NativeMenuPointer_ConsumesTrigger()) nativeMenuTriggerHeld.store(true);
+    if (nativeMenuTriggerHeld.load()) out.trigR = 0;
     const uint64_t now = GetTickCount64();
     const GameTitle weaponTitle=TitleAdapter_GetActiveTitle();
     const int weaponIndex=weapon_interaction::TitleIndex(weaponTitle);

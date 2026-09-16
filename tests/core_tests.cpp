@@ -13345,6 +13345,12 @@ int main()
     Check(!g_config.roomscale_movement, "legacy config leaves roomscale off");
     Check(!g_config.experimental_hand_alignment, "legacy config preserves released hand positioning");
     Check(!g_config.manual_reload&&!g_config.weapon_holsters,"legacy config leaves both weapon gestures off");
+    Check(!g_config.game_menu_pointer, "legacy config leaves native menu pointing off");
+    g_config.game_menu_pointer = true;
+    ConfigSave();
+    g_config.game_menu_pointer = false;
+    ConfigLoad(primary.c_str());
+    Check(g_config.game_menu_pointer, "native menu pointer toggle survives save/load");
     Check(!g_config.world_collision,
         "legacy configs inherit the opt-in world-collision default");
     Check(!g_config.physical_melee && !g_config.gesture_melee &&

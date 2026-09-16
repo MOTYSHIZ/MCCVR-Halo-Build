@@ -401,6 +401,7 @@ struct Config
     float menu_width_m = 1.1f;      // panel width; height follows the 4:3 texture
     float menu_height_m = -0.08f;   // vertical offset, negative = below eye line
     float menu_side_m = 0.0f;       // sideways offset, positive = to your right
+    bool game_menu_pointer = false; // optional controller mouse in native menus
 
     // Show the welcome page automatically, once, at the start of each launch.
     // The mod has no other way to tell a player anything before they play: the

@@ -1,0 +1,130 @@
+// Execute the shipping window-thread transport against fake Windows endpoints.
+// No real cursor movement, input injection, timers, windows or game access.
+#include <windows.h>
+#include <cstdio>
+#include <limits>
+#include <vector>
+#include "config.h"
+#include "game_menu_pointer.h"
+
+static HWND fakeWindow = reinterpret_cast<HWND>(uintptr_t{1});
+static bool focused = true, minimized = false, f1 = false, pauseScreen = false;
+static bool physicalDown = false, sendOk = true, postOk = true, moveOk = true;
+static bool timerOk = true, covered = false;
+static DWORD now = 1000;
+static POINT cursor{};
+static int width = 1000, height = 500, posts = 0, moves = 0, logs = 0;
+static RuntimeMode mode = RuntimeMode::Shell;
+static std::vector<DWORD> buttons;
+static HWND FakeForeground() { return focused ? fakeWindow : nullptr; }
+static BOOL FakeIconic(HWND) { return minimized; }
+static BOOL FakeRect(HWND, RECT* r) { *r={0,0,width,height}; return TRUE; }
+static BOOL FakeClient(HWND, POINT* p) { p->x += 100; p->y += 50; return TRUE; }
+static HWND FakeUnder(POINT) { return covered ? nullptr : fakeWindow; }
+static BOOL FakeChild(HWND, HWND) { return FALSE; }
+static SHORT FakeKey(int) { return physicalDown ? SHORT(0x8000) : 0; }
+static BOOL FakeMove(int x, int y) { ++moves; cursor={x,y}; return moveOk; }
+static BOOL FakeCursor(POINT* p) { *p=cursor; return TRUE; }
+static UINT FakeSend(UINT count, INPUT* input, int) {
+    if (!sendOk) return 0;
+    for (UINT i=0;i<count;++i) buttons.push_back(input[i].mi.dwFlags);
+    return count;
+}
+static UINT_PTR FakeTimer(HWND, UINT_PTR, UINT, TIMERPROC) { return timerOk ? 42 : 0; }
+static BOOL FakeKill(HWND, UINT_PTR) { return TRUE; }
+static UINT FakeRegister(const wchar_t*) { return 0xC123; }
+static BOOL FakePost(HWND, UINT, WPARAM, LPARAM) { ++posts; return postOk; }
+static DWORD FakeTick() { return now; }
+#define GetForegroundWindow FakeForeground
+#define IsIconic FakeIconic
+#define GetClientRect FakeRect
+#define ClientToScreen FakeClient
+#define WindowFromPoint FakeUnder
+#define IsChild FakeChild
+#define GetAsyncKeyState FakeKey
+#define SetCursorPos FakeMove
+#define GetCursorPos FakeCursor
+#define SendInput FakeSend
+#define SetTimer FakeTimer
+#define KillTimer FakeKill
+#define RegisterWindowMessageW FakeRegister
+#define PostMessageW FakePost
+#define GetTickCount FakeTick
+#include "../src/dll/native_menu_pointer.cpp"
+
+void Logf(const char*, ...) { ++logs; }
+const wchar_t* LogDirectory() { return L""; }
+bool Menu_IsOpen() { return f1; }
+RuntimeMode TitleAdapter_GetRuntimeMode() { return mode; }
+bool VR_IsPausePresentation() { return pauseScreen; }
+bool VR_IsPausePresentationTarget() { return pauseScreen; }
+bool VR_IsCutsceneTheaterActive() { return false; }
+
+static int checks = 0, failures = 0;
+static void Check(bool ok, const char* name) {
+    ++checks; if (!ok) { ++failures; std::printf("FAIL: %s\n", name); }
+}
+static void Frame(bool active, bool trigger=false, float u=.5f, float v=.5f) {
+    ++now; NativeMenuPointer_Publish(active,u,v,trigger);
+    NativeMenuPointer_Message(0xC123);
+}
+int main()
+{
+    using namespace game_menu_pointer;
+    for (int m=0;m<=int(RuntimeMode::Unsupported);++m)
+        Check(MenuMode(RuntimeMode(m),false)==(m==int(RuntimeMode::Shell)||m==int(RuntimeMode::Paused)),
+            "only shell/pause runtime modes admit pointing");
+    Pointer p;
+    Check(!FreshActive(Pack(now,true,std::numeric_limits<float>::quiet_NaN(),.5f,false),now),"NaN rejects");
+    Check(!FreshActive(Pack(now,true,1.01f,.5f,false),now),"outside rejects");
+    Check(FreshActive(Pack(0xfffffff0,true,.5f,.5f,false),10),"tick wrap stays fresh");
+    Check(!FreshActive(Pack(now,true,.5f,.5f,false),now+201),"stale rejects");
+    auto edge=p.Update(Pack(now,true,1,1,false),now,true,1000,500);
+    Check(edge.x==999&&edge.y==499,"last pixel clamps inside client");
+    Check(!p.Update(Pack(now,true,.5f,.5f,true),now,true,0,500).move,"zero client rejects");
+
+    NativeMenuPointer_Init(fakeWindow);
+    Frame(true); Check(moves==0&&buttons.empty(),"disabled default never moves or clicks");
+    g_config.game_menu_pointer=true;
+    Frame(true,true); Check(buttons.empty(),"held trigger at activation never clicks");
+    Frame(true); Check(cursor.x>=599&&cursor.x<=600&&cursor.y>=299&&cursor.y<=300,"UV maps physical client plus screen origin");
+    Frame(true,true); Check(mouseDown&&buttons.back()==MOUSEEVENTF_LEFTDOWN,"trigger presses native mouse");
+    Frame(true,true); Check(buttons.size()==1,"held trigger does not repeat presses");
+    Frame(false,true); Check(!mouseDown&&buttons.back()==MOUSEEVENTF_LEFTUP,"miss releases");
+    Frame(true,true); Check(!mouseDown,"reenter while held requires release");
+    Frame(true); Frame(true,true);
+    focused=false; NativeMenuPointer_Message(WM_KILLFOCUS);
+    Check(!mouseDown,"focus loss releases");
+    const int beforeMoves=moves; Frame(true,true);
+    Check(moves==beforeMoves,"background cannot move pointer");
+    focused=true; Frame(true); Frame(true,true);
+    f1=true; Watchdog(nullptr,0,0,0); Check(!mouseDown,"F1 releases"); f1=false;
+    Frame(true); Frame(true,true); now+=201; Watchdog(nullptr,0,0,0);
+    Check(!mouseDown&&!timer,"stalled render watchdog releases and stops timer");
+    Frame(true); Frame(true,true); mode=RuntimeMode::Gameplay;
+    Watchdog(nullptr,0,0,0); Check(!mouseDown,"gameplay transition releases");
+    Frame(true); Check(!NativeMenuPointer_ConsumesTrigger(),"gameplay never consumes trigger");
+    mode=RuntimeMode::Paused; Frame(true);
+    Check(NativeMenuPointer_ConsumesTrigger(),"pause hover consumes VR trigger only");
+    physicalDown=true; Frame(true,true); Check(!mouseDown,"physical drag remains native"); physicalDown=false;
+    covered=true; Frame(true); Check(!mouseDown,"covered window cannot click"); covered=false;
+    Frame(true); sendOk=false; Frame(true,true); Check(!mouseDown&&logs>0,"send failure stays optional and logs"); sendOk=true;
+    Frame(true); Frame(true,true); sendOk=false; Frame(false);
+    Check(mouseDown&&timer,"failed release retains retry ownership"); sendOk=true;
+    Watchdog(nullptr,0,0,0); Check(!mouseDown,"failed release retries");
+    timerOk=false; Frame(true); Check(!mouseDown,"no watchdog means no press"); timerOk=true;
+    Frame(true); moveOk=false; Frame(true,true); Check(!mouseDown,"failed positioning cannot click wrong location"); moveOk=true;
+    Frame(false); const int oldPosts=posts;
+    NativeMenuPointer_Publish(true,.2f,.3f,false);
+    NativeMenuPointer_Publish(true,.8f,.7f,false);
+    Check(posts==oldPosts+1,"render messages coalesce");
+    NativeMenuPointer_Message(0xC123);
+    Frame(false); postOk=false; NativeMenuPointer_Publish(true,.5f,.5f,false);
+    Check(!queued.load(),"failed post permits next frame retry"); postOk=true;
+    NativeMenuPointer_Publish(true,.5f,.5f,false); NativeMenuPointer_Message(0xC123);
+    Check(!queued.load(),"retry drains normally");
+    Frame(true,true); g_config.game_menu_pointer=false; Watchdog(nullptr,0,0,0);
+    Check(!mouseDown,"toggle off releases");
+    std::printf("%d checks, %d failures\n",checks,failures);
+    return failures ? 1 : 0;
+}

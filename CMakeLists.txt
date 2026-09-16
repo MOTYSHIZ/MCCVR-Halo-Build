@@ -266,6 +266,7 @@ add_library(halo3xr SHARED
     src/dll/vr.cpp
     src/dll/weapon_accessory_renderer.cpp
     src/dll/menu.cpp
+    src/dll/native_menu_pointer.cpp
     src/dll/sigscan.cpp
     src/dll/game.cpp
     src/dll/ik.cpp
@@ -599,6 +600,10 @@ if(BUILD_TESTING)
     add_executable(halomccvr_menu_slider_tests tests/menu_slider_tests.cpp)
     target_link_libraries(halomccvr_menu_slider_tests PRIVATE imgui_lib)
     add_test(NAME halomccvr_menu_slider_tests COMMAND halomccvr_menu_slider_tests)
+    add_executable(halomccvr_game_menu_pointer_tests tests/game_menu_pointer_tests.cpp src/common/config.cpp)
+    target_include_directories(halomccvr_game_menu_pointer_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_game_menu_pointer_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_game_menu_pointer_tests COMMAND halomccvr_game_menu_pointer_tests)
 endif()
 
 # Stage an unaccepted local candidate only. Release-specific hashes and metadata

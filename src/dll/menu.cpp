@@ -9,6 +9,7 @@
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
 #include "menu.h"
+#include "native_menu_pointer.h"
 #include "menu_slider.h"
 #include "vr.h"
 #include "game.h"
@@ -315,6 +316,7 @@ namespace
 
     LRESULT CALLBACK WndProcHook(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     {
+        if (NativeMenuPointer_Message(msg)) return 0;
         // Fit request (posted from Menu_Init) -- run it here on the UI thread.
         if (msg == kFitGameWindowMsg)
         {
@@ -785,6 +787,11 @@ namespace
                 VR_SetGameHaptics(0.0f);
             changed = true;
         }
+        changed |= ImGui::Checkbox("Point at game menus", &g_config.game_menu_pointer);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Aim your primary controller at MCC's main or pause menu, then pull its trigger to click.\n"
+                              "Uses the same hand as the F1 pointer. MCC must have desktop focus.\n"
+                              "Release the trigger before your first click. Off preserves normal menu controls.");
         ImGui::TextDisabled("L3+R3 recenters and toggles this menu; the right trigger clicks the VR pointer.");
         }
 
@@ -1691,6 +1698,7 @@ bool Menu_Init(HWND gameWindow, ID3D11Device* device, ID3D11DeviceContext* conte
     if (D3D_FitActive())
         PostMessageW(gameWindow, kFitGameWindowMsg, 0, 0);
 
+    NativeMenuPointer_Init(gameWindow);
     g_ready = true;
     LOG("menu ready (F1 to toggle)");
     return true;

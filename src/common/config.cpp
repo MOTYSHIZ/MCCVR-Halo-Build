@@ -749,6 +749,11 @@ void ConfigLoad(const wchar_t* path)
             if (handled)
                 continue;
         }
+        if (!strcmp(key, "game_menu_pointer"))
+        {
+            g_config.game_menu_pointer = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "config_version"))
         {
             char* end = nullptr;
@@ -1268,6 +1273,9 @@ void ConfigSave()
     fprintf(f, "# Sideways offset in meters, positive = to your right. (range -%.2f to %.2f)\n",
              kMenuOffsetLimit, kMenuOffsetLimit);
     fprintf(f, "menu_side_m = %.2f\n\n", g_config.menu_side_m);
+    fprintf(f, "# Aim the primary controller at MCC / pause menus; trigger clicks.\n");
+    fprintf(f, "# Optional; requires MCC desktop focus. Does not affect gameplay or F1.\n");
+    fprintf(f, "game_menu_pointer = %d\n\n", g_config.game_menu_pointer ? 1 : 0);
     fprintf(f, "# Show the welcome page by itself once at the start of each launch.\n");
     fprintf(f, "# Tick \"Don't show this again\" on that page to clear this. The page\n");
     fprintf(f, "# itself always stays in the F1 menu, so you can read it again later.\n");

@@ -1,3 +1,24 @@
+# CURRENT: optional native game-menu pointing above b4ffa80
+
+Latest user request: preserve the most recently delivered reload/accessory ZIP
+(b4ffa80) and add F1-style controller mouse pointing to actual MCC/game menus.
+Implemented default-off `game_menu_pointer`, F1 > Controls > Point at game menus.
+Primary-hand ray uses the actual submitted native screen quad, with real mouse
+movement/click-drag on the focused MCC window. F1/render/camera/weapon behavior
+is preserved. No additional standing or deferred feature work is advanced.
+
+Release build, all 39 CTest suites and Reach consistency gate PASS locally.
+See GAME-MENU-POINTER-2026-09-16.md for source evidence and validation limits.
+Finalize commit/package without -Install, verify both archives, deliver the
+new pair, then wait for user testing. Exact final artifact state goes in
+out/game-menu-pointer-current-handoff.json; a VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST
+record means delivery is ready, not a reason to repeat implementation.
+No installation, game-folder writes, MCC launch, PR or publication. Preserve all
+b4ffa80 work and the complete historical scope below. CURRENT-STATE.md and the
+accepted cumulative d47a98c pointer remain unchanged; headset testing is pending.
+
+# Historical checkpoint follows
+
 # CURRENT: all-title reload accessories and automatic custom-model fallback
 
 The actual prior September 16 14:26 conversation transcript was read, including

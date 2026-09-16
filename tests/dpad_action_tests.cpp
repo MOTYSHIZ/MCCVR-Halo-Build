@@ -110,6 +110,8 @@ extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrGetActionStateBoolean(
 }
 
 bool Menu_IsOpen() { return fixtureMenu; }
+bool fixtureNativePointer = false;
+bool NativeMenuPointer_ConsumesTrigger() { return fixtureNativePointer; }
 uint64_t VR_GetWeaponModelIdentity(GameTitle,uint32_t,uint64_t,uint64_t) noexcept { return fixtureWeaponGraph; }
 bool VR_IsStereoEnabled() { return fixtureStereo; }
 bool VR_IsPausePresentation() { return fixturePause; }
@@ -265,6 +267,14 @@ int main()
     Check(needle.weaponButtons==0x4000,"current CE needle identity admits pulse");
     fixtureWeaponGraph=0;VR_GetPadState(needle);
     Check(!needle.weaponButtons,"lost or replaced CE graph cancels published reload");
+    fixtureNativePointer=true; g_padState.trigR=0.8f;
+    VR_GetPadState(needle); Check(needle.trigR==0,"native menu click consumes only outgoing primary trigger");
+    Check(g_padState.trigR==0.8f,"native pointer retains original trigger sample");
+    fixtureNativePointer=false; VR_GetPadState(needle);
+    Check(needle.trigR==0,"held menu click cannot fire on resume or toggle-off");
+    g_padState.trigR=0; VR_GetPadState(needle);
+    g_padState.trigR=0.8f; VR_GetPadState(needle);
+    Check(needle.trigR==0.8f,"fresh gameplay trigger is unchanged after release");
     g_headCsInit=false;VrPadState absent{};absent.valid=true;absent.thumbrestDpad=true;
     VR_GetPadState(absent);Check(!absent.valid&&!absent.thumbrestDpad&&!absent.dpadX&&!absent.dpadY,
         "An unavailable controller snapshot cannot retain D-pad input");
