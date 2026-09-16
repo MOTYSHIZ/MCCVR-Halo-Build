@@ -1270,14 +1270,22 @@ try {
             new_recovery_headset_accepted = $true
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
+        native_reload_policy = [ordered]@{
+            options = 'manual_reload_disable_auto; manual_reload_skip_animations; both default off and require Manual Reload'
+            titles = 'CE; Halo2; Halo3; ODST; Reach; Halo4; both editions'
+            behavior = 'exact empty-trigger caller suppression; scoped first-person reload/ready playback suppression; native countdown shortening; native ammo transfer retained'
+            evidence = 'docs/NATIVE-RELOAD-POLICY-2026-09-16.md'
+            bindings = 'docs/NATIVE-RELOAD-BINDINGS-2026-09-16.json'
+            headset_accepted = $false
+        }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds optional manual reload and weapon holsters across all six titles and preserves 918e2f2 CE Anniversary beam glare and Halo 3 Cortana facing corrections above 35a4d09. All four items require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results below describe inherited work and retain their original coverage limits. Current accepted release baseline is Alpha 0.4.1 source 46c124b. This candidate adds the optional native reload policy described in native_reload_policy and RELEASE-NOTES.md; its headset results remain pending. Earlier standing and deferred scope is preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Only Needler shake reload changes above user-tested 205ff20: one rapid gun-hand out-and-back in any direction, no grip; settle to rearm. Existing cursor, accessories, holsters, camera, input, edition support and config values preserved. Native ammo/reload rules remain. Both editions; package only; headset testing pending. Read RELEASE-NOTES.md and docs/NEEDLER-SINGLE-SHAKE-2026-09-16.md in matching source.'
+        note = 'Optional native reload policy controls above accepted Alpha 0.4.1 source 46c124b: disable empty-trigger automatic reload and skip identified first-person reload/ready animations with shortened native countdowns. Both default off beneath Manual Reload. All six titles, both editions; native ammo transfer and reserve rules retained. Package only; headset testing pending. Read RELEASE-NOTES.md and docs/NATIVE-RELOAD-POLICY-2026-09-16.md in matching source.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/NEEDLER-SINGLE-SHAKE-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/NATIVE-RELOAD-POLICY-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
     Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/RELOAD-ACCESSORIES-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELOAD-ACCESSORIES-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'

@@ -1,0 +1,80 @@
+[
+  {
+    "title": "HaloCE",
+    "module": "halo1.dll",
+    "sha256": "0a12dc561780f449d3f4d0df10bb8d3bc7be7840a5beb2b236f672eb6cd42e6c",
+    "entries": [
+      "0xb7814c",
+      "0x0",
+      "0xb27ba0",
+      "0xb285a8",
+      "0xb773e0"
+    ],
+    "auto_call": "0xb759e5"
+  },
+  {
+    "title": "Halo2",
+    "module": "halo2.dll",
+    "sha256": "de65b4f4fdbf3f0a5eab7431fe530da17dd815599182dfd6ae9b7e21cf171946",
+    "entries": [
+      "0x8eadf0",
+      "0x8e9ed0",
+      "0x819d50",
+      "0x81a2e0",
+      "0x81c750"
+    ],
+    "auto_call": "0x8e472a"
+  },
+  {
+    "title": "Halo3",
+    "module": "halo3.dll",
+    "sha256": "b209d8454b12dc77e54ccd2c9924ec8d44b8619d21cf98e36ffaf601e67efb63",
+    "entries": [
+      "0x35f040",
+      "0x36a394",
+      "0x2c1e60",
+      "0x2c2474",
+      "0x2c1cac"
+    ],
+    "auto_call": "0x36588d"
+  },
+  {
+    "title": "Halo3ODST",
+    "module": "halo3odst.dll",
+    "sha256": "5bb20976efdfd9e1ce59c589339804725fec239021027c8d65b2733eab94829a",
+    "entries": [
+      "0x3a5208",
+      "0x3b0d08",
+      "0x2ea3fc",
+      "0x2eaa10",
+      "0x2ea21c"
+    ],
+    "auto_call": "0x3abc11"
+  },
+  {
+    "title": "HaloReach",
+    "module": "haloreach.dll",
+    "sha256": "738dd2d24ea3aea12e1ee9aa4a61094bf116027d42004c35a19e5048608b0894",
+    "entries": [
+      "0x4b6868",
+      "0x4c529c",
+      "0x2b0fe8",
+      "0x2b1910",
+      "0x2b0dc4"
+    ],
+    "auto_call": "0x4bedf6"
+  },
+  {
+    "title": "Halo4",
+    "module": "halo4.dll",
+    "sha256": "7c53e7d5bc9848545a1b70e2768242479336fba1b7630d7ab955f7fd0c34fa84",
+    "entries": [
+      "0x607e08",
+      "0x61a904",
+      "0x3b399c",
+      "0x3b439c",
+      "0x3b374c"
+    ],
+    "auto_call": "0x6131f5"
+  }
+]

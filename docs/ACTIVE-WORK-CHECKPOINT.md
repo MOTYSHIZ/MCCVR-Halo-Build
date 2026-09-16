@@ -1,3 +1,27 @@
+# September 16 active request: native reload policy toggles above Alpha 0.4.1
+
+User asks to work from the latest release and continue until matching build/source
+ZIPs contain two optional refinements: suppress native automatic gun reload for
+manual reload, and skip reload/weapon-ready animations so insertion loads the gun
+immediately. Scope is all supported titles and both editions as in release 0.4.1.
+Baseline runtime 46c124b; starting HEAD 27f4bfb differs only in release docs/README.
+Implemented both default-off controls for all six titles with independently
+matched official-kit/retail bindings, native ammo transfer, scoped first-person
+animation suppression and independent stock fallbacks. See
+NATIVE-RELOAD-POLICY-2026-09-16.md for precise evidence and limits. The original
+dispatcher still performs equip initialization; ordinary animation return values
+and keyframe queries remain native. No headset result exists for this candidate.
+Local Release, all 40 CTest suites (including 387,629 native reload checks), the
+Reach consistency gate and pinned binding reproduction passed. Finalize
+commit and tools/package-candidate.ps1 WITHOUT -Install; verify both archives.
+Exact artifact state belongs in out/native-reload-policy-current-handoff.json.
+VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST means ready to deliver,
+not acceptance. Deliver the verified ZIP pair and WAIT for testing/instructions.
+No installation, game-folder writes, launch, publication or PR.
+CURRENT-STATE.md remains the accepted 0.4.1 pointer. Preserve all previous work.
+
+# Previous accepted release and historical record
+
 # September 16: Alpha 0.4.1 release baseline accepted
 
 The user explicitly approves the latest delivered 46c124b candidate as a good

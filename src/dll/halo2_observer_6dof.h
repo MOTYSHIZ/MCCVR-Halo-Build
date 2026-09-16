@@ -3,6 +3,7 @@ bool Halo2Observer6Dof_OnFootFresh() noexcept;
 
 #include <cstddef>
 #include <cstdint>
+void* Halo2Observer6Dof_ReloadWeapon(uint32_t weapon) noexcept;
 
 // C-H2-8. Halo 2's per-user observer is the single camera root that BOTH of
 // halo2.dll's renderers consume: the classic Blam tree reads it through the

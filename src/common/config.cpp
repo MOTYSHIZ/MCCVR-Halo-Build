@@ -635,6 +635,8 @@ void ConfigLoad(const wchar_t* path)
         }
         if (weaponButtonKey) continue;
         if (!strcmp(key,"manual_reload")) { g_config.manual_reload=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_disable_auto")) { g_config.manual_reload_disable_auto=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_skip_animations")) { g_config.manual_reload_skip_animations=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
@@ -1783,6 +1785,8 @@ void ConfigSave()
     fprintf(f, "# Optional pouch-to-gun reload and shoulder/hip reserve-weapon draw.\n");
     fprintf(f, "# Off by default; native ammo, reload animation and inventory rules remain.\n");
     fprintf(f, "manual_reload = %d\nweapon_holsters = %d\n",g_config.manual_reload?1:0,g_config.weapon_holsters?1:0);
+    fprintf(f, "manual_reload_disable_auto = %d\nmanual_reload_skip_animations = %d\n",
+        g_config.manual_reload_disable_auto?1:0,g_config.manual_reload_skip_animations?1:0);
     fprintf(f, "weapon_pouch_down_m = %.3f\nweapon_body_zone_radius_m = %.3f\n",
         g_config.weapon_pouch_down_m,g_config.weapon_body_zone_radius_m);
     fprintf(f, "# Holster location: 0 = weapon-side shoulder, 1 = weapon-side hip.\n");

@@ -5777,6 +5777,31 @@ bool Halo2Observer6Dof_FinalPaletteArmed() noexcept
         !g_teardownRequested.load(std::memory_order_acquire);
 }
 
+void* Halo2Observer6Dof_ReloadWeapon(uint32_t weapon) noexcept
+{
+    if (!Halo2Observer6Dof_OnFootFresh()) return nullptr;
+    __try
+    {
+        const auto base=g_moduleBase.load(std::memory_order_acquire);
+        if (!base) return nullptr;
+        const auto globals=*reinterpret_cast<const uintptr_t*>(base+kHalo2PlayersGlobalsPointerRva);
+        const auto players=*reinterpret_cast<const uintptr_t*>(base+kHalo2PlayersDataArrayPointerRva);
+        if (!globals || !players) return nullptr;
+        const auto player=*reinterpret_cast<const uint32_t*>(globals+kHalo2PlayerUserMappingOffset);
+        const auto storage=*reinterpret_cast<const uintptr_t*>(players+kHalo2DataArrayStorageOffset);
+        if (player==UINT32_MAX || !(player>>16) || (player&0xffff)>=kHalo2MaximumPlayers || !storage)
+            return nullptr;
+        const auto record=players+storage+(player&0xffff)*kHalo2PlayerDatumStride;
+        if (*reinterpret_cast<const uint16_t*>(record)!=uint16_t(player>>16)) return nullptr;
+        const auto owner=*reinterpret_cast<const uint32_t*>(record+kHalo2PlayerUnitIndexOffset);
+        const auto* object=Halo2ContactObject(weapon);
+        if (!Halo2ContactBiped(owner) || !object || object[0xAA]!=2 || !(object[0x130]&1) ||
+            *reinterpret_cast<const uint32_t*>(object+0x158)!=owner) return nullptr;
+        return const_cast<uint8_t*>(object);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+
 bool Halo2Observer6Dof_OnFootFresh() noexcept
 {
     const uint64_t sample = g_vehicleSeatSample.load(std::memory_order_acquire);
@@ -6093,6 +6118,7 @@ void Halo2Observer6Dof_SnapTurnSettled(uint32_t, float) noexcept {}
 bool Halo2Observer6Dof_DirectWeaponAimArmed() noexcept { return false; }
 bool Halo2Observer6Dof_FinalPaletteArmed() noexcept { return false; }
 bool Halo2Observer6Dof_OnFootFresh() noexcept { return false; }
+void* Halo2Observer6Dof_ReloadWeapon(uint32_t) noexcept { return nullptr; }
 bool Halo2Observer6Dof_WorldCollisionActive() noexcept { return false; }
 bool Halo2Observer6Dof_ReadPublishedPose(
     Halo2ObserverPosePublication&) noexcept { return false; }

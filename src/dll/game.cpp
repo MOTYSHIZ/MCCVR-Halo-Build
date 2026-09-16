@@ -1,4 +1,6 @@
 #include "contact_melee_queue.h"
+#include "native_reload_policy.h"
+#include "haloce_native_bindings.h"
 #include "../common/weapon_model_catalog.h"
 #include "../common/camera_recovery_logic.h"
 #include "../common/dual_weapon_aim_logic.h"
@@ -41097,6 +41099,7 @@ namespace
             }
             RefreshGestureMeleeBinding(activeTitle,activeLevelRunning,pollNow);
             VR_ReportWeaponInteractions(pollNow);
+            NativeReloadPolicy_Poll();
             {
                 uintptr_t ceBase=0; size_t ceSize=0;
                 const bool ceActive=activeTitle&&activeTitle->title==GameTitle::HaloCE&&
@@ -45649,8 +45652,84 @@ bool WaitForNativeDetourQuiescence(const void* const* functions,
     return false;
 }
 
-// Called only by the title's native camera callback (TLS is valid here).
-// Unknown occupation/cinematic evidence disables this optional feature only.
+// Called on the title's native weapon/action thread (engine TLS is valid here).
+// Unknown owner/cinematic evidence disables this optional feature only.
+void* Game_ReloadPolicyWeapon(GameTitle title, uint32_t weapon)
+{
+    if (weapon==UINT32_MAX || !(weapon>>16) || title!=TitleAdapter_GetActiveTitle() ||
+        !g_enabled.load() || !g_vrAim.load() || !Game_IsHeadTracking() ||
+        !VR_IsStereoEnabled() || Menu_IsOpen() || VR_IsPausePresentation() ||
+        VR_IsPausePresentationTarget() || VR_IsCutsceneTheaterActive() ||
+        TitleAdapter_GetRuntimeMode()!=RuntimeMode::Gameplay) return nullptr;
+    __try
+    {
+        const uint8_t* data=nullptr;
+        uint32_t local=UINT32_MAX, owner=UINT32_MAX;
+        switch(title)
+        {
+        case GameTitle::HaloCE:
+        {
+            HaloCELocalPlayerState state{};
+            if (!HaloCEControls_GetLocalPlayerState(state) || state.weapon!=weapon || !state.onFoot ||
+                !state.nativePreparesFirstPerson || state.nativePaused || state.nativeCinematicFlag ||
+                state.nativeInputBlocked || state.nativeLookBlocked) return nullptr;
+            const auto base=reinterpret_cast<uintptr_t>(GetModuleHandleW(L"halo1.dll"));
+            // Controls admission independently verifies this exact accessor.
+            using Get=uintptr_t(__fastcall*)(uint32_t,uint32_t);
+            return base ? reinterpret_cast<void*>(reinterpret_cast<Get>(base+
+                halo_ce::contract::player_state::state_object_try_get)(weapon,4)) : nullptr;
+        }
+        case GameTitle::Halo2: return Halo2Observer6Dof_ReloadWeapon(weapon);
+        case GameTitle::Halo3:
+            if (!g_halo3PlayerUnitGetter) return nullptr;
+            local=g_halo3PlayerUnitGetter(0);
+            data=Halo3MeleeSelectionObject(weapon,2);
+            if (data && data[0x15d]) owner=*reinterpret_cast<const uint32_t*>(data+0x168);
+            break;
+        case GameTitle::Halo3ODST:
+        {
+            if (!g_odstPlayerUnitGetter || !OdstContactObject(weapon)) return nullptr;
+            local=g_odstPlayerUnitGetter(0);
+            const auto table=*reinterpret_cast<const uint8_t* const*>(OdstContactTls()+kOdstTlsObjectTableOffset);
+            const auto entries=*reinterpret_cast<const uint8_t* const*>(table+0x48);
+            const auto entry=entries+(weapon&0xffff)*0x18;
+            if (entry[3]!=2) return nullptr;
+            data=*reinterpret_cast<const uint8_t* const*>(entry+0x10);
+            if (data && data[0x155]) owner=*reinterpret_cast<const uint32_t*>(data+0x160);
+            break;
+        }
+        case GameTitle::HaloReach:
+        {
+            if (!g_reachCamera.playerUnitByOutputUser) return nullptr;
+            local=g_reachCamera.playerUnitByOutputUser(0);
+            uint8_t kind=0;
+            data=ReachVehicleObjectData(weapon,kind);
+            if (!data || kind!=2) return nullptr;
+            owner=*reinterpret_cast<const uint32_t*>(data+0x32c);
+            if (owner==UINT32_MAX && data[0x1a9]) owner=*reinterpret_cast<const uint32_t*>(data+0x1b4);
+            break;
+        }
+        case GameTitle::Halo4:
+        {
+            Halo4FirstPersonAccess fp{};
+            (void)Halo4ResolveFirstPerson(0,fp);
+            if (!fp.record) return nullptr;
+            local=*reinterpret_cast<const uint32_t*>(fp.record+kHalo4FirstPersonRecordUnitOffset);
+            data=Halo4ContactObject(weapon);
+            if (!data) return nullptr;
+            data=g_halo4Contact.object(weapon,4);
+            if (!data) return nullptr;
+            owner=*reinterpret_cast<const uint32_t*>(data+0x624);
+            if (owner==UINT32_MAX && data[0x471]) owner=*reinterpret_cast<const uint32_t*>(data+0x480);
+            break;
+        }
+        default: return nullptr;
+        }
+        return local!=UINT32_MAX && (local>>16) && owner==local ? const_cast<uint8_t*>(data) : nullptr;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+
 bool Game_RoomscaleCameraAllowed(GameTitle title)
 {
     if (title!=TitleAdapter_GetActiveTitle()) return false;

@@ -1056,7 +1056,9 @@ namespace
         {
             ImGui::TextDisabled("Hold your support grip at your hip to take a magazine.\n"
                 "Bring it below your weapon hand, then release to reload.\n"
-                "Halo plays its normal reload; ammo and automatic reload rules still apply.");
+                "Native ammo and reserve limits still apply.");
+            changed |= ImGui::Checkbox("Disable automatic reload", &g_config.manual_reload_disable_auto);
+            changed |= ImGui::Checkbox("Skip reload and weapon-ready animations", &g_config.manual_reload_skip_animations);
             changed |= vr_menu::SliderFloat("Magazine grab radius (m)",
                 &g_config.weapon_body_zone_radius_m,0.08f,0.40f,"%.2f");
             changed |= vr_menu::SliderFloat("Magazine insertion radius (m)",

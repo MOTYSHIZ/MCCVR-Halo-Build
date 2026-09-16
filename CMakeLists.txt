@@ -265,6 +265,7 @@ add_library(halo3xr SHARED
     src/dll/d3d11_hook.cpp
     src/dll/vr.cpp
     src/dll/weapon_accessory_renderer.cpp
+    src/dll/native_reload_policy.cpp
     src/dll/menu.cpp
     src/dll/native_menu_pointer.cpp
     src/dll/sigscan.cpp
@@ -442,6 +443,10 @@ if(BUILD_TESTING)
     target_compile_definitions(halomccvr_dpad_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_dpad_input_tests COMMAND halomccvr_dpad_input_tests)
     add_executable(halomccvr_weapon_interaction_tests tests/weapon_interaction_tests.cpp)
+    add_executable(halomccvr_native_reload_tests tests/native_reload_policy_tests.cpp src/common/config.cpp)
+    target_include_directories(halomccvr_native_reload_tests PRIVATE "${minhook_SOURCE_DIR}/include")
+    target_compile_definitions(halomccvr_native_reload_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_native_reload_tests COMMAND halomccvr_native_reload_tests)
     add_test(NAME halomccvr_weapon_interaction_tests COMMAND halomccvr_weapon_interaction_tests)
     add_executable(halomccvr_weapon_accessory_tests tests/weapon_accessory_tests.cpp src/dll/weapon_accessory_renderer.cpp)
     target_compile_definitions(halomccvr_weapon_accessory_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

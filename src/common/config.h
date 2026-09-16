@@ -792,6 +792,8 @@ struct Config
 
     // Optional body gestures; each title keeps its own MCC controller layout.
     bool manual_reload = false;
+    bool manual_reload_disable_auto = false;
+    bool manual_reload_skip_animations = false;
     bool weapon_holsters = false;
     float weapon_pouch_down_m = 0.50f;
     float weapon_body_zone_radius_m = 0.20f;
