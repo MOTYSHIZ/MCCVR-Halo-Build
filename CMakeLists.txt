@@ -362,6 +362,9 @@ set_target_properties(reach_runtime_observer PROPERTIES
     OUTPUT_NAME "reach-runtime-observer")
 
 if(BUILD_TESTING)
+    add_executable(halomccvr_reach_hud_height_tests tests/reach_hud_height_tests.cpp)
+    target_compile_definitions(halomccvr_reach_hud_height_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_reach_hud_height_tests COMMAND halomccvr_reach_hud_height_tests)
     add_executable(halomccvr_hook_lifecycle_tests tests/minhook_lifecycle_tests.cpp)
     target_link_libraries(halomccvr_hook_lifecycle_tests PRIVATE minhook)
     add_test(NAME halomccvr_hook_lifecycle_tests COMMAND halomccvr_hook_lifecycle_tests)

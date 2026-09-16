@@ -1310,7 +1310,7 @@ namespace
         if (halo2NativeHud)
             ImGui::TextDisabled("Halo 2 uses its native per-eye HUD path and has no separate curvature basis here.");
         else if (reachNativeHud)
-            ImGui::TextDisabled("Reach bakes HUD curvature when its tag loads; size and width are live, curvature is not.");
+            ImGui::TextDisabled("Reach HUD size, width and height are adjustable; curvature is baked when its tag loads.");
         else if (ceNativeHud)
             ImGui::TextDisabled("Halo CE HUD size, width and height are adjustable in both graphics modes; curvature stays flat.");
         else

@@ -19563,6 +19563,8 @@ namespace
             g_reachFpCameraEyeScope.generation == cameraGeneration;
     }
 
+    #include "reach_hud_height.inl"
+
     // REACHHUD diagnostic counters. The CHUD hook is a hot hook, so it only
     // bumps atomics here; every log line is emitted by the 50 ms worker.
     // Purpose: the 2026-07-27 session lost the VR crosshair mid-level, and the
@@ -20401,6 +20403,7 @@ namespace
         unsigned int useAlternatePath, void* drawState)
     {
         bool captureStarted = false;
+        const bool previousHeightRedirected = g_reachHudHeightRedirected;
         g_reachCamera.activeCallbacks.fetch_add(
             1, std::memory_order_acq_rel);
         __try
@@ -20433,7 +20436,7 @@ namespace
                 // native CHUD widget, but the call still has to happen.
                 // Redirect entry: hiding must not depend on crosshair=1.
                 if (VR_BeginAuthoredReticleRedirect())
-                    captureStarted = true;
+                    captureStarted = g_reachHudHeightRedirected = true;
                 original(userIndex, descriptor, widgetIndex,
                          useAlternatePath, drawState);
                 return;
@@ -20536,7 +20539,7 @@ namespace
                 // Already-failed eye: hide the widget, but never skip the
                 // call. Redirect entry for the same crosshair=0 reason.
                 if (VR_BeginAuthoredReticleRedirect())
-                    captureStarted = true;
+                    captureStarted = g_reachHudHeightRedirected = true;
                 original(userIndex, descriptor, widgetIndex,
                          useAlternatePath, drawState);
                 return;
@@ -20626,7 +20629,7 @@ namespace
                 // players who asked for none.
                 if (VR_BeginAuthoredReticleRedirect())
                 {
-                    captureStarted = true;
+                    captureStarted = g_reachHudHeightRedirected = true;
                     // Fold this widget's identity in AFTER the redirect
                     // begins, never before. Beginning a redirect on a new
                     // displayed frame is what CLEARS the capture surface and
@@ -20665,6 +20668,7 @@ namespace
         }
         __finally
         {
+            g_reachHudHeightRedirected = previousHeightRedirected;
             if (captureStarted)
             {
                 if (VR_EndPreparedAuthoredReticleCapture())
@@ -26958,7 +26962,7 @@ namespace
     bool ScanForReachDetourIngress(bool& busy)
     {
         static bool rangesResolved = false;
-        static ReachDetourCodeRange ranges[17]{};
+        static ReachDetourCodeRange ranges[18]{};
         if (!rangesResolved)
         {
             const void* functions[] = {
@@ -26979,6 +26983,7 @@ namespace
                 reinterpret_cast<const void*>(&ReachCollisionVectorDetour),
                 reinterpret_cast<const void*>(&ReachContactUpdateDetour),
                 reinterpret_cast<const void*>(&ReachContactDamageDetour),
+                reinterpret_cast<const void*>(&ReachHudAnchorBasisDetour),
             };
             static_assert(_countof(functions) == _countof(ranges));
             bool resolved = true;
@@ -27009,6 +27014,7 @@ namespace
             g_reachWorldCollision.target,
             g_reachContact.target,
             g_reachContact.damageTarget,
+            g_reachHudAnchorBasisTarget,
         };
         void* const trampolines[] = {
             reinterpret_cast<void*>(g_reachOrigMainRenderView),
@@ -27028,6 +27034,7 @@ namespace
             g_reachWorldCollision.original,
             reinterpret_cast<void*>(g_reachContact.original),
             reinterpret_cast<void*>(g_reachContact.damageOriginal),
+            reinterpret_cast<void*>(g_reachOrigHudAnchorBasis),
         };
         static_assert(_countof(targets) == _countof(ranges));
         static_assert(_countof(trampolines) == _countof(ranges));
@@ -27127,6 +27134,7 @@ namespace
 
     bool DisableAndRemoveReachHooks()
     {
+        g_reachHudHeightEnabled.store(false, std::memory_order_release);
         g_reachContact.enabled.store(false,std::memory_order_release);
         // Make both optional firing detours stock pass-throughs before any
         // disable attempt. Their trampolines and original callees point into
@@ -27141,6 +27149,7 @@ namespace
         RevokeReachFiringOriginFeature();
         bool disabledAll = true;
         void* const targets[] = {
+            g_reachHudAnchorBasisTarget,
             g_reachWorldCollision.target,
             g_reachContact.target,
             g_reachContact.damageTarget,
@@ -27175,6 +27184,21 @@ namespace
             return false;
 
         bool removedAll = true;
+        if (g_reachHudAnchorBasisTarget)
+        {
+            const MH_STATUS status = MH_RemoveHook(g_reachHudAnchorBasisTarget);
+            if (status == MH_OK || status == MH_ERROR_NOT_CREATED)
+            {
+                g_reachHudAnchorBasisTarget = nullptr;
+                g_reachOrigHudAnchorBasis = nullptr;
+            }
+            else
+            {
+                removedAll = false;
+                LOG("Reach HUD height cleanup: hook remove failed (%d)",
+                    static_cast<int>(status));
+            }
+        }
         if(g_reachContact.target)
         {
             const MH_STATUS status=MH_RemoveHook(g_reachContact.target);
@@ -29794,6 +29818,74 @@ namespace
             }
         }
 
+        // Reach HUD height matches Halo 3's native anchor translation, using
+        // Reach's independently proven six-argument producer. This optional
+        // feature never participates in camera ownership or arming.
+        g_reachHudHeightEnabled.store(false, std::memory_order_release);
+        g_reachHudHeightApplied.store(0, std::memory_order_relaxed);
+        g_reachHudHeightRefused.store(0, std::memory_order_relaxed);
+        {
+            DWORD64 functionBase = 0;
+            const PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(
+                base + kReachHudAnchorBasisRva, &functionBase, nullptr);
+            const bool proven = kReachHudAnchorBasisEndRva <= size &&
+                function && functionBase == base &&
+                function->BeginAddress == kReachHudAnchorBasisRva &&
+                function->EndAddress == kReachHudAnchorBasisEndRva &&
+                ReachColdExactSignatureAt(base, size,
+                    kReachHudAnchorBasisRva, kReachHudAnchorBasisEntryAob) &&
+                ReachColdExactSignatureAt(base, size,
+                    kReachHudAnchorBasisOutputRva, kReachHudAnchorBasisOutputAob) &&
+                ReachVerifyRel32Call(base, kReachHudAnchorBitmapCallRva,
+                    kReachHudAnchorBasisRva) &&
+                ReachVerifyRel32Call(base, kReachHudAnchorTextCallRva,
+                    kReachHudAnchorBasisRva) &&
+                ReachVerifyRel32Call(base, kReachHudAnchorModelCallRva,
+                    kReachHudAnchorBasisRva) &&
+                ReachVerifyRel32Call(base, kReachHudAnchorParentCallRva,
+                    kReachHudAnchorBasisRva);
+            if (proven)
+            {
+                g_reachHudAnchorBasisTarget = reinterpret_cast<void*>(
+                    base + kReachHudAnchorBasisRva);
+                const MH_STATUS created = MH_CreateHook(
+                    g_reachHudAnchorBasisTarget,
+                    reinterpret_cast<void*>(&ReachHudAnchorBasisDetour),
+                    reinterpret_cast<void**>(&g_reachOrigHudAnchorBasis));
+                const bool enabled = created == MH_OK &&
+                    MH_EnableHook(g_reachHudAnchorBasisTarget) == MH_OK;
+                g_reachHudHeightEnabled.store(enabled, std::memory_order_release);
+                if (enabled)
+                {
+                    LOG("Reach HUD height: Installed at haloreach.dll+0x%llX; "
+                        "native six-argument anchor basis, positive raises, "
+                        "negative lowers; redirected reticle stays on aim",
+                        static_cast<unsigned long long>(kReachHudAnchorBasisRva));
+                }
+                else
+                {
+                    // Never remove a possibly active trampoline here. A
+                    // failed enable remains stock and retained for the normal
+                    // frozen-thread/callback-verified title teardown.
+                    if (created != MH_OK)
+                    {
+                        g_reachHudAnchorBasisTarget = nullptr;
+                        g_reachOrigHudAnchorBasis = nullptr;
+                    }
+                    LOG("Reach HUD height: StockFallback (create=%d); "
+                        "only HUD height stays stock, camera core continues%s",
+                        static_cast<int>(created), created == MH_OK
+                            ? "; hook retained for verified teardown" : "");
+                }
+            }
+            else
+            {
+                LOG("Reach HUD height: StockFallback; unique native entry, "
+                    "basis-output or bitmap/text/model caller proof failed; "
+                    "camera core continues");
+            }
+        }
+
         g_reachRainDecoupled.store(0, std::memory_order_relaxed);
         g_reachRainSkipped.store(0, std::memory_order_relaxed);
         g_reachMuzzleRedirects.store(0, std::memory_order_relaxed);
@@ -31230,6 +31322,21 @@ namespace
         static uint32_t reportedRedirect = 0;
         static uint64_t lastKeyLogMs = 0;
         static uint64_t loggedKey = 0;
+        static uint64_t heightLastLogMs = 0;
+        if (now - heightLastLogMs >= 2000 &&
+            g_reachHudHeightEnabled.load(std::memory_order_acquire))
+        {
+            heightLastLogMs = now;
+            const auto applied = g_reachHudHeightApplied.exchange(
+                0, std::memory_order_relaxed);
+            const auto refused = g_reachHudHeightRefused.exchange(
+                0, std::memory_order_relaxed);
+            LOG("Reach HUD height: %.1f virtual px, %llu native anchors "
+                "translated / %llu local stock refusals; camera core unaffected",
+                g_config.hud_vertical_offset,
+                static_cast<unsigned long long>(applied),
+                static_cast<unsigned long long>(refused));
+        }
 
         const uint64_t lastClass2 =
             g_reachChudLastClass2Ms.load(std::memory_order_relaxed);
