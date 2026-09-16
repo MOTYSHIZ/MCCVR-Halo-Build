@@ -51,6 +51,9 @@ bool Halo2Stereo_Poll(
     bool classicRenderTreeRuns) noexcept;
 
 bool Halo2Stereo_Installed() noexcept;
+// Management worker only. Retry this epoch through the ordinary safe cleanup.
+void Halo2Stereo_RequestRecovery(uint32_t generation) noexcept;
+bool Halo2Stereo_RecoveryPending() noexcept;
 bool Halo2Stereo_Armed() noexcept;
 uint32_t Halo2Stereo_Generation() noexcept;
 void Halo2Stereo_ShutdownForVrFailure() noexcept;

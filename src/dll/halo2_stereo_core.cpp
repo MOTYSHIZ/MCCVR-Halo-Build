@@ -1,6 +1,7 @@
 #include "halo2_stereo_core.h"
 #include "hook_quiescence.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/manual_vr_recovery_logic.h"
 
 #include <windows.h>
 
@@ -17,6 +18,7 @@
 #include "../common/halo2_render_logic.h"
 #include "../common/log.h"
 #include "game.h"
+#include "title_adapter.h"
 #include "d3d11_hook.h"
 #include "halo2_observer_6dof.h"
 #include "vr.h"
@@ -284,6 +286,7 @@ namespace
     void* g_innerTarget = nullptr;
     CoreState g_coreState = CoreState::StockFallback;
     uint32_t g_rejectedGeneration = 0;
+    uint32_t g_manualRecoveryGeneration = 0;
     uint32_t g_pinFailureLoggedGeneration = 0;
     // E-H2-20: the classic first-person FOV constant (see the header).
     std::atomic<uintptr_t> g_fpConstantAddress{0};
@@ -4123,6 +4126,12 @@ bool Halo2Stereo_Poll(
         moduleSize == kHalo2RetailImageSize;
     const bool vrAvailable = !vrFailureGeneration ||
         generation != vrFailureGeneration;
+    if (PollManualVrRecovery(g_manualRecoveryGeneration, generation,
+            TitleAdapter_GetActiveTitle() == GameTitle::Halo2 && vrAvailable,
+            identityValid && activeAndRange,
+            [] { return RemoveCore("manual VR recovery"); },
+            [] { g_rejectedGeneration = 0; }) == ManualVrRecoveryPoll::Waiting)
+        return false;
     // E-H2-3: this core owns render_player_window / render_view, which the
     // engine skips entirely while the remastered renderer is live. Without
     // this gate the hooks install, arm, take over presentation, and then
@@ -4221,6 +4230,7 @@ bool Halo2Stereo_Poll(
             return false;
     }
 
+    if (TitleAdapter_GetActiveTitle() != GameTitle::Halo2) g_rejectedGeneration = 0;
     if (!desired || g_rejectedGeneration == generation)
         return false;
     if (!g_outerTarget && !g_innerTarget &&
@@ -4242,6 +4252,11 @@ bool Halo2Stereo_Installed() noexcept
 {
     return g_installed.load(std::memory_order_acquire);
 }
+
+void Halo2Stereo_RequestRecovery(uint32_t generation) noexcept
+{ g_manualRecoveryGeneration = generation; }
+bool Halo2Stereo_RecoveryPending() noexcept
+{ return g_manualRecoveryGeneration != 0; }
 
 bool Halo2Stereo_Armed() noexcept
 {
@@ -4312,6 +4327,8 @@ bool Halo2Stereo_Installed() noexcept { return false; }
 bool Halo2Stereo_Armed() noexcept { return false; }
 uint32_t Halo2Stereo_Generation() noexcept { return 0; }
 void Halo2Stereo_ShutdownForVrFailure() noexcept {}
+void Halo2Stereo_RequestRecovery(uint32_t) noexcept {}
+bool Halo2Stereo_RecoveryPending() noexcept { return false; }
 void Halo2Stereo_SetPresentationReady(bool) noexcept {}
 void Halo2Stereo_RequestGenerationQuarantine(
     uint32_t, Halo2StereoQuarantineReason) noexcept {}

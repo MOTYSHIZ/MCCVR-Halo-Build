@@ -5,6 +5,9 @@
 // CE Anniversary builds two views before culling. No whole-frame replay.
 // Classic, weapon IK, melee, collision and HUD extraction remain separate.
 bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t generation,bool active) noexcept;
+// Management worker only: permits a failed install to retry; healthy CE hooks,
+// renderer resources, HUD and tracking implementation remain untouched.
+void HaloCE_RequestRecovery(uint32_t generation) noexcept;
 // Cold optional proof captured before the core detours overlapping native
 // bodies. Revoked on retirement and valid only for the exact retained module.
 bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t generation) noexcept;

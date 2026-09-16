@@ -119,6 +119,19 @@ ReachPreflightToken ReachRenderCandidate_GetPreflight(
     return g_preflightPublication.Get(epoch);
 }
 
+bool ReachRenderCandidate_RetryFailed(const ReachModuleEpoch& epoch) noexcept
+{
+    if (!ReachModuleEpochValid(epoch) || !g_attempted ||
+        !ReachSameModuleEpoch(g_attemptedEpoch, epoch) ||
+        g_preflightPublication.HasCurrent())
+        return false;
+    g_attempted = false;
+    g_attemptedEpoch = {};
+    LOG("Reach manual VR recovery: failed cold proof reset for generation %u; "
+        "native load and image verification must pass again", epoch.generation);
+    return true;
+}
+
 bool ReachRenderCandidate_IsPreflightCurrent(
     const ReachPreflightToken& token) noexcept
 {

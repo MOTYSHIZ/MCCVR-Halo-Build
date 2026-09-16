@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-switch-reach-hud-height',
+        'all-title-reentry-recovery',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 47
+        schema_version = 48
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -525,7 +525,7 @@ try {
         titles = @(
             'Halo 3', 'Halo 3: ODST', 'Halo: Reach', 'Halo 4',
             'Halo 2 Anniversary', 'Halo 2 Classic',
-            'Halo CE Anniversary (base VR test)', 'Halo CE Classic (base VR test)')
+            'Halo CE Anniversary', 'Halo CE Classic')
         embedded_build_identity = [ordered]@{
             source_commit = $commit
             odst = $true
@@ -1103,7 +1103,7 @@ try {
             physical_melee_non_biped_targets = 'native-damageability-unaccepted'
             halo3_secondary_unarmed_melee_selection = 'implemented-unaccepted'
             snap_turn_restoration = 'implemented-all-supported-titles-headset-validation-pending'
-            all_title_flat_mode_resolution = 'unconfirmed-manual-recovery-h3-only'
+            all_title_flat_mode_resolution = 'all-title-recovery-candidate; headset-verification-pending'
             halo2_dual_aim_publication_max_age_ms = 100
             odst_secondary_bounds_and_contact = $true
             halo3_stale_camera_retirement_ms = 2000
@@ -1135,15 +1135,15 @@ try {
         }
         current_accepted_source = '4e01f28b3ec5f5f8f533ac66d94978509cbcea54'
         halo_ce_candidate = [ordered]@{
-            previous_headset_result = '2cf002b-Original-reticle-muzzle-tracking-and-overall-behavior-confirmed; Original-to-Anniversary-crashes; Reach-height-inert'
+            previous_headset_result = '558fb2c-CE-Original-and-Anniversary-perfect-user-accepted; subsequent-Reach-entry-failed; Reach-height-still-untested'
             rejected_previous_candidate = '2cf002b-switch-crash; prepared-HUD-disabled-separately-in-8b6fd06; dump-later-proves-native-shader-lifecycle-failure-before-target-preparation; Original-feature-confirmation-preserved'
             correction = 'preserve-native-HUD-resource-lifetime-through-full-resolution-rebuild; guard-disposed-native-HUD-even-on-ordinary-fallback; repair-owned-partial-target-cleanup; Reach-native-height-control'
-            graphics = 'Classic-and-Anniversary-stereo-6DoF-test'
+            graphics = 'Classic-and-Anniversary-558fb2c-headset-accepted-engine-implementation-preserved'
             native_views = 'Anniversary-prepared-before-culling; Classic-native-render-only-eye-replay'
             submitted_pose = 'exact-native-preparation-receipt'
             source_storage = 'owned-D3D11-per-eye-textures'
             graphics_gesture = 'physical-left-hand-at-left-head-side-and-movement-stick-click'
-            controller_aim_hands_hud_parity = '2cf002b-working-Original-reticle-HUD-hands-aim-muzzles-preserved; Anniversary-full-resolution-HUD-and-contact-features-retained; new-headset-test-required'
+            controller_aim_hands_hud_parity = '558fb2c-both-mode-CE-implementation-user-accepted-and-preserved; shared-recovery-regression-test-pending'
             world_render_failure = 'earlier-58f71a4-copy-shape-failure-absent-in-22cb813-supplied-run; user-confirms-working-both-mode-VR; long-session-and-all-relaunch-scenarios-not-established'
             anniversary_resolution = 'full-native-height-independent-color-depth-eye-targets; double-height-packed-output; native-HUD-canvas-kept-separate; managed-owner-thread-reallocation'
             native_resolution_verifier = 'tools/re/test_ce_resolution_native.py'
@@ -1184,14 +1184,22 @@ try {
             evidence = 'docs/REACH-HUD-HEIGHT-2026-09-15.md'
             headset_accepted = $false
         }
+        all_title_recovery = [ordered]@{
+            behavior = 'selected-title-Reach-display-admission; native-CE-clock-reentry; all-title-manual-recovery-with-normal-proofs'
+            titles = 'CE-Original-and-Anniversary; Halo2-Classic-and-Anniversary; Halo3; ODST; Reach; Halo4'
+            preserved_ce_source = '558fb2c2237492c0458b5cee02c690be652285fe'
+            ce_scoped_headset_accepted = $true
+            new_recovery_headset_accepted = $false
+            evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
+        }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this CE candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
+        historical_metadata_notice = 'Older stage/profile IDs describe inherited bindings, not this recovery candidate or new headset acceptance. Current scope and limits are in RELEASE-NOTES.md and halo_ce_candidate; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE graphics-switch shader lifecycle correction and Reach HUD height from user-tested 2cf002b. Preserve Original reticle/tracking/muzzles and both-mode full resolution, hands, gun contact and physical melee. Build/native/GPU checks do not establish new headset acceptance. Keep existing config. Both editions; package only; cumulative accepted pointer unchanged.'
+        note = 'All-title re-entry and Force Inject recovery from user-tested 558fb2c. CE Original and Anniversary engine implementation preserved. Reach HUD height still needs headset testing. Local checks do not establish new lifecycle acceptance. Keep existing config. Both editions; package only; cumulative accepted pointer unchanged.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/HALOCE-SWITCH-REACH-HEIGHT-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/ALL-TITLE-RECOVERY-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

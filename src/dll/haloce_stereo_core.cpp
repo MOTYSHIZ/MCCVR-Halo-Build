@@ -1056,6 +1056,13 @@ bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t gen) n
 bool HaloCE_NativeHudResourcesReady(uintptr_t expectedBase,uint32_t expectedGeneration) noexcept
 { return ce_resolution::NativeHudResourcesReady(expectedBase,expectedGeneration); }
 
+void HaloCE_RequestRecovery(uint32_t gen) noexcept
+{
+    if (gen && gen == TitleAdapter_GetGeneration(GameTitle::HaloCE) &&
+        TitleAdapter_GetActiveTitle() == GameTitle::HaloCE && !installed.load())
+        rejectedGeneration = 0;
+}
+
 bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
 {
     active.store(isActive,std::memory_order_release);
@@ -1065,6 +1072,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         TitleAdapter_PublishLifecycle(GameTitle::HaloCE,generation.load(),{installed.load(),false,true,0});
         if (!Remove()) return false;
     }
+    if (!isActive) rejectedGeneration=0;
     if (!isActive||!base||!gen) return false;
     if (!kRejectedCeInitialStereoEnabled&&!kCeSourceRasterStereoEnabled&&!kCeConstructTrackedViewsEnabled&&
         !kCeIntegratedBaseVrEnabled&&!kCeSceneVisibilityBaseVrEnabled)

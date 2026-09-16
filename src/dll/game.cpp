@@ -9,6 +9,7 @@
 #include "hook_quiescence.h"
 #include "../common/minhook_lifecycle.h"
 #include "../common/manual_vr_recovery.h"
+#include "../common/manual_vr_recovery_logic.h"
 #include "../common/vr_interaction_refinement_logic.h"
 #include "../common/contact_melee_motion.h"
 #include "../common/halo3_melee_selection_logic.h"
@@ -960,6 +961,7 @@ namespace
         InstallFailure,
         TitleLeft,
         NativePause,
+        ManualRecovery,
     };
 
     struct OdstMotionBlurVar
@@ -14261,9 +14263,15 @@ namespace
     // H3 callbacks retain their trampolines through native calls as well as
     // mod work. Until the complete install publishes ready, use stock only.
     std::atomic<bool> g_manualVrRecoveryRequested{false};
-    std::atomic<uint32_t> g_manualVrRecoveryGeneration{0};
+    std::atomic<uint64_t> g_manualVrRecoveryToken{0};
+    std::atomic<bool> g_manualVrRecoveryComplete{false};
     std::atomic<const char*> g_manualVrRecoveryStatus{
-        "Halo 3: retries camera setup after a flat-screen lock. Wait for the level to finish loading."};
+        "All games: retries VR after a flat-screen lock. Wait for the level to finish loading."};
+    bool ManualVrRecoveryFor(GameTitle title)
+    {
+        return ManualVrRecoveryMatches(g_manualVrRecoveryToken.load(std::memory_order_acquire),
+            title, TitleAdapter_GetGeneration(title));
+    }
     std::atomic<uint32_t> g_halo3CoreCallbacks{0};
     std::atomic<bool> g_halo3InstallReady{false};
 
@@ -17652,6 +17660,8 @@ namespace
             reasonName = "title exit";
         else if (reason == OdstFallbackReason::NativePause)
             reasonName = "native pause boundary";
+        else if (reason == OdstFallbackReason::ManualRecovery)
+            reasonName = "manual VR recovery";
 
         g_odstCamera.installed.store(false, std::memory_order_release);
         g_odstLastCamCopyMs.store(0, std::memory_order_release);
@@ -40738,6 +40748,7 @@ namespace
         OdstCameraRearmGate odstRearmGate;
         OdstPauseRearmGate odstPauseRearmGate;
         bool odstPresentationPrepared = false;
+        bool odstManualRecoveryPending = false;
 #endif
         wchar_t recoveryEventName[96]{};
         ManualVrRecoveryEventName(recoveryEventName, GetCurrentProcessId());
@@ -40745,6 +40756,9 @@ namespace
         if (!recoveryEvent)
             LOG("Manual VR recovery: launcher event unavailable (%lu); F1 remains available", GetLastError());
         uint64_t lastManualRecoveryMs = 0;
+        uint32_t reachManualRecoveryPending = 0;
+        uint32_t halo4ManualRecoveryPending = 0;
+        uint32_t halo2ManualColdRecoveryPending = 0;
         uint64_t nextHaloCleanupMs = 0;
         uint64_t nextAnatomicalReportMs = 0;
         for (;;)
@@ -40774,14 +40788,17 @@ namespace
             if (recoveryEvent && WaitForSingleObject(recoveryEvent, 0) == WAIT_OBJECT_0)
                 g_manualVrRecoveryRequested.store(true, std::memory_order_release);
             bool manualHaloRecovery = false;
+            bool manualRequestAccepted = false;
             if (g_manualVrRecoveryRequested.exchange(false, std::memory_order_acq_rel))
             {
                 if (lastManualRecoveryMs && pollNow - lastManualRecoveryMs < 2000)
                     LOG("Manual VR recovery: repeated request coalesced");
-                else if (!activeTitle || activeTitle->title != GameTitle::Halo3)
+                else if (!activeTitle || !ManualVrRecoverySupported(activeTitle->title) ||
+                         TitleRegistry_HookPlan(activeTitle->title) == TitleHookPlan::None ||
+                         !TitleAdapter_GetGeneration(activeTitle->title))
                 {
-                    g_manualVrRecoveryStatus.store("Recovery currently supports Halo 3. Enter its level, then retry.");
-                    LOG("Manual VR recovery: no uniquely active Halo 3 title; no hooks changed");
+                    g_manualVrRecoveryStatus.store("Enter a game and let its level finish loading, then retry VR recovery.");
+                    LOG("Manual VR recovery: no supported active title with a current generation; no hooks changed");
                 }
                 else if (g_vrRuntimeFailureLatched.load(std::memory_order_acquire))
                 {
@@ -40791,13 +40808,62 @@ namespace
                 else
                 {
                     lastManualRecoveryMs = pollNow;
-                    manualHaloRecovery = true;
-                    haloAttemptedGeneration = 0;
-                    g_manualVrRecoveryGeneration.store(TitleAdapter_GetGeneration(GameTitle::Halo3));
+                    manualRequestAccepted = true;
+                    const GameTitle recoveryTitle = activeTitle->title;
+                    const uint32_t recoveryGeneration = TitleAdapter_GetGeneration(recoveryTitle);
+                    g_manualVrRecoveryComplete.store(false, std::memory_order_release);
+                    g_manualVrRecoveryToken.store(ManualVrRecoveryToken(recoveryTitle, recoveryGeneration),
+                        std::memory_order_release);
                     g_autoVrUserVeto.store(false, std::memory_order_release);
-                    g_manualVrRecoveryStatus.store("Recovering Halo 3: waiting for cleanup and a fresh level camera.");
-                    if (!gameHooked) g_halo3LevelLoadGate.Rearm();
-                    LOG("Manual VR recovery: Halo 3 camera retry requested; normal binding, load and tracking proofs retained");
+                    g_manualVrRecoveryStatus.store("Recovering VR: waiting for safe cleanup, a ready level and fresh camera tracking.");
+                    switch (recoveryTitle)
+                    {
+                    case GameTitle::Halo3:
+                        manualHaloRecovery = true;
+                        haloAttemptedGeneration = 0;
+                        if (!gameHooked) g_halo3LevelLoadGate.Rearm();
+                        break;
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+                    case GameTitle::Halo3ODST:
+                        odstManualRecoveryPending = true;
+                        if (odstHooked) OdstRequestFallback(OdstFallbackReason::ManualRecovery);
+                        break;
+#endif
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+                    case GameTitle::HaloReach:
+                        reachManualRecoveryPending = recoveryGeneration;
+                        if (g_reachCamera.installed.load(std::memory_order_acquire))
+                        {
+                            LOG("Reach camera retirement requested by manual VR recovery");
+                            g_reachCamera.teardownRequested.store(true, std::memory_order_release);
+                        }
+                        break;
+#endif
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+                    case GameTitle::Halo4:
+                        halo4ManualRecoveryPending = recoveryGeneration;
+                        if (g_halo4Camera.installed.load(std::memory_order_acquire))
+                        {
+                            LOG("Halo 4 camera retirement requested by manual VR recovery");
+                            g_halo4Camera.teardownRequested.store(true, std::memory_order_release);
+                        }
+                        break;
+#endif
+                    case GameTitle::Halo2:
+                        halo2ManualColdRecoveryPending = Halo2ColdObservation_Passed(recoveryGeneration)
+                            ? 0 : recoveryGeneration;
+                        Halo2Stereo_RequestRecovery(recoveryGeneration);
+                        Halo2AnniversaryStereo_RequestRecovery(recoveryGeneration);
+                        Halo2Observer6Dof_RequestRecovery(recoveryGeneration);
+                        break;
+                    case GameTitle::HaloCE:
+                        HaloCE_RequestRecovery(recoveryGeneration);
+                        HaloCE_Recenter();
+                        break;
+                    default: break;
+                    }
+                    LOG("Manual VR recovery: %s generation %u retry requested; normal binding, load and tracking proofs retained",
+                        activeTitle->displayName, recoveryGeneration);
                 }
             }
             const TitleAdapterRuntimeSnapshot runtime =
@@ -40811,13 +40877,68 @@ namespace
             // this tick reads IsOpen()/g_activeTitleLevelRunning instead, so no
             // path double-consumes a sample. See the gate declaration for why
             // the invariant is "touch nothing", not merely "install nothing".
-            const uint32_t requestedGeneration = g_manualVrRecoveryGeneration.load();
-            if (requestedGeneration && requestedGeneration !=
-                    TitleAdapter_GetGeneration(GameTitle::Halo3))
+            const uint64_t requestedToken = g_manualVrRecoveryToken.load(std::memory_order_acquire);
+            const GameTitle requestedTitle = ManualVrRecoveryTitle(requestedToken);
+            const uint32_t requestedGeneration = ManualVrRecoveryGeneration(requestedToken);
+            const bool requestedCameraReady = [&] {
+                switch (requestedTitle)
+                {
+                case GameTitle::HaloCE: return HaloCE_Armed();
+                case GameTitle::Halo2:
+                    return !halo2ManualColdRecoveryPending &&
+                        !Halo2Observer6Dof_RecoveryPending() && !Halo2Stereo_RecoveryPending() &&
+                        !Halo2AnniversaryStereo_RecoveryPending() && Halo2Observer6Dof_Armed() &&
+                        (Halo2Stereo_Armed() || Halo2AnniversaryStereo_Armed());
+                case GameTitle::Halo3:
+                    return g_halo3InstallReady.load(std::memory_order_acquire);
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+                case GameTitle::Halo3ODST:
+                    return !odstManualRecoveryPending && g_odstCamera.armed.load(std::memory_order_acquire) &&
+                        !g_odstCamera.teardownRequested.load(std::memory_order_acquire);
+#endif
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+                case GameTitle::HaloReach:
+                    return !reachManualRecoveryPending && g_reachCamera.armed.load(std::memory_order_acquire) &&
+                        !g_reachCamera.teardownRequested.load(std::memory_order_acquire);
+#endif
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+                case GameTitle::Halo4:
+                    return !halo4ManualRecoveryPending && g_halo4Camera.armed.load(std::memory_order_acquire) &&
+                        !g_halo4Camera.teardownRequested.load(std::memory_order_acquire) &&
+                        !g_halo4Camera.sceneTargetMissing.load(std::memory_order_acquire);
+#endif
+                default: return false;
+                }
+            }();
+            if (requestedToken && (requestedGeneration != TitleAdapter_GetGeneration(requestedTitle) ||
+                    (activeTitle && activeTitle->title != requestedTitle) ||
+                    (!activeTitle && !runtime.ownershipPending)))
             {
-                g_manualVrRecoveryGeneration.store(0);
-                g_manualVrRecoveryStatus.store("Halo 3 changed levels during recovery. Retry once the level is ready.");
-                LOG("Manual VR recovery: old generation %u retired; request cancelled", requestedGeneration);
+                g_manualVrRecoveryToken.store(0, std::memory_order_release);
+                g_manualVrRecoveryComplete.store(false, std::memory_order_release);
+                reachManualRecoveryPending = 0;
+                halo4ManualRecoveryPending = 0;
+                halo2ManualColdRecoveryPending = 0;
+                g_manualVrRecoveryStatus.store("The active game changed. VR recovery is available again in the next level.");
+                LOG("Manual VR recovery: title %u generation %u retired; request cancelled",
+                    static_cast<unsigned>(requestedTitle), requestedGeneration);
+            }
+            else if (requestedToken && !manualRequestAccepted && requestedCameraReady &&
+                !g_manualVrRecoveryComplete.load(std::memory_order_acquire) &&
+                !g_vrRuntimeFailureLatched.load(std::memory_order_acquire) &&
+                !g_autoVrUserVeto.load(std::memory_order_acquire) &&
+                runtime.runtime.owner == requestedTitle && runtime.runtime.generation == requestedGeneration &&
+                runtime.runtime.installed && runtime.runtime.armed && !runtime.runtime.teardownRequested &&
+                runtime.runtime.qualifyingOwnerCount == 1 && !runtime.ownershipPending &&
+                g_enabled.load(std::memory_order_acquire) && VR_IsStereoEnabled() &&
+                !VR_IsPausePresentation() && !VR_IsPausePresentationTarget())
+            {
+                // Keep the epoch-scoped manual override after completion so a
+                // saved auto_vr=false setting does not immediately undo it.
+                g_manualVrRecoveryComplete.store(true, std::memory_order_release);
+                g_manualVrRecoveryStatus.store("VR recovery complete: the active game has a live stereo camera.");
+                LOG("Manual VR recovery: completed for title %u generation %u",
+                    static_cast<unsigned>(requestedTitle), requestedGeneration);
             }
             // Cleanup is independent of the next title's load gate. In
             // particular an unloaded old module must not pin an optional
@@ -40899,6 +41020,13 @@ namespace
                         // official game-time singleton until a coherent active
                         // update opens the gate. The observer itself performs
                         // the full scan only after that proof.
+                        if (halo2ManualColdRecoveryPending == gateGeneration &&
+                            !Halo2Observer6Dof_Installed() && !Halo2Stereo_Installed() &&
+                            !Halo2AnniversaryStereo_Installed())
+                        {
+                            (void)Halo2ColdObservation_RetryFailed(gateBase, gateGeneration);
+                            halo2ManualColdRecoveryPending = 0;
+                        }
                         activeLevelRunning = Halo2ColdObservation_Poll(
                             gateBase, gateSize, gateGeneration);
                         halo2GateBase = gateBase;
@@ -41099,6 +41227,13 @@ namespace
                 // touches until the gate proves the level is running.
                 const bool reachLevelRunning =
                     haveReachRange && activeLevelRunning;
+                if (haveReachRange && reachManualRecoveryPending == reachGeneration &&
+                    !g_reachCamera.installed.load(std::memory_order_acquire))
+                {
+                    g_reachChudParityFailedGeneration.store(0, std::memory_order_release);
+                    (void)ReachRenderCandidate_RetryFailed({reachBase, reachGeneration});
+                    reachManualRecoveryPending = 0;
+                }
                 ReachRenderCandidate_ColdPoll(
                     reachBase, reachSize, reachGeneration,
                     reachLevelRunning);
@@ -41136,6 +41271,14 @@ namespace
                 {
                     const uint32_t halo4Generation =
                         TitleAdapter_GetGeneration(GameTitle::Halo4);
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+                    if (halo4ManualRecoveryPending == halo4Generation &&
+                        !g_halo4Camera.installed.load(std::memory_order_acquire))
+                    {
+                        (void)Halo4ColdObservation_RetryFailed(halo4GateBase, halo4Generation);
+                        halo4ManualRecoveryPending = 0;
+                    }
+#endif
                     if (Halo4ColdObservation_Pending(halo4Generation))
                         Halo4ColdObservation_Poll(
                             halo4GateBase, halo4GateSize, halo4Generation,
@@ -41202,7 +41345,10 @@ namespace
             // Halo 3 is not the active title must never satisfy the frozen
             // half of the NEXT level's proof.
             if (!haloTitleActive && !gameHooked)
+            {
                 g_halo3LevelLoadGate.Rearm();
+                haloAttemptedGeneration = 0;
+            }
             if (gameHooked && !haloActive)
             {
                 LOG("Halo 3 camera retirement: generation=%u observed=%u "
@@ -41402,6 +41548,19 @@ namespace
                     else
                         odstAttempted = true;
                 }
+            }
+            if (odstManualRecoveryPending && !odstHooked)
+            {
+                // A manual retry releases old attempt/readiness latches only
+                // after every installed callback has safely retired. Native
+                // pause and the ordinary level-load gate still control entry.
+                odstManualRecoveryPending = false;
+                odstRearmGate = {};
+                odstPauseRearmGate = {};
+                odstAttempted = false;
+                odstNextAttemptMs = 0;
+                ClearOdstStaticPreflightCache();
+                g_odstLevelLoadGate.Rearm();
             }
             if (!odstActive && !odstHooked)
             {
@@ -43065,7 +43224,7 @@ void Game_AutoVrTick()
             VR_DetachGamePresentation();
         }
 
-        if (!g_config.auto_vr)
+        if (!g_config.auto_vr && !ManualVrRecoveryFor(GameTitle::Halo3ODST))
         {
             if (g_autoVrOwned.load(std::memory_order_acquire))
             {
@@ -43376,7 +43535,7 @@ void Game_AutoVrTick()
         // Match the universal auto_vr contract. A manual F2 veto owns the
         // remainder of this level; a config-off transition releases only the
         // presentation that auto_vr itself armed.
-        if (!g_config.auto_vr ||
+        if ((!g_config.auto_vr && !ManualVrRecoveryFor(GameTitle::Halo2)) ||
             g_autoVrUserVeto.load(std::memory_order_acquire))
         {
             Halo2Stereo_SetPresentationReady(false);
@@ -43852,17 +44011,9 @@ void Game_AutoVrTick()
         VR_DetachGamePresentation();
     }
 
-    const uint32_t manualGeneration = g_manualVrRecoveryGeneration.load(std::memory_order_acquire);
-    const bool manualRecovery = manualGeneration && haloTitleActive &&
-        manualGeneration == TitleAdapter_GetGeneration(GameTitle::Halo3);
+    const bool manualRecovery = haloTitleActive && ManualVrRecoveryFor(GameTitle::Halo3);
     if ((!g_config.auto_vr && !manualRecovery) || pausePresentation) return;
 
-    if (manualRecovery && inLevelStable && g_enabled.load() && VR_IsStereoEnabled())
-    {
-        g_manualVrRecoveryGeneration.store(0, std::memory_order_release);
-        g_manualVrRecoveryStatus.store("Halo 3 recovery complete: stereo camera is active.");
-        LOG("Manual VR recovery: completed for Halo 3 generation %u", manualGeneration);
-    }
     if (inLevelStable)
     {
         if (!g_enabled.load() && !g_autoVrUserVeto.load())

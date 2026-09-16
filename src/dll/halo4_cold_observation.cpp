@@ -108,6 +108,20 @@ bool Halo4ColdObservation_Passed(uint32_t generation) noexcept
     return generation != 0 && g_passed && g_passedGeneration == generation;
 }
 
+bool Halo4ColdObservation_RetryFailed(
+    uintptr_t moduleBase, uint32_t generation) noexcept
+{
+    if (!moduleBase || !generation || g_passed || !g_attempted ||
+        g_attemptedBase != moduleBase || g_attemptedGeneration != generation)
+        return false;
+    g_attempted = false;
+    g_attemptedBase = 0;
+    g_attemptedGeneration = 0;
+    LOG("Halo 4 manual VR recovery: failed cold proof reset for generation %u; "
+        "native load and image verification must pass again", generation);
+    return true;
+}
+
 void Halo4ColdObservation_Poll(
     uintptr_t moduleBase, size_t moduleSize, uint32_t generation,
     bool halo4LevelRunning, bool gateArrayProven) noexcept

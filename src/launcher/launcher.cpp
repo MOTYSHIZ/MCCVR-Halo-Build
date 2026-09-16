@@ -161,7 +161,8 @@ static int OfferManualVrRecovery(DWORD pid, const std::wstring& expectedExe)
     dialog.dwCommonButtons = TDCBF_CANCEL_BUTTON;
     dialog.pszWindowTitle = L"Halo MCC VR launcher";
     dialog.pszMainInstruction = L"MCC is already running";
-    dialog.pszContent = L"Retry Halo 3 VR camera setup in the running game.\n"
+    dialog.pszContent = L"Retry VR for the active game: CE, Halo 2, Halo 3, ODST, Reach or Halo 4.\n"
+        L"Both Original/Classic and Anniversary graphics are supported.\n"
         L"The level must finish loading before stereo can resume.\n"
         L"Check F1 > Status in the headset for the result.";
     dialog.cButtons = static_cast<UINT>(std::size(buttons));

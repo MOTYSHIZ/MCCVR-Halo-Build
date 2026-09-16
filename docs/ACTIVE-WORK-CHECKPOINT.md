@@ -1,3 +1,36 @@
+# Current continuation - September 15 night: all-title re-entry and recovery
+
+User-tested **558fb2c** is explicitly accepted for CE Original and Anniversary:
+"perfect now ... dont change anything there." Preserve the accepted CE engine
+implementation and all standing features. Reach subsequently failed to enter
+VR, so its HUD-height fix still needs headset testing. Latest task: restore
+automatic VR entry across title switches and make Force Inject work in every
+supported title. This supersedes the previous CE-fix priority below.
+
+Read `ALL-TITLE-REENTRY-2026-09-15.md` for the supplied log and comparisons.
+Reach passed title detection, level-load proof and native preflight, then its
+display admission required a one-bit resident-module mask. CE retaining its
+safe native list/hook lifetime blocked that policy. Preserve CE retention;
+follow coherent active selection while retaining all display and camera proofs.
+
+Work through verification before packaging. Use `tools/package-candidate.ps1`
+without `-Install`; deliver matching build/source ZIPs in chat, then WAIT for
+user testing/instructions. No install, game-folder writes, launch, PR or
+publication. Both editions remain supported. Cumulative accepted source stays
+`4e01f28`; CE's scoped accepted source is `558fb2c`. Local checks do not prove
+headset acceptance of the new shared lifecycle behavior. Required tests include
+CE -> Reach, all-title re-entry/recovery, Reach HUD height, and Halo 3 regression.
+All earlier standing/deferred scope and known limits remain preserved.
+
+Implemented: selected-title Reach display admission, CE native-clock adapter
+selection, all-title manual retry/completion, rejected-attempt rearm, failed
+cold-proof retry and H2 cleanup continuation. CE engine implementation is
+preserved. Final Release, all 28 CTest suites, Reach gate and 46 extracted
+cold-retry checks pass. Package the committed source without `-Install`;
+verify both archives before delivery. Exact final identity is recorded only
+after validation in `out/all-title-current-handoff.json` and the compatibility
+`out/ce-current-handoff.json`. Deliver the new pair, then WAIT.
+
 # Current continuation - September 15 evening: CE graphics switch and Reach height
 
 User-tested **2cf002b** confirms CE Original reticle, muzzle flash, gun tracking

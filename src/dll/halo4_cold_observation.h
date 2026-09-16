@@ -30,3 +30,9 @@ bool Halo4ColdObservation_Pending(uint32_t generation) noexcept;
 // resolve a single signature: a build whose pinned evidence does not describe
 // the loaded image has no business being hooked.
 bool Halo4ColdObservation_Passed(uint32_t generation) noexcept;
+
+// Explicit manual recovery only, on the title worker with no installed camera
+// core. Clears only a failed exact module/generation attempt; a passing proof
+// is preserved and the next ordinary poll retains its native load gate.
+bool Halo4ColdObservation_RetryFailed(
+    uintptr_t moduleBase, uint32_t generation) noexcept;

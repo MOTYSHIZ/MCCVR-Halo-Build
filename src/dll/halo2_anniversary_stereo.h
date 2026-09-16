@@ -29,6 +29,9 @@ bool Halo2AnniversaryStereo_Poll(
     bool remasteredRendererLive, uintptr_t observerResultArray) noexcept;
 
 bool Halo2AnniversaryStereo_Installed() noexcept;
+// Management worker only; both graphics modes retain their native proof gates.
+void Halo2AnniversaryStereo_RequestRecovery(uint32_t generation) noexcept;
+bool Halo2AnniversaryStereo_RecoveryPending() noexcept;
 bool Halo2AnniversaryStereo_Armed() noexcept;
 uint32_t Halo2AnniversaryStereo_Generation() noexcept;
 void Halo2AnniversaryStereo_RequestRecenter() noexcept;

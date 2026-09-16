@@ -17,6 +17,13 @@ bool Halo2ColdObservation_Poll(
 // active title. A completed generation remains latched and never scans twice.
 void Halo2ColdObservation_Rearm() noexcept;
 
+// Explicit manual recovery only, on the title worker after all camera cores
+// are uninstalled. Reopens only a failed exact module/generation attempt;
+// passing image proofs are preserved so patched live bytes are never rescanned.
+// The ordinary poll must re-earn the native load/identity/signature proofs.
+bool Halo2ColdObservation_RetryFailed(
+    uintptr_t moduleBase, uint32_t generation) noexcept;
+
 bool Halo2ColdObservation_Pending(uint32_t generation) noexcept;
 bool Halo2ColdObservation_Passed(uint32_t generation) noexcept;
 

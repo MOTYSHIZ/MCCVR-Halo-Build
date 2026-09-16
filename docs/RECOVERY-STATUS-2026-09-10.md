@@ -1,3 +1,8 @@
+> September 15 update: the current candidate extends recovery to all titles.
+> Read [all-title recovery evidence](ALL-TITLE-REENTRY-2026-09-15.md). The
+> H3-only statements below describe the earlier implementation; the new shared
+> candidate still needs headset verification.
+
 # Recovery verification — September 10, 2026
 
 Recovered worktree at 9569690 (failed H3 dual-firing behavior disabled).

@@ -1,5 +1,16 @@
 # Current state
 
+> **CE ORIGINAL AND ANNIVERSARY ACCEPTED; ALL-TITLE RE-ENTRY FIX (2026-09-15).**
+> User-tested source `558fb2c2237492c0458b5cee02c690be652285fe` is explicitly
+> confirmed perfect for CE in both graphics modes. Preserve its renderer,
+> camera, HUD, tracking, resolution, contact and graphics-switch implementation.
+> Reach did not enter VR afterward: its display admission incorrectly required
+> Reach to be the only resident title module. Reach HUD height remains untested.
+> Read `ALL-TITLE-REENTRY-2026-09-15.md` for source/log/artifact evidence.
+> The new scope is automatic title re-entry plus all-title Force Inject recovery.
+> This scoped CE acceptance does not advance cumulative accepted `4e01f28`.
+> Deliver a new verified build/source ZIP pair only, then wait for testing.
+
 > **CE ORIGINAL CONFIRMED; SWITCH/REACH FIXES REQUIRED (2026-09-15).**
 > User-tested `2cf002b6b41dd69b2515469bde82cd2b1553d50d`: CE Original reticle,
 > muzzle flash, gun tracking and overall behavior are confirmed working.

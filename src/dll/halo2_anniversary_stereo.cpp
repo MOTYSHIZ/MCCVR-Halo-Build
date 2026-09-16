@@ -1,4 +1,6 @@
 #include "halo2_anniversary_stereo.h"
+#include "../common/manual_vr_recovery_logic.h"
+#include "../common/minhook_lifecycle.h"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -9,14 +11,17 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 #include "../common/config.h"
 #include "../common/halo2_render_logic.h"
 #include "../common/log.h"
 #include "game.h"
+#include "title_adapter.h"
 #include "halo2_observer_6dof.h"
 #include "halo2_saber_camera.h"
 #include "halo2_stereo_core.h"
+#include "hook_quiescence.h"
 #include "vr.h"
 
 #ifndef HALOMCCVR_HALO2_ANNIVERSARY_STEREO
@@ -208,6 +213,7 @@ namespace
     void* g_hostUiTarget = nullptr;
     CoreState g_coreState = CoreState::StockFallback;
     uint32_t g_rejectedGeneration = 0;
+    uint32_t g_manualRecoveryGeneration = 0;
     uint32_t g_armedLoggedGeneration = 0;
 
     // Re-entry guard. The engine itself calls the scene render once per player
@@ -1322,60 +1328,7 @@ namespace
              mask == PAGE_EXECUTE_WRITECOPY || mask == PAGE_EXECUTE);
     }
 
-    bool RemoveCore(const char* reason) noexcept
-    {
-        g_armed.store(false, std::memory_order_release);
-        g_teardown.store(true, std::memory_order_release);
-        if (g_sceneTarget)
-        {
-            if (MH_DisableHook(g_sceneTarget) != MH_OK)
-                return false;
-            if (g_rebuildTarget && MH_DisableHook(g_rebuildTarget) != MH_OK)
-                return false;
-            if (g_hostUiTarget && MH_DisableHook(g_hostUiTarget) != MH_OK)
-                return false;
-            for (int i = 0; i < 200 &&
-                 g_activeCallbacks.load(std::memory_order_acquire); ++i)
-            {
-                Sleep(10);
-            }
-            if (g_activeCallbacks.load(std::memory_order_acquire))
-                return false;
-            (void)MH_RemoveHook(g_sceneTarget);
-            g_sceneTarget = nullptr;
-            if (g_rebuildTarget)
-            {
-                (void)MH_RemoveHook(g_rebuildTarget);
-                g_rebuildTarget = nullptr;
-            }
-            if (g_hostUiTarget)
-            {
-                (void)MH_RemoveHook(g_hostUiTarget);
-                g_hostUiTarget = nullptr;
-            }
-        }
-        g_originalScene.store(0, std::memory_order_release);
-        g_originalRebuild.store(0, std::memory_order_release);
-        g_originalHostUi.store(0, std::memory_order_release);
-        g_fpPatchRecord.store(0, std::memory_order_release);
-        g_rebuildMatrices.store(0, std::memory_order_release);
-        g_cameraCommit.store(0, std::memory_order_release);
-        g_cameraRefreshRect.store(0, std::memory_order_release);
-        g_moduleBase.store(0, std::memory_order_release);
-        g_observerResult.store(0, std::memory_order_release);
-        g_generation.store(0, std::memory_order_release);
-        g_installed.store(false, std::memory_order_release);
-        g_referenceValid.store(false, std::memory_order_release);
-        g_recenterRequested.store(true, std::memory_order_release);
-        g_lastCompletedSerial.store(0, std::memory_order_release);
-        g_coreState = CoreState::StockFallback;
-        // Non-owning identity; MCC alone owns the title DLL lifetime.
-        g_moduleReference = nullptr;
-        if (reason)
-            LOG("Halo 2 Anniversary stereo removed (%s); stock rendering restored",
-                reason);
-        return true;
-    }
+#include "halo2_anniversary_cleanup.inl"
 
     bool InstallCore(
         uintptr_t base, uint32_t generation, uintptr_t observerResult) noexcept
@@ -1725,67 +1678,18 @@ namespace
     }
 }
 
-bool Halo2AnniversaryStereo_Poll(
-    uintptr_t moduleBase, size_t moduleSize, uint32_t generation,
-    bool activeAndRange, bool levelRunning, bool coldPassed,
-    bool remasteredRendererLive, uintptr_t observerResultArray) noexcept
-{
-    uint32_t vrFailure = g_vrFailureGeneration.load(std::memory_order_acquire);
-    if (vrFailure && generation && generation != vrFailure)
-    {
-        g_vrFailureGeneration.compare_exchange_strong(
-            vrFailure, 0, std::memory_order_acq_rel, std::memory_order_acquire);
-        vrFailure = g_vrFailureGeneration.load(std::memory_order_acquire);
-    }
-
-    const bool vrAvailable = !vrFailure || generation != vrFailure;
-    const bool desired = moduleBase && generation &&
-        moduleSize == kHalo2RetailImageSize && activeAndRange && levelRunning &&
-        coldPassed && vrAvailable && observerResultArray != 0 &&
-        remasteredRendererLive;
-
-    g_levelLive.store(levelRunning, std::memory_order_release);
-    g_remasteredLive.store(remasteredRendererLive, std::memory_order_release);
-
-    const uint32_t owned = g_generation.load(std::memory_order_acquire);
-    const bool foreignModule = g_sceneTarget &&
-        (owned != generation ||
-         g_moduleBase.load(std::memory_order_acquire) != moduleBase);
-
-    if (!desired || foreignModule)
-    {
-        if (g_installed.load(std::memory_order_acquire))
-        {
-            (void)RemoveCore(foreignModule ? "module generation changed"
-                                           : "level or title no longer eligible");
-        }
-        if (generation != g_rejectedGeneration)
-            g_rejectedGeneration = 0;
-        return false;
-    }
-
-    if (g_coreState != CoreState::Installed)
-    {
-        if (!InstallCore(moduleBase, generation, observerResultArray))
-            return false;
-    }
-
-    g_armed.store(true, std::memory_order_release);
-    if (g_armedLoggedGeneration != generation)
-    {
-        g_armedLoggedGeneration = generation;
-        LOG("Halo 2 Anniversary stereo armed: the remastered scene render runs "
-            "once per eye from one game frame; a frame that cannot produce a "
-            "complete pair renders stock exactly once and never blacks out");
-    }
-    Report();
-    return true;
-}
+#include "halo2_anniversary_poll.inl"
 
 bool Halo2AnniversaryStereo_Installed() noexcept
 {
     return g_installed.load(std::memory_order_acquire);
 }
+
+void Halo2AnniversaryStereo_RequestRecovery(uint32_t generation) noexcept
+{ g_manualRecoveryGeneration = generation; }
+
+bool Halo2AnniversaryStereo_RecoveryPending() noexcept
+{ return g_manualRecoveryGeneration != 0; }
 
 bool Halo2AnniversaryStereo_Armed() noexcept
 {
@@ -1823,5 +1727,7 @@ bool Halo2AnniversaryStereo_Armed() noexcept { return false; }
 uint32_t Halo2AnniversaryStereo_Generation() noexcept { return 0; }
 void Halo2AnniversaryStereo_RequestRecenter() noexcept {}
 void Halo2AnniversaryStereo_ShutdownForVrFailure() noexcept {}
+void Halo2AnniversaryStereo_RequestRecovery(uint32_t) noexcept {}
+bool Halo2AnniversaryStereo_RecoveryPending() noexcept { return false; }
 
 #endif

@@ -992,6 +992,34 @@ void Halo2ColdObservation_Rearm() noexcept
         ResetGate(0, 0, 0);
 }
 
+bool Halo2ColdObservation_RetryFailed(
+    uintptr_t moduleBase, uint32_t generation) noexcept
+{
+    if (!moduleBase || !generation ||
+        (g_passed && g_passedGeneration == generation &&
+         g_completedBase == moduleBase))
+        return false;
+    const bool matchingGate = g_gateBase == moduleBase &&
+        g_gateGeneration == generation;
+    const bool failedGate = matchingGate && g_gateAnchorsChecked &&
+        !g_gateAnchorsProven;
+    const bool failedObservation = !g_passed && g_completed &&
+        g_completedBase == moduleBase && g_completedGeneration == generation;
+    if (!failedGate && !failedObservation)
+        return false;
+    if (failedObservation)
+    {
+        g_completed = false;
+        g_completedBase = 0;
+        g_completedGeneration = 0;
+    }
+    if (matchingGate)
+        ResetGate(moduleBase, g_gateSize, generation);
+    LOG("Halo 2 manual VR recovery: failed cold proof reset for generation %u; "
+        "native load and image verification must pass again", generation);
+    return true;
+}
+
 bool Halo2ColdObservation_Pending(uint32_t generation) noexcept
 {
     return !(generation && g_completed &&

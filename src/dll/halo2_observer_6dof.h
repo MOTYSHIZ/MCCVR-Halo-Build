@@ -28,6 +28,9 @@ bool Halo2Observer6Dof_Poll(
     uintptr_t observerResultArray) noexcept;
 
 bool Halo2Observer6Dof_Installed() noexcept;
+// Management worker only. Runtime-failure latches are never cleared here.
+void Halo2Observer6Dof_RequestRecovery(uint32_t generation) noexcept;
+bool Halo2Observer6Dof_RecoveryPending() noexcept;
 bool Halo2Observer6Dof_Armed() noexcept;
 void Halo2Observer6Dof_SnapTurnSettled(uint32_t generation, float targetYaw) noexcept;
 // C-H2-43: independently installed firing-only direction hook. False keeps

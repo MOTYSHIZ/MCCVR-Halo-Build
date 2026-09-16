@@ -609,7 +609,7 @@ namespace
     uint64_t g_reachDisplayLastFailureLogMs = 0;
     bool g_reachDisplayReadyLogged = false;
     SRWLOCK g_reachDisplayResourceLock = SRWLOCK_INIT;
-    std::atomic<bool> g_reachPresentSoleEligible{false};
+    std::atomic<bool> g_reachPresentSelectedEligible{false};
     std::atomic<uint64_t> g_reachPresentAvailabilitySetEpochMs{0};
     std::atomic<uint32_t> g_reachPresentGeneration{0};
     std::atomic<uintptr_t> g_reachPresentModuleBase{0};
@@ -3716,84 +3716,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         PSRWLOCK m_lock;
     };
 
-    struct ReachDisplayAdmission
-    {
-        TitleRuntimeAvailabilitySnapshot availability{};
-        ReachModuleEpoch epoch{};
-        GameTitle activeTitle = GameTitle::None;
-        bool coherent = false;
-        bool resident = false;
-        bool sole = false;
-    };
-
-    bool SameReachAvailability(
-        const TitleRuntimeAvailabilitySnapshot& left,
-        const TitleRuntimeAvailabilitySnapshot& right) noexcept
-    {
-        return left.stable && right.stable &&
-            left.availabilityMask == right.availabilityMask &&
-            left.availabilitySetEpochMs == right.availabilitySetEpochMs &&
-            left.revision == right.revision &&
-            left.moduleBases == right.moduleBases;
-    }
-
-    bool ReadReachDisplayAdmission(
-        ReachDisplayAdmission& admission) noexcept
-    {
-        admission = {};
-        constexpr GameTitle title = GameTitle::HaloReach;
-        constexpr size_t slot = TitleRuntimeSlotIndex(title);
-        constexpr uint32_t bit = TitleRuntimeAvailabilityBit(title);
-        static_assert(slot < kTitleRuntimeSlotCount);
-        static_assert(bit != 0);
-
-        const TitleRuntimeAvailabilitySnapshot before =
-            TitleAdapter_GetAvailability();
-        const GameTitle activeBefore = TitleAdapter_GetActiveTitle();
-        const uint32_t generationBefore =
-            TitleAdapter_GetGeneration(title);
-        const TitleRuntimeAvailabilitySnapshot after =
-            TitleAdapter_GetAvailability();
-        const GameTitle activeAfter = TitleAdapter_GetActiveTitle();
-        const uint32_t generationAfter =
-            TitleAdapter_GetGeneration(title);
-        if (!SameReachAvailability(before, after) ||
-            activeBefore != activeAfter ||
-            generationBefore != generationAfter)
-        {
-            return false;
-        }
-
-        admission.availability = after;
-        admission.activeTitle = activeAfter;
-        admission.coherent = true;
-        admission.resident =
-            (after.availabilityMask & bit) != 0 &&
-            after.moduleBases[slot] != 0 && generationAfter != 0;
-        if (admission.resident)
-        {
-            admission.epoch = {
-                after.moduleBases[slot], generationAfter};
-        }
-        admission.sole = admission.resident &&
-            after.availabilityMask == bit &&
-            activeAfter == title;
-        return true;
-    }
-
-    bool ReachSameDisplayAdmission(
-        const ReachDisplayAdmission& left,
-        const ReachDisplayAdmission& right) noexcept
-    {
-        return left.coherent && right.coherent && left.resident && right.resident &&
-            left.sole && right.sole &&
-            left.activeTitle == right.activeTitle &&
-            left.availability.availabilityMask ==
-                right.availability.availabilityMask &&
-            left.availability.availabilitySetEpochMs ==
-                right.availability.availabilitySetEpochMs &&
-            ReachSameModuleEpoch(left.epoch, right.epoch);
-    }
+#include "reach_display_admission.inl"
 
     void BumpReachDisplayLifecycleSerial() noexcept
     {
@@ -3810,7 +3733,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     void InvalidateReachPresentAdmission() noexcept
     {
-        g_reachPresentSoleEligible.store(false, std::memory_order_release);
+        g_reachPresentSelectedEligible.store(false, std::memory_order_release);
         g_reachPresentAvailabilitySetEpochMs.store(0, std::memory_order_release);
         g_reachPresentGeneration.store(0, std::memory_order_release);
         g_reachPresentModuleBase.store(0, std::memory_order_release);
@@ -3828,7 +3751,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     {
         ReachDisplayAdmission admission{};
         const bool eligible =
-            ReadReachDisplayAdmission(admission) && admission.sole;
+            ReadReachDisplayAdmission(admission) && admission.selected;
         const uint64_t availabilitySetEpochMs = eligible
             ? admission.availability.availabilitySetEpochMs : 0;
         const uint32_t generation = eligible
@@ -3836,7 +3759,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const uintptr_t moduleBase = eligible
             ? admission.epoch.moduleBase : 0;
         const bool changed =
-            g_reachPresentSoleEligible.load(
+            g_reachPresentSelectedEligible.load(
                 std::memory_order_relaxed) != eligible ||
             g_reachPresentAvailabilitySetEpochMs.load(
                 std::memory_order_relaxed) != availabilitySetEpochMs ||
@@ -3846,7 +3769,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 std::memory_order_relaxed) != moduleBase;
         if (changed)
         {
-            g_reachPresentSoleEligible.store(
+            g_reachPresentSelectedEligible.store(
                 eligible, std::memory_order_release);
             g_reachPresentAvailabilitySetEpochMs.store(
                 availabilitySetEpochMs, std::memory_order_release);
@@ -4237,7 +4160,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         IDXGISwapChain* presentSwapchain,
         const ReachDisplayAdmission& admission) noexcept
     {
-        if (!presentSwapchain || !admission.sole ||
+        if (!presentSwapchain || !admission.selected ||
             g_reachResizeActive.load(std::memory_order_acquire))
         {
             return;
@@ -4365,7 +4288,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             ReachSameDisplayFields(initial, final) &&
             g_reachDisplayLifecycleSerial.load(
                 std::memory_order_acquire) == lifecycleSerial &&
-            g_reachPresentSoleEligible.load(
+            g_reachPresentSelectedEligible.load(
                 std::memory_order_acquire) &&
             g_reachPresentAvailabilitySetEpochMs.load(
                 std::memory_order_acquire) ==
@@ -4657,7 +4580,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             ResetReachDisplayCandidateLocked(true, true);
             return;
         }
-        if (!admission.sole)
+        if (!admission.selected)
         {
             if (ReachSameModuleEpoch(
                     admission.epoch, g_reachDisplayEpoch))
@@ -4674,6 +4597,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             return;
         }
 
+        static ReachModuleEpoch loggedAdmissionEpoch{};
+        static uint64_t loggedAvailabilityEpoch = 0;
+        if (!ReachSameModuleEpoch(loggedAdmissionEpoch, admission.epoch) ||
+            loggedAvailabilityEpoch != admission.availability.availabilitySetEpochMs)
+        {
+            loggedAdmissionEpoch = admission.epoch;
+            loggedAvailabilityEpoch = admission.availability.availabilitySetEpochMs;
+            LOG("Reach display admission: selected Reach generation %u with resident mask 0x%X; "
+                "verifying current native Present resources",
+                admission.epoch.generation, admission.availability.availabilityMask);
+        }
+
         if (!ReachSameModuleEpoch(
                 admission.epoch, g_reachDisplayEpoch))
         {
@@ -4688,7 +4623,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 std::memory_order_acquire);
         const bool presentAdmissionMatches =
             lifecycleSerial != std::numeric_limits<uint64_t>::max() &&
-            g_reachPresentSoleEligible.load(
+            g_reachPresentSelectedEligible.load(
                 std::memory_order_acquire) &&
             g_reachPresentAvailabilitySetEpochMs.load(
                 std::memory_order_acquire) ==
@@ -4706,6 +4641,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         {
             g_reachDirectCopyGate.Invalidate(admission.epoch);
             g_reachDisplayReadyLogged = false;
+            const uint64_t waitingNow = GetTickCount64();
+            if (!g_reachDisplayLastFailureLogMs ||
+                waitingNow - g_reachDisplayLastFailureLogMs >= 2000)
+            {
+                g_reachDisplayLastFailureLogMs = waitingNow;
+                LOG("Reach display worker waiting: generation=%u residentMask=0x%X "
+                    "currentPresent=%d preflight=%d",
+                    admission.epoch.generation, admission.availability.availabilityMask,
+                    presentAdmissionMatches ? 1 : 0,
+                    preflight.Complete() && ReachRenderCandidate_IsPreflightCurrent(preflight) ? 1 : 0);
+            }
             return;
         }
 
@@ -4749,7 +4695,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 ReachSameDisplayAdmission(admission, finalAdmission) &&
                 g_reachDisplayLifecycleSerial.load(
                     std::memory_order_acquire) == lifecycleSerial &&
-                g_reachPresentSoleEligible.load(
+                g_reachPresentSelectedEligible.load(
                     std::memory_order_acquire) &&
                 g_reachPresentAvailabilitySetEpochMs.load(
                     std::memory_order_acquire) ==

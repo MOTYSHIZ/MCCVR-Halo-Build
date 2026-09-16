@@ -20,6 +20,11 @@ ReachPreflightToken ReachRenderCandidate_GetPreflight(
 bool ReachRenderCandidate_IsPreflightCurrent(
     const ReachPreflightToken& token) noexcept;
 
+// Explicit manual recovery only, on the title worker after camera cleanup.
+// Reopens an exact failed attempt; passing proofs are never invalidated or
+// rescanned against live hooks. The normal gated cold poll performs the retry.
+bool ReachRenderCandidate_RetryFailed(const ReachModuleEpoch& epoch) noexcept;
+
 ReachRenderAction ReachRenderCandidate_SelectAction(
     const ReachPreflightToken& preflight,
     const ReachRenderOwnerGate& owner,

@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include "../common/halo2_render_logic.h"
+#include "../common/haloce_contracts.generated.h"
 #include "../common/title_registry.h"
 
 namespace
@@ -26,6 +27,7 @@ namespace
         { GameTitle::Halo3ODST, 1, 0x02D73590, 0x2810 },
         { GameTitle::HaloReach, 2, 0x029F2B90, 0x0A40 },
         { GameTitle::Halo4, 3, 0x030AD1C0, 0x0AD0 },
+        { GameTitle::HaloCE, 4, 0, 0 },
         { GameTitle::Halo2, 5, 0, 0 },
     };
 
@@ -34,6 +36,8 @@ namespace
         uintptr_t moduleBase = 0;
         uint64_t fingerprint = 0;
         uint64_t lastChangeMs = 0;
+        uintptr_t clockObject = 0;
+        uint64_t lastSampleMs = 0;
         uint8_t sawStill = 0;
         uint8_t changeRun = 0;
     };
@@ -127,6 +131,95 @@ namespace
         return true;
     }
 
+    constexpr auto kCeClockAnchor = [] {
+        for (const auto& entry : halo_ce::contract::entries)
+            if (entry.rva == halo_ce::contract::initialized_clock_render_gate)
+                return entry;
+        return halo_ce::contract::Entry{};
+    }();
+    constexpr uint32_t kCeClockSlot = [] {
+        for (const auto& relative : halo_ce::contract::relatives)
+            if (relative.rva == kCeClockAnchor.rva + 6 &&
+                relative.size == 7 && relative.displacement == 3)
+                return relative.target;
+        return uint32_t{};
+    }();
+    static_assert(kCeClockAnchor.pattern && kCeClockSlot);
+    constexpr size_t kCeClockAnchorBytes = [] {
+        size_t bytes = 0;
+        for (const char* pattern = kCeClockAnchor.pattern; *pattern; ++bytes)
+        {
+            pattern += 2;
+            if (*pattern == ' ') ++pattern;
+        }
+        return bytes;
+    }();
+
+    bool FingerprintHaloCE(uintptr_t moduleBase, uint64_t& out,
+                           bool& explicitlyStill, uintptr_t& clockObject) noexcept
+    {
+        // E-CE-2: HCEEK's initialized game-time singleton/tick is shared by
+        // both graphics modes. These generated anchors were uniquely verified
+        // against the pinned image. This bounded read only chooses an adapter;
+        // it does not install hooks, pin the module, or grant VR ownership.
+        if (reinterpret_cast<uintptr_t>(GetModuleHandleW(L"halo1.dll")) != moduleBase ||
+            !ReadableCommittedRange(moduleBase, sizeof(IMAGE_DOS_HEADER), moduleBase) ||
+            !ReadableCommittedRange(moduleBase + kCeClockAnchor.rva, kCeClockAnchorBytes, moduleBase) ||
+            !ReadableCommittedRange(moduleBase + kCeClockSlot, sizeof(uintptr_t), moduleBase))
+            return false;
+        __try
+        {
+            const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(moduleBase);
+            if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew < sizeof(*dos) ||
+                static_cast<uint32_t>(dos->e_lfanew) > 4096 - sizeof(IMAGE_NT_HEADERS64) ||
+                !ReadableCommittedRange(moduleBase + dos->e_lfanew,
+                                        sizeof(IMAGE_NT_HEADERS64), moduleBase))
+                return false;
+            const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(moduleBase + dos->e_lfanew);
+            if (nt->Signature != IMAGE_NT_SIGNATURE ||
+                nt->FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 ||
+                nt->FileHeader.TimeDateStamp != halo_ce::contract::timestamp ||
+                nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
+                nt->OptionalHeader.SizeOfImage != halo_ce::contract::imageSize)
+                return false;
+            const char* pattern = kCeClockAnchor.pattern;
+            const auto* code = reinterpret_cast<const uint8_t*>(moduleBase + kCeClockAnchor.rva);
+            for (size_t i = 0; *pattern; ++i)
+            {
+                if (pattern[0] != '?')
+                {
+                    const auto hex = [](char c) { return c <= '9' ? c - '0' : c - 'A' + 10; };
+                    if (code[i] != ((hex(pattern[0]) << 4) | hex(pattern[1])))
+                        return false;
+                }
+                pattern += 2;
+                if (*pattern == ' ') ++pattern;
+            }
+            const uintptr_t object = *reinterpret_cast<const uintptr_t*>(moduleBase + kCeClockSlot);
+            MEMORY_BASIC_INFORMATION memory{};
+            if (!object || VirtualQuery(reinterpret_cast<const void*>(object), &memory,
+                                       sizeof(memory)) != sizeof(memory) ||
+                memory.State != MEM_COMMIT || (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
+                return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(memory.BaseAddress);
+            if (object < begin || object - begin > memory.RegionSize ||
+                16 > memory.RegionSize - (object - begin))
+                return false;
+            const uint8_t initialized = *reinterpret_cast<const uint8_t*>(object);
+            const int32_t tick = *reinterpret_cast<const int32_t*>(object + 0xC);
+            if (initialized > 1 || (initialized && tick < 0) ||
+                object != *reinterpret_cast<const uintptr_t*>(moduleBase + kCeClockSlot) ||
+                initialized != *reinterpret_cast<const uint8_t*>(object) ||
+                reinterpret_cast<uintptr_t>(GetModuleHandleW(L"halo1.dll")) != moduleBase)
+                return false;
+            explicitlyStill = !initialized || tick == 0;
+            clockObject = object;
+            out = explicitlyStill ? 1 : static_cast<uint64_t>(tick) + 1;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
+
     bool SampleEvidence(size_t index, uintptr_t moduleBase, uint64_t nowMs)
     {
         ActivityState& state = g_activity[index];
@@ -144,14 +237,34 @@ namespace
         uint64_t fingerprint = 0;
         bool explicitStill = false;
         const ProbeEvidence& evidence = kEvidence[index];
-        const bool readable = evidence.title == GameTitle::Halo2
+        uintptr_t clockObject = 0;
+        const bool readable = evidence.title == GameTitle::HaloCE
+            ? FingerprintHaloCE(moduleBase, fingerprint, explicitStill, clockObject)
+            : evidence.title == GameTitle::Halo2
             ? FingerprintHalo2(moduleBase, fingerprint, explicitStill)
             : FingerprintPlayerView(moduleBase, evidence.playerViewRva,
                                     evidence.stride, fingerprint);
         if (!readable)
         {
+            if (evidence.title == GameTitle::HaloCE)
+            {
+                state = {};
+                state.moduleBase = moduleBase;
+            }
             state.changeRun = 0;
             return false;
+        }
+        if (evidence.title == GameTitle::HaloCE)
+        {
+            if (state.clockObject != clockObject ||
+                (state.lastSampleMs && (nowMs <= state.lastSampleMs ||
+                    nowMs - state.lastSampleMs > kActivityFreshMs)))
+            {
+                state = {};
+                state.moduleBase = moduleBase;
+            }
+            state.clockObject = clockObject;
+            state.lastSampleMs = nowMs;
         }
         if (!state.fingerprint)
         {

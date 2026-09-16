@@ -5,6 +5,7 @@
 #include "contact_melee_queue.h"
 #include "hook_quiescence.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/manual_vr_recovery_logic.h"
 #include "halo2_observer_6dof.h"
 
 #include <windows.h>
@@ -22,6 +23,7 @@
 #include "../common/config.h"
 #include "../common/log.h"
 #include "game.h"
+#include "title_adapter.h"
 #include "roomscale.h"
 #include "menu.h"
 #include "halo2_stereo_core.h"
@@ -712,6 +714,7 @@ namespace
     void* g_target = nullptr;
     CoreState g_coreState = CoreState::StockFallback;
     uint32_t g_rejectedGeneration = 0;
+    uint32_t g_manualRecoveryGeneration = 0;
     uint32_t g_armedLoggedGeneration = 0;
 
     bool ReadFloats(uintptr_t address, float* out, size_t count) noexcept
@@ -4049,6 +4052,7 @@ namespace
 
     bool RemoveCore(const char* reason) noexcept
     {
+        g_coreState = CoreState::CleanupRequired;
         g_armed.store(false, std::memory_order_release);
         g_teardownRequested.store(true, std::memory_order_release);
         // Optional and failure-isolated: restore the stock engine boolean even
@@ -5637,6 +5641,12 @@ bool Halo2Observer6Dof_Poll(
         moduleSize == kHalo2RetailImageSize;
     const bool vrAvailable =
         !vrFailureGeneration || generation != vrFailureGeneration;
+    if (PollManualVrRecovery(g_manualRecoveryGeneration, generation,
+            TitleAdapter_GetActiveTitle() == GameTitle::Halo2 && vrAvailable,
+            identityValid && activeAndRange,
+            [] { return RemoveCore("manual VR recovery"); },
+            [] { g_rejectedGeneration = 0; }) == ManualVrRecoveryPoll::Waiting)
+        return false;
     const bool desired = identityValid && activeAndRange && levelRunning &&
         coldPassed && vrAvailable && observerResultArray != 0;
 
@@ -5647,16 +5657,17 @@ bool Halo2Observer6Dof_Poll(
         (owned != generation ||
          g_moduleBase.load(std::memory_order_acquire) != moduleBase);
 
-    if (!desired || ownsDifferentModule)
+    if (!desired || ownsDifferentModule || g_coreState == CoreState::CleanupRequired)
     {
         if (g_installed.load(std::memory_order_acquire) ||
             g_coreState != CoreState::StockFallback)
         {
-            (void)RemoveCore(
+            if (!RemoveCore(
                 ownsDifferentModule ? "module generation changed"
-                                    : "level or title no longer eligible");
+                                    : "level or title no longer eligible"))
+                return false;
         }
-        if (generation != g_rejectedGeneration)
+        if (TitleAdapter_GetActiveTitle() != GameTitle::Halo2 || generation != g_rejectedGeneration)
             g_rejectedGeneration = 0;
         return false;
     }
@@ -6022,6 +6033,11 @@ void Halo2Observer6Dof_RequestRecenter() noexcept
     g_recenterRequested.store(true, std::memory_order_release);
 }
 
+void Halo2Observer6Dof_RequestRecovery(uint32_t generation) noexcept
+{ g_manualRecoveryGeneration = generation; }
+bool Halo2Observer6Dof_RecoveryPending() noexcept
+{ return g_manualRecoveryGeneration != 0; }
+
 void Halo2Observer6Dof_ShutdownForVrFailure() noexcept
 {
     const uint32_t generation = g_generation.load(std::memory_order_acquire);
@@ -6040,6 +6056,8 @@ bool Halo2Observer6Dof_Poll(
 }
 
 bool Halo2Observer6Dof_Installed() noexcept { return false; }
+void Halo2Observer6Dof_RequestRecovery(uint32_t) noexcept {}
+bool Halo2Observer6Dof_RecoveryPending() noexcept { return false; }
 bool Halo2Observer6Dof_Armed() noexcept { return false; }
 void Halo2Observer6Dof_SnapTurnSettled(uint32_t, float) noexcept {}
 bool Halo2Observer6Dof_DirectWeaponAimArmed() noexcept { return false; }
