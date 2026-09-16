@@ -85,7 +85,8 @@
 > `1c08837`; the exact tester mission is unknown. Preserve these as separate
 > versioned reports. Ongoing refinements do not replace this accepted artifact.
 
-> **NEXT REFINEMENT CANDIDATE, NOT ACCEPTED (2026-09-05).** Live H2 BR
+> **HISTORICAL PRE-TEST PREPARATION (2026-09-05; superseded by the
+> ad7fbf5 acceptance above).** Live H2 BR
 > inspection proves the compression header is count+0x14/address+0x18;
 > the reader and weapon-swap reseeding are corrected. Reach gains its verified
 > central collision scheduler, raw desired-pose feedback, and a guarded on-foot
@@ -500,7 +501,7 @@
 > this build the baseline. Every future candidate continues THIS build.
 > GitHub `master` (github.com/pancreations/Halo-MCC-VR) mirrors this
 > folder at this state; pull requests are to be based on it. Manifest:
-> `CH452-CANDIDATE-MANIFEST.json` at the repository root (copy of
+> `docs/archive/development-stages/CH452-CANDIDATE-MANIFEST.json` (copy of
 > `out/candidates/CH452-halo4-heartbeat-retire/`). Still open on top of
 > it: Halo 2 Classic barrel-on-crosshair (read the C-H2-87 barrel meter
 > line from the next Halo 2 session first).**
