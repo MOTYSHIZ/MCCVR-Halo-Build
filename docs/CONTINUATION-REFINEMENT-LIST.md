@@ -1,4 +1,19 @@
-# Current handoff - September 16: loading resolved by required game content
+# Current handoff - September 16: CE controller-directed vehicles
+
+The user's latest refinement adds controller-directed vehicle steering/aiming
+to delivered/published 8d96381, for CE Original and Anniversary. The optional
+private native packet branch is implemented and locally verified; read
+`CE-VEHICLE-CANDIDATE-2026-09-16.md` and the latest checkpoint. Existing CE
+on-foot/runtime refinements and both editions remain supported. Native
+following-camera seats are admitted; custom/first-person seated perspectives
+remain native. Accepted cumulative pointer stays d47a98c pending headset tests.
+
+Complete committed packaging/archive verification without -Install and deliver
+matching build/source ZIPs, then wait for the user's result. Exact identities
+belong in `out/ce-vehicle-current-handoff.json`. No installation, game launch,
+game-folder writes, PR or new publication is authorized. Prior scope remains.
+
+# Previous handoff - September 16: loading resolved by required game content
 
 User confirms mod loading after installing missing CE Multiplayer and requests
 a new verified ZIP pair. This lifts the packaging hold below. Preserve d7dbfcb

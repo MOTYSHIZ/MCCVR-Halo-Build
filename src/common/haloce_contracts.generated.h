@@ -1539,4 +1539,38 @@ inline constexpr uint32_t movement_producer=0xbb31f4;
 inline constexpr uint32_t movement_consumer_return=0xbb40f4;
 inline constexpr uint32_t movement_consumer_return_secondary=0xbb2c3d;
 }
+namespace vehicle {
+inline constexpr std::array<Entry,3> entries={{
+    {"vehicle_native_control_update",0xafbe54,"48 8B C4 89 48 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 68 88 48 81 EC 38 01 00 00 4C 8B 25 80 0F 2A 02 33 DB 0F 29",true},
+    {"vehicle_seat_camera_info",0xb04ee4,"48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 0F B7 01 33 ED 48 8B 15 3F D3 13 01",true},
+    {"vehicle_following_camera",0xc52ca4,"48 8B C4 48 89 58 10 48 89 70 18 55 57 41 56 48 8D 68 A1 48 81 EC A0 00 00 00 0F 29 70 D8 48 8B F2",true},
+}};
+inline constexpr std::array<Witness,15> witnesses={{
+    {0xafc245,"B9 04 03 00 00 49 8D 84 24 38 03 00 00 49 03 C6 45 8D 42 4E 45 3B F3 41 8D 52 90 48 0F 44 C1 8B 08 41 3B CB 0F 84 4C 01 00 00"},
+    {0xafc33d,"41 BA 04 02 00 00 8B 00 83 E0 3F 09 01 49 8D 81 38 02 00 00 48 03 C2 49 8D 8C 24 38 02 00 00 45 3B C3 49 0F 44 C2 49 03 CE 45 3B F3 49 0F 44 CA F2 0F 10 00 F2 0F 11 01 8B 40 08 89 41 08"},
+    {0xafc37b,"49 8D 81 8C 02 00 00 48 03 C2 49 8D 8C 24 8C 02 00 00 45 3B C3 41 8D 52 54 48 0F 44 C2 49 03 CE 45 3B F3 48 0F 44 CA F2 0F 10 00 F2 0F 11 01 8B 40 08 89 41 08"},
+    {0xafc3bb,"B9 08 03 00 00 49 8D 84 24 3C 03 00 00 49 03 C6 45 3B F3 48 0F 44 C1 8B 08 41 3B CB 0F 84 60 01 00 00 49 8D 84 24 F6 00"},
+    {0xafc485,"B8 10 02 00 00 49 8D 92 44 02 00 00 49 03 D0 49 8D 8C 24 44 02 00 00 45 3B C3 48 0F 44 D0 49 03 CE 45 3B F3 48 0F 44 C8 F2 0F 10 02 F2 0F 11 01 8B 42 08 89 41 08 B8 34 02 00 00 F2 0F 10 02 49 8D 8C 24 68 02 00 00 49 03 CE 45 3B F3 48 0F 44 C8 F2 0F 11 01 8B 42 08 BA D8 01 00 00 89 41 08"},
+    {0xafc228,"41 83 CB FF F7 07 00 00 80 00 41 BA 74 00 00 00 48"},
+    {0xb04f40,"8B B7 D8 00 00 00 41 3B F6 0F 84 8C 00 00 00 8D 55 03 8B CE E8 4B 3A 03 00"},
+    {0xb04f83,"48 0F BF 87 D0 02 00 00 48 69 C0 1C 01 00 00 89 33 48"},
+    {0xb04fa8,"0F B7 87 D0 02 00 00 48 8B 3D 42 7E 29 02 66 89 43 04"},
+    {0xb04f54,"E8 4B 3A 03 00"},
+    {0xc52e94,"48 0F BF 06 F3 0F 10 35 D8 CF CF 00 48 6B C8 38 48 8B 05 C5 CF 13 02 48 8B 8C 01 7C 01 00 00 48 89 4D 67 F3 0F 10 45 6B F3 0F 58 02 F3 0F 10 7D 67 F3 0F 58 7F 10 0F 2F F0 77 0C F3 0F 10 35 01 C7 CF 00 F3 0F 5D F0"},
+    {0xc52edb,"0F 28 C6 48 8D 73 24 E8 3C 41 9B 00 44 0F 28 C8 0F 28 C7 E8 30 41 9B 00 F3 41 0F 59 C1 F3 0F 11 06 0F 28 C7 E8 25 41 9B 00 F3 41 0F 59 C1 F3 0F 11 46 04 0F 28 C6 E8 13 41 9B 00 48 8B 4D DF 4C 8D 45 C7 44 0F 28 D0 0F 28 CE F3 44 0F 11 56 08"},
+    {0xb14ee4,"48 8D 15 B9 DD 13 00 48 3B C2 75 07 B8 01 00 00 00 EB 16"},
+    {0xc52ea4,"48 8B 05 ?? ?? ?? ??"},
+    {0xb14ee4,"48 8D 15 ?? ?? ?? ??"},
+}};
+inline constexpr std::array<Relative,3> relatives={{
+    {0xb04f54,5,1,0xb389a4},
+    {0xc52ea4,7,3,0x2d8fe70},
+    {0xb14ee4,7,3,0xc52ca4},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t vehicle_native_control_update=0xafbe54;
+inline constexpr uint32_t vehicle_seat_camera_info=0xb04ee4;
+inline constexpr uint32_t vehicle_following_camera=0xc52ca4;
+}
 }

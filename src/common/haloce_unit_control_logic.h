@@ -49,6 +49,31 @@ inline bool BuildTrackedUnitControl(const RenderContext& context,const UnitContr
     return true;
 }
 
+inline bool BuildTrackedVehicleControl(const RenderContext& context,const UnitControlPacket& source,
+    UnitControlPacket& output) noexcept
+{
+    if (!context.tracking.serial||!context.tracking.generation||!context.referenceRevision||
+        !context.tracking.spaceEpoch||!context.rendererEpoch||
+        context.tracking.generation!=context.reference.generation||
+        context.tracking.spaceEpoch!=context.reference.spaceEpoch||
+        !context.tracking.controllers.padValid||
+        context.tracking.controllers.controlsPresentationBlocked||
+        (ReadUnitControl<uint16_t>(source,2)&0x100)) return false;
+    NodeMatrix aim{};
+    if (!BuildControllerMatrix(context.camera,context.tracking,context.reference,
+        context.tracking.controllers.primaryAim,context.unitsPerMeter,context.positional,aim)) return false;
+    auto candidate=source;
+    // CE's ordinary player packet supplies one world direction to these three
+    // inputs. Keep that native relationship while replacing only its source
+    // with the tracked aiming hand. The following camera reads separate
+    // player-control angles; neither it nor the native throttle is rewritten.
+    WriteUnitControl(candidate,0x1c,aim.forward);
+    WriteUnitControl(candidate,0x28,aim.forward);
+    WriteUnitControl(candidate,0x34,aim.forward);
+    output=candidate;
+    return true;
+}
+
 struct UnitMovementBasis { Vec3 forward,aim; };
 static_assert(sizeof(UnitMovementBasis)==24);
 inline bool BuildUnitMovementBasis(const RenderContext& context,UnitMovementBasis& output) noexcept

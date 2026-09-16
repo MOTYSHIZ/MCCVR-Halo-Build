@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-community-refinement',
+        'ce-vehicle-controls',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 51
+        schema_version = 52
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1136,6 +1136,13 @@ try {
             headset_accepted = $false
         }
         current_accepted_source = 'd47a98c947dc60dd98d7259a29a7582d5f46df7f'
+        ce_vehicle_controls = [ordered]@{
+            baseline_source = '8d9638139f02bdceae46e13c4fb8fe6966bfa0f7'
+            graphics = 'Original-and-Anniversary'
+            behavior = 'controller-directed-native-vehicle-steering-and-aim; preserve-native-throttle-and-on-foot-controls'
+            evidence = 'docs/HALOCE-VEHICLE-CONTROL-2026-09-16.md'
+            headset_accepted = $false
+        }
         ce_community_refinement = [ordered]@{
             evidence = 'docs/CE-COMMUNITY-REPORTS-2026-09-16.md'
             classic = 'independent-native-raster-and-host-output-sizes; pinned-full-quad-scaling; cold-native-clock-install-gate'
@@ -1143,7 +1150,7 @@ try {
             loading_result = 'same-native-missing-beavercreek-map-loop-with-and-without-VR; user-confirmed-resolved-after-installing-required-CE-Multiplayer-content'
             loading_requirement = 'Cursed-Halo-Again-requires-both-CE-Campaign-and-CE-Multiplayer; follow-each-mod-dependency-list'
             preserved_runtime_source = 'd7dbfcbfdb4f204a72721c936d69e9f38ecda95e'
-            runtime_source_changed = $false
+            runtime_source_changed = $true
             loading_limit = 'scoped-user-confirmation; full-custom-weapon-rig-contact-and-long-session-transition-coverage-unverified'
             frame_recovery = 'two-cold-allocated-eye-pair-banks; retain-last-complete-pair-with-original-pose-and-existing-freshness-guards; retry-failed-resource-replacement'
             controls_recovery = 'real-unwindable-turn-entry; independent-feature-retirement-and-reinstall'
@@ -1231,13 +1238,13 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. User confirmed d7dbfcb CE Anniversary and mod loading after installing required CE Multiplayer. This documentation/metadata handoff preserves d7dbfcb runtime source; rebuilt artifact is not independently headset-tested. Earlier standing/deferred scope is preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds CE vehicle controls to delivered 8d96381; the new behavior and rebuilt artifact require headset testing. Earlier CE refinements and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Documentation/metadata handoff preserving d7dbfcb runtime, launcher and configuration source. Keep existing config. Both editions; package only; no installation, launch or publication. Missing CE Multiplayer content caused the captured custom-campaign loading stall; user confirms resolution after installation. Broader headset coverage remains limited.'
+        note = 'CE controller-directed vehicle candidate based on delivered 8d96381. Keep existing config. Both graphics modes and MCC editions; package only; no installation, launch or publication. Native vehicle physics and on-foot controls are preserved; headset testing remains required.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-COMMUNITY-CANDIDATE-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-VEHICLE-CANDIDATE-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

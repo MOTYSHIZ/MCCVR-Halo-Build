@@ -17,6 +17,7 @@ namespace
 using namespace halo_ce;
 using UnitControlFn=void(__fastcall*)(uint32_t,const UnitControlPacket*,int32_t);
 using MovementFn=void(__fastcall*)(void*);
+using ObjectGetFn=uintptr_t(__fastcall*)(uint32_t,uint32_t);
 void* target{};
 void* original{};
 void* movementTarget{};
@@ -25,7 +26,7 @@ HMODULE retained{};
 uintptr_t moduleBase{};
 bool enabled{};
 bool movementEnabled{};
-std::atomic<bool> active{},retiring{},ready{};
+std::atomic<bool> active{},retiring{},ready{},vehicleReady{};
 std::atomic<uint32_t> generation{},callbacks{};
 uint32_t rejectedGeneration{};
 uintptr_t rejectedBase{};
@@ -34,6 +35,7 @@ PendingCleanup pendingCleanup{};
 bool pinFailureReported{};
 std::atomic<uint64_t> bodies{},aims{},stock{},declined{},exceptions{};
 std::atomic<uint64_t> movements{},movementStock{},movementDeclined{};
+std::atomic<uint64_t> vehicles{},vehicleDeclined{};
 uint64_t lastReport{};
 
 bool Current() noexcept
@@ -59,6 +61,34 @@ bool CopyPacket(const UnitControlPacket* source,UnitControlPacket& output) noexc
     __try { output=*source;return true; }
     __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+bool VehicleOwner(uint32_t unit,HaloCELocalPlayerState& state,RenderContext& context,
+    int16_t& seat) noexcept
+{
+    if (!Current()||!vehicleReady.load(std::memory_order_acquire)||
+        !HaloCEControls_GetLocalPlayerState(state)||!HaloCE_GetGameplayContext(context)||
+        unit==0xffffffffu||unit!=state.unit||state.player==0xffffffffu||
+        !state.hasControlledUnit||state.onFoot||state.parent==0xffffffffu||!(state.parent>>16)||
+        state.nativePerspective!=1||state.inputUser<0||state.inputUser>=4||
+        state.nativeInputBlocked||state.nativeLookBlocked||state.nativePaused||state.nativeCinematicFlag||
+        !context.tracking.controllers.padValid||context.tracking.controllers.controlsPresentationBlocked||
+        state.generation!=generation.load(std::memory_order_acquire)||
+        state.generation!=context.tracking.generation) return false;
+    // E-CE-VEHICLE-CONTROL-1: a following camera alone does not prove a vehicle.
+    // Verify the seated local biped's direct parent with CE's native vehicle
+    // object lookup. The seat is an identity only; no tag array is indexed.
+    __try
+    {
+        const auto get=reinterpret_cast<ObjectGetFn>(moduleBase+contract::player_state::state_object_try_get);
+        const uintptr_t occupant=get(unit,1);
+        if (!occupant||*reinterpret_cast<const uint32_t*>(occupant+0xd8)!=state.parent||
+            !get(state.parent,2)) return false;
+        seat=*reinterpret_cast<const int16_t*>(occupant+0x2d0);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+    return seat>=0&&Current()&&vehicleReady.load(std::memory_order_acquire)&&
+        HaloCE_RenderContextCurrent(context);
+}
 void UnitControlBody(uint32_t unit,const UnitControlPacket* source,int32_t clientUpdate,uintptr_t caller)
 {
     const auto native=reinterpret_cast<UnitControlFn>(original);
@@ -83,6 +113,28 @@ void UnitControlBody(uint32_t unit,const UnitControlPacket* source,int32_t clien
         if (aim) aims.fetch_add(1,std::memory_order_relaxed);
         else declined.fetch_add(1,std::memory_order_relaxed);
         return;
+    }
+    int16_t seat=-1,latestSeat=-1;
+    if (caller==moduleBase+0xad0d5b&&ready.load(std::memory_order_acquire)&&
+        VehicleOwner(unit,state,context,seat))
+    {
+        if (CopyPacket(source,packet)&&BuildTrackedVehicleControl(context,packet,candidate)&&
+            VehicleOwner(unit,latest,latestContext,latestSeat)&&
+            state.player==latest.player&&state.inputUser==latest.inputUser&&state.unit==latest.unit&&
+            state.parent==latest.parent&&seat==latestSeat&&
+            context.referenceRevision==latestContext.referenceRevision&&
+            context.rendererEpoch==latestContext.rendererEpoch&&
+            context.tracking.spaceEpoch==latestContext.tracking.spaceEpoch&&
+            ready.load(std::memory_order_acquire)&&vehicleReady.load(std::memory_order_acquire)&&
+            HaloCE_RenderContextCurrent(context))
+        {
+            // Native driver/gunner forwarding selects which occupant controls
+            // the parent. Physics, seat limits, throttle and actions stay native.
+            native(unit,&candidate,clientUpdate);
+            vehicles.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+        vehicleDeclined.fetch_add(1,std::memory_order_relaxed);
     }
     stock.fetch_add(1,std::memory_order_relaxed);
     native(unit,source,clientUpdate);
@@ -158,7 +210,7 @@ __declspec(noinline) void __fastcall MovementHook(void* data)
 }
 bool Remove() noexcept
 {
-    active=false;retiring=true;ready=false;
+    active=false;retiring=true;ready=false;vehicleReady=false;
     const auto pending=[](PendingCleanup stage,const char* reason)
     {
         if (pendingCleanup!=stage)
@@ -206,6 +258,13 @@ bool Install(size_t size) noexcept
         contract::unit_control::relatives,contract::unit_control::pointers};
     if (!VerifyNativeFeatureBindings(moduleBase,size,generation.load(),contracts,failure))
     { LOG("CE body/controller grenade aim stock fallback: %s",failure?failure:"binding failure");return false; }
+    // Check the independent vehicle evidence before any detour can alter a
+    // native entry signature. Failure affects only this new optional path.
+    const NativeContractSet vehicleContracts{contract::vehicle::entries,contract::vehicle::witnesses,
+        contract::vehicle::relatives,contract::vehicle::pointers};
+    const bool vehicleVerified=VerifyNativeFeatureBindings(moduleBase,size,generation.load(),vehicleContracts,failure);
+    if (!vehicleVerified)
+        LOG("CE vehicle controls stock fallback: %s; on-foot controls and stereo remain active",failure?failure:"binding failure");
     void* location=reinterpret_cast<void*>(moduleBase+contract::unit_control::unit_control_set);
     auto result=MH_CreateHook(location,reinterpret_cast<void*>(&UnitControlHook),&original);
     if (result!=MH_OK)
@@ -224,6 +283,9 @@ bool Install(size_t size) noexcept
     if (result!=MH_OK)
     { LOG("CE body/controller grenade aim stock fallback: movement enable status %d",result);return false; }
     movementEnabled=true;ready=true;
+    vehicleReady=vehicleVerified;
+    if (vehicleReady.load())
+        LOG("CE vehicle controls installed: tracked aiming-hand facing/aim/looking in local seated native packets; native following camera, driver/gunner forwarding and throttle retained; Original and Anniversary");
     LOG("CE unit control installed: local on-foot head facing/looking, controller aiming; private native-camera movement basis, native grenade release retained");
     return true;
 }
@@ -261,8 +323,8 @@ bool HaloCEUnitControl_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
     if (now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE unit control gen=%u ready=%d bodies=%llu aims=%llu stock=%llu aimDeclined=%llu movement=%llu movementStock=%llu movementDeclined=%llu exceptions=%llu",
-            gen,ready.load(),bodies.load(),aims.load(),stock.load(),declined.load(),movements.load(),movementStock.load(),movementDeclined.load(),exceptions.load());
+        LOG("CE unit control gen=%u ready=%d bodies=%llu aims=%llu stock=%llu aimDeclined=%llu movement=%llu movementStock=%llu movementDeclined=%llu exceptions=%llu vehicleReady=%d vehicles=%llu vehicleDeclined=%llu",
+            gen,ready.load(),bodies.load(),aims.load(),stock.load(),declined.load(),movements.load(),movementStock.load(),movementDeclined.load(),exceptions.load(),vehicleReady.load(),vehicles.load(),vehicleDeclined.load());
     }
     return Current()&&ready.load();
 }

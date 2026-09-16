@@ -201,6 +201,7 @@ int main(int argc,char** argv)
         const NativeContractSet featureSets[]{
             {contract::audio_listener::entries,contract::audio_listener::witnesses,contract::audio_listener::relatives,contract::audio_listener::pointers},
             {contract::unit_control::entries,contract::unit_control::witnesses,contract::unit_control::relatives,contract::unit_control::pointers},
+            {contract::vehicle::entries,contract::vehicle::witnesses,contract::vehicle::relatives,contract::vehicle::pointers},
             {contract::camera_effect::entries,contract::camera_effect::witnesses,contract::camera_effect::relatives,contract::camera_effect::pointers},
             {contract::flare_guard::entries,contract::flare_guard::witnesses,contract::flare_guard::relatives,contract::flare_guard::pointers},
             {contract::contact::entries,contract::contact::witnesses,contract::contact::relatives,contract::contact::pointers},

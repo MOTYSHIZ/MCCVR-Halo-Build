@@ -1,0 +1,43 @@
+[
+  {
+    "name": "vehicle_following_camera",
+    "rva": "0xc52ca4",
+    "signature": "48 8B C4 48 89 58 10 48 89 70 18 55 57 41 56 48 8D 68 A1 48 81 EC A0 00 00 00 0F 29 70 D8 48 8B F2",
+    "function_entry": true,
+    "evidence": "E-CE-VEHICLE-CAMERA-1",
+    "runtime_group": "vehicle",
+    "instruction_witnesses": [
+      {
+        "rva": "0xc52e94",
+        "signature": "48 0F BF 06 F3 0F 10 35 D8 CF CF 00 48 6B C8 38 48 8B 05 C5 CF 13 02 48 8B 8C 01 7C 01 00 00 48 89 4D 67 F3 0F 10 45 6B F3 0F 58 02 F3 0F 10 7D 67 F3 0F 58 7F 10 0F 2F F0 77 0C F3 0F 10 35 01 C7 CF 00 F3 0F 5D F0",
+        "meaning": "Following-camera world direction uses output-user desired angles at player_control+0x17c+user*0x38, camera-local freelook and pitch clamps"
+      },
+      {
+        "rva": "0xc52edb",
+        "signature": "0F 28 C6 48 8D 73 24 E8 3C 41 9B 00 44 0F 28 C8 0F 28 C7 E8 30 41 9B 00 F3 41 0F 59 C1 F3 0F 11 06 0F 28 C7 E8 25 41 9B 00 F3 41 0F 59 C1 F3 0F 11 46 04 0F 28 C6 E8 13 41 9B 00 48 8B 4D DF 4C 8D 45 C7 44 0F 28 D0 0F 28 CE F3 44 0F 11 56 08",
+        "meaning": "Native sine/cosine of independent yaw/pitch fills result forward at +0x24; no unit or vehicle vectors are read"
+      },
+      {
+        "rva": "0xb14ee4",
+        "signature": "48 8D 15 B9 DD 13 00 48 3B C2 75 07 B8 01 00 00 00 EB 16",
+        "meaning": "Native perspective reader identifies following-camera callback as value 1"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0xc52ea4",
+        "target_rva": "0x2d8fe70",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8B 05 ?? ?? ?? ??"
+      },
+      {
+        "instruction_rva": "0xb14ee4",
+        "target_rva": "0xc52ca4",
+        "instruction_bytes": 7,
+        "displacement_offset": 3,
+        "instruction_signature": "48 8D 15 ?? ?? ?? ??"
+      }
+    ]
+  }
+]

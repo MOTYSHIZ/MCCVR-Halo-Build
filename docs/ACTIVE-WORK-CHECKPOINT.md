@@ -1,4 +1,53 @@
-# Current handoff - September 16: preserve tested CE, package after verification
+# Current handoff - September 16: CE controller-directed vehicles
+
+The user requests right-controller vehicle steering/aiming in Halo 1 Original
+and Anniversary, on top of the delivered/published 8d96381 candidate. Preserve
+the working CE on-foot controls and earlier cumulative features. Prepare one
+evidence-backed candidate, verify it, and deliver matching build/source ZIPs.
+Package without -Install; no installation, game launch, game-folder writes,
+PR or new publication is requested. Accepted pointer remains d47a98c pending
+the user's headset result. Both MCC editions remain supported.
+
+The supplied 8d96381 log is preserved under
+`out/test-runs/8d96381-ce-vehicle-report-20260916/`: an explicit Original vehicle
+interval executes 1,096 stock control updates while tracked application freezes
+and stereo continues. The separately admitted vehicle packet branch is now
+implemented; see `HALOCE-VEHICLE-CONTROL-2026-09-16.md` and
+`CE-VEHICLE-CANDIDATE-2026-09-16.md`. Native role forwarding and independent
+following-camera angles are proved offline. Original and Anniversary share
+the gameplay path; both still require headset testing. Custom/first-person
+seated perspectives stay native. On-foot behavior remains unchanged.
+
+Release, 35 CTest suites, Reach gate, production native binding checks and the
+vehicle/camera execution checks pass. Finish committed package/archive
+verification and record exact identity in `out/ce-vehicle-current-handoff.json`.
+Deliver that matching ZIP pair, then WAIT for user testing/instructions. Earlier
+standing/deferred scope and publication history are preserved below.
+
+# Previous publication - September 16: existing Alpha 0.4.0 assets updated
+
+The user explicitly authorized replacing the latest existing GitHub release's
+ZIP and updating its description. COMPLETE on the same release page:
+https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0
+Release ID 389612781, title, tag, tag target and prerelease status are unchanged.
+No new release, rebuild, installation, game launch or PR was performed.
+
+`Halo-MCC-VR.zip` is the exact delivered 8d96381 build archive, renamed only;
+SHA-256 `41D341353733ADD7ABA870E4AD4AAA17B0392E866D194A969A1B315D7F29C6F4`.
+`Halo-MCC-VR-Source.zip` is its exact matching delivered source archive;
+SHA-256 `D0175EF9AAD9877983DDC22CE1F682572ED180E07F9ECF5AD7AB2E5B32E7BAD1`.
+SHA256.txt and the release description now match this build. All three final
+public downloads were byte-verified. Original assets and release metadata are
+preserved in `out/update-release-0.4.0-8d96381/backup` and `before.json`.
+Final publication identity: `out/updated-0.4.0-8d96381-handoff.json`.
+
+Notes cover CE refinements, the required CE Multiplayer content for Cursed Halo,
+scoped headset feedback and outstanding coverage. Publication does not advance
+the cumulative accepted pointer. The tag remains at its original commit, so
+the attached source ZIP is the matching source for this update. Wait for the
+user's next instruction; previous package/publication holds below are historical.
+
+# Previous handoff - September 16: preserve tested CE, package after verification
 
 The user installed the missing **CE Multiplayer pack** and confirms that modded
 campaign loading now works. The earlier packaging hold is lifted: explicitly

@@ -1,5 +1,11 @@
 # CE head/body direction and native grenade aim
 
+Later September 16 vehicle refinement: the on-foot path documented below is
+preserved. A separately verified seated branch now supplies controller-directed
+facing/aiming/looking; see `HALOCE-VEHICLE-CONTROL-2026-09-16.md`. References
+below to vehicles remaining stock describe this original on-foot transaction,
+not the new vehicle branch.
+
 Status: locally implemented and verified; no headset acceptance. This is one
 independent optional feature within the user-authorized cumulative CE refinement
 candidate. Accepted source remains `d47a98c`.
