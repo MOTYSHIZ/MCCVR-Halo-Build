@@ -280,6 +280,27 @@ int main(int argc,char** argv)
         lastApplied.store(now,std::memory_order_release);return success;
     };
     CHECK(publish());CHECK(HaloCEFirstPerson_Armed());
+    {
+        const uint64_t stamp=GetTickCount64(),needle=0x55EA2D6F6C10C375ull;
+        CHECK(paletteReceipt.Publish({testContext,stamp,needle}));lastApplied=stamp;
+        CHECK(HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp)==needle);
+        CHECK(HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp+150)==needle);
+        CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp+151));
+        CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp-1));
+        CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration+1,4,stamp));
+        CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,5,stamp));
+        active=false;CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp));active=true;
+        retiring=true;CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp));retiring=false;
+        contextValid=false;CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp));contextValid=true;
+        testTitle=GameTitle::Halo3;CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp));testTitle=GameTitle::HaloCE;
+        testContext.tracking.controllers.controlsPresentationBlocked=true;
+        CHECK(paletteReceipt.Publish({testContext,stamp,needle}));
+        CHECK(!HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp));
+        testContext.tracking.controllers.controlsPresentationBlocked=false;
+        CHECK(paletteReceipt.Publish({testContext,stamp,123}));
+        CHECK(HaloCEFirstPerson_WeaponGraph(testGeneration,4,stamp)==123);
+        CHECK(publish());
+    }
     if (argc==4&&std::strcmp(argv[1],"--saber-worker-native-projection-fixture")==0)
     {
         uint32_t materialFlags{},selectorOffset{};std::array<float,96> data{};

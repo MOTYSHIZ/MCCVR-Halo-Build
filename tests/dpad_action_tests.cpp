@@ -35,6 +35,7 @@ VrPadState g_padState{};
 std::atomic<uint64_t> g_thumbrestDpadSampleMs{};
 std::atomic<int> g_sessionStateShared{XR_SESSION_STATE_FOCUSED};
 uint64_t fixtureNow=1000;
+uint64_t fixtureWeaponGraph=0;
 std::atomic<uint64_t> g_contactSpaceEpoch{1};
 GameTitle fixtureTitle=GameTitle::Halo3;
 RuntimeMode fixtureMode=RuntimeMode::Gameplay;
@@ -109,6 +110,7 @@ extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrGetActionStateBoolean(
 }
 
 bool Menu_IsOpen() { return fixtureMenu; }
+uint64_t VR_GetWeaponModelIdentity(GameTitle,uint32_t,uint64_t,uint64_t) noexcept { return fixtureWeaponGraph; }
 bool VR_IsStereoEnabled() { return fixtureStereo; }
 bool VR_IsPausePresentation() { return fixturePause; }
 bool VR_IsPausePresentationTarget() { return fixturePauseTarget; }
@@ -245,12 +247,24 @@ int main()
         ++g_contactSpaceEpoch;gestureRead(false);--g_contactSpaceEpoch;
         g_config.left_handed=true;gestureRead(false);g_config.left_handed=false;
         g_config.manual_reload=false;gestureRead(false);g_config.manual_reload=true;
+        g_config.weapon_holster_click=true;gestureRead(false);g_config.weapon_holster_click=false;
+        g_config.weapon_holster_slide=false;gestureRead(false);g_config.weapon_holster_slide=true;
+        g_config.weapon_needler_shake=true;gestureRead(false);g_config.weapon_needler_shake=false;
         ++g_config.weapon_reload_button[index];gestureRead(false);--g_config.weapon_reload_button[index];
         g_padState.weaponTitle=GameTitle::None;gestureRead(false);g_padState.weaponTitle=fixtureTitle;
         g_padState.weaponSampleMs=fixtureNow-151;gestureRead(false);g_padState.weaponSampleMs=fixtureNow;
         g_padState.weaponPulseUntilMs=fixtureNow;VrPadState expired{};VR_GetPadState(expired);
         Check(!expired.weaponButtons&&expired.weaponConsumeSupport,"pulse expires while claimed grip remains consumed");
     }
+    fixtureTitle=GameTitle::HaloCE;
+    g_padState.weaponTitle=fixtureTitle;g_padState.weaponSampleMs=fixtureNow;
+    g_padState.weaponPulseUntilMs=fixtureNow+120;g_padState.weaponOptions=35;
+    g_config.weapon_needler_shake=true;fixtureWeaponGraph=0x55EA2D6F6C10C375ull;
+    g_padState.weaponGraph=fixtureWeaponGraph;
+    VrPadState needle{};VR_GetPadState(needle);
+    Check(needle.weaponButtons==0x4000,"current CE needle identity admits pulse");
+    fixtureWeaponGraph=0;VR_GetPadState(needle);
+    Check(!needle.weaponButtons,"lost or replaced CE graph cancels published reload");
     g_headCsInit=false;VrPadState absent{};absent.valid=true;absent.thumbrestDpad=true;
     VR_GetPadState(absent);Check(!absent.valid&&!absent.thumbrestDpad&&!absent.dpadX&&!absent.dpadY,
         "An unavailable controller snapshot cannot retain D-pad input");

@@ -596,6 +596,7 @@ void ConfigLoad(const wchar_t* path)
     int loadedConfigVersion = 1;
     bool loadedLegacyCurvature = false;
     bool loadedScopeZoom = false;
+    bool loadedHolsterRadius = false;
     while (fgets(line, sizeof(line), f))
     {
         if (char* hash = strchr(line, '#'))
@@ -635,6 +636,34 @@ void ConfigLoad(const wchar_t* path)
         if (weaponButtonKey) continue;
         if (!strcmp(key,"manual_reload")) { g_config.manual_reload=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_needler_shake")) { g_config.weapon_needler_shake=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_unknown_reload_visual")) { g_config.weapon_unknown_reload_visual=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_shake_travel_m"))
+        {
+            ParseFloatSetting(key,val,g_config.weapon_shake_travel_m);
+            g_config.weapon_shake_travel_m=std::clamp(g_config.weapon_shake_travel_m,0.06f,0.20f);
+            continue;
+        }
+        if (!strcmp(key,"weapon_holster_radius_m"))
+        {
+            ParseFloatSetting(key,val,g_config.weapon_holster_radius_m);
+            g_config.weapon_holster_radius_m=std::clamp(g_config.weapon_holster_radius_m,0.08f,0.40f);
+            loadedHolsterRadius=true;continue;
+        }
+        if (!strcmp(key,"weapon_insert_radius_m"))
+        {
+            ParseFloatSetting(key,val,g_config.weapon_insert_radius_m);
+            g_config.weapon_insert_radius_m=std::clamp(g_config.weapon_insert_radius_m,0.06f,0.30f);
+            continue;
+        }
+        if (!strcmp(key,"weapon_holster_draw_m"))
+        {
+            ParseFloatSetting(key,val,g_config.weapon_holster_draw_m);
+            g_config.weapon_holster_draw_m=std::clamp(g_config.weapon_holster_draw_m,0.10f,0.50f);
+            continue;
+        }
         if (!strcmp(key,"weapon_pouch_down_m"))
         {
             ParseFloatSetting(key,val,g_config.weapon_pouch_down_m);
@@ -644,7 +673,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"weapon_body_zone_radius_m"))
         {
             ParseFloatSetting(key,val,g_config.weapon_body_zone_radius_m);
-            g_config.weapon_body_zone_radius_m=std::clamp(g_config.weapon_body_zone_radius_m,0.12f,0.28f);
+            g_config.weapon_body_zone_radius_m=std::clamp(g_config.weapon_body_zone_radius_m,0.08f,0.40f);
             continue;
         }
         if (!strcmp(key,"weapon_holster_location"))
@@ -1050,6 +1079,7 @@ void ConfigLoad(const wchar_t* path)
             LOG("config: unknown key '%s' ignored", key);
     }
     fclose(f);
+    if (!loadedHolsterRadius) g_config.weapon_holster_radius_m=g_config.weapon_body_zone_radius_m;
     for (int i = 0; i < kReachVehicleTrimSlots; ++i)
     {
         // A valid numeric key is an explicit seat override even if a stale or
@@ -1749,7 +1779,19 @@ void ConfigSave()
         g_config.weapon_pouch_down_m,g_config.weapon_body_zone_radius_m);
     fprintf(f, "# Holster location: 0 = weapon-side shoulder, 1 = weapon-side hip.\n");
     fprintf(f, "weapon_holster_location = %d\n",g_config.weapon_holster_location);
+    fprintf(f, "# Independent grab/insert radii. Click uses a fresh weapon grip in the holster.\n");
+    fprintf(f, "# Slide preserves the draw gesture. With both on, click completes first.\n");
+    fprintf(f, "weapon_holster_radius_m = %.3f\nweapon_insert_radius_m = %.3f\nweapon_holster_draw_m = %.3f\n",
+        g_config.weapon_holster_radius_m,g_config.weapon_insert_radius_m,g_config.weapon_holster_draw_m);
+    fprintf(f, "weapon_holster_slide = %d\nweapon_holster_click = %d\n",
+        g_config.weapon_holster_slide?1:0,g_config.weapon_holster_click?1:0);
+    fprintf(f, "# Recognized Needlers across all titles and Reach Needle Rifle; requires manual_reload.\n");
+    fprintf(f, "# Hold weapon grip away from holster; shake vertically four strokes; release to rearm.\n");
+    fprintf(f, "weapon_needler_shake = %d\nweapon_shake_travel_m = %.3f\n",
+        g_config.weapon_needler_shake?1:0,g_config.weapon_shake_travel_m);
     fprintf(f, "# Match each title's MCC Reload and Switch Weapon controller buttons.\n");
+    fprintf(f, "# Show a generic blue reload item for detected unfamiliar/modded held models.\n");
+    fprintf(f, "weapon_unknown_reload_visual = %d\n",g_config.weapon_unknown_reload_visual?1:0);
     fprintf(f, "# 0=X, 1=RB, 2=LB, 3=B, 4=Y, 5=A, 6=LT, 7=RT. CE/H2 share both graphics modes.\n");
     for(unsigned i=0;i<weapon_interaction::kTitleCount;++i)
     {

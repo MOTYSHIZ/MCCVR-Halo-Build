@@ -83,6 +83,7 @@ struct PaletteReceipt
 {
     RenderContext context{};
     uint64_t capturedAtMs{};
+    uint64_t weaponGraph{};
 };
 Snapshot<PaletteReceipt> paletteReceipt;
 thread_local Scope* scope{};
@@ -509,7 +510,7 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexce
     // A fresh gameplay sample is not evidence that its native palette tracked
     // successfully, especially after recenter, graphics switch or fallback.
     const uint64_t now=GetTickCount64();
-    if (!now||!paletteReceipt.Publish({context,now}))
+    if (!now||!paletteReceipt.Publish({context,now,binding.nodeIdentity}))
     {
         (void)CopyPalette(source.data(),matrices,count);
         return false;
@@ -927,4 +928,17 @@ bool HaloCEFirstPerson_GetLocalPlayerState(HaloCELocalPlayerState& state) noexce
 {
     Callback callback;
     return HaloCEControls_GetLocalPlayerState(state);
+}
+
+uint64_t HaloCEFirstPerson_WeaponGraph(uint32_t gen,uint64_t space,uint64_t now) noexcept
+{
+    PaletteReceipt receipt{};
+    const uint64_t last=lastApplied.load(std::memory_order_acquire);
+    if (!Current()||!last||now<last||now-last>150||!paletteReceipt.Read(receipt)||
+        receipt.capturedAtMs!=last||receipt.context.tracking.generation!=gen||
+        receipt.context.tracking.spaceEpoch!=space||
+        receipt.context.tracking.controllers.controlsPresentationBlocked||
+        !HaloCE_RenderContextCurrent(receipt.context)||
+        lastApplied.load(std::memory_order_acquire)!=last) return 0;
+    return receipt.weaponGraph;
 }

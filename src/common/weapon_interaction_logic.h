@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime_types.h"
+#include "weapon_model_catalog.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -49,6 +50,11 @@ struct Settings
 {
     bool reload{}, holsters{}, leftHanded{};
     float pouchDown{0.50f}, zoneRadius{0.20f};
+    float holsterRadius{0.20f}, insertRadius{0.18f}, drawDistance{0.25f};
+    bool holsterSlide{true}, holsterClick{};
+    bool needleShake{};
+    bool genericVisual{true};
+    float shakeTravel{0.10f};
     // 0 shoulder, 1 hip. A single reserve slot exchanges the two native guns.
     int holsterLocation{};
     uint32_t reloadButton{0x4000}, swapButton{0x8000};
@@ -63,11 +69,18 @@ struct Sample
     Quat headRotation{}, primaryRotation{};
     float primaryGrip{}, supportGrip{};
     bool otherAction{};
+    uint64_t weaponGraph{};
 };
+
+// Title-specific identities from the official kits: CE graph fingerprint,
+// H2 verified compression tuple, and H3/ODST/Reach/H4 model import checksum.
+inline bool NeedleWeapon(GameTitle title,uint64_t graph) noexcept
+{ const auto* model=weapon_model::Find(title,graph);return model&&model->needles; }
 struct Output
 {
     bool consumePrimary{}, consumeSupport{}, releaseTwoHand{};
     bool reloadRequested{}, swapRequested{}, pickedMagazine{}, grabbedHolster{};
+    bool holdingMagazine{};
     float primaryHaptic{}, supportHaptic{};
     uint32_t buttons{};
     uint64_t pulseUntil{};
@@ -116,6 +129,8 @@ public:
         const bool releasedS=validS&&s.supportGrip<0.35f;
         const bool identity=title_!=s.title||generation_!=s.generation||space_!=s.space||
             left_!=c.leftHanded||reload_!=c.reload||holsters_!=c.holsters||
+            slide_!=c.holsterSlide||click_!=c.holsterClick||shake_!=c.needleShake||
+            (c.reload&&weaponGraph_!=s.weaponGraph)||
             reloadButton_!=c.reloadButton||swapButton_!=c.swapButton||location_!=c.holsterLocation;
         const bool gap=!last_||s.now<last_||s.now-last_>200;
         const bool ready=s.ready&&s.now&&s.space&&s.generation&&TitleIndex(s.title)>=0&&
@@ -135,6 +150,8 @@ public:
         title_=s.title;generation_=s.generation;space_=s.space;left_=c.leftHanded;
         reload_=c.reload;holsters_=c.holsters;reloadButton_=c.reloadButton;
         swapButton_=c.swapButton;location_=c.holsterLocation;last_=s.now;
+        slide_=c.holsterSlide;click_=c.holsterClick;
+        shake_=c.needleShake;weaponGraph_=s.weaponGraph;
         available_=ready&&poses;
         if(releasedP) armedP_=true;
         if(releasedS) armedS_=true;
@@ -149,14 +166,15 @@ public:
         if(phase_==1)
         {
             out.consumeSupport=true;out.releaseTwoHand=true;
-            if(!Near(s.support,pouch,Setting(c.zoneRadius,0.12f,0.28f,0.20f)+0.08f)) leftPouch_=true;
+            if(!Near(s.support,pouch,Setting(c.zoneRadius,0.08f,0.40f,0.20f)+0.08f)) leftPouch_=true;
             if(releasedS)
             {
                 // Insert beside/under the firing-hand grip. Controller-local
                 // offset, not an invented per-title magazine marker.
                 const Vec receiver=s.primary+Rotate(s.primaryRotation,{0,-0.06f,-0.04f});
                 if(!s.otherAction&&leftPouch_&&s.now-started_>=120&&
-                   Near(s.support,receiver,0.18f)&&!Near(s.support,pouch,0.24f)&&
+                   Near(s.support,receiver,Setting(c.insertRadius,0.06f,0.30f,0.18f))&&
+                   !Near(s.support,pouch,Setting(c.zoneRadius,0.08f,0.40f,0.20f)+0.04f)&&
                    !Near(s.support,grabbedAt_,0.20f))
                 {
                     pulse_=c.reloadButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
@@ -170,21 +188,69 @@ public:
             out.consumePrimary=true;out.releaseTwoHand=true;
             if(releasedP) phase_=0;
             else if(!s.otherAction&&s.now-started_>=120&&
-                !Near(s.primary,holster,Setting(c.zoneRadius,0.12f,0.28f,0.20f)+0.12f)&&
-                !Near(s.primary,grabbedAt_,0.25f))
+                !Near(s.primary,holster,Setting(c.holsterRadius,0.08f,0.40f,0.20f)+0.12f)&&
+                !Near(s.primary,grabbedAt_,Setting(c.drawDistance,0.10f,0.50f,0.25f)))
             {
                 pulse_=c.swapButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
                 out.swapRequested=true;out.primaryHaptic=0.45f;phase_=0;
             }
         }
+        else if(phase_==3)
+        {
+            out.consumePrimary=true;out.releaseTwoHand=true;
+            if(releasedP) phase_=0;
+            else
+            {
+                // Deliberate alternating vertical strokes relative to the
+                // head reject walking/translation and a single melee swing.
+                const Vec relative=s.primary-s.head;
+                const float travel=Setting(c.shakeTravel,0.06f,0.20f,0.10f);
+                if(std::fabs(relative.x-shakeOrigin_.x)>0.25f||
+                   std::fabs(relative.z-shakeOrigin_.z)>0.25f||s.now-started_>1800)
+                    phase_=0;
+                else
+                {
+                    const float delta=relative.y-shakeExtreme_;
+                    shakeLow_=std::fmin(shakeLow_,relative.y);shakeHigh_=std::fmax(shakeHigh_,relative.y);
+                    if((shakeDirection_>0&&delta>=0)||(shakeDirection_<0&&delta<=0))
+                        shakeExtreme_=relative.y;
+                    if((shakeDirection_==0&&shakeHigh_-shakeLow_>=travel)||
+                       (shakeDirection_>0&&delta<=-travel)||
+                       (shakeDirection_<0&&delta>=travel))
+                    {
+                        // An implausibly rapid stroke cancels; tracking jumps
+                        // cannot accumulate several reversals into a reload.
+                        if(s.now-shakeAt_<60) phase_=0;
+                        else
+                        {
+                            shakeDirection_=shakeDirection_==0?(relative.y>=(shakeHigh_+shakeLow_)*0.5f?1:-1):-shakeDirection_;
+                            shakeExtreme_=relative.y;shakeAt_=s.now;++shakeStrokes_;
+                            if(shakeStrokes_>=4)
+                            {
+                                phase_=0;pulse_=c.reloadButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
+                                out.reloadRequested=true;out.primaryHaptic=0.45f;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         else if(!s.otherAction&&s.now>=cooldown_)
         {
-            const float radius=Setting(c.zoneRadius,0.12f,0.28f,0.20f);
-            if(c.holsters&&c.swapButton&&armedP_&&heldP&&Near(s.primary,holster,radius))
+            const float radius=Setting(c.zoneRadius,0.08f,0.40f,0.20f);
+            if(c.holsters&&(c.holsterSlide||c.holsterClick)&&c.swapButton&&armedP_&&heldP&&
+                Near(s.primary,holster,Setting(c.holsterRadius,0.08f,0.40f,0.20f)))
             {
                 phase_=2;started_=s.now;grabbedAt_=s.primary;ownedP_=true;
                 out.consumePrimary=true;out.releaseTwoHand=true;
                 out.grabbedHolster=true;out.primaryHaptic=0.20f;
+                if(c.holsterClick)
+                {
+                    // A fresh grip click in the zone exchanges once. Holding
+                    // or moving cannot repeat it, even with both modes on.
+                    phase_=0;pulse_=c.swapButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
+                    out.swapRequested=true;out.primaryHaptic=0.45f;
+                }
             }
             else if(c.reload&&c.reloadButton&&armedS_&&heldS&&Near(s.support,pouch,radius))
             {
@@ -192,11 +258,21 @@ public:
                 out.consumeSupport=true;out.releaseTwoHand=true;
                 out.pickedMagazine=true;out.supportHaptic=0.20f;
             }
+            else if(c.reload&&c.needleShake&&NeedleWeapon(s.title,s.weaponGraph)&&
+                c.reloadButton&&armedP_&&heldP)
+            {
+                phase_=3;started_=s.now;ownedP_=true;
+                shakeOrigin_=s.primary-s.head;shakeExtreme_=shakeOrigin_.y;
+                shakeLow_=shakeHigh_=shakeOrigin_.y;
+                shakeDirection_=0;shakeStrokes_=0;shakeAt_=s.now;
+                out.consumePrimary=true;out.releaseTwoHand=true;out.primaryHaptic=0.20f;
+            }
         }
         if(heldP) armedP_=false;
         if(heldS) armedS_=false;
         if(s.now<pulseUntil_&&!s.otherAction) { out.buttons=pulse_;out.pulseUntil=pulseUntil_; }
         else { pulseUntil_=0;pulse_=0; }
+        out.holdingMagazine=phase_==1;
         return out;
     }
 private:
@@ -205,6 +281,12 @@ private:
     uint32_t pulse_{},reloadButton_{},swapButton_{};
     int phase_{},location_{};
     bool left_{},reload_{},holsters_{},armedP_{},armedS_{},ownedP_{},ownedS_{},leftPouch_{},available_{};
+    bool slide_{true},click_{};
+    bool shake_{};
+    uint64_t weaponGraph_{},shakeAt_{};
+    Vec shakeOrigin_{};
+    float shakeExtreme_{},shakeLow_{},shakeHigh_{};
+    int shakeDirection_{},shakeStrokes_{};
     Vec grabbedAt_{};
 };
 

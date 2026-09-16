@@ -36,6 +36,108 @@ struct Rig
 
 int main()
 {
+    for(int title=1;title<=6;++title)for(bool left:{false,true})for(int location:{0,1})
+        for(bool slide:{false,true})for(bool click:{false,true})
+    {
+        Rig r(static_cast<GameTitle>(title),left,location);
+        r.c.holsterSlide=slide;r.c.holsterClick=click;r.Step();
+        auto o=r.GrabHolster();
+        Check(o.swapRequested==click&&o.grabbedHolster==(slide||click),
+            "holster checkboxes select click, draw, both or neither in all titles and hands");
+        Check(r.DrawHolster().swapRequested==(slide&&!click),"both modes cannot produce a second swap on draw");
+        for(int n=0;n<30;++n)Check(!r.Step().swapRequested,"held holster click cannot repeat after cooldown");
+        r.s.primaryGrip=0;r.Step();
+        Check(r.GrabHolster().swapRequested==click,"new released click rearms at holster");
+    }
+    for(float radius:{0.08f,0.20f,0.40f})
+    {
+        Rig r;r.c.holsterClick=true;r.c.holsterRadius=radius;r.c.zoneRadius=0.08f;r.Step();
+        r.s.primary=r.holster+Vec{radius-0.001f,0,0};r.s.primaryGrip=1;
+        Check(r.Step().swapRequested,"holster accepts just inside its independent radius");
+        Rig outside;outside.c.holsterClick=true;outside.c.holsterRadius=radius;outside.Step();
+        outside.s.primary=outside.holster+Vec{radius+0.001f,0,0};outside.s.primaryGrip=1;
+        Check(!outside.Step().swapRequested,"holster rejects just outside radius");
+        outside.s.primary=outside.holster;
+        Check(!outside.Step().swapRequested,"moving already-held grip into click zone does not switch");
+        Rig pouch;pouch.c.zoneRadius=radius;pouch.c.holsterRadius=0.08f;
+        pouch.s.support=pouch.pouch+Vec{radius-0.001f,0,0};pouch.s.supportGrip=1;
+        Check(pouch.Step().pickedMagazine,"pouch radius independent of holster radius");
+    }
+    for(float radius:{0.06f,0.18f,0.30f})for(bool inside:{false,true})
+    {
+        Rig r;r.c.insertRadius=radius;r.GrabMagazine();
+        r.s.support=r.s.primary+Vec{radius+(inside?-0.001f:0.001f),-0.06f,-0.04f};
+        r.Step(80);r.Step(80);r.s.supportGrip=0;
+        Check(r.Step().reloadRequested==inside,"insertion uses the selected independent radius");
+    }
+    {
+        Rig r;r.GrabHolster();r.c.holsterClick=true;
+        Check(!r.Step().swapRequested&&!r.DrawHolster().swapRequested,"changing holster mode cancels held draw");
+        Rig h;h.c.holsterClick=true;h.Step();h.s.otherAction=true;
+        Check(!h.GrabHolster().swapRequested,"click holster cannot chord with a trigger or button");
+        Rig shortDraw;shortDraw.c.holsterRadius=0.08f;shortDraw.c.drawDistance=0.10f;
+        shortDraw.GrabHolster();shortDraw.s.primary=shortDraw.holster+Vec{0,0,-0.23f};
+        Check(shortDraw.Step(160).swapRequested,"small holster admits deliberately shortened draw");
+        Rig longDraw;longDraw.c.drawDistance=0.50f;longDraw.GrabHolster();
+        longDraw.s.primary=longDraw.holster+Vec{0,0,-0.40f};
+        Check(!longDraw.Step(160).swapRequested,"long draw threshold prevents premature switching");
+    }
+    for(bool left:{false,true})for(unsigned step:{8u,11u,14u})
+    {
+        Rig r(GameTitle::HaloCE,left);r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();
+        r.s.primaryGrip=1;Check(r.Step().consumePrimary,"Needler shake owns deliberate weapon grip");
+        const float base=r.s.primary.y;
+        unsigned requests=0;
+        for(int n=1;n<=100;++n)
+        {
+            r.s.primary.y=base+0.08f*std::sin(n*step*0.020f);
+            requests+=r.Step(step).reloadRequested?1:0;
+        }
+        Check(requests==1,"Needler alternating strokes request exactly one reload at multiple sample rates");
+        for(int n=0;n<30;++n)Check(!r.Step().reloadRequested,"held shake cannot repeat");
+    }
+    for(int reason=0;reason<9;++reason)
+    {
+        Rig r(GameTitle::HaloCE);r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();
+        r.s.primaryGrip=1;r.Step();
+        switch(reason)
+        {
+        case 0:r.c.needleShake=false;break;
+        case 1:r.s.weaponGraph=0;break;
+        case 2:r.s.title=GameTitle::Halo3;break;
+        case 3:r.s.otherAction=true;break;
+        case 4:r.s.ready=false;break;
+        case 5:r.s.primaryGrip=0;break;
+        case 6:r.s.now+=250;break;
+        case 7:++r.s.space;break;
+        case 8:for(int i=0;i<20;++i)r.Step(100);break;
+        }
+        for(int i=0;i<8;++i)
+        {
+            r.s.primary.y+=(i%2?-.15f:.15f);
+            Check(!r.Step(100).reloadRequested,"shake cancellation cannot become a delayed reload");
+        }
+    }
+    for(int motion=0;motion<4;++motion)
+    {
+        Rig r(GameTitle::HaloCE);r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();
+        r.s.primaryGrip=1;r.Step();
+        for(int i=0;i<16;++i)
+        {
+            if(motion==0) {r.s.primary.y+=.04f;r.s.head.y+=.04f;} // walk/bob together
+            if(motion==1) r.s.primary.y+=.02f; // single sweep
+            if(motion==2) r.s.primary.y+=(i%2?.02f:-.02f); // jitter
+            if(motion==3) r.s.primary.y+=(i%2?.15f:-.15f); // implausibly fast
+            Check(!r.Step(motion==3?8:100).reloadRequested,"translation, single sweep, jitter and tracking jumps cannot shake-reload");
+        }
+    }
+    for(int title=1;title<=6;++title)
+    {
+        Rig r(static_cast<GameTitle>(title));r.c.needleShake=true;r.s.weaponGraph=123;r.Step();r.s.primaryGrip=1;
+        Check(!r.Step().consumePrimary,"unrecognized model cannot acquire shake grip");
+        Check(NeedleWeapon(static_cast<GameTitle>(title),0x55EA2D6F6C10C375ull)==(title==5),
+            "CE fingerprint cannot classify a different engine's weapon");
+    }
     for(int title=1;title<=6;++title) for(bool left:{false,true}) for(int location:{0,1})
     {
         Rig r(static_cast<GameTitle>(title),left,location);

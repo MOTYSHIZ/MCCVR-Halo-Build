@@ -1,0 +1,120 @@
+{
+  "source": "Official HCEEK tags; descriptor and model readers reverified",
+  "records": [
+    {
+      "weapon": "assault rifle",
+      "model_sha256": "F49C1C60AA0FC37951C863D78E9A2B3B6245DE2F88FF00889B41AC131473A967",
+      "graph_identity": "93663163761AA577",
+      "magazines": [
+        {
+          "node": "frame magazine",
+          "exclusively_weighted_vertices": 129,
+          "vertices_blended_with_gun": 0
+        }
+      ],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "ball",
+      "model_sha256": "E4E5D37D299A0DBADD58F9A6ED5279971B06FF8CB97684A438DD01BB26363B82",
+      "graph_identity": "D4E1323E60DB2B87",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "flag",
+      "model_sha256": "AA8642635B5E6DBB59A70C515D28B1A52CA6F6A24BC4261C4752F7782B2EEE74",
+      "graph_identity": "9D8A310620DE486D",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "flamethrower",
+      "model_sha256": "7F29278370BD55A288B3DA9623198A149F2769D9F3186286E7724A5C1A4F52C6",
+      "graph_identity": "EC917EC3F1DFFEF9",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "needler",
+      "model_sha256": "26A77DD87EDA1404A77A404E466392EB94DB1051C775243E4F5E11BD7684F1C5",
+      "graph_identity": "55EA2D6F6C10C375",
+      "magazines": [],
+      "needle_nodes": 16
+    },
+    {
+      "weapon": "pistol",
+      "model_sha256": "83A3ED078DCC92B15976462F3E71619F92A242E932CE736FA01EF7AB44697CC0",
+      "graph_identity": "24585B0C2FBD0622",
+      "magazines": [
+        {
+          "node": "frame magazine",
+          "exclusively_weighted_vertices": 144,
+          "vertices_blended_with_gun": 0
+        }
+      ],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "plasma pistol",
+      "model_sha256": "0F1B31D72C0FE1E498877E00D9D8A0250B63771050BD257C5AA1E04058D9A4A4",
+      "graph_identity": "7B974325274A536D",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "plasma rifle",
+      "model_sha256": "2352C04F5A42FF9C467DD5DBF0DEF09BACE1A621B205B3F0997D07FBA3D90494",
+      "graph_identity": "75A4823A46E33E13",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "plasma_cannon",
+      "model_sha256": "23E1268603F03CD5424E4AAD691E36B854866EA2B0562355155A45D834EF6429",
+      "graph_identity": "B0BD3C18EDF619B4",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "rocket launcher",
+      "model_sha256": "1ACFE812E5E770A4F855D18A300629D1000E426F94FE2CA05A02B9FEC75A7009",
+      "graph_identity": "E155408F29C66938",
+      "magazines": [],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "shotgun",
+      "model_sha256": "935E0848767D1D89ED1C7E5231477F54F8D508228F2B64062C16051382EEBBD4",
+      "graph_identity": "1D306B5E75713D8B",
+      "magazines": [
+        {
+          "node": "frame magazine",
+          "exclusively_weighted_vertices": 68,
+          "vertices_blended_with_gun": 0
+        }
+      ],
+      "needle_nodes": 0
+    },
+    {
+      "weapon": "sniper rifle",
+      "model_sha256": "4AAC243A95EF94EA4B6637122B883F02CB3CD392C1F8C5665C6892C0CC7AD06A",
+      "graph_identity": "7560F22650441950",
+      "magazines": [
+        {
+          "node": "frame magazine",
+          "exclusively_weighted_vertices": 337,
+          "vertices_blended_with_gun": 0
+        }
+      ],
+      "needle_nodes": 0
+    }
+  ],
+  "finding": "Four CE models have magazine-named nodes with separately weighted vertices; Needler has 16 needle nodes.",
+  "limits": [
+    "A node name does not establish a detachable magazine; shotgun needs reload/visual interpretation.",
+    "Triangle isolation, materials, UVs, native resource lifetime and an independent stereo draw are not established by this audit.",
+    "CE Original artwork does not establish Anniversary replacement artwork or another title's models.",
+    "No detached magazine meshes are shipped in this candidate."
+  ]
+}

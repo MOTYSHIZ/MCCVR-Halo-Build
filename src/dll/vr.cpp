@@ -1,6 +1,8 @@
 #include "../common/vr_interaction_refinement_logic.h"
 #include "../common/weapon_hand_logic.h"
 #include "../common/weapon_interaction_logic.h"
+#include "../common/weapon_model_observation.h"
+#include "weapon_accessory_renderer.h"
 #include "../common/title_runtime_state.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -7020,6 +7022,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     std::atomic<bool> g_twoHandLatched{false};
     std::atomic<bool> g_twoHandActive{false};
     weapon_interaction::State g_weaponInteraction;
+    weapon_model::Observations g_weaponModels;
+    WeaponAccessoryRenderer g_weaponAccessoryRenderer;
+    weapon_accessory::Presentation g_weaponAccessory; // compositor thread only
+    std::atomic<HRESULT> g_weaponAccessoryResult{S_FALSE};
     std::atomic<unsigned> g_weaponGestureGrabs{0},g_weaponReloadRequests{0},g_weaponSwapRequests{0};
     std::atomic<uint64_t> g_weaponGestureReadyMs{0};
     std::array<RecentSecondaryWeaponPresentation, kTitleRuntimeSlotCount>
@@ -7435,6 +7441,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     void InvalidateWeaponInteractionSample()
     {
+        g_weaponAccessory={};
         g_weaponInteraction.Cancel();
         g_weaponGestureReadyMs.store(0,std::memory_order_release);
         EnterCriticalSection(&g_headCs);
@@ -7726,6 +7733,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             sample.now=inputNow;sample.title=TitleAdapter_GetActiveTitle();
             sample.generation=TitleAdapter_GetGeneration(sample.title);
             sample.space=g_contactSpaceEpoch.load(std::memory_order_acquire);
+            sample.weaponGraph=VR_GetWeaponModelIdentity(sample.title,sample.generation,sample.space,inputNow);
             sample.dualWield=SecondaryWeaponPresentationActive();
             sample.ready=pad.valid&&valid&&leftValid&&headValid&&!handChanged&&
                 primaryGripActive&&supportGripActive&&
@@ -7747,16 +7755,29 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             settings.reload=g_config.manual_reload;settings.holsters=g_config.weapon_holsters;
             settings.leftHanded=leftHanded;settings.pouchDown=g_config.weapon_pouch_down_m;
             settings.zoneRadius=g_config.weapon_body_zone_radius_m;
+            settings.holsterRadius=g_config.weapon_holster_radius_m;
+            settings.insertRadius=g_config.weapon_insert_radius_m;
+            settings.drawDistance=g_config.weapon_holster_draw_m;
+            settings.holsterSlide=g_config.weapon_holster_slide;
+            settings.holsterClick=g_config.weapon_holster_click;
+            settings.needleShake=g_config.weapon_needler_shake;
+            settings.genericVisual=g_config.weapon_unknown_reload_visual;
+            settings.shakeTravel=g_config.weapon_shake_travel_m;
             settings.holsterLocation=g_config.weapon_holster_location;
             const int index=weapon_interaction::TitleIndex(sample.title);
             settings.reloadButton=index>=0?weapon_interaction::Button(g_config.weapon_reload_button[index]):0;
             settings.swapButton=index>=0?weapon_interaction::Button(g_config.weapon_switch_button[index]):0;
             weaponGesture=g_weaponInteraction.Update(sample,settings);
+            const auto& supportQ=leftLocation.pose.orientation;
+            g_weaponAccessory=weapon_accessory::Build(sample,settings,weaponGesture,
+                {supportQ.x,supportQ.y,supportQ.z,supportQ.w});
             pad.weaponButtons=weaponGesture.buttons;
             pad.weaponSampleMs=inputNow;pad.weaponPulseUntilMs=weaponGesture.pulseUntil;
             pad.weaponTitle=sample.title;pad.weaponGeneration=sample.generation;
             pad.weaponSpace=sample.space;
-            pad.weaponOptions=(settings.reload?1u:0u)|(settings.holsters?2u:0u)|(leftHanded?4u:0u);
+            pad.weaponGraph=sample.weaponGraph;
+            pad.weaponOptions=(settings.reload?1u:0u)|(settings.holsters?2u:0u)|(leftHanded?4u:0u)|
+                (!settings.holsterSlide?8u:0u)|(settings.holsterClick?16u:0u)|(settings.needleShake?32u:0u);
             pad.weaponReloadBinding=settings.reloadButton;pad.weaponSwitchBinding=settings.swapButton;
             pad.weaponConsumePrimary=weaponGesture.consumePrimary;
             pad.weaponConsumeSupport=weaponGesture.consumeSupport;
@@ -7775,6 +7796,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         else
         {
             g_weaponInteraction.Reset();
+            g_weaponAccessory={};
             g_weaponGestureReadyMs.store(0,std::memory_order_release);
         }
         g_scopeZoomStickY.store(pad.valid?pad.turnY:0.0f,
@@ -10050,6 +10072,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         IqTimerBeginFrame();
                         bool everyReachEyeUploaded = reachImages;
                         everyEyeUploaded = true;
+                        Microsoft::WRL::ComPtr<ID3D11CommandList> accessoryCommands[2];
+                        HRESULT accessoryPairResult=S_FALSE;
                         for (uint32_t targetEye = 0; targetEye < 2; ++targetEye)
                         {
                             const uint32_t sourceEye = theaterProjectionAttempted
@@ -10106,6 +10130,40 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     eyeUploaded = BlitImageQuality(
                                         source, sourceDesc, g_stereoImages[idx],
                                         g_stereoW, g_stereoH, targetRtv);
+                                    // Optional accessory failure never changes eyeUploaded,
+                                    // ownership, XR submission or native weapon rendering.
+                                    const uint64_t now=GetTickCount64();
+                                    const GameTitle title=TitleAdapter_GetActiveTitle();
+                                    const uint32_t generation=TitleAdapter_GetGeneration(title);
+                                    const uint64_t space=g_contactSpaceEpoch.load(std::memory_order_acquire);
+                                    if(eyeUploaded && targetEye<projectionViews.size() &&
+                                        weapon_accessory::Current(g_weaponAccessory,title,generation,space,
+                                            VR_GetWeaponModelIdentity(title,generation,space,now),now,
+                                            g_config.manual_reload,
+                                            g_sessionState==XR_SESSION_STATE_FOCUSED &&
+                                            TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay &&
+                                            !Menu_IsOpen()&&!VR_IsPausePresentation()&&
+                                            !VR_IsPausePresentationTarget()&&!SecondaryWeaponPresentationActive()))
+                                    {
+                                        if(g_weaponAccessory.model==&weapon_model::kGenericReloadModel &&
+                                            !g_config.weapon_unknown_reload_visual) g_weaponAccessory={};
+                                        const auto& view=projectionViews[targetEye];
+                                        const auto& p=view.pose.position;const auto& q=view.pose.orientation;
+                                        weapon_accessory::Constants constants{};
+                                        if(weapon_accessory::Projection(g_weaponAccessory,
+                                            {{p.x,p.y,p.z},{q.x,q.y,q.z,q.w}},view.fov.angleLeft,
+                                            view.fov.angleRight,view.fov.angleDown,view.fov.angleUp,constants))
+                                        {
+                                            const auto& rect=view.subImage.imageRect;
+                                            const D3D11_VIEWPORT viewport{static_cast<float>(rect.offset.x),
+                                                static_cast<float>(rect.offset.y),static_cast<float>(rect.extent.width),
+                                                static_cast<float>(rect.extent.height),0,1};
+                                            const HRESULT accessoryResult=g_weaponAccessoryRenderer.Draw(
+                                                g_device,g_context,targetRtv,g_stereoW,g_stereoH,viewport,
+                                                g_weaponAccessory,constants,&accessoryCommands[targetEye]);
+                                            if(!FAILED(accessoryPairResult)) accessoryPairResult=accessoryResult;
+                                        }
+                                    }
                                 }
                             }
                             everyEyeUploaded = everyEyeUploaded && eyeUploaded;
@@ -10113,6 +10171,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 everyReachEyeUploaded =
                                     everyReachEyeUploaded && eyeUploaded;
                         }
+                        // Commit both optional eyes together, only after all
+                        // world copies and accessory draws were prepared.
+                        // A failed accessory leaves the complete world pair intact.
+                        if(everyEyeUploaded&&accessoryCommands[0]&&accessoryCommands[1])
+                        {
+                            g_context->ExecuteCommandList(accessoryCommands[0].Get(),TRUE);
+                            g_context->ExecuteCommandList(accessoryCommands[1].Get(),TRUE);
+                        }
+                        if(accessoryPairResult!=S_FALSE)
+                            g_weaponAccessoryResult.store(accessoryPairResult,std::memory_order_release);
                         IqTimerEndFrame();
                         ReportIqGpuTiming();
                         theaterProjectionReady =
@@ -14801,7 +14869,8 @@ void VR_GetPadState(VrPadState& out)
     const uint64_t now = GetTickCount64();
     const GameTitle weaponTitle=TitleAdapter_GetActiveTitle();
     const int weaponIndex=weapon_interaction::TitleIndex(weaponTitle);
-    const unsigned weaponOptions=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u);
+    const unsigned weaponOptions=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u)|
+        (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u);
     if(out.weaponOptions!=weaponOptions||out.weaponSpace!=g_contactSpaceEpoch.load(std::memory_order_acquire)||
         weaponIndex<0||out.weaponReloadBinding!=weapon_interaction::Button(g_config.weapon_reload_button[weaponIndex])||
         out.weaponSwitchBinding!=weapon_interaction::Button(g_config.weapon_switch_button[weaponIndex])||
@@ -14816,6 +14885,9 @@ void VR_GetPadState(VrPadState& out)
         out.weaponConsumePrimary=out.weaponConsumeSupport=false;
     }
     if(now>=out.weaponPulseUntilMs) out.weaponButtons=0;
+    if(g_config.manual_reload&&
+        out.weaponGraph!=VR_GetWeaponModelIdentity(weaponTitle,out.weaponGeneration,out.weaponSpace,now))
+        out.weaponButtons=0;
     const uint64_t sampled = g_thumbrestDpadSampleMs.load(std::memory_order_acquire);
     if (!g_config.quest_thumbrest_dpad || !sampled || now < sampled || now-sampled > 250 ||
         g_sessionStateShared.load(std::memory_order_acquire) != XR_SESSION_STATE_FOCUSED || Menu_IsOpen())
@@ -14826,8 +14898,31 @@ void VR_GetPadState(VrPadState& out)
     LeaveCriticalSection(&g_headCs);
 }
 
+void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept
+{
+    if(!g_config.manual_reload||title!=TitleAdapter_GetActiveTitle()||
+        generation!=TitleAdapter_GetGeneration(title)) return;
+    (void)g_weaponModels.Publish({title,generation,identity,
+        g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64()});
+}
+
+uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t space,uint64_t now) noexcept
+{
+    if(title==GameTitle::HaloCE) return HaloCEFirstPerson_WeaponGraph(generation,space,now);
+    return g_weaponModels.Read(title,generation,space,now);
+}
+
 void VR_ReportWeaponInteractions(uint64_t nowMs)
 {
+    static HRESULT previousAccessory=S_FALSE;
+    const HRESULT accessory=g_weaponAccessoryResult.load(std::memory_order_acquire);
+    if(accessory!=previousAccessory)
+    {
+        LOG("Reload accessory: %s HRESULT=0x%08X; isolated magazine geometry, mod surface shading; "
+            "native animation/ammo and camera unaffected",
+            SUCCEEDED(accessory)?"compositor draw ready":"stock gesture fallback",static_cast<unsigned>(accessory));
+        previousAccessory=accessory;
+    }
     static uint64_t lastReport=0;
     static GameTitle previousTitle=GameTitle::None;
     static unsigned previousOptions=0,previousGrabs=0,previousReloads=0,previousSwaps=0;
@@ -14835,13 +14930,29 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
     static bool previousReady=false;
     const GameTitle title=TitleAdapter_GetActiveTitle();
     const int index=weapon_interaction::TitleIndex(title);
-    const unsigned options=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u);
+    const unsigned options=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u)|
+        (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u);
     const uint32_t bindings=index>=0?static_cast<uint32_t>(
         (g_config.weapon_reload_button[index]&0xFF)|((g_config.weapon_switch_button[index]&0xFF)<<8)):0;
     const bool changed=options!=previousOptions||title!=previousTitle||bindings!=previousBindings;
     if(!changed&&nowMs>=lastReport&&nowMs-lastReport<5000) return;
     const uint64_t readyAt=g_weaponGestureReadyMs.load(std::memory_order_acquire);
     const bool ready=readyAt&&nowMs>=readyAt&&nowMs-readyAt<=150;
+    static uint64_t previousModel=0;
+    const uint64_t modelIdentity=VR_GetWeaponModelIdentity(title,TitleAdapter_GetGeneration(title),
+        g_contactSpaceEpoch.load(std::memory_order_acquire),nowMs);
+    if((options&1)&&(changed||previousModel!=modelIdentity))
+    {
+        const auto* model=weapon_model::Find(title,modelIdentity);
+        LOG("Reload model: title=%s identity=%016llX name=%s visual=%s needleShakeEligible=%u; "
+            "native reload/ammo rules unchanged",
+            index>=0?weapon_interaction::kTitleNames[index]:"none",static_cast<unsigned long long>(modelIdentity),
+            model?model->name:(modelIdentity?"unfamiliar held model":"no fresh held-model receipt"),
+            model?(model->vertexCount?"isolated authored part":"gesture only"):
+                (modelIdentity&&g_config.weapon_unknown_reload_visual?"generic blue reload item":"gesture only"),
+            model&&model->needles?1u:0u);
+    }
+    previousModel=modelIdentity;
     const unsigned grabs=g_weaponGestureGrabs.load(std::memory_order_relaxed);
     const unsigned reloads=g_weaponReloadRequests.load(std::memory_order_relaxed);
     const unsigned swaps=g_weaponSwapRequests.load(std::memory_order_relaxed);
@@ -14849,11 +14960,15 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
         reloads!=previousReloads||swaps!=previousSwaps))
         LOG("Weapon gestures: title=%s reload=%u holsters=%u leftHanded=%u readiness=%s "
             "configuredReload=0x%05X configuredSwitch=0x%05X grabs=%u reloadRequests=%u swapRequests=%u "
+            "slide=%u click=%u pouchRadius=%.2f insertRadius=%.2f holsterRadius=%.2f drawMin=%.2f needleShake=%u "
             "(requests only; native ammo/inventory determine outcome)",
             index>=0?weapon_interaction::kTitleNames[index]:"none",options&1,(options>>1)&1,(options>>2)&1,
             ready?"ready":"stock input; waiting for focused tracked on-foot single-weapon play",
             index>=0?weapon_interaction::Button(g_config.weapon_reload_button[index]):0,
-            index>=0?weapon_interaction::Button(g_config.weapon_switch_button[index]):0,grabs,reloads,swaps);
+            index>=0?weapon_interaction::Button(g_config.weapon_switch_button[index]):0,grabs,reloads,swaps,
+            g_config.weapon_holster_slide?1u:0u,g_config.weapon_holster_click?1u:0u,
+            g_config.weapon_body_zone_radius_m,g_config.weapon_insert_radius_m,
+            g_config.weapon_holster_radius_m,g_config.weapon_holster_draw_m,g_config.weapon_needler_shake?1u:0u);
     previousOptions=options;previousTitle=title;previousBindings=bindings;previousReady=ready;
     previousGrabs=grabs;previousReloads=reloads;previousSwaps=swaps;lastReport=nowMs;
 }

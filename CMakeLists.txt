@@ -264,6 +264,7 @@ add_library(halo3xr SHARED
     src/dll/dllmain.cpp
     src/dll/d3d11_hook.cpp
     src/dll/vr.cpp
+    src/dll/weapon_accessory_renderer.cpp
     src/dll/menu.cpp
     src/dll/sigscan.cpp
     src/dll/game.cpp
@@ -441,6 +442,20 @@ if(BUILD_TESTING)
     add_test(NAME halomccvr_dpad_input_tests COMMAND halomccvr_dpad_input_tests)
     add_executable(halomccvr_weapon_interaction_tests tests/weapon_interaction_tests.cpp)
     add_test(NAME halomccvr_weapon_interaction_tests COMMAND halomccvr_weapon_interaction_tests)
+    add_executable(halomccvr_weapon_accessory_tests tests/weapon_accessory_tests.cpp src/dll/weapon_accessory_renderer.cpp)
+    target_compile_definitions(halomccvr_weapon_accessory_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_weapon_accessory_tests PRIVATE d3d11 d3dcompiler)
+    add_test(NAME halomccvr_weapon_accessory_tests COMMAND halomccvr_weapon_accessory_tests)
+    set(HALOMCCVR_RELOAD_IDENTITY_FIXTURE "${HALOMCCVR_GENERATED_DIR}/reload_identity_functions.inl")
+    add_custom_command(OUTPUT "${HALOMCCVR_RELOAD_IDENTITY_FIXTURE}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_reload_identity_fixture.py"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${HALOMCCVR_RELOAD_IDENTITY_FIXTURE}"
+        DEPENDS tools/generate_reload_identity_fixture.py tools/generate_haptics_runtime_fixture.py
+            src/dll/game.cpp src/dll/halo2_observer_6dof.cpp VERBATIM)
+    add_executable(halomccvr_reload_identity_tests tests/reload_identity_tests.cpp "${HALOMCCVR_RELOAD_IDENTITY_FIXTURE}")
+    target_include_directories(halomccvr_reload_identity_tests PRIVATE "${HALOMCCVR_GENERATED_DIR}")
+    target_compile_definitions(halomccvr_reload_identity_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_reload_identity_tests COMMAND halomccvr_reload_identity_tests)
     set(HALOMCCVR_DPAD_ACTION_FIXTURE "${HALOMCCVR_GENERATED_DIR}/dpad_action_functions.inl")
     add_custom_command(OUTPUT "${HALOMCCVR_DPAD_ACTION_FIXTURE}"
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_dpad_action_fixture.py"

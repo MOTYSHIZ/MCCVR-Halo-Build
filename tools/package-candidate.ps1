@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'reload-holsters-ce-beam-h3-cortana',
+        'all-title-reload-accessories',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1141,12 +1141,15 @@ try {
             titles = 'CE-Original-and-Anniversary; Halo2-Classic-and-Anniversary; Halo3; ODST; Reach; Halo4'
             default_enabled = $false
             manual_reload = 'support-hip-grip-pickup; carry-to-primary-grip-and-release; native-reload-request'
-            holsters = 'primary-side-shoulder-or-hip-grip; draw-25cm; native-carried-weapon-exchange'
+            holsters = 'primary-side-shoulder-or-hip-grip; configurable-slide-or-click; independent-radii; native-carried-weapon-exchange'
+            magazine_visuals = '42-isolated-authored-reload-parts; shared-stereo-compositor; hip-and-support-hand; same-CE-H2-accessory-in-both-graphics-modes'
+            custom_weapons = 'live-held-model-observation-in-all-six-titles; optional-generic-blue-reload-item-for-unfamiliar-valid-models; no-custom-ammo-or-mesh-guessing'
+            needle_shake = 'optional-default-off; each-title-Needler-plus-Reach-Needle-Rifle; four-bounded-alternating-strokes; fresh-grip-required'
             input_mapping = 'user-selected-MCC-reload-and-switch-buttons-saved-per-title; initial-X-and-Y'
             admission = 'focused-tracked-on-foot-single-weapon; same-title-generation-space-options-and-bindings'
-            limits = 'native-auto-reload-ammo-inventory-and-animation-retained; no-separate-magazine-or-holstered-gun-model; no-extra-inventory-or-empty-hand-state'
+            limits = 'simple-grey-shading-no-native-textures-or-world-occlusion; native-gun-animation-magazine-retained; native-auto-reload-ammo-inventory-retained; no-holstered-gun-model-extra-inventory-or-empty-hand-state'
             shared_input_tests = 'gesture-timelines; both-hands; all-six-titles; cancellation-and-held-grip-release; production-pad-reader; config-roundtrip'
-            evidence = 'docs/WEAPON-INTERACTIONS-2026-09-16.md'
+            evidence = 'docs/RELOAD-ACCESSORIES-2026-09-16.md'
             headset_accepted = $false
         }
         beam_cortana_comfort = [ordered]@{
@@ -1270,11 +1273,11 @@ try {
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds optional manual reload and weapon holsters across all six titles and preserves 918e2f2 CE Anniversary beam glare and Halo 3 Cortana facing corrections above 35a4d09. All four items require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Optional manual reload and weapon holsters, CE Anniversary residual offscreen flare guard, and Halo 3 shot-qualified cinematic facing. Keep existing config; new toggles default off in Weapon & Aim. Match per-title reload/switch inputs to MCC controller settings. Both editions; package only; no installation, launch or publication. Read RELEASE-NOTES.md for steps and limits.'
+        note = 'All-title reload accessories, automatic generic fallback for detected unfamiliar/custom held models, optional needle shake, independent grab/insert/holster radii and click/slide holsters. Earlier CE vehicle, beam and H3 Cortana changes preserved. Keep existing config; manual reload, holsters and shake default off. Both editions; package only. Read RELEASE-NOTES.md for tests and explicit visual/custom-model limits.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/WEAPON-INTERACTIONS-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/RELOAD-ACCESSORIES-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

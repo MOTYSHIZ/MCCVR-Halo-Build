@@ -775,6 +775,7 @@ struct VrPadState
     uint64_t weaponPulseUntilMs = 0;
     uint32_t weaponGeneration = 0;
     uint64_t weaponSpace = 0;
+    uint64_t weaponGraph = 0;
     unsigned weaponOptions = 0;
     uint32_t weaponReloadBinding = 0, weaponSwitchBinding = 0;
     GameTitle weaponTitle{};
@@ -783,6 +784,9 @@ struct VrPadState
 void VR_GetPadState(VrPadState& out);
 // Cold worker only: optional gesture status/counters, never render-hook logs.
 void VR_ReportWeaponInteractions(uint64_t nowMs);
+// Optional, read-only equipped-model observations. No inventory or animation writes.
+void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept;
+uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t space,uint64_t now) noexcept;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 // One immutable, exact-serial OpenXR tracking snapshot for Reach's complete
 // outer visibility + inner stereo transaction. The reader is lock-free and

@@ -47,7 +47,7 @@ def graph_identity(nodes):
     return value or 1
 
 
-def read_weapon(path):
+def read_weapon(path, mesh_parts=None):
     data = path.read_bytes()
     u32 = lambda at: struct.unpack_from(">I", data, at)[0]
     assert data[36:40] == b"mod2" and u32(0xec) == 0
@@ -95,6 +95,7 @@ def read_weapon(path):
             local = data[at+108:at+108+local_count] if local_nodes else range(count)
             assert not local_nodes or 0 < local_count <= 24
             assert all(i < count for i in local)
+            first_vertex = len(vertices)
             for vertex in range(uncompressed):
                 address = cursor+vertex*68
                 position = struct.unpack_from(">3f", data, address)
@@ -103,6 +104,11 @@ def read_weapon(path):
                 assert 0 <= n0 < len(local) and -1 <= n1 < len(local)
                 assert 0 <= w0 <= 1 and 0 <= w1 <= 1 and abs(w0+w1-1) < .00001
                 vertices.append((position, local[n0], local[n1] if n1 >= 0 else -1, w0, w1))
+            if mesh_parts is not None:
+                indices_at = cursor + uncompressed*68 + compressed*32
+                indices = struct.unpack_from(f">{triangles*3}H", data, indices_at)
+                assert all(i == 65535 or i < uncompressed for i in indices)
+                mesh_parts.append(dict(vertices=vertices[first_vertex:], indices=indices))
             cursor += uncompressed*68+compressed*32+triangles*6
     assert cursor <= len(data)
     return data, names, parents, rest, vertices, part_count

@@ -13,3 +13,5 @@ bool HaloCEFirstPerson_AimArmed() noexcept;
 // Perspective zero is proven to admit CE's own first-person prepare branch;
 // other perspective values remain unnamed until separately established.
 bool HaloCEFirstPerson_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept;
+// Last committed graph, bounded by title/generation/space and 150 ms age.
+uint64_t HaloCEFirstPerson_WeaponGraph(uint32_t generation,uint64_t space,uint64_t now) noexcept;

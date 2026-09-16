@@ -1,4 +1,5 @@
 #include "../common/vr_interaction_refinement_logic.h"
+#include "../common/weapon_model_catalog.h"
 #include "../common/weapon_hand_logic.h"
 #include "../common/halo2_contact_melee_logic.h"
 #include "../common/halo2_snap_turn_logic.h"
@@ -1506,12 +1507,38 @@ namespace
         }
     }
 
+    void Halo2ObserveReloadModel(uint32_t tag,uint32_t nodes) noexcept
+    {
+        if(!g_config.manual_reload||tag==UINT32_MAX||!nodes) return;
+        const auto get=reinterpret_cast<Halo2GraphDefinitionGetFn>(
+            g_graphDefinitionGet.load(std::memory_order_acquire));
+        const auto slot=reinterpret_cast<unsigned char**>(
+            g_halo2TagDataBaseSlot.load(std::memory_order_acquire));
+        uint64_t identity=0;
+        __try
+        {
+            const auto* definition=get?static_cast<const uint8_t*>(get(tag)):nullptr;
+            int32_t offset=0;
+            if(definition&&slot&&*slot&&Halo2ReadWeaponCompressionHeader(
+                std::span<const uint8_t>(definition,0x1C),offset))
+            {
+                const auto* b=reinterpret_cast<const float*>(*slot+static_cast<ptrdiff_t>(offset));
+                const float low[]{b[0],b[2],b[4]},high[]{b[1],b[3],b[5]};
+                identity=weapon_model::Halo2LiveIdentity(low,high,nodes,tag);
+            }
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER) { identity=0; }
+        VR_ObserveWeaponModel(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),identity);
+    }
+
     void Halo2PublishFinalPacketCollisionVolumes(
         const Halo2VisibleConsumerContext& context, float* handsMatrices,
         float* gunMatrices, uint32_t gunRenderModelTag,
         float* secondaryMatrices = nullptr,
         uint32_t secondaryRenderModelTag = UINT32_MAX) noexcept
     {
+        if(context.valid&&handsMatrices&&gunMatrices)
+            Halo2ObserveReloadModel(gunRenderModelTag,context.gunCount);
         if ((!g_config.world_collision && !g_config.physical_melee) || !handsMatrices || !gunMatrices ||
             !context.valid || context.handsCount == 0 ||
             context.handsCount > kHalo2FirstPersonPaletteCapacity ||

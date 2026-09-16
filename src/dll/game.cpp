@@ -1,4 +1,5 @@
 #include "contact_melee_queue.h"
+#include "../common/weapon_model_catalog.h"
 #include "../common/camera_recovery_logic.h"
 #include "../common/dual_weapon_aim_logic.h"
 #include "../common/weapon_hand_logic.h"
@@ -23108,10 +23109,34 @@ namespace
 #include "left_hand_presentation.inl"
 #include "legacy_runtime_weapon_bounds.inl"
 
+    void LegacyObserveReloadModel(
+        GameTitle title, uint16_t renderModelTag, uint32_t generation,
+        const BoneMatrix* source, const int32_t* boneMap)
+    {
+        // Optional reload identity is independent of collision settings. Read
+        // through each title's existing verified tag reader; never change a
+        // palette, inventory, native animation or camera to select an accessory.
+        if(g_config.manual_reload && source && boneMap && generation)
+        {
+            const bool primary=title==GameTitle::HaloReach ||
+                (g_fpInterpolationContexts[0].source==source &&
+                 g_fpInterpolationContexts[0].generation==generation);
+            uint32_t identity=0;
+            // Observe the native body mapping too: it establishes the appended
+            // held range for unfamiliar modded models without name guessing.
+            const bool held=primary&&LegacyClassifyRuntimeWeapon(
+                title,renderModelTag,generation,source,boneMap);
+            if(primary && LegacyReadWeaponRenderModelChecksum(title,renderModelTag,identity) &&
+                (held||weapon_model::Find(title,identity)))
+                VR_ObserveWeaponModel(title,generation,weapon_model::LiveIdentity(identity,renderModelTag));
+        }
+    }
+
     bool LegacyObserveWeaponRenderModel(
         GameTitle title, uint16_t renderModelTag, uint32_t generation,
         const BoneMatrix* source, const int32_t* boneMap)
     {
+        LegacyObserveReloadModel(title,renderModelTag,generation,source,boneMap);
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature || !generation || feature->generation!=generation)
             return false;
@@ -35882,6 +35907,9 @@ namespace
                             identity.descriptor))
                     {
                         selected=g_halo4VrikScratch;
+                        VR_ObserveWeaponModel(GameTitle::Halo4,
+                            g_halo4Camera.generation.load(std::memory_order_acquire),
+                            weapon_model::LiveIdentity(identity.runtimeImportChecksum,renderModelIndex));
                         g_halo4Camera.vrikWeaponRecordsCarried.fetch_add(
                             1,std::memory_order_relaxed);
                     }

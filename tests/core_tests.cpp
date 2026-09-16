@@ -13421,7 +13421,32 @@ int main()
         }
         ConfigLoad(primary.c_str());
         Check(!g_config.manual_reload&&!g_config.weapon_holsters&&g_config.weapon_pouch_down_m==0.50f&&
-            g_config.weapon_body_zone_radius_m==0.28f,"invalid geometry stays finite, bounded and opt-in");
+            g_config.weapon_body_zone_radius_m==0.40f,"invalid geometry stays finite, bounded and opt-in");
+        Check(g_config.weapon_holster_radius_m==0.40f&&g_config.weapon_holster_slide&&
+            !g_config.weapon_holster_click&&!g_config.weapon_needler_shake&&g_config.weapon_unknown_reload_visual,
+            "old shared radius migrates to both zones while preserving draw and default-off shake");
+        {
+            std::ofstream file(primary);
+            file << "weapon_holster_radius_m = 0.33\nweapon_body_zone_radius_m = 0.12\n"
+                "weapon_insert_radius_m = 0.09\nweapon_holster_draw_m = 0.41\n"
+                "weapon_holster_slide = 0\nweapon_holster_click = 1\nweapon_needler_shake = 1\n"
+                "weapon_shake_travel_m = 0.14\nweapon_unknown_reload_visual = 0\n";
+        }
+        ConfigLoad(primary.c_str());ConfigSave();g_config=Config{};ConfigLoad(primary.c_str());
+        Check(g_config.weapon_holster_radius_m==0.33f&&g_config.weapon_body_zone_radius_m==0.12f&&
+            g_config.weapon_insert_radius_m==0.09f&&g_config.weapon_holster_draw_m==0.41f&&
+            !g_config.weapon_holster_slide&&g_config.weapon_holster_click&&g_config.weapon_needler_shake&&
+            g_config.weapon_shake_travel_m==0.14f&&!g_config.weapon_unknown_reload_visual,
+            "independent radii and gesture options persist regardless of legacy-key order");
+        {
+            std::ofstream file(primary);
+            file << "weapon_holster_radius_m = nan\nweapon_insert_radius_m = -10\n"
+                "weapon_holster_draw_m = inf\nweapon_shake_travel_m = 999\n";
+        }
+        ConfigLoad(primary.c_str());
+        Check(g_config.weapon_holster_radius_m==0.20f&&g_config.weapon_insert_radius_m==0.06f&&
+            g_config.weapon_holster_draw_m==0.25f&&g_config.weapon_shake_travel_m==0.20f,
+            "new interaction geometry rejects nonfinite data and clamps finite bounds");
     }
     {
         std::ofstream file(primary);

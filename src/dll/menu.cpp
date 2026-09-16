@@ -1046,24 +1046,52 @@ namespace
         ImGui::Text("Reload and holsters");
         changed |= ImGui::Checkbox("Manual Reload", &g_config.manual_reload);
         if (g_config.manual_reload)
+        {
             ImGui::TextDisabled("Hold your support grip at your hip to take a magazine.\n"
                 "Bring it below your weapon hand, then release to reload.\n"
                 "Halo plays its normal reload; ammo and automatic reload rules still apply.");
+            changed |= vr_menu::SliderFloat("Magazine grab radius (m)",
+                &g_config.weapon_body_zone_radius_m,0.08f,0.40f,"%.2f");
+            changed |= vr_menu::SliderFloat("Magazine insertion radius (m)",
+                &g_config.weapon_insert_radius_m,0.06f,0.30f,"%.2f");
+            changed |= ImGui::Checkbox("Generic reload item for unknown weapons", &g_config.weapon_unknown_reload_visual);
+            ImGui::TextDisabled("Detected unfamiliar weapons use a blue reload item.\n"
+                "Native ammo and reload rules still apply; it is not the mod's own mesh.");
+            changed |= ImGui::Checkbox("Shake to reload needle weapons", &g_config.weapon_needler_shake);
+            if(g_config.weapon_needler_shake)
+            {
+                changed |= vr_menu::SliderFloat("Minimum shake stroke (m)",
+                    &g_config.weapon_shake_travel_m,0.06f,0.20f,"%.2f");
+                ImGui::TextDisabled("Recognized Needlers in all titles, plus Reach's Needle Rifle.\n"
+                    "Away from the holster, hold weapon grip and shake up/down twice.\n"
+                    "Finish within 1.8 seconds, then release grip before repeating.\n"
+                    "Unrecognized weapon models keep regular controls.");
+            }
+        }
         changed |= ImGui::Checkbox("Weapon Holsters", &g_config.weapon_holsters);
         if (g_config.weapon_holsters)
         {
             changed |= ImGui::Combo("Holster location", &g_config.weapon_holster_location,
                 "Weapon-side shoulder\0Weapon-side hip\0");
-            ImGui::TextDisabled("Hold your weapon-hand grip at the holster, then draw it away.\n"
+            changed |= ImGui::Checkbox("Holster slide / draw gesture", &g_config.weapon_holster_slide);
+            changed |= ImGui::Checkbox("Holster click gesture", &g_config.weapon_holster_click);
+            changed |= vr_menu::SliderFloat("Holster grab radius (m)",
+                &g_config.weapon_holster_radius_m,0.08f,0.40f,"%.2f");
+            if(g_config.weapon_holster_slide&&!g_config.weapon_holster_click)
+                changed |= vr_menu::SliderFloat("Minimum holster draw distance (m)",
+                    &g_config.weapon_holster_draw_m,0.10f,0.50f,"%.2f");
+            ImGui::TextDisabled("Click: squeeze your weapon grip inside the holster to switch.\n"
+                "Slide: hold that grip and draw out of the zone to switch.\n"
+                "With both enabled, click switches immediately. Release before repeating.\n"
                 "Exchanges your current weapon with the other carried weapon.\n"
                 "The holster is a gesture zone; no extra weapon model is shown.");
+            if(!g_config.weapon_holster_slide&&!g_config.weapon_holster_click)
+                ImGui::TextDisabled("Choose a gesture to enable holster switching.");
         }
         if (g_config.manual_reload || g_config.weapon_holsters)
         {
             changed |= vr_menu::SliderFloat("Pouch / hip depth below head (m)",
                 &g_config.weapon_pouch_down_m,0.25f,0.85f,"%.2f");
-            changed |= vr_menu::SliderFloat("Body grab radius (m)",
-                &g_config.weapon_body_zone_radius_m,0.12f,0.28f,"%.2f");
             static int layoutTitle=0;
             static GameTitle previousLayoutTitle=GameTitle::None;
             const GameTitle active=TitleAdapter_GetActiveTitle();

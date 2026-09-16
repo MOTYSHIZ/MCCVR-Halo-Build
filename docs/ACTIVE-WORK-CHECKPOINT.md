@@ -1,4 +1,83 @@
-# Latest user addition - September 16: weapon holsters AND manual reload
+# CURRENT: all-title reload accessories and automatic custom-model fallback
+
+The actual prior September 16 14:26 conversation transcript was read, including
+both user refinements and the final catalogue update quoted in the resumed chat.
+Latest resumed steering adds automatic functionality for modded weapons in ALL
+games. Keep the complete earlier standing/deferred scope below.
+
+Implementation now includes 42 isolated reload-part meshes across six titles,
+shared stereo pouch/hand rendering, live equipped-model observation, automatic
+optional generic blue reload items for unfamiliar valid held models, seven
+verified needle identities, adjustable independent radii, and click/slide
+holsters. No arbitrary custom-mesh/ammo-type inference. CE/H2 use the same
+accessory in both renderers. Native input, ammo, animation and inventory remain
+in charge. Stock custom-rig binding/freshness guards still apply.
+
+Read RELOAD-ACCESSORIES-2026-09-16.md for design, exact source evidence, coverage,
+prior-message recovery and explicit limits. Grey surface shading, no native
+textures/world occlusion; native gun retains its own animation/magazine. Unknown
+models get a generic interaction item, not a claim of their own extracted art.
+Both eye command lists are staged before optional draw commit; accessory failure
+keeps the world pair and camera alive. Source includes isolated derived reload
+triangles; complete kit/game files remain outside the package.
+
+The cumulative Release build, all 38 CTest suites and Reach gate PASS locally.
+Focused suites pass 2,545 production GPU/accessory checks, 4,811 gesture checks,
+608 production OpenXR/pad checks and 382 native observer checks. Prior input,
+CE camera/vehicle/HUD/comfort/orientation, launcher and CURRENT-STATE.md were
+verified unchanged from 46a6b61. Package script copies specific player notes.
+Finish commit/package WITHOUT -Install and verify BOTH archives before delivery.
+Exact status,
+identities and final test results go in out/reload-accessories-current-handoff.json.
+If that record says VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST,
+deliver that new ZIP pair and wait; do not restart completed work or repackage
+old 46a6b61. No install, MCC launch, game-folder writes, publication or PR.
+
+Accepted cumulative d47a98c and CURRENT-STATE.md remain unchanged. Preserve CE
+vehicle steering/crosshair, Anniversary beam glare, H3 Cortana facing, both
+editions, all existing settings and all earlier work. No headset acceptance of
+this new renderer, identification or generic-mod fallback is claimed.
+
+# Historical research handoff follows
+
+# CURRENT USER PRIORITY - September 16: equal reload/holster refinement in ALL games
+
+User explicitly reiterates ALL games, equal visible magazines where applicable,
+and permission to use official mod tools. DO NOT package the current partial
+CE-only shake implementation or a controls-only candidate. Continue until a new
+matching build/source ZIP can cover the requested all-title refinement. Preserve
+both MCC editions, CE/H2 graphics modes, existing working gestures, CE vehicle
+behavior, beam/Cortana fixes, and every earlier standing/deferred item.
+
+Uncommitted WIP above delivered 46a6b61: independent pouch/insert/holster radii,
+draw-distance slider, click/slide holster checkboxes, and bounded shake gesture.
+Shake's current weapon classification is ONLY CE's verified Needler graph; that
+is NOT sufficient for delivery. No separate magazine rendering exists yet.
+Read tools/re/audit_reload_models.py and docs/RELOAD-MODEL-AUDIT-2026-09-16.json:
+official CE models prove magazine-weighted vertices, not a complete renderer.
+Four nodes are named magazine (AR, pistol, shotgun, sniper); shotgun semantics
+need investigation. Needler has 16 needle nodes. Do not mistake bounds for art.
+
+The supplied 46a6b61 log is preserved under
+out/test-runs/46a6b61-reload-holster-refinement-20260916/user.log;
+SHA256 1B711EDF46A1F80F789FAD1CB3C303CF19FEBE8B755FC9C5826BDE857F81B7E8.
+Steam, SteamVR/OpenXR 2.17.10, Oculus-family, 90 Hz. User says current gestures
+are great; this is refinement, not a reported regression. Accepted d47a98c stays.
+
+Official kits are now under D:/SteamLibrary/steamapps/common (old N: paths in
+evidence docs are historical). H3/H3ODST/HREK tags need selective extraction;
+H4EK has tags. 7-Zip is C:/Program Files/7-Zip/7z.exe. Keep evidence/generated
+art in ignored out; do not package copyrighted kit/game files. Runtime asset
+reuse or mod-authored presentation requires an explicit documented design.
+
+Last full build passed; initial shake trajectory tests found an arming issue,
+fixed and focused tests passed. More cancellation/receipt checks were added
+afterward and still need rebuilding/testing. Nothing committed or packaged.
+Do not claim local tests as headset validation. Package WITHOUT -Install only
+after the all-title work, verify archive/source identities, deliver both ZIPs,
+then WAIT. No installation, game-folder writes, MCC launch, publication or PR.
+
+# Previous addition - September 16: weapon holsters AND manual reload
 
 The user explicitly adds WEAPON HOLSTERS alongside MANUAL RELOAD, each with an
 optional toggle in Weapon & Aim, with interaction design delegated to the agent.

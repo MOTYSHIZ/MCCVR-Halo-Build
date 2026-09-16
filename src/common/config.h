@@ -794,6 +794,14 @@ struct Config
     bool weapon_holsters = false;
     float weapon_pouch_down_m = 0.50f;
     float weapon_body_zone_radius_m = 0.20f;
+    float weapon_holster_radius_m = 0.20f;
+    float weapon_insert_radius_m = 0.18f;
+    float weapon_holster_draw_m = 0.25f;
+    bool weapon_holster_slide = true;
+    bool weapon_holster_click = false;
+    bool weapon_needler_shake = false;
+    bool weapon_unknown_reload_visual = true;
+    float weapon_shake_travel_m = 0.10f;
     int weapon_holster_location = 0; // 0 shoulder, 1 hip
     // X, RB, LB, B, Y, A, LT, RT. H3, ODST, Reach, H4, CE, H2.
     int weapon_reload_button[6]{0,0,0,0,0,0};
