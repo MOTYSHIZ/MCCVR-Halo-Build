@@ -113,12 +113,76 @@ inline bool Zones(const Sample& s,const Settings& c,Vec& pouch,Vec& holster) noe
     return true;
 }
 
+// One quick out-and-back translation of the weapon hand, in any direction.
+// Head-relative positions reject whole-body translation. No grip is owned.
+class SingleNeedleShake
+{
+public:
+    void Reset() noexcept { *this=SingleNeedleShake{}; }
+    bool Update(Vec relative,uint64_t now,float stroke) noexcept
+    {
+        const float travel=Setting(stroke,0.06f,0.20f,0.10f);
+        if(!Finite(relative)||!now) { Reset();return false; }
+        if(!last_||now<=last_||now-last_>100||travel_!=travel)
+        { Seed(relative,now,travel);return false; }
+        const uint64_t previousAt=last_;
+        const Vec previous=previous_;
+        const float dt=static_cast<float>(now-last_)*0.001f;
+        const Vec step=relative-previous_;
+        const float distance2=Dot(step,step);
+        // Drop discontinuities instead of interpreting tracking recovery as a
+        // stroke. Fast human shakes remain valid at 72, 90 and 120 Hz.
+        if(!std::isfinite(distance2)||distance2>0.25f*0.25f||distance2>64.0f*dt*dt)
+        { Seed(relative,now,travel);return false; }
+        previous_=relative;last_=now;
+        const bool quiet=distance2<=0.20f*0.20f*dt*dt;
+        if(latched_)
+        {
+            if(!quiet) quietAt_=0;
+            else if(!quietAt_) quietAt_=previousAt;
+            else if(now-quietAt_>=150) Seed(relative,now,travel);
+            return false;
+        }
+        if(!returning_)
+        {
+            if(quiet) { origin_=relative;started_=0;return false; }
+            if(!started_) { origin_=previous;started_=previousAt; }
+            const Vec outward=relative-origin_;
+            const float length2=Dot(outward,outward);
+            const uint64_t elapsed=now-started_;
+            if(elapsed>300) { Seed(relative,now,travel);return false; }
+            if(length2>=travel*travel)
+            {
+                const float length=std::sqrt(length2);
+                if(elapsed<20||length<0.50f*elapsed*0.001f)
+                { Seed(relative,now,travel);return false; }
+                axis_=outward*(1.0f/length);peak_=relative;peakAt_=now;returning_=true;
+            }
+            return false;
+        }
+        const float reverse=Dot(peak_-relative,axis_);
+        if(reverse<0) { peak_=relative;peakAt_=now;return false; }
+        const uint64_t elapsed=now-peakAt_;
+        if(elapsed>300) { Seed(relative,now,travel);return false; }
+        if(reverse>=travel&&elapsed>=20&&reverse>=0.50f*elapsed*0.001f)
+        { latched_=true;quietAt_=0;return true; }
+        return false;
+    }
+private:
+    void Seed(Vec p,uint64_t now,float travel) noexcept
+    { Reset();previous_=origin_=p;last_=now;travel_=travel; }
+    Vec previous_{},origin_{},axis_{},peak_{};
+    uint64_t last_{},started_{},peakAt_{},quietAt_{};
+    float travel_{};
+    bool returning_{},latched_{};
+};
+
 class State
 {
 public:
     void Reset() noexcept { *this=State{}; }
     void Cancel() noexcept
-    { phase_=0;pulseUntil_=0;pulse_=0;armedP_=armedS_=false;available_=false;last_=0; }
+    { phase_=0;pulseUntil_=0;pulse_=0;armedP_=armedS_=false;available_=false;last_=0;singleShake_.Reset(); }
     bool HasClaimedGrip() const noexcept { return ownedP_||ownedS_; }
     Output Update(const Sample& s,const Settings& c) noexcept
     {
@@ -146,6 +210,7 @@ public:
             // A held grip on re-entry is not a new gesture. Keep ownership of
             // an already claimed press until release, including cancellation.
             phase_=0; pulseUntil_=0; pulse_=0;
+            singleShake_.Reset();
             armedP_=armedS_=false;
             if(left_!=c.leftHanded) std::swap(ownedP_,ownedS_);
         }
@@ -164,6 +229,7 @@ public:
         if(releasedS) ownedS_=false;
         if(!ready||!poses||identity||gap||resumed) return out;
 
+        const bool occupied=phase_!=0||ownedP_||ownedS_;
         if(s.otherAction || (phase_&&s.now-started_>4000)) phase_=0;
         if(phase_==1)
         {
@@ -270,6 +336,18 @@ public:
                 out.consumePrimary=true;out.releaseTwoHand=true;out.primaryHaptic=0.20f;
             }
         }
+        // Pouch/holster transactions retain priority. Shake observes only the
+        // weapon hand; it never consumes either grip or changes two-hand aim.
+        if(c.reload&&c.needleShake&&c.reloadButton&&NeedleWeapon(s.title,s.weaponGraph)&&
+           !s.otherAction&&!occupied&&!phase_&&!out.pickedMagazine&&!out.grabbedHolster)
+        {
+            if(singleShake_.Update(s.primary-s.head,s.now,c.shakeTravel)&&s.now>=cooldown_)
+            {
+                pulse_=c.reloadButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
+                out.reloadRequested=true;out.primaryHaptic=0.45f;
+            }
+        }
+        else singleShake_.Reset();
         if(heldP) armedP_=false;
         if(heldS) armedS_=false;
         if(s.now<pulseUntil_&&!s.otherAction) { out.buttons=pulse_;out.pulseUntil=pulseUntil_; }
@@ -278,6 +356,7 @@ public:
         return out;
     }
 private:
+    SingleNeedleShake singleShake_{};
     GameTitle title_{GameTitle::None}; uint32_t generation_{};
     uint64_t space_{},last_{},started_{},cooldown_{},pulseUntil_{};
     uint32_t pulse_{},reloadButton_{},swapButton_{};

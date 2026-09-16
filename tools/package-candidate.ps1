@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'game-menu-pointer',
+        'needler-single-shake',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1144,7 +1144,7 @@ try {
             holsters = 'primary-side-shoulder-or-hip-grip; configurable-slide-or-click; independent-radii; native-carried-weapon-exchange'
             magazine_visuals = '42-isolated-authored-reload-parts; shared-stereo-compositor; hip-and-support-hand; same-CE-H2-accessory-in-both-graphics-modes'
             custom_weapons = 'live-held-model-observation-in-all-six-titles; optional-generic-blue-reload-item-for-unfamiliar-valid-models; no-custom-ammo-or-mesh-guessing'
-            needle_shake = 'optional-default-off; each-title-Needler-plus-Reach-Needle-Rifle; four-bounded-alternating-strokes; fresh-grip-required'
+            needle_shake = 'optional-default-off; each-title-Needler-plus-Reach-Needle-Rifle; one-rapid-out-and-back-any-direction; no-grip; settle-to-rearm'
             input_mapping = 'user-selected-MCC-reload-and-switch-buttons-saved-per-title; initial-X-and-Y'
             admission = 'focused-tracked-on-foot-single-weapon; same-title-generation-space-options-and-bindings'
             limits = 'simple-grey-shading-no-native-textures-or-world-occlusion; native-gun-animation-magazine-retained; native-auto-reload-ammo-inventory-retained; no-holstered-gun-model-extra-inventory-or-empty-hand-state'
@@ -1273,11 +1273,11 @@ try {
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds optional manual reload and weapon holsters across all six titles and preserves 918e2f2 CE Anniversary beam glare and Halo 3 Cortana facing corrections above 35a4d09. All four items require headset testing. Earlier CE vehicle/refinement work and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Corrects 59f2a82 native menu pointer rejection in the preloaded six-module shell; adds a visible VR cursor ring and mouse-delivery diagnostics. Point at game menus stays default off. Magazine audit found no disabled-reload draw path; all-title holsters-only and disabled held/generic-item tests pass. Earlier reload/accessory, CE vehicle/beam and H3 Cortana behavior preserved. Keep existing config. Both editions; package only; headset testing pending. Read RELEASE-NOTES.md and RELOAD-ACCESSORIES-NOTES.md.'
+        note = 'Only Needler shake reload changes above user-tested 205ff20: one rapid gun-hand out-and-back in any direction, no grip; settle to rearm. Existing cursor, accessories, holsters, camera, input, edition support and config values preserved. Native ammo/reload rules remain. Both editions; package only; headset testing pending. Read RELEASE-NOTES.md and docs/NEEDLER-SINGLE-SHAKE-2026-09-16.md in matching source.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/GAME-MENU-POINTER-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/NEEDLER-SINGLE-SHAKE-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
     Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/RELOAD-ACCESSORIES-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELOAD-ACCESSORIES-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'

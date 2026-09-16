@@ -1,3 +1,28 @@
+# CURRENT: single-shake Needler reload correction above 205ff20
+
+The user headset-confirms the cursor and surrounding behavior work, but reports
+Needler shake had no effect. Scope is ONLY this reload correction, then a build
+ZIP and matching source ZIP. Preserve all other behavior and historical scope.
+The supplied Steam / SteamVR OpenXR 2.17.10 / Oculus-family 90 Hz log confirms
+Manual Reload and needleShake enabled, a recognized CE Needler, and no shake
+reload request. The old grip/four-stroke path was disabled separately in ebfc2e3.
+
+One rapid gun-hand out-and-back in any direction now requests native reload,
+without grip. Existing stroke slider, recognized identities across all six
+engines, input bindings, readiness/freshness guards and native ammo rules remain.
+No grip consumption or two-hand aim changes. Pouch/holster transactions take
+priority. Let the hand settle before another shake. No other feature changes.
+Read NEEDLER-SINGLE-SHAKE-2026-09-16.md for evidence and validation limits.
+
+Finalize commit/package WITHOUT -Install, verify both ZIPs, deliver and WAIT.
+Exact artifact state: out/needler-single-shake-current-handoff.json. Status
+VERIFIED_BUILD_AND_MATCHING_SOURCE_AWAITING_HEADSET_TEST means ready to deliver,
+not headset acceptance. Needler, Halo 3 regression and both-edition headset
+results remain pending. CURRENT-STATE.md and cumulative accepted d47a98c stay
+unchanged. No install, game launch, game-folder writes, publication or PR.
+
+# Historical checkpoint follows
+
 # CURRENT: repair native-menu pointer; magazine visibility audit
 
 User confirms 59f2a82 is otherwise tolerable and asks to package it first, then

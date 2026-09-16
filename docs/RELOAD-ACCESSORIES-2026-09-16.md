@@ -1,5 +1,8 @@
 # All-title reload accessory and holster refinement
 
+The shake description below records the original candidate. It is superseded
+by NEEDLER-SINGLE-SHAKE-2026-09-16.md: one rapid out-and-back, no grip.
+
 ## Recovered request and scope
 
 The preceding conversation was read directly from the local September 16

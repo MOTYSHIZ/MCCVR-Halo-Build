@@ -1070,8 +1070,8 @@ namespace
                 changed |= vr_menu::SliderFloat("Minimum shake stroke (m)",
                     &g_config.weapon_shake_travel_m,0.06f,0.20f,"%.2f");
                 ImGui::TextDisabled("Recognized Needlers in all titles, plus Reach's Needle Rifle.\n"
-                    "Away from the holster, hold weapon grip and shake up/down twice.\n"
-                    "Finish within 1.8 seconds, then release grip before repeating.\n"
+                    "Quickly shake the gun hand back and forth once in any direction.\n"
+                    "No grip needed. Let your hand settle before another shake.\n"
                     "Unrecognized weapon models keep regular controls.");
             }
         }

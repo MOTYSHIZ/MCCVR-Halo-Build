@@ -80,11 +80,11 @@ int main(int argc,char** argv)
             State state;Settings c{};c.reload=c.needleShake=true;c.leftHanded=left;
             Sample s{};s.title=model.title;s.weaponGraph=model.identity;s.generation=1;s.space=1;s.now=1000;s.ready=true;
             s.head={0,1.6f,0};s.primary={.2f,1.2f,-.5f};s.support={-.2f,1.2f,-.5f};
-            state.Update(s,c);s.now+=dt;s.primaryGrip=1;
-            Check(state.Update(s,c).consumePrimary,"each title's own needle identity admits deliberate shake");
+            state.Update(s,c);s.now+=dt;
+            Check(!state.Update(s,c).consumePrimary,"needle detection never requires or consumes grip");
             unsigned requests=0;
             for(int i=1;i<=120;++i) {s.now+=dt;s.primary.y=1.2f+.08f*std::sin(i*dt*.02f);requests+=state.Update(s,c).reloadRequested;}
-            Check(requests==1,"all needle models/hands/sample rates reload once per press");
+            Check(requests==1,"all needle models/hands/sample rates reload once per uninterrupted shake without grip");
         }
     }
     for(unsigned t=1;t<=6;++t)

@@ -24,9 +24,9 @@ Halo still controls ammo, reload animations and automatic reloading.
 - Holsters offer **slide / draw** and **click** checkboxes. Click switches once
   when you press weapon grip inside the shoulder/hip zone. With both enabled,
   click takes precedence. Release grip before switching again.
-- **Shake to reload needle weapons** is optional and off by default. Hold
-  weapon grip away from the holster and shake up/down twice within 1.8 seconds.
-  Release grip before repeating. Minimum stroke is adjustable.
+- **Shake to reload needle weapons** is optional and off by default. Quickly
+  shake the gun hand out and back once in any direction, without grip. Let
+  the hand settle before repeating. Minimum stroke is adjustable.
 - Unfamiliar modded held weapons can automatically use a **blue generic reload
   item**. Disable **Generic reload item for unknown weapons** to hide it while
   keeping the reload gesture. It is a fallback, not the mod's own magazine.

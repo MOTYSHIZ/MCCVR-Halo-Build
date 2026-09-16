@@ -82,61 +82,101 @@ int main()
         longDraw.s.primary=longDraw.holster+Vec{0,0,-0.40f};
         Check(!longDraw.Step(160).swapRequested,"long draw threshold prevents premature switching");
     }
-    for(bool left:{false,true})for(unsigned step:{8u,11u,14u})
-    {
-        Rig r(GameTitle::HaloCE,left);r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();
-        r.s.primaryGrip=1;Check(r.Step().consumePrimary,"Needler shake owns deliberate weapon grip");
-        const float base=r.s.primary.y;
-        unsigned requests=0;
-        for(int n=1;n<=100;++n)
-        {
-            r.s.primary.y=base+0.08f*std::sin(n*step*0.020f);
-            requests+=r.Step(step).reloadRequested?1:0;
+    // A single out-and-back is sufficient with either grip state, on any axis.
+    auto leg=[](Rig& r,Vec offset,unsigned dt=11u) {
+        const Vec start=r.s.primary;unsigned requests=0;
+        for(int n=1;n<=12;++n) {
+            r.s.primary=start+offset*(n/12.0f);const auto o=r.Step(dt);
+            requests+=o.reloadRequested;
+            Check(!o.consumePrimary&&!o.consumeSupport&&!o.releaseTwoHand,
+                "shake never owns grips or changes support aim");
+            if(o.reloadRequested)Check(o.buttons==r.c.reloadButton&&o.pulseUntil==r.s.now+120,
+                "single shake uses configured native reload pulse");
         }
-        Check(requests==1,"Needler alternating strokes request exactly one reload at multiple sample rates");
-        for(int n=0;n<30;++n)Check(!r.Step().reloadRequested,"held shake cannot repeat");
-    }
-    for(int reason=0;reason<9;++reason)
+        return requests;
+    };
+    auto needle=[](Rig& r) {
+        r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();r.Step();
+    };
+    for(bool left:{false,true})for(unsigned dt:{8u,11u,14u})for(float grip:{0.0f,1.0f})
+        for(Vec axis:{Vec{1,0,0},Vec{0,1,0},Vec{0,0,1},Vec{-.57735f,.57735f,-.57735f}})
     {
-        Rig r(GameTitle::HaloCE);r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();
-        r.s.primaryGrip=1;r.Step();
-        switch(reason)
-        {
+        Rig r(GameTitle::HaloCE,left);r.s.primaryGrip=grip;needle(r);
+        Check(leg(r,axis*.14f,dt)==0,"one-way movement alone cannot reload");
+        Check(leg(r,axis*-.14f,dt)==1,"one rapid out-and-back reloads without grip in every direction");
+        for(int cycle=0;cycle<4;++cycle) {
+            Check(leg(r,axis*.14f,dt)==0&&leg(r,axis*-.14f,dt)==0,
+                "continued shaking produces no repeated reloads before settling");
+        }
+        for(int i=0;i<30;++i)Check(!r.Step().reloadRequested,"settling never requests reload");
+        Check(leg(r,axis*.14f,dt)==0&&leg(r,axis*-.14f,dt)==1,
+            "next single shake rearms after settling without releasing grip");
+    }
+    for(int reason=0;reason<16;++reason)
+    {
+        Rig r(GameTitle::HaloCE);needle(r);leg(r,{0,.14f,0});
+        switch(reason) {
         case 0:r.c.needleShake=false;break;
         case 1:r.s.weaponGraph=0;break;
         case 2:r.s.title=GameTitle::Halo3;break;
         case 3:r.s.otherAction=true;break;
         case 4:r.s.ready=false;break;
-        case 5:r.s.primaryGrip=0;break;
+        case 5:r.s.dualWield=true;break;
         case 6:r.s.now+=250;break;
         case 7:++r.s.space;break;
-        case 8:for(int i=0;i<20;++i)r.Step(100);break;
+        case 8:++r.s.generation;break;
+        case 9:r.c.reload=false;break;
+        case 10:r.c.reloadButton=0;break;
+        case 11:r.c.leftHanded=true;break;
+        case 12:r.state.Cancel();break;
+        case 13:r.s.primary.x=std::numeric_limits<float>::quiet_NaN();break;
+        case 14:r.c.shakeTravel=.20f;break;
+        case 15:r.s.primaryGrip=std::numeric_limits<float>::infinity();break;
         }
-        for(int i=0;i<8;++i)
-        {
-            r.s.primary.y+=(i%2?-.15f:.15f);
-            Check(!r.Step(100).reloadRequested,"shake cancellation cannot become a delayed reload");
+        r.Step();
+        Check(leg(r,{0,-.14f,0})==0,"invalidation discards previous outward stroke");
+    }
+    for(int motion=0;motion<6;++motion)
+    {
+        Rig r(GameTitle::HaloCE);needle(r);
+        for(int i=0;i<100;++i) {
+            if(motion==0){r.s.primary.y+=.04f;r.s.head.y+=.04f;} // body translation
+            if(motion==1)r.s.primary.y+=.02f; // one-way sweep
+            if(motion==2)r.s.primary.y+=(i%2?.02f:-.02f); // jitter
+            if(motion==3)r.s.primary.y+=(i%2?.15f:-.15f); // tracking jumps
+            if(motion==4)r.s.support.y+=(i%2?.15f:-.15f); // wrong hand
+            if(motion==5)r.s.primary.y+=(i%40<20?.008f:-.008f); // slow out-and-back
+            Check(!r.Step(motion==3?8:100).reloadRequested,
+                "translation, sweep, jitter, tracking jumps, support hand and slow movement do not reload");
         }
     }
-    for(int motion=0;motion<4;++motion)
+    for(float travel:{.06f,.10f,.20f})for(float scale:{.8f,1.1f})
     {
-        Rig r(GameTitle::HaloCE);r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();
-        r.s.primaryGrip=1;r.Step();
-        for(int i=0;i<16;++i)
-        {
-            if(motion==0) {r.s.primary.y+=.04f;r.s.head.y+=.04f;} // walk/bob together
-            if(motion==1) r.s.primary.y+=.02f; // single sweep
-            if(motion==2) r.s.primary.y+=(i%2?.02f:-.02f); // jitter
-            if(motion==3) r.s.primary.y+=(i%2?.15f:-.15f); // implausibly fast
-            Check(!r.Step(motion==3?8:100).reloadRequested,"translation, single sweep, jitter and tracking jumps cannot shake-reload");
-        }
+        Rig r(GameTitle::HaloCE);r.c.shakeTravel=travel;needle(r);
+        leg(r,{0,travel*scale,0},8);
+        Check(leg(r,{0,-travel*scale,0},8)==(scale>1?1u:0u),"stroke slider changes required distance");
+    }
+    for(int binding=0;binding<8;++binding)
+    {
+        Rig r(GameTitle::HaloCE);r.c.reloadButton=Button(binding);needle(r);
+        leg(r,{.14f,0,0});Check(leg(r,{-.14f,0,0})==1,"shake supports every native reload binding");
     }
     for(int title=1;title<=6;++title)
     {
-        Rig r(static_cast<GameTitle>(title));r.c.needleShake=true;r.s.weaponGraph=123;r.Step();r.s.primaryGrip=1;
-        Check(!r.Step().consumePrimary,"unrecognized model cannot acquire shake grip");
+        Rig r(static_cast<GameTitle>(title));r.c.needleShake=true;r.s.weaponGraph=123;r.Step();
+        Check(leg(r,{0,.14f,0})==0&&leg(r,{0,-.14f,0})==0,"unknown model never shake-reloads");
         Check(NeedleWeapon(static_cast<GameTitle>(title),0x55EA2D6F6C10C375ull)==(title==5),
             "CE fingerprint cannot classify a different engine's weapon");
+    }
+    for(bool holster:{false,true})
+    {
+        Rig r(GameTitle::HaloCE);needle(r);
+        if(holster)r.GrabHolster();else r.GrabMagazine();
+        const Vec start=r.s.primary;
+        for(int i=1;i<=24;++i) {
+            r.s.primary=start+Vec{0,.14f*(i<=12?i:24-i)/12,0};
+            Check(!r.Step(11).reloadRequested,"pouch and holster transactions take priority over shake");
+        }
     }
     for(int title=1;title<=6;++title) for(bool left:{false,true}) for(int location:{0,1})
     {

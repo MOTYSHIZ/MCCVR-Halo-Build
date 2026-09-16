@@ -1794,7 +1794,7 @@ void ConfigSave()
     fprintf(f, "weapon_holster_slide = %d\nweapon_holster_click = %d\n",
         g_config.weapon_holster_slide?1:0,g_config.weapon_holster_click?1:0);
     fprintf(f, "# Recognized Needlers across all titles and Reach Needle Rifle; requires manual_reload.\n");
-    fprintf(f, "# Hold weapon grip away from holster; shake vertically four strokes; release to rearm.\n");
+    fprintf(f, "# One rapid gun-hand out-and-back shake in any direction; no grip; settle to rearm.\n");
     fprintf(f, "weapon_needler_shake = %d\nweapon_shake_travel_m = %.3f\n",
         g_config.weapon_needler_shake?1:0,g_config.weapon_shake_travel_m);
     fprintf(f, "# Match each title's MCC Reload and Switch Weapon controller buttons.\n");
