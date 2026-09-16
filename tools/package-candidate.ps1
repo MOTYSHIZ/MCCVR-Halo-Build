@@ -1289,7 +1289,9 @@ try {
     $buildZip = Join-Path $candidateRoot ("HaloMCCVR-$packageId-Build.zip")
     $sourceZip = Join-Path $candidateRoot ("HaloMCCVR-$packageId-Source.zip")
     Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $buildZip
-    Invoke-Tool { & git -C $repoRoot archive --format=zip --prefix=Halo-MCC-VR/ `
+    # Archive committed bytes, independent of this machine's Windows checkout
+    # line-ending preference. This permits exact source/blob verification.
+    Invoke-Tool { & git -c core.autocrlf=false -C $repoRoot archive --format=zip --prefix=Halo-MCC-VR/ `
         "--output=$sourceZip" $commit }
     if ($LASTEXITCODE -ne 0) { throw 'Matching source archive failed.' }
     $hashLines = @("Source commit: $commit")
