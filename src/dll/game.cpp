@@ -60,6 +60,7 @@
 #include "../common/log.h"
 #include "../common/config.h"
 #include "../common/cutscene_theater_logic.h"
+#include "../common/halo3_cinematic_facing.h"
 #include "../common/halo3_theater_logic.h"
 #include "../common/halo3_vehicle_logic.h"
 #include "../common/hud_layout_logic.h"
@@ -1069,6 +1070,7 @@ namespace
     std::atomic<int32_t> g_cinematicRebaseScene{-1};
     std::atomic<int32_t> g_cinematicRebaseShot{-1};
     std::atomic<uint32_t> g_cinematicRebaseSerial{0};
+    std::atomic<uint64_t> g_halo3ShotlessFacingSamples{0};
     unsigned char** g_animationTagData = nullptr;
     // Halo real_matrix4x3: uniform scale, then forward/left/up basis vectors,
     // then translation. The first headset build incorrectly put scale last,
@@ -6760,9 +6762,7 @@ namespace
         // to the authored camera only on entry, an ID transition, or exit.
         // Pitch and roll remain entirely HMD-owned, avoiding an artificial
         // camera rotation during continuous cinematic motion.
-        static thread_local bool previousCinematic = false;
-        static thread_local int32_t previousScene = -1;
-        static thread_local int32_t previousShot = -1;
+        static thread_local Halo3CinematicFacing cinematicFacing;
         int32_t cinematicScene = -1;
         int32_t cinematicShot = -1;
         const CinematicControlState cinematicControl =
@@ -6779,14 +6779,10 @@ namespace
         }
         if (cinematic && VR_IsCutsceneTheaterActive())
             return false; // authored camera + stereo eye offsets only in theatre
-        const bool cinematicBoundary =
-            (cinematic && (!previousCinematic ||
-                cinematicScene != previousScene ||
-                cinematicShot != previousShot)) ||
-            (!cinematic && previousCinematic);
-        previousCinematic = cinematic;
-        previousScene = cinematic ? cinematicScene : -1;
-        previousShot = cinematic ? cinematicShot : -1;
+        if (cinematic && (cinematicScene < 0 || cinematicShot < 0))
+            g_halo3ShotlessFacingSamples.fetch_add(1, std::memory_order_relaxed);
+        const bool cinematicBoundary = cinematicFacing.Observe(
+            cinematicGeneration, cinematicControl, cinematicScene, cinematicShot);
 
         const bool manualRecenter = g_needRecenter.exchange(false);
         if (manualRecenter || cinematicBoundary)
@@ -43828,6 +43824,16 @@ void Game_AutoVrTick()
     UpdateCinematicFovPolicy();
     HudLayoutAutoTick(HudLayoutProfile::Halo3); // shared behavior, H3 tag adapter
     {
+        static uint64_t loggedShotless = 0, nextShotlessReport = 0;
+        const uint64_t now = GetTickCount64();
+        const uint64_t shotless = g_halo3ShotlessFacingSamples.load(std::memory_order_relaxed);
+        if (shotless != loggedShotless && now >= nextShotlessReport)
+        {
+            loggedShotless = shotless;
+            nextShotlessReport = now + 2000;
+            LOG("H3 cinematic facing: ignored %llu shotless effect samples; gameplay yaw retained",
+                static_cast<unsigned long long>(shotless));
+        }
         static uint32_t loggedSerial = 0;
         const uint32_t serial =
             g_cinematicRebaseSerial.load(std::memory_order_acquire);

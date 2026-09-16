@@ -27,6 +27,7 @@ int RunRoomscaleInputTests();
 #include "config.h"
 #include "coop_probe_logic.h"
 #include "cutscene_theater_logic.h"
+#include "halo3_cinematic_facing.h"
 #include "frame_pacing_logic.h"
 #include "halo3_theater_logic.h"
 #include "halo3_vehicle_logic.h"
@@ -4913,6 +4914,33 @@ int main()
               ClassifyHalo3FamilyCinematicControl(true, true, false) ==
                   CinematicControlState::Unknown,
             "Halo 3 and ODST require both their cinematic flag and shot-state proof");
+        Halo3CinematicFacing facing;
+        using Cine = CinematicControlState;
+        for (int pulse=0; pulse<100; ++pulse)
+        {
+            Check(!facing.Observe(3,Cine::AuthoredLocked,-1,-1) &&
+                  !facing.Observe(3,Cine::Unknown,-1,-1) &&
+                  !facing.Observe(3,Cine::PlayerControlled,-1,-1),
+                "Cortana flag pulses without a shot never rotate gameplay facing");
+        }
+        Check(!facing.Observe(3,Cine::AuthoredLocked,2,-1) &&
+              !facing.Observe(3,Cine::AuthoredLocked,-1,0) &&
+              facing.Observe(3,Cine::AuthoredLocked,2,0) &&
+              !facing.Observe(3,Cine::AuthoredLocked,2,0),
+            "a real shot, including shot zero, aligns once and requires both IDs");
+        Check(!facing.Observe(3,Cine::Unknown,-1,-1) &&
+              !facing.Observe(3,Cine::AuthoredLocked,-1,-1) &&
+              !facing.Observe(3,Cine::AuthoredLocked,2,0) &&
+              facing.Observe(3,Cine::AuthoredLocked,2,1) &&
+              facing.Observe(3,Cine::AuthoredLocked,3,0),
+            "unavailable reads preserve the shot; actual scene/shot cuts still align");
+        Check(facing.Observe(3,Cine::PlayerControlled,-1,-1) &&
+              !facing.Observe(3,Cine::PlayerControlled,-1,-1) &&
+              facing.Observe(3,Cine::AuthoredLocked,3,0) &&
+              !facing.Observe(4,Cine::PlayerControlled,-1,-1) &&
+              !facing.Observe(0,Cine::AuthoredLocked,3,0) &&
+              facing.Observe(4,Cine::AuthoredLocked,3,0),
+            "a proven shot exits once; reload and unowned generations cannot inherit an exit");
         const float odstLockedLook[4] = {};
         const float odstNoLookRate[4] = {};
         const float odstFreeLook[4] = {0.0f, -0.1f, 0.0f, 0.2f};
