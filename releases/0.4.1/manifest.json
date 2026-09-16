@@ -1,0 +1,13 @@
+{
+  "version": "0.4.1",
+  "tag": "MCC_VR_ALPHA_0.4.1",
+  "source_commit": "46c124b7208061bd33fe60a046e4f596686cf52d",
+  "release_baseline_accepted": true,
+  "runtime_rebuilt": false,
+  "dll_sha256": "B64FC8E6883149B1B86391D96456C77ADA8446A14A7C245AD9223DF74901A81C",
+  "archives": {
+    "Halo-MCC-VR.zip": "CF7F39F7CC0170CDF3A51F8AD74F339FD1F7C4941D55B39F46EF1401D1DEB853",
+    "Halo-MCC-VR-Source.zip": "98F395B13E13849BF1DF77CB38909F2BA1A4913C43279C115B45D3B3766831F8"
+  },
+  "coverage": "User-approved release baseline; experimental features and exhaustive title/edition coverage remain open."
+}

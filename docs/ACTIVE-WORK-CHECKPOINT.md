@@ -1,3 +1,29 @@
+# September 16: Alpha 0.4.1 release baseline accepted
+
+The user explicitly approves the latest delivered 46c124b candidate as a good
+baseline for a new latest GitHub release, with experimental manual reload,
+weapon holsters and menu pointer called out in the title and notes. This
+supersedes earlier publication holds for this candidate. Preserve the exact
+runtime and matching source ZIP; no runtime edits or rebuild for publication.
+
+Accepted release source: `46c124b7208061bd33fe60a046e4f596686cf52d`.
+DLL SHA-256: `B64FC8E6883149B1B86391D96456C77ADA8446A14A7C245AD9223DF74901A81C`.
+The supplied log identifies Steam, SteamVR/OpenXR 2.17.10, Oculus-family,
+90 Hz. It is preserved at out/test-runs/46c124b-release-accepted-20260916/user.log.
+Log SHA-256: `5D050EF8912CA7B3A3EA5C91F47A7410FFAF91794177F1FCFAB30F704E8D832C`.
+Acceptance is as the release baseline, not exhaustive confirmation of all
+features, titles, editions or custom mods. Retain earlier coverage limits.
+
+Release: https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.1
+Notes preserve and refine the user's live 0.4.0 description, including controller
+shortcuts and CE graphics-wrapper compatibility guidance. New tag targets the
+exact runtime source. Publication verification: out/published-0.4.1-handoff.json.
+After publication, deliver build/source links and wait for further instructions.
+No installation, game-folder writes, MCC launch or PR. Both editions supported.
+All earlier standing/deferred scope is preserved below.
+
+# Historical record follows
+
 # CURRENT: single-shake Needler reload correction above 205ff20
 
 The user headset-confirms the cursor and surrounding behavior work, but reports
