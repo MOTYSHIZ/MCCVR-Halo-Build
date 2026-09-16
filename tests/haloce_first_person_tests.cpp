@@ -382,6 +382,109 @@ int main(int argc,char** argv)
     // Mesh barrel trim never modifies the controller shot/reticle pose.
     CHECK(BuildControllerMatrix(camera,tracking,reference,rig.primaryAim,1,true,target));
     CHECK(Near(target.forward,{1,0,0}));
+    {
+        // Reproduce the actual mismatch with nonidentity authored gun/wrist
+        // bases, lateral/vertical grip offsets, native scales and mount trim.
+        // Identity wrist fixtures cannot detect an unrelated support animation
+        // being used as the anatomical primary grip.
+        auto sample=tracking;
+        auto& controls=sample.controllers;
+        controls.floatingHands=false;controls.armIk=false;
+        controls.twoHandAimActive=false;controls.handAlignment=false;
+        controls.gunScale=.65f;controls.supportScale=1.2f;
+        controls.visualPitchDeg=17;controls.visualYawDeg=-21;controls.visualRollDeg=9;
+        controls.gunForwardM=.07f;controls.gunRightM=.023f;controls.gunUpM=-.031f;
+        auto known=binding;
+        // The fixture uses the verified AR identity/count/root; names/parents
+        // for all twelve real graphs are independently checked by the primary
+        // HCEEK fixture generator, rather than guessed from these test nodes.
+        known.count=kCeHandAlignmentPlanes[0].graphCount;
+        known.nodeIdentity=kCeHandAlignmentPlanes[0].graphIdentity;
+        CHECK(FindHandAlignmentPlane(known)==&kCeHandAlignmentPlanes[0]);
+        auto wrong=known;wrong.count--;
+        CHECK(!FindHandAlignmentPlane(wrong));
+        wrong=known;wrong.gun++;
+        CHECK(!FindHandAlignmentPlane(wrong));
+        wrong=known;wrong.nodeIdentity^=1;
+        CHECK(!FindHandAlignmentPlane(wrong));
+        std::array<NodeMatrix,kFirstPersonMaxNodes> pose{};
+        for (size_t i=0;i<11;++i) pose[i]=authored[i];
+        const auto rotated=[](NodeMatrix matrix,float yaw,float pitch)
+        {
+            const Quat q=Multiply({0,0,std::sin(yaw/2),std::cos(yaw/2)},
+                {0,std::sin(pitch/2),0,std::cos(pitch/2)});
+            matrix.forward=Rotate(q,{1,0,0});matrix.left=Rotate(q,{0,1,0});matrix.up=Rotate(q,{0,0,1});
+            return matrix;
+        };
+        pose[7]=rotated(pose[7],.61f,-.23f);pose[7].scale=1.3f;
+        pose[6]=rotated(pose[6],-.43f,.32f);pose[6].scale=.8f;
+        pose[6].position=pose[7].position+TransformDirection(pose[7],{-.18f,.027f,-.041f})*pose[7].scale;
+        pose[5]=rotated(pose[5],1.1f,-.37f);pose[5].scale=1.1f;
+        pose[5].position=pose[7].position+TransformDirection(pose[7],{.16f,-.035f,-.022f})*pose[7].scale;
+        pose[8]=pose[5];pose[8].position=pose[5].position+TransformDirection(pose[5],{.043f,.006f,.013f})*pose[5].scale;
+        pose[9]=pose[6];pose[9].position=pose[6].position+TransformDirection(pose[6],{.043f,-.006f,.013f})*pose[6].scale;
+        pose[10]=pose[7];pose[10].position=pose[7].position+TransformDirection(pose[7],{.2f,.01f,-.015f})*pose[7].scale;
+        std::array<NodeMatrix,kFirstPersonMaxNodes> baseline{},aligned{},changed{};
+        CHECK(BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,baseline));
+        controls.handAlignment=true;
+        CHECK(BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,aligned));
+        for (int index:{0,7,10}) CHECK(!std::memcmp(&baseline[index],&aligned[index],sizeof(NodeMatrix)));
+        const auto expected=[&](const NodeMatrix& wrist,const NodeMatrix& rendered)
+        {
+            // Independent component expansion of G^-1*W, model-Y reflection,
+            // opposite-hand local-Y reflection, and actual rendered G.
+            auto localVector=[&](Vec3 value) { return InverseDirection(pose[7],value); };
+            const Vec3 local=localVector(wrist.position-pose[7].position)*(1/pose[7].scale);
+            NodeMatrix answer{};
+            answer.position=rendered.position+TransformDirection(rendered,
+                {local.x,-local.y-2*kCeHandAlignmentPlanes[0].offset,local.z})*rendered.scale;
+            const Vec3 f=localVector(wrist.forward),l=localVector(wrist.left),u=localVector(wrist.up);
+            answer.forward=TransformDirection(rendered,{f.x,-f.y,f.z});
+            answer.left=TransformDirection(rendered,{-l.x,l.y,-l.z});
+            answer.up=TransformDirection(rendered,{u.x,-u.y,u.z});
+            answer.scale=wrist.scale*rendered.scale/pose[7].scale;
+            return answer;
+        };
+        const auto same=[](const NodeMatrix& a,const NodeMatrix& b)
+        { return Near(a.position,b.position)&&Near(a.forward,b.forward)&&Near(a.left,b.left)&&Near(a.up,b.up)&&std::fabs(a.scale-b.scale)<.000001f; };
+        CHECK(same(aligned[5],expected(pose[6],aligned[7])));
+        CHECK(Valid(aligned[5])&&Dot(Cross(aligned[5].forward,aligned[5].left),aligned[5].up)>.999f);
+        CHECK(Near(InverseDirection(aligned[5],aligned[8].position-aligned[5].position)*(1/aligned[5].scale),{.043f,.006f,.013f}));
+        pose[5]=rotated(pose[5],-.8f,.72f);
+        CHECK(BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,changed));
+        CHECK(same(aligned[5],changed[5]));
+        CHECK(!std::memcmp(&aligned[7],&changed[7],sizeof(NodeMatrix)));
+        controls.twoHandAimActive=true;
+        CHECK(BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,changed));
+        CHECK(same(changed[6],expected(pose[5],changed[7])));
+        CHECK(!std::memcmp(&aligned[7],&changed[7],sizeof(NodeMatrix)));
+        controls.twoHandAimActive=false;controls.leftHanded=false;controls.handAlignment=false;
+        CHECK(BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,baseline));
+        controls.handAlignment=true;
+        CHECK(BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,changed));
+        CHECK(!std::memcmp(&baseline,&changed,sizeof(baseline)));
+        // General weapon plane reflection is an involution; all stock planes
+        // retain proper rotations and positive native scale, including the
+        // non-axis-aligned Needler/Oddball/plasma-cannon roots.
+        for (const auto& plane:kCeHandAlignmentPlanes)
+        {
+            NodeMatrix mirrored{},restored{};
+            CHECK(BuildMirroredGripTarget(plane,pose[7],pose[6],pose[7],mirrored));
+            CHECK(Valid(mirrored)&&mirrored.scale>0);
+            CHECK(BuildMirroredGripTarget(plane,pose[7],mirrored,pose[7],restored));
+            CHECK(same(restored,pose[6]));
+        }
+        auto invalidPlane=kCeHandAlignmentPlanes[0];invalidPlane.normal={0,0,0};
+        NodeMatrix output=aligned[5];const auto untouched=output;
+        CHECK(!BuildMirroredGripTarget(invalidPlane,pose[7],pose[6],aligned[7],output));
+        auto badGun=pose[7];badGun.scale=std::numeric_limits<float>::quiet_NaN();
+        CHECK(!BuildMirroredGripTarget(kCeHandAlignmentPlanes[0],badGun,pose[6],aligned[7],output));
+        CHECK(!std::memcmp(&output,&untouched,sizeof(output)));
+        controls.leftHanded=true;pose[6].scale=std::numeric_limits<float>::infinity();
+        const auto previous=changed;
+        CHECK(!BuildTrackedFirstPersonPalette(known,pose.data(),camera,sample,reference,.33f,true,changed));
+        CHECK(!std::memcmp(&previous,&changed,sizeof(previous)));
+    }
     const auto staged=palette;
     rig.controlsPresentationBlocked=true;
     CHECK(!BuildTrackedFirstPersonPalette(binding,authored,camera,tracking,reference,1,true,palette));

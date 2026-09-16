@@ -237,6 +237,7 @@ static void Clamp()
 {
     g_config.config_version = 5;
     g_config.haptic_intensity = std::clamp(g_config.haptic_intensity, 0.0f, 1.0f);
+    g_config.dpad_head_radius = std::clamp(g_config.dpad_head_radius, 0.10f, 0.50f);
     g_config.headset_smoothing = std::clamp(g_config.headset_smoothing, 0.0f, 0.10f);
     g_config.aim_stabilization = std::clamp(g_config.aim_stabilization, 0.0f, 0.95f);
     g_config.screen_width_m = std::clamp(g_config.screen_width_m, 0.5f, 20.0f);
@@ -614,6 +615,16 @@ void ConfigLoad(const wchar_t* path)
         if (ParseTitleProfileKey(key, val))
             continue;
         // Keep new keys outside the already-at-limit legacy else-if chain.
+        if (!strcmp(key, "dpad_head_radius"))
+        {
+            ParseFloatSetting(key, val, g_config.dpad_head_radius);
+            continue;
+        }
+        if (!strcmp(key, "quest_thumbrest_dpad"))
+        {
+            g_config.quest_thumbrest_dpad = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -1232,6 +1243,15 @@ void ConfigSave()
     fprintf(f, "# left centre button (Back/View) - ODST's map/objectives screen.\n");
     fprintf(f, "# (default %d)\n", d.dpad_hand);
     fprintf(f, "dpad_hand = %d\n\n", g_config.dpad_hand);
+    fprintf(f, "# Head-gesture activation radius in metres. A smaller radius requires\n");
+    fprintf(f, "# the selected controller to be closer to your head.\n");
+    fprintf(f, "# (default %.2f, range 0.10 to 0.50)\n", d.dpad_head_radius);
+    fprintf(f, "dpad_head_radius = %.3f\n\n", g_config.dpad_head_radius);
+    fprintf(f, "# Quest 3 alternate D-pad: touch the left controller's thumb rest,\n");
+    fprintf(f, "# then move the right stick. Always uses the physical left thumb rest\n");
+    fprintf(f, "# and physical right stick, including in left-handed mode.\n");
+    fprintf(f, "# (default %d)\n", d.quest_thumbrest_dpad ? 1 : 0);
+    fprintf(f, "quest_thumbrest_dpad = %d\n\n", g_config.quest_thumbrest_dpad ? 1 : 0);
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  RETICLE & AIMING\n");
     fprintf(f, "#  Portable aiming preferences; title adapters supply engine offsets.\n");

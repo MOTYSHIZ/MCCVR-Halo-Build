@@ -1,0 +1,378 @@
+{
+  "rigs": [
+    {
+      "title": "h3",
+      "rig": "objects\\characters\\masterchief\\fp\\fp",
+      "checksum": 504041493,
+      "nodes": 37,
+      "tag_sha256": "E2E9C78DB5797AC4C25019A6566F5FF763F2C7CB7CF562E603B3DA535B4E08AC",
+      "xml_sha256": "B85A4960C113E0A1B69287DBEF38ED559342AE98F7277E0A46D50E6E38A54F99",
+      "right_node": 6,
+      "left_node": 5,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "5",
+        "translation": "0.0227497,-0.0085608,0.000395799",
+        "rotation": "0.0160779,0.0736134,0.0850798,-0.993521",
+        "scale": "0"
+      },
+      "right": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "6",
+        "translation": "0.0227475,0.0115156,0.000395675",
+        "rotation": "0.00894828,0.0748107,-0.0105367,-0.997102",
+        "scale": "0"
+      },
+      "right_is_derived": false,
+      "bilateral_landmarks": [],
+      "max_compiled_error": 2.4705185425188958e-08
+    },
+    {
+      "title": "h3",
+      "rig": "objects\\characters\\elite\\fp_arms\\fp_arms",
+      "checksum": 269159697,
+      "nodes": 31,
+      "tag_sha256": "DAF58D0B8674111F50D4A87E2BF324D451BB3A69A5EAFBCD4ED7262A346E201B",
+      "xml_sha256": "CE2AB65B3C0FD12EC8530917AC96F91DCA6B25FE3B9542F65BB1ACA4A6AE935C",
+      "right_node": 6,
+      "left_node": 5,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "5",
+        "translation": "0.0330884,-0.00931482,0.000442446",
+        "rotation": "-0.00185394,0.00150134,-0.0018332,-0.999995",
+        "scale": "0"
+      },
+      "right": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "6",
+        "translation": "0.0330884,0.0030534,0.000442446",
+        "rotation": "-0.00185394,0.00150134,-0.0018332,-0.999995",
+        "scale": "0"
+      },
+      "right_is_derived": false,
+      "bilateral_landmarks": [],
+      "max_compiled_error": 2.3298719176167992e-08
+    },
+    {
+      "title": "h3",
+      "rig": "objects\\characters\\dervish\\fp\\fp",
+      "checksum": 268439051,
+      "nodes": 31,
+      "tag_sha256": "7A3A464D1BE17F3643A060A194438DE8D7EE4730E4357BECD3493970B0B1C217",
+      "xml_sha256": "CF0D7B4552D8CFA7D15FBF51FFF833A275A0EC6CDB88008D923746B27F69BB38",
+      "right_node": 6,
+      "left_node": 5,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "5",
+        "translation": "0.0330884,-0.00931482,0.000442446",
+        "rotation": "-0.00185394,0.00150134,-0.0018332,-0.999995",
+        "scale": "0"
+      },
+      "right": {
+        "translation": "0.0330884,0.00931482,0.000442446",
+        "rotation": "0.00185394,0.00150134,0.0018332,-0.999995"
+      },
+      "right_is_derived": true,
+      "bilateral_landmarks": [
+        {
+          "left": "l_index_low",
+          "right": "r_index_low",
+          "left_position": [
+            0.0449991,
+            0.01083,
+            0.00862118
+          ],
+          "right_position": [
+            0.0449991,
+            -0.01083,
+            0.00862118
+          ],
+          "residual": 0.0
+        },
+        {
+          "left": "l_pinky_low",
+          "right": "r_pinky_low",
+          "left_position": [
+            0.0135463,
+            -0.000770003,
+            -0.00855875
+          ],
+          "right_position": [
+            0.0135463,
+            0.00077036,
+            -0.00855875
+          ],
+          "residual": 3.569999999999832e-07
+        },
+        {
+          "left": "l_ring_low",
+          "right": "r_ring_low",
+          "left_position": [
+            0.0450161,
+            0.01083,
+            -0.00826029
+          ],
+          "right_position": [
+            0.0450161,
+            -0.0108324,
+            -0.00826029
+          ],
+          "residual": 2.4000000000013594e-06
+        },
+        {
+          "left": "l_thumb_low",
+          "right": "r_thumb_low",
+          "left_position": [
+            0.0136612,
+            -0.000589997,
+            0.00917756
+          ],
+          "right_position": [
+            0.0136612,
+            0.000590064,
+            0.00918
+          ],
+          "residual": 2.440000000001122e-06
+        }
+      ],
+      "max_compiled_error": 2.3298719176167992e-08
+    },
+    {
+      "title": "odst",
+      "rig": "objects\\characters\\odst_recon\\fp\\fp",
+      "checksum": 286525724,
+      "nodes": 37,
+      "tag_sha256": "BB9953D89D24E947E98F2DEC77A5DF216630967862837AB0593AD4DFCD43A8C0",
+      "xml_sha256": "C7C6B3BCA2A440843ED850B1FB1E5FD4548E5720ADC03A54733B9607598C9E53",
+      "right_node": 6,
+      "left_node": 5,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "5",
+        "translation": "0.0227497,-0.0085608,0.000395799",
+        "rotation": "0.0160779,0.0736134,0.08508,-0.993521",
+        "scale": "0"
+      },
+      "right": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "6",
+        "translation": "0.0227475,0.0115156,0.000395675",
+        "rotation": "0.00894813,0.0748107,-0.0105366,-0.997102",
+        "scale": "0"
+      },
+      "right_is_derived": false,
+      "bilateral_landmarks": [],
+      "max_compiled_error": 3.596958020324337e-08
+    },
+    {
+      "title": "odst",
+      "rig": "objects\\characters\\odst_oni_op\\fp\\fp",
+      "checksum": 403178001,
+      "nodes": 37,
+      "tag_sha256": "F8EBF72056B7E289B8C8E4802C54E13F253D45D51016A561C1B56145E7984DB2",
+      "xml_sha256": "6126A5E692B8C309C8A2071CC50F5AF8B4CA153B2835C534B313674960312FE6",
+      "right_node": 6,
+      "left_node": 5,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "5",
+        "translation": "0.0227497,-0.0085608,0.000395799",
+        "rotation": "0.0160779,0.0736134,0.08508,-0.993521",
+        "scale": "0"
+      },
+      "right": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "6",
+        "translation": "0.0227475,0.0115156,0.000395675",
+        "rotation": "0.00894813,0.0748107,-0.0105366,-0.997102",
+        "scale": "0"
+      },
+      "right_is_derived": false,
+      "bilateral_landmarks": [],
+      "max_compiled_error": 3.596958020324337e-08
+    },
+    {
+      "title": "reach",
+      "rig": "objects\\characters\\spartans\\fp\\fp",
+      "checksum": 404622103,
+      "nodes": 47,
+      "tag_sha256": "FBC63B8C93569EBDBB8002FCAA1916AF6E525659EE43F360CB05CE9D7F2D3D4F",
+      "xml_sha256": "380FAC1B9136FBA38A41D4D82A90869344D38F887C1FD3BFC1F3BDFEFE03EE40",
+      "right_node": 11,
+      "left_node": 14,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "14",
+        "flags": "has node relative direction",
+        "translation": "0,0,0",
+        "rotation": "4.23516e-22,0,-6.66738e-29,1",
+        "scale": "0.01",
+        "direction": "1,0,0"
+      },
+      "right": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "11",
+        "flags": "has node relative direction",
+        "translation": "0.0227475,0.0115156,0.000395678",
+        "rotation": "-0.00894813,-0.0748107,0.0105367,0.997102",
+        "scale": "0.01",
+        "direction": "1,0,0"
+      },
+      "right_is_derived": false,
+      "bilateral_landmarks": [],
+      "max_compiled_error": 2.6243095224698365e-08
+    },
+    {
+      "title": "reach",
+      "rig": "objects\\characters\\elite\\fp\\fp",
+      "checksum": 419566353,
+      "nodes": 41,
+      "tag_sha256": "A98AF9323023FFEB516DFA25525B4F5BAC216B021F1C8D5DD8A78797781BF2FD",
+      "xml_sha256": "EA0CEAA07C486395E25B707CFBCEE53437DB940DFD938B3E253A6A1870459EE1",
+      "right_node": 14,
+      "left_node": 13,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "13",
+        "flags": "has node relative direction",
+        "translation": "0.0330885,-0.00931554,0.000442443",
+        "rotation": "0.00185393,-0.00150127,0.00183321,0.999995",
+        "scale": "0.01",
+        "direction": "1,0,0"
+      },
+      "right": {
+        "translation": "0.0330885,0.00931554,0.000442443",
+        "rotation": "-0.00185393,-0.00150127,-0.00183321,0.999995"
+      },
+      "right_is_derived": true,
+      "bilateral_landmarks": [
+        {
+          "left": "l_ring_low",
+          "right": "r_ring_low",
+          "left_position": [
+            0.0450161,
+            0.01083,
+            -0.00826029
+          ],
+          "right_position": [
+            0.0450161,
+            -0.0108324,
+            -0.00826029
+          ],
+          "residual": 2.4000000000013594e-06
+        },
+        {
+          "left": "l_thumb_low",
+          "right": "r_thumb_low",
+          "left_position": [
+            0.0136612,
+            -0.00059,
+            0.00917756
+          ],
+          "right_position": [
+            0.0136612,
+            0.000590067,
+            0.00918
+          ],
+          "residual": 2.440000000001122e-06
+        },
+        {
+          "left": "l_index_low",
+          "right": "r_index_low",
+          "left_position": [
+            0.0449991,
+            0.01083,
+            0.00862118
+          ],
+          "right_position": [
+            0.0449991,
+            -0.01083,
+            0.00862118
+          ],
+          "residual": 0.0
+        },
+        {
+          "left": "l_pinky_low",
+          "right": "r_pinky_low",
+          "left_position": [
+            0.0135463,
+            -0.000770006,
+            -0.00855875
+          ],
+          "right_position": [
+            0.0135463,
+            0.000770359,
+            -0.00855875
+          ],
+          "residual": 3.529999999999202e-07
+        },
+        {
+          "left": "l_handguard",
+          "right": "r_handguard",
+          "left_position": [
+            0.0257186,
+            0.00618857,
+            0.0
+          ],
+          "right_position": [
+            0.0257186,
+            -0.00618926,
+            -5.68434e-16
+          ],
+          "residual": 6.90000000000239e-07
+        }
+      ],
+      "max_compiled_error": 2.2951683997796124e-08
+    },
+    {
+      "title": "h4",
+      "rig": "objects\\characters\\storm_fp\\storm_fp",
+      "checksum": 353173504,
+      "nodes": 80,
+      "tag_sha256": "23563E392AB38EBCF6445446DA644C36C1AF323FE9863DE6F0B548BE64F930C0",
+      "xml_sha256": "047501A9C6811097FC8E6ABBB591EC5BC4610EE441976CAAFED9EEFF6F13591F",
+      "right_node": 29,
+      "left_node": 37,
+      "left": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "54",
+        "flags": "1",
+        "translation": "0,0,0",
+        "rotation": "-0.706223,0.70114,-0.0353406,0.0916652",
+        "scale": "0.1",
+        "direction": "1,0,0"
+      },
+      "right": {
+        "region index": "-1",
+        "permutation index": "-1",
+        "node index": "29",
+        "flags": "1",
+        "translation": "-0.0142352,0.0211017,0.00151397",
+        "rotation": "0.0610816,-0.0990494,0.751709,0.649147",
+        "scale": "0.1",
+        "direction": "1,0,0"
+      },
+      "right_is_derived": false,
+      "bilateral_landmarks": [],
+      "max_compiled_error": 3.4721606345655687e-07
+    }
+  ],
+  "adapter_sha256": "80D9AB712F72707CADE04DAEDA1C3F5745DF8740D19AA14DFD7B49FBD12FD859",
+  "result": "PASS",
+  "limit": "Official asset and compiled math checks, not headset acceptance."
+}

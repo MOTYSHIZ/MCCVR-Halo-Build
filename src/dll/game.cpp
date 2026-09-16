@@ -23994,7 +23994,7 @@ namespace
     std::atomic<uint64_t> g_reachAnatomicalApplications{0};
     std::atomic<uint64_t> g_reachAnatomicalRefusals{0};
 
-    bool ReachRouteLeftHandedPalette(const FpInterpolationContext& fp,
+    bool ReachRouteLeftHandedPalette(uint16_t tag, const int32_t* boneMap, const FpInterpolationContext& fp,
         const BoneMatrix& root, const FpExplicitPoseTargets& rawTargets)
     {
         if (!rawTargets.rightWristValid || !rawTargets.leftWristValid ||
@@ -24002,6 +24002,16 @@ namespace
             fp.heldObjectStart <= 0 || fp.heldObjectStart > 64 ||
             (fp.heldObjectStart < 64 &&
              ((fp.wristDescendants | fp.lWristDescendants) >> fp.heldObjectStart)))
+            return false;
+        uint32_t checksum = 0;
+        int bodyCount = 0;
+        AnatomicalPalmMarkers palms{};
+        if (!ReachReadRenderModelIdentity(tag,checksum,bodyCount) ||
+            bodyCount != fp.heldObjectStart ||
+            !ReachAnatomicalPalmMarkers(checksum,bodyCount,palms)) return false;
+        int32_t remap[64]{};
+        if (!boneMap || !SafeReadBytes(boneMap,remap,size_t(bodyCount)*sizeof(*remap)) ||
+            remap[palms.rightNode] != fp.wrist || remap[palms.leftNode] != fp.lWrist)
             return false;
         const auto value = [](const BoneMatrix& input) {
             Halo4FloatingTransform out{};
@@ -24014,7 +24024,7 @@ namespace
         for (int i = 0; i < fp.count; ++i) palette[i] = value(g_fpPaletteScratch[i]);
         if (!RouteLeftHandedFloatingPalette(palette, size_t(fp.count),
                 fp.wrist, fp.wristDescendants, fp.lWrist, fp.lWristDescendants,
-                value(root), value(rawTargets.rightWrist), value(rawTargets.leftWrist)))
+                value(root), palms.right, palms.left))
             return false;
         for (int i = 0; i < fp.count; ++i)
         {
@@ -24416,7 +24426,7 @@ namespace
                 bool anatomicalLeftHanded = false;
                 if (reconstructed && leftHandBound && targets.handAlignment)
                 {
-                    anatomicalLeftHanded = ReachRouteLeftHandedPalette(fp, *root, context.targets);
+                    anatomicalLeftHanded = ReachRouteLeftHandedPalette(tag, boneMap, fp, *root, context.targets);
                     (anatomicalLeftHanded ? g_reachAnatomicalApplications : g_reachAnatomicalRefusals)
                         .fetch_add(1, std::memory_order_relaxed);
                 }
@@ -35600,10 +35610,13 @@ namespace
         Halo4FloatingTransform primaryWeaponDelta{};
         if (!Halo4BuildFloatingWorldDelta(desiredRight, stockRight, primaryWeaponDelta))
             return Halo4VrikStage::RightPoseFailed;
-        if (g_halo4FloatingPair.handAlignment &&
-            !Halo4RouteLeftHandedWristTargets(g_halo4FloatingPair.rightTargetWorld,
-                g_halo4FloatingPair.leftTargetWorld, desiredRight, desiredLeft))
-            return Halo4VrikStage::LeftPoseFailed;
+        if (g_halo4FloatingPair.handAlignment)
+        {
+            AnatomicalPalmMarkers palms{};
+            if (!Halo4AnatomicalPalmMarkers(palms) ||
+                !RouteLeftHandedPalmTargets(palms.right,palms.left,desiredRight,desiredLeft))
+                return Halo4VrikStage::LeftPoseFailed;
+        }
         const float rightDistance=
             Halo4FloatingDistance(stockRight,desiredRight);
         const float leftDistance=
@@ -40761,6 +40774,9 @@ namespace
         uint32_t halo2ManualColdRecoveryPending = 0;
         uint64_t nextHaloCleanupMs = 0;
         uint64_t nextAnatomicalReportMs = 0;
+        LOG("Optional left-hand alignment: title-authored palm frames preserve solved grips and guns; "
+            "H3 Dervish and Reach Elite missing right palms use their own bilateral local-Y landmarks; "
+            "unknown H3/ODST/Reach rigs retain stock presentation");
         for (;;)
         {
             const uint64_t pollNow = GetTickCount64();

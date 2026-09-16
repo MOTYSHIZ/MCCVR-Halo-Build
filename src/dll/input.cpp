@@ -268,7 +268,7 @@ namespace
             if (haveController && VR_GetHeadPose(hq, hp))
             {
                 const float dx = hp[0] - cp[0], dy = hp[1] - cp[1], dz = hp[2] - cp[2];
-                dpadMode = dx * dx + dy * dy + dz * dz < 0.30f * 0.30f;
+                dpadMode = DpadHeadWithinRadius(hp, cp, g_config.dpad_head_radius);
                 // CE's requested switch uses the physical left hand beside
                 // the left of the head, independent of weapon handedness.
                 if (ce)
@@ -279,6 +279,16 @@ namespace
                     dpadMode = dpadMode && dx*rightX+dy*rightY+dz*rightZ>0.03f;
                 }
             }
+        }
+
+        // The optional thumb-rest gesture uses the physical RIGHT stick. Its
+        // axes were consumed at XR publication, including every title's turn
+        // and scope consumers. Preserve head-gesture clicks and left movement.
+        if (pad.thumbrestDpad)
+        {
+            btn |= DpadDirectionButtons(pad.dpadX, pad.dpadY);
+            state->Gamepad.wButtons = btn;
+            NoteFedButtons(btn);
         }
 
         const bool physicalMove = std::abs(int(state->Gamepad.sThumbLX)) > 7849 ||

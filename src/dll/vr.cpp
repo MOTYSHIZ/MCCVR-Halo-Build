@@ -114,6 +114,8 @@ namespace
     XrSpace g_leftAimSpace = XR_NULL_HANDLE;
     XrAction g_hapticAction = XR_NULL_HANDLE;
     XrAction g_actMenu = XR_NULL_HANDLE;
+    XrAction g_actLeftThumbrest = XR_NULL_HANDLE;
+    std::atomic<uint64_t> g_thumbrestDpadSampleMs{0};
     XrPath g_leftHandPath = XR_NULL_PATH;
     XrPath g_rightHandPath = XR_NULL_PATH;
     bool g_touchProProfileEnabled = false;
@@ -5589,7 +5591,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 strcpy_s(g_status.sessionState, SessionStateName(sc.state));
                 LOG("XR session state -> %s", SessionStateName(sc.state));
                 if (sc.state != XR_SESSION_STATE_FOCUSED)
+                {
+                    g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
                     StopControllerHaptics();
+                }
                 if (sc.state == XR_SESSION_STATE_READY)
                 {
                     XrSessionBeginInfo bi{XR_TYPE_SESSION_BEGIN_INFO};
@@ -6832,6 +6837,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         makeAction(g_actClickL, XR_ACTION_TYPE_BOOLEAN_INPUT,  "click_l",    "Left Stick Click");
         makeAction(g_actClickR, XR_ACTION_TYPE_BOOLEAN_INPUT,  "click_r",    "Right Stick Click");
         makeAction(g_actMenu,   XR_ACTION_TYPE_BOOLEAN_INPUT,  "menu",       "Menu / Start");
+        // Always create the optional action so the F1 checkbox works without
+        // recreating a session. Failure must not affect existing controller input.
+        makeAction(g_actLeftThumbrest, XR_ACTION_TYPE_BOOLEAN_INPUT,
+            "left_thumbrest_touch", "Left Thumb Rest Touch (D-pad)");
+        if (g_actLeftThumbrest == XR_NULL_HANDLE)
+            LOG("D-pad thumb rest: optional touch action unavailable; head gesture and normal input retained");
 
         XrPath hapticPaths[2] = {g_leftHandPath, g_rightHandPath};
         XrActionCreateInfo hapticInfo{XR_TYPE_ACTION_CREATE_INFO};
@@ -6948,11 +6959,27 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             {g_hapticAction, "/user/hand/left/output/haptic"},
             {g_hapticAction, "/user/hand/right/output/haptic"},
         };
+        const auto suggestTouch = [&](const char* profile) {
+            if (g_actLeftThumbrest != XR_NULL_HANDLE)
+            {
+                std::vector<Bind> withThumbrest(std::begin(touch), std::end(touch));
+                withThumbrest.push_back({g_actLeftThumbrest,
+                    "/user/hand/left/input/thumbrest/touch"});
+                if (suggest(profile, withThumbrest.data(), withThumbrest.size()))
+                {
+                    LOG("D-pad thumb rest: optional left touch binding accepted for %s", profile);
+                    return true;
+                }
+                LOG("D-pad thumb rest: optional binding rejected for %s; retrying complete original controls", profile);
+            }
+            // Suggestions replace a profile's complete binding list. Retrying
+            // only the new action would discard poses, buttons and haptics.
+            return suggest(profile, touch, _countof(touch));
+        };
         unsigned accepted = 0;
         if (g_touchProProfileEnabled)
-            accepted += suggest("/interaction_profiles/facebook/touch_controller_pro",
-                touch, _countof(touch));
-        accepted += suggest("/interaction_profiles/oculus/touch_controller", touch, _countof(touch));
+            accepted += suggestTouch("/interaction_profiles/facebook/touch_controller_pro");
+        accepted += suggestTouch("/interaction_profiles/oculus/touch_controller");
         accepted += suggest("/interaction_profiles/valve/index_controller", index, _countof(index));
         accepted += suggest("/interaction_profiles/microsoft/motion_controller", wmr, _countof(wmr));
         accepted += suggest("/interaction_profiles/htc/vive_controller", vive, _countof(vive));
@@ -7392,17 +7419,33 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         lastApplyMs = now;
     }
 
+    bool ReadLeftThumbrestTouched()
+    {
+        if (g_actLeftThumbrest == XR_NULL_HANDLE) return false;
+        XrActionStateGetInfo info{XR_TYPE_ACTION_STATE_GET_INFO};
+        info.action = g_actLeftThumbrest;
+        XrActionStateBoolean touch{XR_TYPE_ACTION_STATE_BOOLEAN};
+        return XR_SUCCEEDED(xrGetActionStateBoolean(g_session, &info, &touch)) &&
+            touch.isActive && touch.currentState == XR_TRUE;
+    }
+
     bool CaptureRightControllerPose(XrTime time)
     {
         if (g_gameplayActions == XR_NULL_HANDLE || g_rightAimAction == XR_NULL_HANDLE ||
             g_rightAimSpace == XR_NULL_HANDLE)
+        {
+            g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
             return false;
+        }
         XrActiveActionSet active{g_gameplayActions, XR_NULL_PATH};
         XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};
         sync.countActiveActionSets = 1;
         sync.activeActionSets = &active;
         if (XR_FAILED(xrSyncActions(g_session, &sync)))
+        {
+            g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
             return false;
+        }
         XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
         get.action = g_rightAimAction;
         get.subactionPath = g_rightHandPath;
@@ -7623,6 +7666,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         getB(g_actClickL, pad.clickL);
         getB(g_actClickR, pad.clickR);
         getB(g_actMenu, pad.menu);
+        const DpadStickInput thumbrest = ConsumeThumbrestDpad(
+            g_config.quest_thumbrest_dpad, ReadLeftThumbrestTouched(),
+            pad.valid && valid && leftValid && g_sessionState == XR_SESSION_STATE_FOCUSED &&
+                !Menu_IsOpen(), pad.turnX, pad.turnY);
+        pad.thumbrestDpad = thumbrest.active;
+        pad.dpadX = thumbrest.x;
+        pad.dpadY = thumbrest.y;
         static VrPadState previousPad{};
         static bool previousRawMenu = false;
         static uint64_t odstMenuPulseUntil = 0;
@@ -7646,6 +7696,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 std::memory_order_release);
         EnterCriticalSection(&g_headCs);
         g_padState = pad;
+        g_thumbrestDpadSampleMs.store(pad.thumbrestDpad ? inputNow : 0,
+            std::memory_order_release);
         LeaveCriticalSection(&g_headCs);
         UpdateTwoHandLatch(valid, location.pose, leftValid, leftLocation.pose,
                            pad.gripL, handChanged);
@@ -14660,6 +14712,14 @@ void VR_GetPadState(VrPadState& out)
     }
     EnterCriticalSection(&g_headCs);
     out = g_padState;
+    const uint64_t now = GetTickCount64();
+    const uint64_t sampled = g_thumbrestDpadSampleMs.load(std::memory_order_acquire);
+    if (!g_config.quest_thumbrest_dpad || !sampled || now < sampled || now-sampled > 250 ||
+        g_sessionStateShared.load(std::memory_order_acquire) != XR_SESSION_STATE_FOCUSED || Menu_IsOpen())
+    {
+        out.thumbrestDpad = false;
+        out.dpadX = out.dpadY = 0.0f;
+    }
     LeaveCriticalSection(&g_headCs);
 }
 

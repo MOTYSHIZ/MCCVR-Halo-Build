@@ -55,6 +55,23 @@ MenuPointerHit IntersectMenuQuad(const float origin[3], const float direction[3]
 
 float BlendXInputMotors(uint16_t lowFrequencyMotor, uint16_t highFrequencyMotor);
 
+// Distance is from the tracked head centre, preserving the original 30 cm
+// gesture by default. Title-specific side-of-head requirements stay at caller.
+bool DpadHeadWithinRadius(const float head[3], const float controller[3],
+    float radiusMetres) noexcept;
+
+struct DpadStickInput
+{
+    bool active = false;
+    float x = 0.0f, y = 0.0f;
+};
+// Consume the physical right stick before any title, turn or scope snapshot.
+// Only the optional thumb-rest gesture changes those axes; left movement,
+// handedness, buttons and the existing head gesture are independent.
+DpadStickInput ConsumeThumbrestDpad(bool enabled, bool touched, bool inputReady,
+    float& rightX, float& rightY) noexcept;
+uint16_t DpadDirectionButtons(float x, float y) noexcept;
+
 // Peak-hold haptic sampling. Halo drives controller rumble as short XInput
 // SetState pulses, but the VR frame loop samples the requested amplitude far
 // less often than those pulses arrive. A plain last-value latch therefore

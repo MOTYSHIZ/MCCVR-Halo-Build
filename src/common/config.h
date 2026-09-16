@@ -429,6 +429,11 @@ struct Config
     // Which controller, held next to the head, turns the left stick into the
     // D-pad (UEVR-style gesture): 0 = left controller, 1 = right controller.
     int dpad_hand = 0;
+    // Head-gesture activation radius in metres; the existing reach is 30 cm.
+    float dpad_head_radius = 0.30f;
+    // Quest 3 alternate D-pad: touch the physical left thumb rest, then use
+    // the physical right stick. Handedness never swaps these controls.
+    bool quest_thumbrest_dpad = false;
 
     // Aim crosshair (stereo only): a small reticle floating where the weapon
     // actually shoots. Drawn as a compositor quad layer, so it costs no game

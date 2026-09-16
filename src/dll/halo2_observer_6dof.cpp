@@ -4782,6 +4782,9 @@ namespace
                     static_cast<unsigned>(
                         kHalo2AnimationGraphGetSkeletonNodeRva),
                     findOk ? "cross-checking" : "NOT located (skipped)");
+                LOG("Halo 2 optional left-hand alignment: final native Chief palm markers; "
+                    "Elite right palm derived from its own bilateral local-Y rig; "
+                    "hand-only correction preserves both renderers' gun packets");
             }
             else
             {

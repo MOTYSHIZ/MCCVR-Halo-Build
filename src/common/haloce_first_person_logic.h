@@ -5,6 +5,7 @@
 #include "../dll/ik.h"
 #include <array>
 #include <cstring>
+#include "haloce_hand_alignment.generated.h"
 
 // CE-specific data, established independently in HCEEK and the pinned MCC
 // image. See E-CE-FP-1 in docs/HALOCE-FIRST-PERSON-EVIDENCE.md.
@@ -140,6 +141,27 @@ inline bool MoveNode(const NodeMatrix& sourceCarrier,const NodeMatrix& targetCar
     return true;
 }
 
+// CE's official wrist-local digit landmarks are bilateral about local Y.
+// The weapon's model-lateral plane is expressed in its own verified root
+// frame: Oddball, Needler and plasma cannon do not have identity root bases.
+// Reflect the authored opposite wrist relation on both sides, producing a
+// proper rotation and an exact scaled offset without mirroring the weapon.
+inline bool BuildMirroredGripTarget(const HandAlignmentPlane& plane,
+    const NodeMatrix& sourceGun,const NodeMatrix& sourceWrist,
+    const NodeMatrix& renderedGun,NodeMatrix& out) noexcept
+{
+    if (!Finite(plane.normal)||!std::isfinite(plane.offset)||
+        std::fabs(Dot(plane.normal,plane.normal)-1)>0.00001f) return false;
+    NodeMatrix local{};
+    if (!MoveNode(sourceGun,NodeMatrix{},sourceWrist,local)) return false;
+    const auto reflect=[&](Vec3 value) { return value-plane.normal*(2*Dot(plane.normal,value)); };
+    local.forward=reflect(local.forward);
+    local.left=reflect(local.left)*-1; // Opposite anatomical hand's local-Y reflection.
+    local.up=reflect(local.up);
+    local.position=local.position-plane.normal*(2*(Dot(plane.normal,local.position)+plane.offset));
+    return MoveNode(NodeMatrix{},renderedGun,local,out);
+}
+
 struct FirstPersonBinding
 {
     uint32_t graph{0xffffffffu};
@@ -151,6 +173,14 @@ struct FirstPersonBinding
     uint64_t armMask[2]{};
     uint64_t nodeIdentity{}; // Complete ordered names/parents, never a title-wide bone guess.
 };
+inline const HandAlignmentPlane* FindHandAlignmentPlane(const FirstPersonBinding& binding) noexcept
+{
+    if (!binding.nodeIdentity) return nullptr;
+    for (const auto& plane:kCeHandAlignmentPlanes)
+        if (plane.graphIdentity==binding.nodeIdentity&&plane.graphCount==binding.count&&
+            plane.gunNode==binding.gun) return &plane;
+    return nullptr;
+}
 inline uint64_t FirstPersonNodeIdentity(const AnimationNode* nodes,size_t count) noexcept
 {
     if (!nodes||!count||count>kFirstPersonMaxNodes) return 0;
@@ -480,6 +510,16 @@ inline bool BuildTrackedFirstPersonPalette(const FirstPersonBinding& binding,
     if (!MoveNode(gun,rightAim,source[binding.rightWrist],right)||
         !MoveNode(gun,leftAim,source[binding.leftWrist],left)) return false;
     right.position=rightAim.position;left.position=leftAim.position;
+    const HandAlignmentPlane* alignmentPlane=anatomical?FindHandAlignmentPlane(binding):nullptr;
+    NodeMatrix renderedGun{};
+    if (alignmentPlane)
+    {
+        // Use the identical carrier/operation as the unchanged gun-node loop
+        // below. Primary-left must inherit the primary-right authored grip,
+        // not the unrelated native support wrist animation.
+        if (!MoveNode(source[binding.rightWrist],weaponGrip,gun,renderedGun)||
+            !BuildMirroredGripTarget(*alignmentPlane,gun,source[binding.rightWrist],renderedGun,left)) return false;
+    }
     if (rig.twoHandAimActive)
     {
         // Match the accepted planted support-grip policy; releasing grip
@@ -487,7 +527,11 @@ inline bool BuildTrackedFirstPersonPalette(const FirstPersonBinding& binding,
         NodeMatrix& support=anatomical?right:left;
         NodeMatrix supportPosition{};
         if (!MoveNode(source[binding.rightWrist],weaponGrip,source[binding.leftWrist],supportPosition)) return false;
-        if (anatomical)
+        if (alignmentPlane)
+        {
+            if (!BuildMirroredGripTarget(*alignmentPlane,gun,source[binding.leftWrist],renderedGun,support)) return false;
+        }
+        else if (anatomical)
         {
             if (!MoveNode(gun,primaryAim,source[binding.rightWrist],support)) return false;
             support.position=supportPosition.position;

@@ -4353,10 +4353,54 @@ inline bool Halo2OwnVisibleFirstPersonGun(
     return true;
 }
 
-// E-H2-40/45 provide the anatomical subtrees and destination remaps. Carriers
-// already represent weapon roles. Keep the real meshes and their own local
-// hand orientations, but seat each wrist at the opposite role's solved grip.
-// Guns are separate packets and never enter this anatomical transaction.
+// H2EK's Chief model authors both semantic grip markers. Dervish authors only
+// left_hand_elite; its own bilateral wrist/digit axes prove local Y as the
+// anatomical reflection plane. The right Elite marker below is a deliberate
+// VR-side reflection of that rig's left marker, not a claimed native marker.
+// See LEFT-HAND-H2-2026-09-15.md. Marker scale is unity here, matching the
+// accepted C-H2-70 semantic solve; authored marker metadata stores zero.
+inline bool Halo2AnatomicalGripMarker(Halo2FirstPersonRigKind rigKind,
+    bool leftHand, Halo2FirstPersonTransform& marker) noexcept
+{
+    const float* translation = nullptr;
+    const float* quaternion = nullptr;
+    constexpr float chiefLeftPosition[3]{0.022750f, -0.008561f, 0.000398f};
+    constexpr float chiefLeftRotation[4]{0.016078f, 0.073613f, 0.085080f, -0.993521f};
+    constexpr float chiefRightPosition[3]{0.022747f, 0.011516f, 0.000398f};
+    constexpr float chiefRightRotation[4]{0.008948f, 0.074815f, -0.010537f, -0.997102f};
+    constexpr float eliteLeftPosition[3]{0.033088f, -0.009315f, 0.000442f};
+    constexpr float eliteLeftRotation[4]{-0.001854f, 0.001501f, -0.001833f, -0.999995f};
+    if (rigKind == Halo2FirstPersonRigKind::MasterChief)
+    {
+        translation = leftHand ? chiefLeftPosition : chiefRightPosition;
+        quaternion = leftHand ? chiefLeftRotation : chiefRightRotation;
+    }
+    else if (rigKind == Halo2FirstPersonRigKind::Elite)
+    {
+        translation = eliteLeftPosition;
+        quaternion = eliteLeftRotation;
+    }
+    else return false;
+    Halo2FirstPersonTransform result{};
+    if (!Halo2QuaternionToFirstPersonBasis(quaternion, result.rotation)) return false;
+    std::memcpy(result.translation, translation, sizeof(result.translation));
+    if (rigKind == Halo2FirstPersonRigKind::Elite && !leftHand)
+    {
+        result.translation[1] = -result.translation[1];
+        for (int column = 0; column < 3; ++column)
+            for (int row = 0; row < 3; ++row)
+                if ((column == 1) != (row == 1)) result.rotation[column * 3 + row] *= -1.0f;
+    }
+    if (!Halo2FirstPersonTransformValid(result)) return false;
+    marker = result;
+    return true;
+}
+
+// E-H2-40/45 provide the anatomical subtrees and destination remaps. The
+// completed wrist frames already contain the native weapon grip and every
+// controller/mount adjustment. Exchange their semantic PALMS, not their wrist
+// origins: desiredWrist * ownMarker = oppositeWrist * oppositeMarker.
+// Gun packets never enter this optional anatomical transaction.
 inline bool Halo2RouteLeftHandedPacketHands(
     float* hands, uint32_t count, const int32_t* primaryRemap,
     const Halo2FirstPersonArmBinding& primaryBinding,
@@ -4369,7 +4413,9 @@ inline bool Halo2RouteLeftHandedPacketHands(
         !primaryBinding.valid || !secondaryBinding.valid ||
         !primaryBinding.count || !secondaryBinding.count ||
         primaryBinding.count > 64 || secondaryBinding.count > 64 ||
-        primaryBinding.rigKind != secondaryBinding.rigKind) return false;
+        primaryBinding.rigKind != secondaryBinding.rigKind ||
+        !Halo2ValidateCameraBasis(primaryCarrier) ||
+        !Halo2ValidateCameraBasis(supportCarrier)) return false;
     int wrist[2]{-1, -1};
     uint64_t mask[2]{};
     for (uint32_t i = 0; i < count; ++i)
@@ -4396,9 +4442,9 @@ inline bool Halo2RouteLeftHandedPacketHands(
     if (wrist[0] < 0 || wrist[1] < 0 ||
         !(mask[0] & (uint64_t{1} << wrist[0])) ||
         !(mask[1] & (uint64_t{1} << wrist[1]))) return false;
-    Halo2FirstPersonTransform carrier[2]{}, stock[2]{}, desired[2]{}, delta[2]{};
-    if (!Halo2BuildControllerHandMountBasis(primaryCarrier, carrier[1].rotation) ||
-        !Halo2BuildControllerHandMountBasis(supportCarrier, carrier[0].rotation))
+    Halo2FirstPersonTransform marker[2]{}, stock[2]{}, desired[2]{}, delta[2]{};
+    if (!Halo2AnatomicalGripMarker(primaryBinding.rigKind, true, marker[0]) ||
+        !Halo2AnatomicalGripMarker(primaryBinding.rigKind, false, marker[1]))
         return false;
     for (int hand = 0; hand < 2; ++hand)
         if (!Halo2ReadFirstPersonTransform(
@@ -4406,12 +4452,10 @@ inline bool Halo2RouteLeftHandedPacketHands(
             return false;
     for (int hand = 0; hand < 2; ++hand)
     {
-        Halo2FirstPersonTransform carrierDelta{};
-        if (!Halo2BuildFirstPersonWorldDelta(carrier[1 - hand], carrier[hand], carrierDelta) ||
-            !Halo2ComposeFirstPersonTransforms(carrierDelta, stock[hand], desired[hand]))
+        Halo2FirstPersonTransform oppositePalm{};
+        if (!Halo2ComposeFirstPersonTransforms(stock[1 - hand], marker[1 - hand], oppositePalm) ||
+            !Halo2BuildFirstPersonWorldDelta(oppositePalm, marker[hand], desired[hand]))
             return false;
-        std::memcpy(desired[hand].translation, stock[1 - hand].translation, sizeof(float) * 3);
-        desired[hand].scale = stock[1 - hand].scale;
         if (!Halo2BuildFirstPersonWorldDelta(desired[hand], stock[hand], delta[hand]))
             return false;
     }

@@ -1,6 +1,42 @@
 #include "input_logic.h"
 
 #include <cmath>
+#include <algorithm>
+
+bool DpadHeadWithinRadius(const float head[3], const float controller[3],
+    float radiusMetres) noexcept
+{
+    if (!head || !controller) return false;
+    const float radius = std::isfinite(radiusMetres)
+        ? std::clamp(radiusMetres, 0.10f, 0.50f) : 0.30f;
+    const float dx = head[0] - controller[0], dy = head[1] - controller[1],
+        dz = head[2] - controller[2];
+    return dx*dx + dy*dy + dz*dz < radius*radius;
+}
+
+DpadStickInput ConsumeThumbrestDpad(bool enabled, bool touched, bool inputReady,
+    float& rightX, float& rightY) noexcept
+{
+    if (!enabled || !touched || !inputReady) return {};
+    DpadStickInput result{true,
+        std::isfinite(rightX) ? std::clamp(rightX, -1.0f, 1.0f) : 0.0f,
+        std::isfinite(rightY) ? std::clamp(rightY, -1.0f, 1.0f) : 0.0f};
+    rightX = rightY = 0.0f;
+    return result;
+}
+
+uint16_t DpadDirectionButtons(float x, float y) noexcept
+{
+    // XInput's UP/DOWN/LEFT/RIGHT bits, with the existing gesture threshold.
+    if (!std::isfinite(x)) x = 0.0f;
+    if (!std::isfinite(y)) y = 0.0f;
+    uint16_t result = 0;
+    if (y > 0.5f) result |= 0x0001;
+    if (y < -0.5f) result |= 0x0002;
+    if (x < -0.5f) result |= 0x0004;
+    if (x > 0.5f) result |= 0x0008;
+    return result;
+}
 
 void MenuChordDetector::Reset()
 {

@@ -765,6 +765,10 @@ struct VrPadState
     float gripL = 0, gripR = 0;  // grips 0..1
     bool a = false, b = false, x = false, y = false;
     bool clickL = false, clickR = false, menu = false;
+    // Physical left thumb rest selects the physical right stick, independent
+    // of weapon handedness. These axes have already been removed from turn.
+    bool thumbrestDpad = false;
+    float dpadX = 0.0f, dpadY = 0.0f;
 };
 void VR_GetPadState(VrPadState& out);
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE

@@ -1,7 +1,8 @@
 // Included after the title-specific render-model readers. The body palette's
 // actual remap separates anatomical fingers from weapon descendants; a count
 // or copied cross-title skeleton prefix is never used as that boundary.
-static int LegacyAnatomicalRenderNodeCount(GameTitle title, uint16_t tag)
+static int LegacyAnatomicalRenderNodeCount(GameTitle title, uint16_t tag,
+    uint32_t* checksum = nullptr)
 {
     __try
     {
@@ -10,7 +11,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title, uint16_t tag)
         const size_t offset = title == GameTitle::Halo3
             ? kHalo3RenderModelNodesBlockOffset : kOdstRenderModelNodesCountOffset;
         int count = 0;
-        return definition && SafeReadBytes(definition + offset, &count, sizeof(count))
+        return definition && (!checksum || SafeReadBytes(definition + 0x08, checksum, sizeof(*checksum))) &&
+            SafeReadBytes(definition + offset, &count, sizeof(count))
             ? count : 0;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
@@ -29,10 +31,19 @@ bool LegacyRouteLeftHandedPalette(GameTitle title, uint16_t tag, const int32_t* 
         context.wrist < 0 || context.wrist >= context.count ||
         context.lWrist < 0 || context.lWrist >= context.count ||
         (title != GameTitle::Halo3 && title != GameTitle::Halo3ODST)) return false;
-    const int count = LegacyAnatomicalRenderNodeCount(title, tag);
+    uint32_t checksum = 0;
+    const int count = LegacyAnatomicalRenderNodeCount(title, tag, &checksum);
     if (count <= 0 || count > 64) return false;
+    AnatomicalPalmMarkers palms{};
+    if (!(title == GameTitle::Halo3
+            ? Halo3AnatomicalPalmMarkers(checksum,count,palms)
+            : OdstAnatomicalPalmMarkers(checksum,count,palms))) return false;
     int32_t remap[64]{};
     if (!SafeReadBytes(boneMap, remap, size_t(count) * sizeof(*remap))) return false;
+    if (palms.rightNode < 0 || palms.leftNode < 0 ||
+        palms.rightNode >= count || palms.leftNode >= count ||
+        remap[palms.rightNode] != context.wrist ||
+        remap[palms.leftNode] != context.lWrist) return false;
     uint64_t bodyMask = 0;
     for (int node = 0; node < count; ++node)
     {
@@ -93,7 +104,7 @@ bool LegacyRouteLeftHandedPalette(GameTitle title, uint16_t tag, const int32_t* 
     for (int i = 0; i < context.count; ++i) palette[i] = value(g_fpPaletteScratch[i]);
     if (!RouteLeftHandedFloatingPalette(palette, size_t(context.count),
             context.wrist, rightMask, context.lWrist, leftMask, value(root),
-            scope.anatomicalPrimaryCarrier, scope.anatomicalSupportCarrier)) return false;
+            palms.right, palms.left)) return false;
 
     // Plant shoulders on their authored anatomical side in the frozen torso
     // frame, then solve elbows toward the newly assigned wrists. Use authored

@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-controller-haptics',
+        'dpad-hand-alignment',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 49
+        schema_version = 50
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1131,9 +1131,21 @@ try {
             config_key = 'experimental_hand_alignment'
             default_enabled = $false
             requires_left_handed = $true
+            current_scope = 'correct-opt-in-anatomical-hand-placement-against-title-authored-grip-and-mount-data; preserve-weapon-transform'
+            title_coverage = 'CE-Original-Anniversary; H2-Classic-Anniversary; H3; ODST; Reach; H4'
             headset_accepted = $false
         }
-        current_accepted_source = '5ac02f53a7896ffd6b8dff37ddc5bc4700890559'
+        current_accepted_source = '7ff9697685e78389dad16126e4d1ec7188a3acbe'
+        dpad_controls = [ordered]@{
+            head_radius = '10-50cm; existing-30cm-default; CE-left-side-proof-and-Back-click-preserved'
+            quest_thumbrest = 'optional-default-OFF; physical-left-thumbrest-touch-plus-physical-right-stick'
+            binding = '/user/hand/left/input/thumbrest/touch'
+            optional_failure = 'retry-complete-original-Touch-bindings; no-camera-or-input-teardown'
+            consumption = 'before-shared-turn-scope-and-title-snapshots; both-physical-sticks-keep-handedness'
+            accepted_runtime_preserved = '7ff9697685e78389dad16126e4d1ec7188a3acbe'
+            evidence = 'docs/DPAD-CONTROLS-2026-09-15.md'
+            headset_accepted = $false
+        }
         ce_haptics = [ordered]@{
             behavior = 'enable-existing-native-XInput-to-OpenXR-vibration-for-both-controllers'
             graphics = 'Original-and-Anniversary'
@@ -1141,7 +1153,7 @@ try {
             reference = 'unchanged-Halo3-motor-blend-short-pulse-intensity-and-stop-policy'
             accepted_runtime_preserved = '5ac02f53a7896ffd6b8dff37ddc5bc4700890559'
             evidence = 'docs/CE-HAPTICS-2026-09-15.md'
-            headset_accepted = $false
+            headset_accepted = $true
         }
         halo_ce_candidate = [ordered]@{
             previous_headset_result = '5ac02f5-all-campaign-runtime-user-accepted-as-flawless-except-absent-CE-haptics'
@@ -1202,13 +1214,13 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Current candidate scope is ce_haptics and RELEASE-NOTES.md; accepted runtime is 5ac02f5, new haptics headset acceptance is pending; roomscale_candidate excludes CE.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Current candidate scope is dpad_controls, left_hand_alignment and RELEASE-NOTES.md; accepted runtime including CE haptics is 7ff9697; new shared input/alignment headset acceptance is pending; roomscale_candidate excludes CE.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE Original and Anniversary controller vibration through the existing shared bridge. Only two CE haptics capability grants change runtime behavior from accepted 5ac02f5. Keep existing config. Both editions; package only; no GitHub publication; new haptics headset acceptance pending.'
+        note = 'Configurable head-gesture radius, optional Quest 3 physical-left-thumbrest/right-stick D-pad, and opt-in left-handed hand alignment. Accepted 7ff9697 CE haptics, weapon rendering and normal right-handed behavior preserved. Keep existing config. Both editions; package only; no GitHub publication; new behavior headset acceptance pending.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-HAPTICS-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/DPAD-CONTROLS-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

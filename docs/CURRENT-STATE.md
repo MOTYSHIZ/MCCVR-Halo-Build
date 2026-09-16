@@ -1,5 +1,21 @@
 # Current state
 
+> **CURRENT ACCEPTED ALL-CAMPAIGN + CE HAPTICS BASELINE: `7ff9697`
+> (user headset, 2026-09-15).** Source
+> `7ff9697685e78389dad16126e4d1ec7188a3acbe`, DLL SHA-256
+> `6B2BAC9936D9606A0EBE76086EDE612422D99A9368F5A472994B448BA3F8A329`.
+> The user confirms CE vibration worked on the first try and asks to preserve
+> the build. Build ZIP SHA-256
+> `BDAD9BD8A4C80FE32E54B99DCE15979F082B74C3D8C3BFAABFE6A7FFD5794693`;
+> source ZIP SHA-256
+> `5E177D9005CBCA4F2FAB257C8CF0D5241E13640BFAE5DBC68486267F0EDD5C25`.
+> Current scope is a D-pad head-radius slider and optional Quest 3 physical
+> left-thumbrest/right-stick D-pad control, plus correction of the existing
+> opt-in left-handed hand alignment in ALL titles. The user reports hands
+> sitting to the right of the gun with that option enabled. Keep the normal
+> right-handed path and authored weapon placement. Read `DPAD-CONTROLS-2026-09-15.md`.
+> Deliver a new verified ZIP pair, then wait for testing. No install or publish.
+
 > **CURRENT ACCEPTED ALL-CAMPAIGN BASELINE: `5ac02f5` (user headset,
 > 2026-09-15).** Source `5ac02f53a7896ffd6b8dff37ddc5bc4700890559`,
 > DLL SHA-256 `55646EFF6AEF8FAD0C16E9FDA67685292637B97E0B6437B7DD670C4E4B840A63`.

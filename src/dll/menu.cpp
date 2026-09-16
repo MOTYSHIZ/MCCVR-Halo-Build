@@ -760,6 +760,21 @@ namespace
             g_config.dpad_hand = 1;
             changed = true;
         }
+        float dpadHeadRadiusCm = g_config.dpad_head_radius * 100.0f;
+        if (vr_menu::SliderFloat("D-pad head radius", &dpadHeadRadiusCm,
+                                 10.0f, 50.0f, "%.0f cm"))
+        {
+            g_config.dpad_head_radius = dpadHeadRadiusCm / 100.0f;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("A smaller radius requires the selected controller to be closer to your head.");
+        changed |= ImGui::Checkbox("Quest 3 left thumb-rest D-pad",
+                                   &g_config.quest_thumbrest_dpad);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Touch the physical left controller's thumb rest, then move the physical right stick.\n"
+                              "These controls stay on the same physical hands in left-handed mode.");
+        ImGui::Spacing();
         float hapticPercent = g_config.haptic_intensity * 100.0f;
         if (vr_menu::SliderFloat("Controller vibration", &hapticPercent,
                                0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_None))

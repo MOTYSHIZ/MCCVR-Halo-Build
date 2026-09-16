@@ -55,6 +55,7 @@ bool particleProjectionRetiring{};
 std::atomic<bool> visibilityInstalled{};
 bool visibilityRetiring{};
 std::atomic<uint64_t> observed{},applied{},refused{},exceptions{},lastApplied{};
+std::atomic<uint64_t> alignmentKnownGraph{},alignmentUnknownGraph{};
 std::atomic<uint64_t> aimObserved{},aimApplied{},aimRefused{};
 std::atomic<uint64_t> assistApplied{};
 std::atomic<uint64_t> skinApplied{},skinRefused{};
@@ -484,6 +485,11 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexce
     FirstPersonBinding binding{};
     const auto& context=owner.context;
     if (!BuildFirstPersonBinding(graph,context.tracking.generation,nodes,count,binding)) return false;
+    if (context.tracking.controllers.leftHanded && context.tracking.controllers.handAlignment)
+    {
+        auto& counter = FindHandAlignmentPlane(binding) ? alignmentKnownGraph : alignmentUnknownGraph;
+        counter.fetch_add(1, std::memory_order_relaxed);
+    }
     std::array<NodeMatrix,kFirstPersonMaxNodes> source{},staged{};
     if (!CopyPalette(matrices,source.data(),count)) return false;
     if (!BuildTrackedFirstPersonPalette(binding,source.data(),context.camera,context.tracking,
@@ -885,6 +891,9 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
         lastReport=now;
         LOG("CE FP gen=%u installed=%d observed=%llu applied=%llu stock=%llu exceptions=%llu",
             gen,installed.load(),observed.load(),applied.load(),refused.load(),exceptions.load());
+        if (alignmentKnownGraph.load() || alignmentUnknownGraph.load())
+            LOG("CE hand alignment gen=%u verifiedGripGraph=%llu unknownGraphPriorMount=%llu; unknown graphs retain prior hand placement",
+                gen,alignmentKnownGraph.load(),alignmentUnknownGraph.load());
         LOG("CE aim gen=%u installed=%d observed=%llu applied=%llu stock=%llu assist=%llu",
             gen,aimInstalled.load(),aimObserved.load(),aimApplied.load(),aimRefused.load(),assistApplied.load());
         LOG("CE Anniversary hand scale gen=%u installed=%d applied=%llu stock=%llu",

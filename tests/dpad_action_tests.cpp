@@ -1,0 +1,205 @@
+// Execute shipping OpenXR action creation/binding/query against captured API
+// endpoints. No OpenXR loader, game process, headset, or controller is opened.
+#include <Windows.h>
+#include <openxr/openxr.h>
+#include "../src/dll/vr.h"
+#include "../src/common/config.h"
+#include <atomic>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iterator>
+#include <map>
+#include <string>
+#include <vector>
+
+namespace
+{
+unsigned checks{},failures{},attachCalls{},spaceCalls{},queryCalls{};
+uintptr_t nextHandle=10;
+bool failOptionalAction{},rejectOptionalBinding{},rejectPro{},g_touchProProfileEnabled{};
+XrResult queryResult=XR_SUCCESS;
+XrBool32 queryActive=XR_TRUE,queryValue=XR_TRUE;
+XrInstance g_instance=reinterpret_cast<XrInstance>(uintptr_t{1});
+XrSession g_session=reinterpret_cast<XrSession>(uintptr_t{2});
+XrActionSet g_gameplayActions=XR_NULL_HANDLE;
+XrSpace g_rightAimSpace=XR_NULL_HANDLE,g_leftAimSpace=XR_NULL_HANDLE;
+XrPath g_rightHandPath=XR_NULL_PATH,g_leftHandPath=XR_NULL_PATH;
+XrAction g_rightAimAction{},g_leftAimAction{},g_hapticAction{},g_actMove{},g_actTurn{};
+XrAction g_actTrigL{},g_actTrigR{},g_actGripL{},g_actGripR{},g_actA{},g_actB{},g_actX{},g_actY{};
+XrAction g_actClickL{},g_actClickR{},g_actMenu{},g_actLeftThumbrest{};
+CRITICAL_SECTION g_headCs{};
+bool g_headCsInit{},fixtureMenu{};
+VrPadState g_padState{};
+std::atomic<uint64_t> g_thumbrestDpadSampleMs{};
+std::atomic<int> g_sessionStateShared{XR_SESSION_STATE_FOCUSED};
+uint64_t fixtureNow=1000;
+uint64_t FixtureTick() { return fixtureNow; }
+struct Action { std::string name;XrActionType type;std::vector<XrPath> subactions; };
+struct Binding { std::string action,path; };
+struct Suggestion { std::string profile;std::vector<Binding> bindings; };
+std::map<XrAction,Action> actions;
+std::map<std::string,XrPath> paths;
+std::vector<Suggestion> suggestions;
+constexpr const char* touch="/interaction_profiles/oculus/touch_controller";
+constexpr const char* pro="/interaction_profiles/facebook/touch_controller_pro";
+constexpr const char* thumb="/user/hand/left/input/thumbrest/touch";
+void Check(bool ok,const char* message)
+{ ++checks;if (!ok) { ++failures;std::fprintf(stderr,"FAIL: %s\n",message); } }
+std::string PathName(XrPath path)
+{ for (const auto& entry:paths) if (entry.second==path) return entry.first;return {}; }
+bool HasOptional(const Suggestion& value)
+{ return std::any_of(value.bindings.begin(),value.bindings.end(),[](const Binding& b){return b.action=="left_thumbrest_touch";}); }
+}
+
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrCreateActionSet(
+    XrInstance,const XrActionSetCreateInfo*,XrActionSet* out)
+{ *out=reinterpret_cast<XrActionSet>(nextHandle++);return XR_SUCCESS; }
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrStringToPath(XrInstance,const char* text,XrPath* out)
+{ auto& value=paths[text];if (!value) value=nextHandle++;*out=value;return XR_SUCCESS; }
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrCreateAction(
+    XrActionSet,const XrActionCreateInfo* info,XrAction* out)
+{
+    if (failOptionalAction&&!std::strcmp(info->actionName,"left_thumbrest_touch")) return XR_ERROR_RUNTIME_FAILURE;
+    *out=reinterpret_cast<XrAction>(nextHandle++);
+    Action value{info->actionName,info->actionType,{}};
+    if (info->countSubactionPaths) value.subactions.assign(info->subactionPaths,info->subactionPaths+info->countSubactionPaths);
+    actions.emplace(*out,std::move(value));return XR_SUCCESS;
+}
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(
+    XrInstance,const XrInteractionProfileSuggestedBinding* info)
+{
+    Suggestion value{PathName(info->interactionProfile),{}};
+    for (uint32_t i=0;i<info->countSuggestedBindings;++i)
+    {
+        const auto& binding=info->suggestedBindings[i];
+        value.bindings.push_back({actions.at(binding.action).name,PathName(binding.binding)});
+    }
+    const bool rejected=(rejectOptionalBinding&&HasOptional(value))||(rejectPro&&value.profile==pro);
+    suggestions.push_back(std::move(value));return rejected?XR_ERROR_PATH_UNSUPPORTED:XR_SUCCESS;
+}
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrAttachSessionActionSets(
+    XrSession,const XrSessionActionSetsAttachInfo* info)
+{
+    ++attachCalls;Check(info->countActionSets==1&&info->actionSets[0]==g_gameplayActions,
+        "Optional D-pad setup preserves attachment of the complete gameplay action set");return XR_SUCCESS;
+}
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrCreateActionSpace(
+    XrSession,const XrActionSpaceCreateInfo* info,XrSpace* out)
+{
+    ++spaceCalls;Check((info->action==g_rightAimAction&&info->subactionPath==g_rightHandPath)||
+        (info->action==g_leftAimAction&&info->subactionPath==g_leftHandPath),"Existing physical aim spaces retain the correct hand");
+    *out=reinterpret_cast<XrSpace>(nextHandle++);return XR_SUCCESS;
+}
+extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrGetActionStateBoolean(
+    XrSession,const XrActionStateGetInfo* info,XrActionStateBoolean* out)
+{
+    ++queryCalls;Check(info->action==g_actLeftThumbrest,"Touch query addresses only the physical-left thumb-rest action");
+    out->isActive=queryActive;out->currentState=queryValue;return queryResult;
+}
+
+bool Menu_IsOpen() { return fixtureMenu; }
+#define LOG(...) ((void)0)
+#define GetTickCount64 FixtureTick
+#include "dpad_action_functions.inl"
+#undef GetTickCount64
+#undef LOG
+
+namespace
+{
+void Reset(bool failAction=false,bool rejectBinding=false,bool enablePro=false,bool unsupportedPro=false)
+{
+    actions.clear();paths.clear();suggestions.clear();attachCalls=spaceCalls=queryCalls=0;nextHandle=10;
+    failOptionalAction=failAction;rejectOptionalBinding=rejectBinding;
+    g_touchProProfileEnabled=enablePro;rejectPro=unsupportedPro;
+    queryResult=XR_SUCCESS;queryActive=queryValue=XR_TRUE;
+    g_gameplayActions=XR_NULL_HANDLE;g_rightAimSpace=g_leftAimSpace=XR_NULL_HANDLE;
+    for (XrAction* value:{&g_rightAimAction,&g_leftAimAction,&g_hapticAction,&g_actMove,&g_actTurn,
+        &g_actTrigL,&g_actTrigR,&g_actGripL,&g_actGripR,&g_actA,&g_actB,&g_actX,&g_actY,
+        &g_actClickL,&g_actClickR,&g_actMenu,&g_actLeftThumbrest}) *value=XR_NULL_HANDLE;
+}
+void CheckTouch(const Suggestion& actual,bool optional)
+{
+    const Binding original[]{
+        {"right_aim_pose","/user/hand/right/input/aim/pose"},{"left_aim_pose","/user/hand/left/input/aim/pose"},
+        {"move","/user/hand/left/input/thumbstick"},{"turn","/user/hand/right/input/thumbstick"},
+        {"trigger_l","/user/hand/left/input/trigger/value"},{"trigger_r","/user/hand/right/input/trigger/value"},
+        {"grip_l","/user/hand/left/input/squeeze/value"},{"grip_r","/user/hand/right/input/squeeze/value"},
+        {"btn_a","/user/hand/right/input/a/click"},{"btn_b","/user/hand/right/input/b/click"},
+        {"btn_x","/user/hand/left/input/x/click"},{"btn_y","/user/hand/left/input/y/click"},
+        {"click_l","/user/hand/left/input/thumbstick/click"},{"click_r","/user/hand/right/input/thumbstick/click"},
+        {"menu","/user/hand/left/input/menu/click"},{"menu","/user/hand/right/input/system/click"},
+        {"game_haptics","/user/hand/left/output/haptic"},{"game_haptics","/user/hand/right/output/haptic"}};
+    Check(actual.bindings.size()==std::size(original)+(optional?1:0),"Every Touch suggestion contains the complete original list, never thumb-rest only");
+    for (const auto& expected:original)
+        Check(std::count_if(actual.bindings.begin(),actual.bindings.end(),[&](const Binding& b){
+            return b.action==expected.action&&b.path==expected.path;})==1,"Every original Touch pose/button/stick/motor binding survives optional setup");
+    Check(HasOptional(actual)==optional,"Optional binding is present only in the intended complete suggestion");
+    if (optional) Check(std::count_if(actual.bindings.begin(),actual.bindings.end(),[](const Binding& b){
+        return b.action=="left_thumbrest_touch"&&b.path==thumb;})==1,"Thumb-rest binding always targets the physical left hand");
+}
+void CheckProfiles(unsigned touchCalls,unsigned proCalls)
+{
+    unsigned touchCount=0,proCount=0,otherCount=0;
+    for (const auto& suggestion:suggestions)
+    {
+        if (suggestion.profile==touch||suggestion.profile==pro)
+        {
+            unsigned& count=suggestion.profile==touch?touchCount:proCount;
+            CheckTouch(suggestion,!failOptionalAction&&count==0);++count;
+        }
+        else
+        {
+            ++otherCount;Check(!HasOptional(suggestion),"Optional Touch sensor is never added to unrelated interaction profiles");
+            const size_t expected=suggestion.profile=="/interaction_profiles/valve/index_controller"?17:
+                suggestion.profile=="/interaction_profiles/khr/simple_controller"?6:13;
+            Check(suggestion.bindings.size()==expected,"Other controller profiles retain their complete baseline binding count");
+        }
+    }
+    Check(touchCount==touchCalls&&proCount==proCalls&&otherCount==4,"Profile acceptance/fallback leaves all existing controller profiles reachable");
+    Check(attachCalls==1&&spaceCalls==2&&g_rightAimSpace&&g_leftAimSpace,"Both tracked hands survive optional action/profile rejection");
+    const auto& haptics=actions.at(g_hapticAction);
+    Check(haptics.type==XR_ACTION_TYPE_VIBRATION_OUTPUT&&haptics.subactions.size()==2&&
+        haptics.subactions[0]==g_leftHandPath&&haptics.subactions[1]==g_rightHandPath,"Both physical vibration outputs remain advertised");
+}
+}
+
+int main()
+{
+    Reset(true);Check(CreateControllerActions(),"Optional thumb-rest action creation failure is nonfatal");CheckProfiles(1,0);
+    Check(g_actLeftThumbrest==XR_NULL_HANDLE&&!ReadLeftThumbrestTouched()&&queryCalls==0,"Absent optional action is neutral without querying XR");
+    Reset(false,true);Check(CreateControllerActions(),"Optional binding rejection is nonfatal");CheckProfiles(2,0);
+    Reset();Check(CreateControllerActions(),"Optional Touch sensor can be added to complete baseline controls");CheckProfiles(1,0);
+    Check(actions.at(g_actLeftThumbrest).type==XR_ACTION_TYPE_BOOLEAN_INPUT,"Thumb-rest action is a boolean input");
+    Check(ReadLeftThumbrestTouched(),"An active true physical-left touch state activates the optional gesture");
+    queryValue=XR_FALSE;Check(!ReadLeftThumbrestTouched(),"Untouched sensor is neutral");
+    queryValue=XR_TRUE;queryActive=XR_FALSE;Check(!ReadLeftThumbrestTouched(),"Unbound or inactive sensor cannot activate D-pad");
+    queryActive=XR_TRUE;queryResult=XR_ERROR_RUNTIME_FAILURE;Check(!ReadLeftThumbrestTouched(),"XR query failure cannot reuse a true state");
+    Reset(false,false,true,true);Check(CreateControllerActions(),"Unsupported Touch Pro profile cannot prevent other controller setup");CheckProfiles(1,2);
+    Reset(false,false,true);Check(CreateControllerActions(),"Touch Pro and Oculus receive independent complete optional lists");CheckProfiles(1,1);
+    InitializeCriticalSection(&g_headCs);g_headCsInit=true;
+    g_config.quest_thumbrest_dpad=true;
+    g_padState.valid=true;g_padState.moveX=0.4f;g_padState.b=true;
+    g_padState.thumbrestDpad=true;g_padState.dpadX=0.8f;g_padState.dpadY=-0.9f;
+    const auto read=[&](bool expected) {
+        VrPadState sample{};VR_GetPadState(sample);
+        Check(sample.thumbrestDpad==expected&&sample.dpadX==(expected?0.8f:0.0f)&&
+            sample.dpadY==(expected?-0.9f:0.0f),"Published touch modifier respects freshness, focus, menu and setting guards");
+        Check(sample.valid&&sample.moveX==0.4f&&sample.b&&!sample.turnX&&!sample.turnY,
+            "Optional D-pad denial preserves the rest of the accepted pad snapshot");
+    };
+    g_thumbrestDpadSampleMs=1000;read(true);
+    g_config.quest_thumbrest_dpad=false;read(false);g_config.quest_thumbrest_dpad=true;
+    g_sessionStateShared=XR_SESSION_STATE_VISIBLE;read(false);g_sessionStateShared=XR_SESSION_STATE_FOCUSED;
+    fixtureMenu=true;read(false);fixtureMenu=false;
+    g_thumbrestDpadSampleMs=0;read(false); // Synchronization/focus failure invalidation.
+    g_thumbrestDpadSampleMs=1001;read(false); // Clock must not run backwards.
+    g_thumbrestDpadSampleMs=750;read(true);
+    g_thumbrestDpadSampleMs=749;read(false);
+    g_headCsInit=false;VrPadState absent{};absent.valid=true;absent.thumbrestDpad=true;
+    VR_GetPadState(absent);Check(!absent.valid&&!absent.thumbrestDpad&&!absent.dpadX&&!absent.dpadY,
+        "An unavailable controller snapshot cannot retain D-pad input");
+    DeleteCriticalSection(&g_headCs);
+    std::printf("D-pad OpenXR production action setup: %u checks, %u failures\n",checks,failures);
+    return failures?1:0;
+}

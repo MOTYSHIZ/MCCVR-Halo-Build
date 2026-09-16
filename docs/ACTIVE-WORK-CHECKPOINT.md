@@ -1,4 +1,43 @@
-# Current continuation - September 15/16: CE controller haptics only
+# Current continuation - September 15/16: D-pad controls and left-hand alignment
+
+Implementation is complete for CE, H2, H3, ODST, Reach and H4. Shared palm
+routing consumes final solved grip frames and leaves weapon transforms intact;
+per-title marker identity/remap guards remain. Read `LEFT-HAND-SHARED-2026-09-15.md`,
+`LEFT-HAND-H2-2026-09-15.md` and `LEFT-HAND-ALIGNMENT-2026-09-15.md`.
+Release, all 33 CTest suites, the Reach gate, all eight shared primary-asset
+marker checks and CE's 36 compiled stock cases pass. New shared tests cover
+96 rig/scale/eye/support combinations; H2 passes 829 packet assertions.
+Complete final committed packaging/archive verification and deliver the NEW
+pair. Exact handoff identity belongs in `out/dpad-alignment-current-handoff.json`.
+After delivery WAIT for headset testing; do not resume earlier deferred work.
+
+The user headset-ACCEPTS **7ff9697**, confirming the CE haptics fix worked on
+the first try. Preserve this cumulative runtime. Current scope is two Controls
+settings: a head-gesture radius slider (10-50 cm, existing 30 cm default) and
+an optional OFF-by-default Quest 3 left thumb-rest D-pad checkbox. Holding the
+physical left thumb rest uses the physical right stick for D-pad directions,
+independent of weapon handedness. Existing head gesture/clicks remain available.
+
+The user then expands this SAME candidate to correct `Fix Hand Alignment`
+while left-handed mode is enabled: hands remain to the right of the gun, in
+ALL games (including both CE and H2 graphics modes). Preserve the D-pad work;
+do not package a D-pad-only candidate while this correction is in progress.
+Use each title's authored grip/mount evidence, preserve actual gun transforms
+and normal right-handed/default-off behavior, and verify nonidentity rotations,
+offsets, scale and engaged support. No speculative fixed positional nudge.
+
+Read `DPAD-CONTROLS-2026-09-15.md` for accepted log identity and verified Touch
+binding evidence. Consume the alternate stick centrally before turn/scope/title
+snapshots; failed optional binding must preserve the complete existing input
+bindings. Preserve haptics, all title renderers, HUD, recovery and other controls.
+
+Package matching build/source ZIPs after verification, using
+`tools/package-candidate.ps1` without `-Install`. Deliver both and WAIT for
+headset testing. No installation, game-folder writes, launch, PR or GitHub
+publication. Both editions remain supported. Accepted source is **7ff9697**;
+the new shared input behavior requires headset testing and Halo 3 regression.
+
+# Historical continuation - September 15/16: CE controller haptics accepted
 
 The user explicitly CANCELS the GitHub task and accepts the most recent
 **5ac02f5** runtime as flawless apart from absent CE vibration. Preserve every

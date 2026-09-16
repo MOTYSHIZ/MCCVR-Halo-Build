@@ -204,8 +204,6 @@ int main()
             Halo4FloatingTransform palette[80]{};
             Halo4FloatingTransform root{}, primary{}, support{};
             root.translation[0] = eyeOffset;
-            primary.translation[0] = 2; support.translation[0] = -2;
-            support.rotation[0] = support.rotation[4] = -1;
             palette[1].translation[0] = 2 - eyeOffset;
             palette[2].translation[0] = -2 - eyeOffset;
             palette[3].translation[0] = 2.1f - eyeOffset;
@@ -8720,6 +8718,32 @@ int main()
                 }
                 // Anatomical routing is a presentation transaction: both real
                 // meshes change role while both gun packets remain exact.
+                const auto anatomicalPalmsMatch = [&](const float* corrected,
+                    const float* baseline, Halo2FirstPersonRigKind rig) {
+                    Halo2FirstPersonTransform marker[2]{}, before[2]{}, after[2]{};
+                    for (int hand = 0; hand < 2; ++hand)
+                    {
+                        Halo2FirstPersonTransform beforeWrist{}, afterWrist{};
+                        const int node = hand + 1;
+                        if (!Halo2AnatomicalGripMarker(rig, hand == 0, marker[hand]) ||
+                            !Halo2ReadFirstPersonTransform(baseline + node * 13, beforeWrist) ||
+                            !Halo2ReadFirstPersonTransform(corrected + node * 13, afterWrist) ||
+                            !Halo2ComposeFirstPersonTransforms(beforeWrist, marker[hand], before[hand]) ||
+                            !Halo2ComposeFirstPersonTransforms(afterWrist, marker[hand], after[hand]))
+                            return false;
+                    }
+                    for (int hand = 0; hand < 2; ++hand)
+                    {
+                        if (!nearlyEqual(after[hand].scale, before[1 - hand].scale)) return false;
+                        for (int axis = 0; axis < 3; ++axis)
+                            if (!nearlyEqual(after[hand].translation[axis], before[1 - hand].translation[axis]))
+                                return false;
+                        for (int value = 0; value < 9; ++value)
+                            if (!nearlyEqual(after[hand].rotation[value], before[1 - hand].rotation[value]))
+                                return false;
+                    }
+                    return true;
+                };
                 for (bool twoHand : {false, true})
                 for (auto rig : {Halo2FirstPersonRigKind::MasterChief,
                                  Halo2FirstPersonRigKind::Elite})
@@ -8744,12 +8768,8 @@ int main()
                         "H2 anatomical routing supports Chief/Elite and free/support grip");
                     Check(std::memcmp(leftGun, baselineGun, sizeof(leftGun)) == 0,
                         "H2 anatomical routing never changes primary gun placement");
-                    for (int axis = 0; axis < 3; ++axis)
-                    {
-                        Check(nearlyEqual(leftHands[13 + 10 + axis], baselineHands[26 + 10 + axis]) &&
-                              nearlyEqual(leftHands[26 + 10 + axis], baselineHands[13 + 10 + axis]),
-                            "H2 actual left wrist owns primary grip and actual right wrist owns support grip");
-                    }
+                    Check(anatomicalPalmsMatch(leftHands, baselineHands, rig),
+                        "H2 anatomical palms preserve the complete primary and support grip frames");
                     Check(nearlyEqual(leftHands[13], baselineHands[26]) &&
                           nearlyEqual(leftHands[26], baselineHands[13]),
                         "H2 size controls remain assigned to weapon roles after anatomical routing");
@@ -8783,8 +8803,7 @@ int main()
                         "H2 left-handed dual presentation accepts partial secondary hand remaps");
                     Check(std::memcmp(primary, handedPrimary, sizeof(primary)) == 0 &&
                           std::memcmp(secondary, handedSecondary, sizeof(secondary)) == 0 &&
-                          nearlyEqual(handedHands[23], nativeHands[36]) &&
-                          nearlyEqual(handedHands[36], nativeHands[23]),
+                          anatomicalPalmsMatch(handedHands, nativeHands, packetBinding.rigKind),
                         "H2 independent guns stay exact while anatomical hands follow their owners");
                     const float dx = handedHands[49] - handedHands[23];
                     const float dy = handedHands[50] - handedHands[24];
@@ -13115,6 +13134,9 @@ int main()
             "The V5 seed defaults keep the welcome visible, fit the desktop "
             "window, use the V5 HUD size, and seed the accepted Halo 2 "
             "Classic yaw/pitch alignment");
+        Check(fresh.dpad_hand == 0 && fresh.dpad_head_radius == 0.30f &&
+                  !fresh.quest_thumbrest_dpad,
+            "D-pad defaults preserve the existing 30 cm left-hand head gesture and leave Quest thumb-rest mode off");
     }
 
     wchar_t tempPath[MAX_PATH]{};
@@ -13135,6 +13157,8 @@ int main()
     Check(g_config.screen_width_m == 6.25f, "Legacy values survive migration");
     Check(g_config.haptic_intensity == 0.86f,
         "Malformed new values retain their individual default");
+    Check(g_config.dpad_head_radius == 0.30f && !g_config.quest_thumbrest_dpad,
+        "Legacy configs retain the existing D-pad gesture radius and keep the new thumb-rest mode off");
     const std::string organizedConfig = ReadTextFile(primary);
     const size_t openXrSection = organizedConfig.find("#  OPENXR & COMFORT");
     const size_t controlsSection = organizedConfig.find("#  CONTROLS & TURNING");
@@ -13232,6 +13256,7 @@ int main()
         "cutscene_theater_flip_depth", "cutscene_theater_width_m",
         "cutscene_theater_distance_m",
         "turn_smooth", "turn_snap_deg", "turn_smooth_deg_s", "y_b_start_chord", "dpad_hand",
+        "dpad_head_radius", "quest_thumbrest_dpad",
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
         "vehicle_cam_right_m",
         "vehicle_view_follow", "vehicle_cam_smoothing",
@@ -13298,6 +13323,50 @@ int main()
         "legacy configs inherit the opt-in physical-melee defaults");
     Check(g_config.y_b_start_chord,
         "legacy configs inherit the enabled Y+B Start chord default");
+
+    {
+        {
+            std::ofstream file(primary);
+            file << "config_version = 5\n";
+            file << "dpad_hand = 1\n";
+            file << "dpad_head_radius = 0.225\n";
+            file << "quest_thumbrest_dpad = 1\n";
+        }
+        ConfigLoad(primary.c_str());
+        Check(g_config.dpad_hand == 1 && g_config.dpad_head_radius == 0.225f &&
+                  g_config.quest_thumbrest_dpad,
+            "D-pad head radius and Quest thumb-rest mode load independently of the selected gesture hand");
+        ConfigSave();
+        const std::string dpadConfig = ReadTextFile(primary);
+        Check(CountText(dpadConfig, "\ndpad_head_radius = 0.225") == 1 &&
+                  CountText(dpadConfig, "\nquest_thumbrest_dpad = 1") == 1,
+            "Saving writes one canonical D-pad radius and thumb-rest assignment");
+        g_config.dpad_head_radius = 0.50f;
+        g_config.quest_thumbrest_dpad = false;
+        ConfigLoad(primary.c_str());
+        Check(g_config.dpad_head_radius == 0.225f && g_config.quest_thumbrest_dpad,
+            "Both D-pad preferences survive a save/load round trip");
+        g_config.quest_thumbrest_dpad = false;
+        ConfigSave();
+        ConfigLoad(primary.c_str());
+        Check(!g_config.quest_thumbrest_dpad && g_config.dpad_head_radius == 0.225f,
+            "Disabling Quest thumb-rest mode persists without changing head-gesture reach");
+        struct RadiusCase { const char* value; float expected; };
+        for (const RadiusCase radius : {
+                 RadiusCase{"0.01", 0.10f}, RadiusCase{"0.99", 0.50f},
+                 RadiusCase{"nan", 0.30f}, RadiusCase{"inf", 0.30f},
+                 RadiusCase{"malformed", 0.30f}})
+        {
+            {
+                std::ofstream file(primary);
+                file << "config_version = 5\n";
+                file << "dpad_head_radius = " << radius.value << '\n';
+            }
+            ConfigLoad(primary.c_str());
+            Check(g_config.dpad_head_radius == radius.expected && !g_config.quest_thumbrest_dpad,
+                "D-pad radius clamps finite values and rejects malformed or nonfinite values without enabling thumb-rest mode");
+        }
+    }
 
     {
         std::ofstream file(primary);

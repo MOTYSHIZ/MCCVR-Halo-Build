@@ -433,6 +433,27 @@ if(BUILD_TESTING)
         "${HALOMCCVR_GENERATED_DIR}" "${openxr_SOURCE_DIR}/include")
     target_compile_definitions(halomccvr_haptics_runtime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_haptics_runtime_tests COMMAND halomccvr_haptics_runtime_tests)
+    add_executable(halomccvr_dpad_input_tests tests/dpad_input_tests.cpp src/common/input_logic.cpp)
+    target_include_directories(halomccvr_dpad_input_tests PRIVATE src/common src/dll)
+    target_compile_definitions(halomccvr_dpad_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_dpad_input_tests COMMAND halomccvr_dpad_input_tests)
+    set(HALOMCCVR_DPAD_ACTION_FIXTURE "${HALOMCCVR_GENERATED_DIR}/dpad_action_functions.inl")
+    add_custom_command(OUTPUT "${HALOMCCVR_DPAD_ACTION_FIXTURE}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_dpad_action_fixture.py"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${HALOMCCVR_DPAD_ACTION_FIXTURE}"
+        DEPENDS tools/generate_dpad_action_fixture.py tools/generate_haptics_runtime_fixture.py src/dll/vr.cpp
+        VERBATIM)
+    add_executable(halomccvr_dpad_action_tests tests/dpad_action_tests.cpp "${HALOMCCVR_DPAD_ACTION_FIXTURE}"
+        src/common/config.cpp src/common/log.cpp)
+    target_include_directories(halomccvr_dpad_action_tests PRIVATE "${HALOMCCVR_GENERATED_DIR}" "${openxr_SOURCE_DIR}/include")
+    target_compile_definitions(halomccvr_dpad_action_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_dpad_action_tests COMMAND halomccvr_dpad_action_tests)
+    add_executable(halomccvr_left_hand_h2_tests tests/left_hand_h2_tests.cpp)
+    target_include_directories(halomccvr_left_hand_h2_tests PRIVATE src/common)
+    add_test(NAME halomccvr_left_hand_h2_tests COMMAND halomccvr_left_hand_h2_tests)
+    add_executable(halomccvr_left_hand_shared_tests tests/left_hand_shared_tests.cpp)
+    target_include_directories(halomccvr_left_hand_shared_tests PRIVATE src/common)
+    add_test(NAME halomccvr_left_hand_shared_tests COMMAND halomccvr_left_hand_shared_tests)
     add_executable(halomccvr_ce_render_tests tests/haloce_render_tests.cpp)
     target_include_directories(halomccvr_ce_render_tests PRIVATE src/common)
     add_test(NAME halomccvr_ce_render_tests COMMAND halomccvr_ce_render_tests)
