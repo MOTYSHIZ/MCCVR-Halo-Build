@@ -1,3 +1,14 @@
+# September 16 scoped CE vehicle steering result: preserve 115778a
+
+The user confirms source `115778af3f71f4665fe1ca1eae715884002a7405` now follows
+the right controller in vehicles with no other reported regression. The seated
+crosshair is still face-centered, including in a Warthog turret, and must be
+corrected before the next ZIP. Preserve the steering behavior. This is scoped
+CE feedback, not acceptance of the crosshair or a new all-title regression.
+Cumulative accepted source stays **d47a98c**. Evidence and exact log identity:
+`CE-VEHICLE-CROSSHAIR-2026-09-16.md`. Package only after the correction and
+verification; no install, game launch or publication. Both editions supported.
+
 # Current state
 
 ## September 16 scoped CE result: preserve d7dbfcb runtime

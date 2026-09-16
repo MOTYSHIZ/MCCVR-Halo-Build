@@ -332,6 +332,10 @@ int main()
     for (size_t i=0;i<packet.size();++i)
         if (!(i>=0x1c&&i<0x40))
             Check(consumed[i]==packet[i],"native seated packet preserves actions and throttle");
+    Reset();Seated();
+    const auto reticleNativeCalls=nativeCalls;
+    Check(HaloCEUnitControl_VehicleAimCurrent(localPlayer,gameplay)&&!callbacks.load()&&
+        nativeCalls==reticleNativeCalls,"vehicle crosshair reads the steering owner without submitting another control packet");
     for (unsigned reason=0;reason<32;++reason)
     {
         Reset();Seated();uint32_t unit=localPlayer.unit;uintptr_t caller=moduleBase+0xad0d5b;
@@ -356,9 +360,28 @@ int main()
         case 30:mutateVehicleRenderer=true;break;
         case 31:mutateVehicleSpace=true;break;
         }
+        if (reason>=2)
+        {
+            Check(!HaloCEUnitControl_VehicleAimCurrent(localPlayer,gameplay)&&!callbacks.load(),
+                "vehicle crosshair rejects invalid, changing or untracked native owner independently of stereo");
+            vehicleReads=vehicleContextReads=0;PutUnit(0x2d0,int16_t(reason==26?-1:0));
+        }
         const auto calls=nativeCalls;UnitControlBody(unit,&packet,11,caller);
         Check(consumedPointer==&packet&&consumed==packet&&nativeCalls==calls+1,
             "invalid, changing or untracked vehicle ownership invokes exact original once");
+    }
+    for (unsigned mismatch=0;mismatch<8;++mismatch)
+    {
+        Reset();Seated();auto hudPlayer=localPlayer;auto hudContext=gameplay;
+        switch(mismatch)
+        {
+        case 0:++hudPlayer.player;break;case 1:++hudPlayer.parent;break;
+        case 2:++hudPlayer.inputUser;break;case 3:++hudContext.tracking.generation;break;
+        case 4:++hudContext.referenceRevision;break;case 5:++hudContext.rendererEpoch;break;
+        case 6:++hudContext.tracking.spaceEpoch;break;case 7:hudPlayer.onFoot=true;break;
+        }
+        Check(!HaloCEUnitControl_VehicleAimCurrent(hudPlayer,hudContext)&&!callbacks.load(),
+            "crosshair renderer/reference/player must match the current vehicle steering owner");
     }
     Reset();Seated();UnitControlBody(localPlayer.unit,&packet,47,moduleBase+0xad0d5b);
     localPlayer.onFoot=true;localPlayer.parent=0xffffffffu;localPlayer.nativePerspective=0;

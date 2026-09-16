@@ -1,3 +1,21 @@
+# Current handoff - September 16: CE seated crosshair correction
+
+The user confirms 115778a vehicle steering follows the right hand with no
+reported regression, but the vehicle/turret crosshair stays face-centered.
+Fix that crosshair before delivering any ZIP. Preserve the working controls
+and all prior scope. Read `CE-VEHICLE-CROSSHAIR-2026-09-16.md` for the preserved
+log, source-proven on-foot-only capture gate and the bounded correction.
+
+The correction admits verified seated native art through the existing
+controller-ray compositor. Main HUD framing and shared compositor are unchanged.
+Production regression tests reproduce the old failure and pass the new path.
+Finish cumulative verification, commit/package without -Install, and verify
+matching archives. Exact identity belongs in
+`out/ce-vehicle-crosshair-current-handoff.json`. Deliver both, then WAIT.
+No installation, game launch, game-folder writes, PR or publication. Both
+editions remain supported. Cumulative accepted pointer stays d47a98c; scoped
+115778a steering acceptance does not accept the reported crosshair defect.
+
 # Current handoff - September 16: CE controller-directed vehicles
 
 The user requests right-controller vehicle steering/aiming in Halo 1 Original

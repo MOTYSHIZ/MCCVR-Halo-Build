@@ -328,3 +328,36 @@ bool HaloCEUnitControl_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
     }
     return Current()&&ready.load();
 }
+
+bool HaloCEUnitControl_VehicleAimCurrent(const HaloCELocalPlayerState& player,
+    const halo_ce::RenderContext& context) noexcept
+{
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    bool admitted=false;
+    __try
+    {
+        HaloCELocalPlayerState current{},latest{};RenderContext frame{},latestFrame{};
+        int16_t seat=-1,latestSeat=-1;
+        admitted=ready.load(std::memory_order_acquire)&&
+            VehicleOwner(player.unit,current,frame,seat)&&
+            VehicleOwner(player.unit,latest,latestFrame,latestSeat)&&
+            player.generation==current.generation&&player.player==current.player&&
+            player.inputUser==current.inputUser&&player.parent==current.parent&&
+            !player.onFoot&&player.nativePerspective==1&&
+            current.player==latest.player&&current.inputUser==latest.inputUser&&
+            current.parent==latest.parent&&seat==latestSeat&&
+            context.tracking.generation==frame.tracking.generation&&
+            context.referenceRevision==frame.referenceRevision&&
+            context.rendererEpoch==frame.rendererEpoch&&
+            context.tracking.spaceEpoch==frame.tracking.spaceEpoch&&
+            frame.referenceRevision==latestFrame.referenceRevision&&
+            frame.rendererEpoch==latestFrame.rendererEpoch&&
+            frame.tracking.spaceEpoch==latestFrame.tracking.spaceEpoch&&
+            frame.tracking.controllers.primaryAim.valid&&
+            latestFrame.tracking.controllers.primaryAim.valid&&
+            ready.load(std::memory_order_acquire)&&Current()&&
+            HaloCE_RenderContextCurrent(context);
+    }
+    __finally { callbacks.fetch_sub(1,std::memory_order_release); }
+    return admitted;
+}

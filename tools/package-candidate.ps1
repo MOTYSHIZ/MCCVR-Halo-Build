@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'ce-vehicle-controls',
+        'ce-vehicle-crosshair',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1141,6 +1141,14 @@ try {
             graphics = 'Original-and-Anniversary'
             behavior = 'controller-directed-native-vehicle-steering-and-aim; preserve-native-throttle-and-on-foot-controls'
             evidence = 'docs/HALOCE-VEHICLE-CONTROL-2026-09-16.md'
+            headset_accepted = $true
+            acceptance_scope = '115778a-user-confirms-controller-steering-and-no-other-regression; seated-crosshair-defect-excluded; Original-log-only'
+        }
+        ce_vehicle_crosshair = [ordered]@{
+            baseline_source = '115778af3f71f4665fe1ca1eae715884002a7405'
+            graphics = 'Original-and-Anniversary'
+            behavior = 'capture-native-seated-reticle-through-verified-vehicle-owner; existing-controller-ray-compositor; preserve-main-HUD-and-steering'
+            evidence = 'docs/CE-VEHICLE-CROSSHAIR-2026-09-16.md'
             headset_accepted = $false
         }
         ce_community_refinement = [ordered]@{
@@ -1238,13 +1246,13 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate adds CE vehicle controls to delivered 8d96381; the new behavior and rebuilt artifact require headset testing. Earlier CE refinements and standing/deferred scope are preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. This candidate corrects CE seated crosshair capture on user-tested 115778a steering; new visual behavior and rebuilt artifact require headset testing. Earlier CE refinements and standing/deferred scope are preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'CE controller-directed vehicle candidate based on delivered 8d96381. Keep existing config. Both graphics modes and MCC editions; package only; no installation, launch or publication. Native vehicle physics and on-foot controls are preserved; headset testing remains required.'
+        note = 'CE seated crosshair correction based on user-tested 115778a vehicle steering. Keep existing config. Both graphics modes and MCC editions; package only; no installation, launch or publication. Main HUD framing, controls and native vehicle physics are preserved; headset testing remains required.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-VEHICLE-CANDIDATE-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-VEHICLE-CROSSHAIR-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6

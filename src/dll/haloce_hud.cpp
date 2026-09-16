@@ -1,6 +1,7 @@
 #include "haloce_hud.h"
 #include "haloce_hud_layout.h"
 #include "haloce_first_person.h"
+#include "haloce_unit_control.h"
 #include "haloce_native_bindings.h"
 #include "haloce_stereo_core.h"
 #include "hook_quiescence.h"
@@ -25,6 +26,7 @@ bool hookEnabled{};
 std::atomic<bool> installed{},active{},retiring{},prepared{};
 std::atomic<uint32_t> generation{},callbacks{};
 std::atomic<uint64_t> captures{},fallbacks{},contextRefusals{};
+std::atomic<uint64_t> vehicleCaptures{};
 uint32_t rejectedGeneration{},rejectedCaptureGeneration{};
 bool targetBindingsVerified{};
 uint64_t lastReport{};
@@ -43,11 +45,11 @@ bool Current() noexcept
         TitleAdapter_GetActiveTitle()==GameTitle::HaloCE&&
         TitleAdapter_GetGeneration(GameTitle::HaloCE)==generation.load();
 }
-bool Context(RenderContext& out) noexcept
+bool Context(RenderContext& out,bool& vehicle) noexcept
 {
     HaloCELocalPlayerState player{};
     if (!HaloCEFirstPerson_AimArmed()||!HaloCEFirstPerson_GetLocalPlayerState(player)||
-        !player.hasControlledUnit||!player.onFoot||!player.nativePreparesFirstPerson||
+        !player.hasControlledUnit||
         player.nativeInputBlocked||player.nativeLookBlocked||player.nativePaused||player.nativeCinematicFlag)
         return false;
     Camera source{};
@@ -58,9 +60,14 @@ bool Context(RenderContext& out) noexcept
         std::memcpy(&nativeContext,reinterpret_cast<const void*>(moduleBase+0x2ea2d30),sizeof(nativeContext));
     }
     __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
-    return HaloCE_GetRenderContext(source,out)&&!out.tracking.controllers.controlsPresentationBlocked&&
-        out.tracking.controllers.primaryAim.valid&&
-        VR_CeAuthoredReticleFrameMatches(nativeContext,out.tracking.serial);
+    if (!HaloCE_GetRenderContext(source,out)||out.tracking.controllers.controlsPresentationBlocked||
+        !out.tracking.controllers.primaryAim.valid||
+        !VR_CeAuthoredReticleFrameMatches(nativeContext,out.tracking.serial)) return false;
+    if (player.onFoot) return player.nativePreparesFirstPerson;
+    // A following vehicle camera deliberately does not prepare a first-person
+    // model. Capture its authored reticle independently of that model gate.
+    vehicle=HaloCEUnitControl_VehicleAimCurrent(player,out);
+    return vehicle;
 }
 void InvalidateCapture() noexcept
 {
@@ -73,11 +80,12 @@ void InvalidateCapture() noexcept
 void DrawBody(int32_t user,uint32_t weapon,uint32_t hud,const void* state)
 {
     RenderContext context{};
+    bool vehicle=false;
     if (drawing||user!=0)
     { original(user,weapon,hud,state); return; }
     if (!Current()||!prepared.load())
     { InvalidateCapture(); original(user,weapon,hud,state); return; }
-    if (!Context(context))
+    if (!Context(context,vehicle))
     {
         contextRefusals.fetch_add(1,std::memory_order_relaxed);
         InvalidateCapture(); original(user,weapon,hud,state); return;
@@ -123,6 +131,7 @@ void DrawBody(int32_t user,uint32_t weapon,uint32_t hud,const void* state)
             // but must not relabel the queued old artwork as the new weapon.
             lastCapture.Publish({context,capturedKey,GetTickCount64()});
             captures.fetch_add(1,std::memory_order_relaxed);
+            if (vehicle) vehicleCaptures.fetch_add(1,std::memory_order_relaxed);
         }
         else
         {
@@ -206,7 +215,7 @@ void PrepareCapture(uintptr_t base,size_t size,uint32_t gen) noexcept
         if (VR_PrepareAuthoredReticleSuppressionResources())
         {
             prepared=true;
-            LOG("CE crosshair authored capture prepared: native overlays on controller aim; visible result unverified");
+            LOG("CE crosshair authored capture prepared: native on-foot and verified seated overlays on controller aim; vehicle capture independent of first-person model preparation");
         }
         else
         {
@@ -237,8 +246,8 @@ bool HaloCEHud_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexc
     if (installed.load()&&now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE HUD gen=%u nativeScope=1 capturePrepared=%d crosshairCaptures=%llu stockFallbacks=%llu contextRefusals=%llu",
-            gen,prepared.load()?1:0,captures.load(),fallbacks.load(),contextRefusals.load());
+        LOG("CE HUD gen=%u nativeScope=1 capturePrepared=%d crosshairCaptures=%llu stockFallbacks=%llu contextRefusals=%llu vehicleCaptures=%llu",
+            gen,prepared.load()?1:0,captures.load(),fallbacks.load(),contextRefusals.load(),vehicleCaptures.load());
     }
     return Current();
 }

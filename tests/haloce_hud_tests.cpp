@@ -15,6 +15,7 @@ static unsigned layoutSuspensions{};
 static bool nativeFramingIsolated=true,canPrepare=true,suppressionReady=true;
 static AuthoredReticlePreparationResult preparationResult=AuthoredReticlePreparationResult::Ready;
 static bool aimAvailable=true,playerEligible=true;
+static bool seated=false,vehicleAimCurrent=true;
 static bool coldTargetProof=true;
 static uint64_t displayedSerial{};
 static bool coveragePending{};
@@ -26,10 +27,13 @@ bool HaloCE_HudTargetBindingsVerified(uintptr_t base,size_t size,uint32_t gen) n
 bool HaloCEFirstPerson_AimArmed() noexcept { return aimAvailable; }
 bool HaloCEFirstPerson_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept
 {
-    state.hasControlledUnit=state.onFoot=state.nativePreparesFirstPerson=playerEligible;
+    state.hasControlledUnit=playerEligible;
+    state.onFoot=state.nativePreparesFirstPerson=playerEligible&&!seated;
     state.nativeInputBlocked=state.nativeLookBlocked=false;
     return true;
 }
+bool HaloCEUnitControl_VehicleAimCurrent(const HaloCELocalPlayerState&,
+    const halo_ce::RenderContext&) noexcept { return seated&&vehicleAimCurrent; }
 bool HaloCEHudTarget_Read(uintptr_t,ID3D11DeviceContext*,CeHudTargetSnapshot&) noexcept { return false; }
 void HaloCEHudLayout_Suspend() noexcept { ++layoutSuspensions; }
 void HaloCEHudLayout_Resume() noexcept { --layoutSuspensions; }
@@ -200,6 +204,31 @@ int main()
     CrosshairHook(0,17,29,nullptr);
     check(captureBegins==eligibleCaptures+1&&HaloCEHud_CapturedCrosshair(),
         "eligible local player must recapture after stock fallback");
+    // Reproduce the headset report with the actual production draw scope:
+    // a seated player has no on-foot first-person model, but still draws art.
+    seated=true;
+    for (uint64_t age : {0ull,1ull,8ull})
+    {
+        displayedSerial=++testContext.tracking.serial+age;
+        const unsigned beforeVehicleCapture=captureBegins,beforeSuppression=suppressionBegins;
+        const auto beforeVehicleCount=vehicleCaptures.load();
+        CrosshairHook(0,71,82,nullptr);
+        const auto vehicleKey=HaloCEHud_CrosshairKey();
+        CrosshairHook(0,71,82,nullptr);
+        check(captureBegins==beforeVehicleCapture+1&&suppressionBegins==beforeSuppression+1&&
+            vehicleKey&&HaloCEHud_CrosshairKey()==vehicleKey&&
+            vehicleCaptures.load()==beforeVehicleCount+2&&!redirectActive&&!callbacks.load(),
+            "Original and late Anniversary seated crosshair captures once and suppresses the centered copy in both eyes");
+    }
+    vehicleAimCurrent=false;
+    CrosshairHook(0,71,82,nullptr);
+    check(!HaloCEHud_CapturedCrosshair(),"unproved seated aiming retains stock crosshair and revokes old art");
+    vehicleAimCurrent=true;
+    CrosshairHook(0,71,82,nullptr);
+    check(HaloCEHud_CapturedCrosshair(),"seated aiming recovers without reinstalling stereo");
+    seated=false;displayedSerial=++testContext.tracking.serial;
+    CrosshairHook(0,17,29,nullptr);
+    check(HaloCEHud_CapturedCrosshair(),"vehicle exit restores on-foot native art capture");
     // The natural Anniversary callback carries the worker's frozen receipt,
     // while the OpenXR submission is already one or more samples newer.
     for (uint64_t age=1;age<=8;++age)
