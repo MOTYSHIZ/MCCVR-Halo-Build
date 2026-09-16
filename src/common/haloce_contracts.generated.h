@@ -474,6 +474,66 @@ inline constexpr uint32_t resolution_legacy_hud_screen=0x1b7d1d0;
 inline constexpr uint32_t resolution_legacy_hud_meter=0x1b7d1f0;
 inline constexpr uint32_t resolution_legacy_hud_meter_background=0x1b7d210;
 }
+namespace audio_listener {
+inline constexpr std::array<Entry,3> entries={{
+    {"audio_listener_submit",0xabcc54,"48 8B C4 48 89 58 18 55 56 57 48 8D 68 D8 48 81 EC 10 01 00 00 0F 29 70 D8 0F 29 78 C8 44 0F 29 40 B8 44 0F 29 48 A8",true},
+    {"audio_listener_producer",0xb4cb80,"48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 B8 FD FF FF 48 81 EC 20 03 00 00",true},
+    {"audio_listener_basis",0xba24ec,"48 83 EC 28 C7 01 00 00 80 3F F2 0F 10 02 F2 0F 11 41 04 8B 42 08 89 41 0C",true},
+}};
+inline constexpr std::array<Witness,10> witnesses={{
+    {0xabcc90,"8B F9 48 8D 4A 48 48 8B F2"},
+    {0xabcd5e,"F3 0F 10 46 24 F3 0F 59 05 95 2A E9 00 F3 0F 59 F1 F3 0F 10 4E 28 F3 0F 59 0D 44 31 E9 00 F3 0F 11"},
+    {0xabce19,"8B D7 FF 90 A0 00 00 00"},
+    {0xabcca3,"E8 ?? ?? ?? ??"},
+    {0xb4cd39,"4D 8D 46 2C 49 8D 56 20"},
+    {0xb4cdc1,"8B 41 30 41 0F 11 41 30 0F 10 41 20 41 0F 11 49 40 41 0F 11 41 50 41 89 41 60"},
+    {0xb4ceee,"48 03 D0 41 88 36 48 8B 05 1D 74 10 01 FF 50 28"},
+    {0xb4cd41,"E8 ?? ?? ?? ??"},
+    {0xb4cd61,"E8 ?? ?? ?? ??"},
+    {0xba2558,"F3 0F 11 49 10 F3 0F 5C DA F3 0F 11 79 18 0F 28 3C 24 F3 0F 11 59 14 F2 41 0F 10 00 F2 0F 11 41 1C 41 8B 40 08 89 41 24 33 C0 48 89 41 28 89 41 30 48 83 C4 28"},
+}};
+inline constexpr std::array<Relative,3> relatives={{
+    {0xabcca3,5,1,0x77e70},
+    {0xb4cd41,5,1,0xba24ec},
+    {0xb4cd61,5,1,0xba31b0},
+}};
+inline constexpr std::array<Pointer,2> pointers={{
+    {0x18988a8,0x1b7b880},
+    {0x1b7b8a8,0xabcc54},
+}};
+inline constexpr uint32_t audio_listener_submit=0xabcc54;
+inline constexpr uint32_t audio_listener_producer=0xb4cb80;
+inline constexpr uint32_t audio_listener_basis=0xba24ec;
+}
+namespace camera_effect {
+inline constexpr std::array<Entry,2> entries={{
+    {"camera_effect_transform",0xbac0cc,"48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 0F 10 1D 10 E3 CE 00",true},
+    {"camera_effect_consumer",0xac450c,"48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 A1 48 81 EC 90 00 00 00 48 8B FA 48 8B D9 48 85 D2 0F 84 46 01 00 00 F2",true},
+}};
+inline constexpr std::array<Witness,10> witnesses={{
+    {0xbac1ef,"49 6B C4 34"},
+    {0xbac7c4,"0F 10 07 0F 11 06 0F 10 4F 10 0F 11 4E 10 0F 10 47 20 0F 11 46 20 8B 47 30 89 46 30"},
+    {0xbac7bf,"E8 ?? ?? ?? ??"},
+    {0xbac7f1,"E8 ?? ?? ?? ??"},
+    {0xac4611,"0F B7 0B 48 8D 55 1F"},
+    {0xac461d,"4C 8D 47 2C 48 8D 57 20 48 8D 4D E7"},
+    {0xac4639,"48 8D 55 1F 48 8D 4D E7"},
+    {0xac4618,"E8 ?? ?? ?? ??"},
+    {0xac4629,"E8 ?? ?? ?? ??"},
+    {0xac4649,"E8 ?? ?? ?? ??"},
+}};
+inline constexpr std::array<Relative,5> relatives={{
+    {0xbac7bf,5,1,0xba3360},
+    {0xbac7f1,5,1,0xba807c},
+    {0xac4618,5,1,0xbac0cc},
+    {0xac4629,5,1,0xba24ec},
+    {0xac4649,5,1,0xba3360},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t camera_effect_transform=0xbac0cc;
+inline constexpr uint32_t camera_effect_consumer=0xac450c;
+}
 namespace classic {
 inline constexpr std::array<Entry,19> entries={{
     {"classic_view_render",0xbbcf30,"40 55 53 56 57 41 54 41 56 41 57 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 48 8B 05 BF 80 FB 00 48 33 C4 48 89 85 80 01 00 00 48 8B BD F0 01",true},
@@ -1140,6 +1200,36 @@ inline constexpr uint32_t first_person_visibility_scheduler=0x7b2e0;
 inline constexpr uint32_t first_person_visibility_bridge_branch=0x7afb1;
 inline constexpr uint32_t first_person_visibility_submit=0x4aa740;
 }
+namespace flare_guard {
+inline constexpr std::array<Entry,2> entries={{
+    {"flare_project",0x446f70,"48 89 5C 24 08 48 89 54 24 10 57 48 81 EC E0 00 00 00 49 63 80 20 02 00 00",true},
+    {"flare_draw",0x447ea0,"48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 58 FE FF FF 48 81 EC 70 02 00 00 48 C7 45 E0",true},
+}};
+inline constexpr std::array<Witness,12> witnesses={{
+    {0x446f82,"49 63 80 20 02 00 00"},
+    {0x446fa3,"F3 0F 10 84 CB 8C 00 00 00"},
+    {0x446fb4,"F3 0F 10 84 CB B4 00 00 00"},
+    {0x4470fa,"F3 41 0F 5E D0"},
+    {0x447169,"F3 45 0F 5E C8"},
+    {0x447316,"44 0F 28 64 24 70 4C 8D 9C 24 E0 00 00 00 49 8B 5B 10 45 0F 28 53 B0 49 8B E3 5F C3"},
+    {0x447120,"4C 8D 43 70"},
+    {0x447145,"48 63 87 20 02 00 00 0F 5B C9 48 8D 0C 80 48 C1 E1 04 F3 44 0F 58 CF 4C 03 C1"},
+    {0x451096,"E8 D5 5E FF FF"},
+    {0x44701d,"E8 BE 4B EA FF"},
+    {0x447185,"E8 16 0D 00 00"},
+    {0x4472e6,"E8 B5 0B 00 00"},
+}};
+inline constexpr std::array<Relative,4> relatives={{
+    {0x451096,5,1,0x446f70},
+    {0x44701d,5,1,0x2ebbe0},
+    {0x447185,5,1,0x447ea0},
+    {0x4472e6,5,1,0x447ea0},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t flare_project=0x446f70;
+inline constexpr uint32_t flare_draw=0x447ea0;
+}
 namespace gameplay_bridge {
 inline constexpr std::array<Entry,1> entries={{
     {"gameplay_saber_camera_producer",0x7b480,"48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 81 EC C0 00 00 00 80 3D DF 03 DC 02 00 49 8B F1 49 8B E8",true},
@@ -1392,5 +1482,61 @@ inline constexpr uint32_t state_weapon_owner=0xb77814;
 inline constexpr uint32_t state_equipped_record=0xb27510;
 inline constexpr uint32_t state_unit_player_backlink=0xb7a374;
 inline constexpr uint32_t state_unit_parent=0xb04d00;
+}
+namespace unit_control {
+inline constexpr std::array<Entry,7> entries={{
+    {"unit_control_set",0xafe098,"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 33 F6 44 0F B7 C9 83 CF FF 41 8B D8 44 8A 05 76 D5 07 01",true},
+    {"unit_control_player_update",0xad0720,"48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 D8 FB FF FF 48 81 EC 00 05 00 00 48 8B",true},
+    {"movement_consumer",0xbb5d88,"48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 38 FC FF FF 48 81 EC A0 04 00 00",true},
+    {"movement_producer_secondary",0xbb1efc,"48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 18 FE FF FF 48 81 EC B0 02 00 00 0F 29 70 B8",true},
+    {"movement_producer",0xbb31f4,"48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 68 FA FF FF 48 81 EC 60 06 00 00 0F 29 70 B8",true},
+    {"movement_consumer_return",0xbb40f4,"8B 85 2C 04 00 00 83 C9 FF 3B C1 74 0F C6 83 DF 04 00 00 3C",false},
+    {"movement_consumer_return_secondary",0xbb2c3d,"8B 45 CC 83 CA FF 3B C2 74 0F C6 83 DF 04 00 00 3C 89 83 E0 04 00 00",false},
+}};
+inline constexpr std::array<Witness,29> witnesses={{
+    {0xafe11a,"0F 10 02 41 0F 11 82 78 04 00 00 0F 10 4A 10 41 0F 11 8A 88 04 00 00 0F 10 42 20 41 0F 11 82 98 04 00 00 0F 10 4A 30 41 0F 11 8A A8 04 00 00 0F 10 42 40 41 0F 11 82 B8 04 00 00"},
+    {0xafe155,"F2 0F 10 42 0C F2 41 0F 11 82 58 02 00 00 8B 42 14 41 89 82 60 02 00 00 8B 42 18 41 89 82 64 02 00 00 8A 42 01 41 88 82 68 02 00 00"},
+    {0xafe1da,"F2 0F 10 42 34 F2 41 0F 11 82 34 02 00 00 8B 42 3C 41 89 82 3C 02 00 00 F2 0F 10 42 28 F2 41 0F 11 82 10 02 00 00 8B 42 30 41 89 82 18 02 00 00 F2 0F 10 42 1C F2 41 0F 11 82 04 02 00 00 8B 42 24 41 89 82 0C 02 00 00"},
+    {0xad0cb3,"8B 44 24 60 48 8D 4F 20 F2 0F 10 44 24 58"},
+    {0xad0cee,"F2 0F 11 44 24 64 F2 0F 11 44 24 4C"},
+    {0xad0d49,"44 8B 44 24 24 48 8D 54 24 30 8B 4B 64"},
+    {0xad0d5b,"4C 8B 7C 24 28"},
+    {0xad0d56,"E8 ?? ?? ?? ??"},
+    {0xbb5dfe,"0F B7 59 04"},
+    {0xbb5e4a,"48 8B F9 66 44 89 A1 A0 00 00 00"},
+    {0xbb5fa3,"F3 44 0F 10 59 3C F3 0F 10 49 40 45 0F 28 EB F3 0F 10 41 18 F3 44 0F 59 69 14 8B 41 44 F3 44 0F 59 59 18 89 81 C0 00 00 00 F3 0F 59 C1 F3 0F 59 49 14 F3 44 0F 5C E8 F3 44 0F 58 D9"},
+    {0xbb5fe5,"F3 44 0F 11 A9 B8 00 00 00 F3 44 0F 11 5D BC F3 44 0F 11 99 BC 00 00 00"},
+    {0xbb6112,"F2 0F 10 4F 20"},
+    {0xbb612e,"8B 47 28"},
+    {0xbb1fa5,"F2 41 0F 10 40 30 45 33 FF 41 8B 48 38"},
+    {0xbb1fb9,"89 74 24 30 F7 80 7C 01 00 00 00 08 00 00 66 44 89 7C 24 34 F2 0F 11 44 24 44 89 4C 24 4C"},
+    {0xbb2003,"48 81 C2 50 02 00 00 49 03 D0 45 3B C1 48 0F 44 D0 F2 0F 10 02 8B 42 08"},
+    {0xbb202c,"F2 0F 11 44 24 50"},
+    {0xbb2050,"89 44 24 58"},
+    {0xbb2112,"44 21 7C 24 6C 44 21 7C 24 70 44 21 7C 24 74"},
+    {0xbb2c33,"48 8D 4C 24 30"},
+    {0xbb2c38,"E8 4B 31 00 00"},
+    {0xbb32d0,"F2 0F 10 43 30 48 8B F8 8B 43 38 44 89 A5 90 03 00 00 66 44 89 BD 94 03 00 00 F2 0F 11 85 A4 03 00 00 89 85 AC 03 00 00"},
+    {0xbb32f8,"F7 87 7C 01 00 00 00 08 00 00 74 0A F2 0F 11 85 B0 03 00 00 EB 25 49 8D 82 50 02 00 00 B9 1C 02 00 00 49 03 C1 44 3B CE 48 0F 44 C1 F2 0F 10 00 F2 0F 11 85 B0 03 00 00 8B 40 08"},
+    {0xbb3372,"89 85 B8 03 00 00"},
+    {0xbb3452,"44 21 BD CC 03 00 00 44 21 BD D0 03 00 00"},
+    {0xbb346a,"44 21 BD D4 03 00 00"},
+    {0xbb40e8,"48 8D 8D 90 03 00 00"},
+    {0xbb40ef,"E8 94 1C 00 00"},
+}};
+inline constexpr std::array<Relative,3> relatives={{
+    {0xad0d56,5,1,0xafe098},
+    {0xbb2c38,5,1,0xbb5d88},
+    {0xbb40ef,5,1,0xbb5d88},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t unit_control_set=0xafe098;
+inline constexpr uint32_t unit_control_player_update=0xad0720;
+inline constexpr uint32_t movement_consumer=0xbb5d88;
+inline constexpr uint32_t movement_producer_secondary=0xbb1efc;
+inline constexpr uint32_t movement_producer=0xbb31f4;
+inline constexpr uint32_t movement_consumer_return=0xbb40f4;
+inline constexpr uint32_t movement_consumer_return_secondary=0xbb2c3d;
 }
 }

@@ -14,7 +14,7 @@ uintptr_t playerAddress{},unitAddress{},weaponAddress{},playersAddress{};
 int16_t perspective{};
 bool gameplayAvailable=true,contextCurrent=true,raiseTurn{};
 halo_ce::RenderContext gameplay{};
-unsigned failures{},turnCalls{};
+unsigned failures{},turnCalls{},unwindChecks{},unwindFailures{};
 int32_t lastUser=-1;
 float lastYaw{},lastPitch{};
 void Check(bool result,const char* message)
@@ -56,6 +56,13 @@ bool NativeException()
     { return true; }
     return false;
 }
+bool NativeHookException()
+{
+    __try { TurnHook(1,.25f,.5f); }
+    __except(GetExceptionCode()==0xe0424242?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH)
+    { return true; }
+    return false;
+}
 }
 
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
@@ -66,8 +73,27 @@ bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& value) noexcept
 { return contextCurrent&&value.tracking.generation==testGeneration&&
     value.referenceRevision==gameplay.referenceRevision&&value.rendererEpoch==gameplay.rendererEpoch; }
 void Logf(const char*,...) {}
-bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t,
-    const std::atomic<uint32_t>& count) { return !count.load(); }
+bool WaitForNativeDetourQuiescence(const void* const* functions,const void* const* trampolines,
+    size_t count,const std::atomic<uint32_t>& pending)
+{
+    // Exercise production's real Windows unwind admission for EVERY range.
+    // This fixture owns no concurrent native workers, so it only replaces the
+    // subsequent thread-freeze/drain phase; a leaf wrapper cannot pass here.
+    if (!functions||!trampolines||!count||count>8) return false;
+    bool valid=true;
+    for (size_t i=0;i<count;++i)
+    {
+        ++unwindChecks;
+        DWORD64 base{};
+        const auto* entry=RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(functions[i]),&base,nullptr);
+        if (!entry||entry->EndAddress<=entry->BeginAddress)
+        {
+            ++unwindFailures;valid=false;
+            std::fprintf(stderr,"CE controls missing compiled unwind range: retirement slot %zu\n",i);
+        }
+    }
+    return valid&&!pending.load();
+}
 
 int main()
 {
@@ -222,12 +248,31 @@ int main()
     Check(NativeException()&&!callbacks.load()&&!HaloCEControls_OwnsLookStick()&&
         exceptions.load()==priorExceptions+1,
         "native structured exception propagates after retiring the real scope and revoking stale look ownership");
+    const auto hookExceptions=exceptions.load();
+    Check(NativeHookException()&&!callbacks.load()&&exceptions.load()==hookExceptions+1,
+        "actual hook entry propagates native exceptions after retiring its callback ownership");
     raiseTurn=false;TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
     Check(!callbacks.load(),"native callback recovers without stranded retirement ownership");
     testTitle=GameTitle::Halo3;
     Check(!HaloCEControls_GetLocalPlayerState(player)&&!HaloCEControls_MapMoveStick(0,1,x,y)&&
         !HaloCEControls_GetNativePaused(nativePaused),
         "CE never claims another title's state or movement");
+    testTitle=GameTitle::HaloCE;
+    const auto beforeRetire=moduleBase;
+    callbacks=1;
+    Check(!Remove()&&moduleBase==beforeRetire&&retiring.load()&&!active.load(),
+        "pending callback preserves native dependency pointers while retiring controls");
+    callbacks=0;
+    Check(Remove()&&!moduleBase&&!retiring.load()&&!stateReady.load()&&!turnReady.load(),
+        "all eight actual compiled retirement ranges resolve and controls finish cleanup after draining");
+    Check(unwindChecks==16&&!unwindFailures,
+        "both complete retirement attempts validate every production function's actual unwind metadata");
+    // A same-generation camera re-entry can now publish native state again.
+    // Contract installation remains covered separately by the pinned binding suite.
+    moduleBase=reinterpret_cast<uintptr_t>(image);generation=testGeneration;
+    active=stateReady=turnReady=true;
+    Check(HaloCEControls_GetLocalPlayerState(player)&&player.unit==unitId,
+        "native player state works after completed retirement and same-generation reactivation");
     active=stateReady=turnReady=false;moduleBase=0;
     VirtualFree(image,0,MEM_RELEASE);
     return failures?1:0;

@@ -184,9 +184,20 @@ void TurnDispatch(int32_t inputUser,float yawDelta,float pitchDelta,uintptr_t ca
 }
 __declspec(noinline) void __fastcall TurnHook(int32_t inputUser,float yawDelta,float pitchDelta)
 {
-    // Preserve the actual native caller before entering the cleanup boundary.
-    // Native structured exceptions must not strand retirement ownership.
-    TurnDispatch(inputUser,yawDelta,pitchDelta,reinterpret_cast<uintptr_t>(_ReturnAddress()));
+    // Own the cleanup boundary at the actual hook entry. A wrapper tail-call
+    // to TurnDispatch compiles as a leaf without x64 unwind metadata; the
+    // retirement range resolver then rejects it forever after one camera gap.
+    // Retain the older dispatch below the feature boundary for its existing
+    // direct fixture coverage, but keep native caller identity at this entry.
+    const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try { TurnBody(inputUser,yawDelta,pitchDelta,caller); }
+    __finally
+    {
+        if (AbnormalTermination())
+        { lastOwned=0;exceptions.fetch_add(1,std::memory_order_relaxed); }
+        callbacks.fetch_sub(1,std::memory_order_release);
+    }
 }
 
 bool Remove() noexcept

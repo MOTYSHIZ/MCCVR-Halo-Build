@@ -663,7 +663,8 @@ void FrameBody(uintptr_t arg,uint32_t flags)
     // stock work owns no Classic eye receipt, even when old synthetic lists
     // still need their packed-copy bounds protection during a switch.
     const bool anniversaryFrame=Current()&&Anniversary();
-    if (!frameScope&&anniversaryFrame) completedFrame.Publish({});
+    // Keep the last coherent pair while its successor renders or is rejected.
+    // AcquirePair still rejects stale tracking, recenter and renderer changes.
     // Preparation can signal native completion before its wrapper returns.
     // The builder's already-published marker protects the packed GPU copy in
     // that window. Only the fully frozen receipt below permits VR submission.
@@ -1063,7 +1064,7 @@ void HaloCE_RequestRecovery(uint32_t gen) noexcept
         rejectedGeneration = 0;
 }
 
-bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
+bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive,bool allowInitialInstall) noexcept
 {
     active.store(isActive,std::memory_order_release);
     if (moduleReference&&(!isActive||gen!=generation.load()||base!=bindings.base||retiring.load()))
@@ -1085,7 +1086,7 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
         TitleAdapter_PublishLifecycle(GameTitle::HaloCE,gen,{false,false,false,0});
         return false;
     }
-    if (!installed.load()&&gen!=rejectedGeneration&&copyTarget.load())
+    if (!installed.load()&&allowInitialInstall&&gen!=rejectedGeneration&&copyTarget.load())
         if (!Install(base,size,gen)) rejectedGeneration=gen;
     if (installed.load()) (void)CeObserveRendererMode();
     const uint64_t now=GetTickCount64(),first=firstCameraMs.load(),last=lastCameraMs.load();
@@ -1101,6 +1102,9 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
     if (now-lastReport>=2000)
     {
         lastReport=now;
+        if (!installed.load())
+            LOG("CE cold install waiting: levelClockReady=%d rejectedGeneration=%u; no camera hooks or module pin before live simulation",
+                allowInitialInstall?1:0,rejectedGeneration);
         LOG("CE RESOLUTION installed=%d requestedEye=%ux%u packedHeight=%u nativeChildren=%llu packedAllocations=%llu managedRebuilds=%llu failures=%llu reason=%u",
             ce_resolution::enabled.load(),ce_resolution::requestedWidth.load(),ce_resolution::requestedHeight.load(),
             2*ce_resolution::requestedHeight.load(),ce_resolution::children.load(),ce_resolution::packedAllocations.load(),
@@ -1111,6 +1115,9 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
             gen,classicInstalled.load(),classicPairs.load(),classicDrops.load(),classicStock.load(),
             classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()),
             static_cast<unsigned>(classicSourceFailure.load()));
+        LOG("CE CLASSIC PREP stage=%u cache=%d raster=%ux%u output=%ux%u",
+            classicPairStage.load(),classicCacheBegan.load(),classicRasterWidth.load(),
+            classicRasterHeight.load(),classicOutputWidth.load(),classicOutputHeight.load());
         const uint32_t hudFailure=anniversaryHudFailure.load();
         LOG("CE Anniversary HUD gen=%u installed=%d draws=%llu fallback=%llu failure=%u reason=%s targetsPrepared=%llu incompatibleDepth=%llu",
             gen,anniversaryHudNaturalInstalled.load(),anniversaryHudDraws.load(),
@@ -1187,6 +1194,7 @@ void HaloCE_PresentResources(ID3D11Device* device,ID3D11DeviceContext* context) 
         LOG("CE eye caches prepared: %ux%u format=%u generation=%u resource=%llu",
             next.descriptor.Width,next.descriptor.Height,next.descriptor.Format,next.generation,resourceEpoch);
     }
+    else allocated.Publish({}); // Prepare may have retired the old GPU banks.
 }
 bool HaloCE_AcquirePair(ID3D11DeviceContext* context,uint64_t currentSerial,uint64_t spaceEpoch,
     halo_ce::EyeCache::Completed& pair) noexcept

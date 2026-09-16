@@ -5,6 +5,17 @@
 
 namespace halo_ce
 {
+// The final kind-0 quad samples the complete kind-1 scene and normalizes its
+// rectangle to clip space. Its host output need not share the native raster
+// size (CE can round the internal dimensions). Only a full primary viewport
+// can use this mapping; split/cropped windows still require their own proof.
+inline bool ClassicFullRaster(const Window& window) noexcept
+{
+    return ValidPrimary(window)&&window.raster.viewport.left==0&&
+        window.raster.viewport.top==0&&Same(window.raster.viewport,window.raster.window)&&
+        Same(window.render.viewport,window.render.window);
+}
+
 // E-CE-1: Classic constructs BOTH native frusta from the two Camera values
 // in each 0xAC window. Staging one camera would leave visibility and drawing
 // with different head positions. This object contains private bytes only.

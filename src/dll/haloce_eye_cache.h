@@ -59,12 +59,18 @@ private:
     uint64_t lastBorrowId_{1}; // never reused, including across resource retirement
     ID3D11DeviceContext* context_{};
     ID3D11Texture2D* eyes_[2]{};
+    // Rendering cannot overwrite the last coherent pair. A rejected or busy
+    // frame retains its completed predecessor, with that predecessor's poses.
+    ID3D11Texture2D* completedEyes_[2]{};
     D3D11_TEXTURE2D_DESC source_{},cache_{};
     uint32_t generation_{};
     uint64_t resourceEpoch_{},lastResourceEpoch_{},lastSerial_{};
     Key key_{};
+    Key completedKey_{};
     Tracking tracking_{};
+    Tracking completedTracking_{};
     Cover covers_[2]{};
+    Cover completedCovers_[2]{};
     unsigned mask_{};
     bool complete_{};
     bool Enter() noexcept;

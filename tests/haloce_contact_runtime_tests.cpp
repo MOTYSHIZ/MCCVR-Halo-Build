@@ -8,6 +8,8 @@ namespace
 constexpr uint32_t testOwner=0x12340007,testTarget=0x34560009;
 unsigned failures{},nativeDamageCalls{},nativeTickCalls{},hapticCalls[2]{};
 unsigned meshProbeMask{};bool recordMeshProbes{};
+bool geometricContact{},contactWall{},contactOtherObject{};
+float targetPlane=.25f,obstructionPlane=.15f;
 bool stateAvailable=true,testCurrent=true,hitEnabled=true,raiseWorld{},raiseMelee{},raiseTick{};
 GameTitle testTitle=GameTitle::HaloCE;
 uint32_t testGeneration=4,collisionTarget=testTarget;
@@ -45,9 +47,17 @@ uint8_t __fastcall TestCollision(uint32_t flags,const float* start,const float* 
     Check(flags==0x1000e9&&owner==testOwner,"native CE collision ABI/filter");
     if (raiseMelee) RaiseException(0xe0424242,0,0,nullptr);
     if (!hitEnabled||!vector||vector[0]<=0) return 0;
-    auto& hit=*static_cast<CollisionResult*>(output);hit.type=3;hit.fraction=.5f;
+    float fraction=.5f;
+    if (geometricContact)
+    {
+        const float plane=contactWall||contactOtherObject?obstructionPlane:targetPlane;
+        fraction=(plane-start[0])/vector[0];
+        if (fraction<0||fraction>1) return 0;
+    }
+    auto& hit=*static_cast<CollisionResult*>(output);hit.type=contactWall?2:3;hit.fraction=fraction;
     hit.object=collisionTarget;hit.material=12;
-    hit.point={start[0]+vector[0]*.5f,start[1]+vector[1]*.5f,start[2]+vector[2]*.5f};
+    if (contactOtherObject) hit.object=0x5678000a;
+    hit.point={start[0]+vector[0]*fraction,start[1]+vector[1]*fraction,start[2]+vector[2]*fraction};
     hit.normal={-1,0,0};return 1;
 }
 void __fastcall TestDamage(void* event,uint32_t target,int16_t,int16_t,int16_t,const void*)
@@ -152,8 +162,8 @@ int main()
     Check(nativeDamageCalls==0&&hapticCalls[0]==1&&hapticCalls[1]==0,"collision toggle does not create melee and haptics route left");
     g_config.world_collision=false;g_config.physical_melee=true;g_config.physical_melee_swing_speed=5;
     Publish(Frame(3,0));TickHook(testOwner);Publish(Frame(4,.1f));TickHook(testOwner);
-    Check(nativeDamageCalls==1&&Near(damagePosition.x,.05f)&&Near(damageDirection.x,1),
-        "physical motion hits actual swept target and replaces native impact position/direction");
+    Check(nativeDamageCalls==1&&Near(damagePosition.x,.15f)&&Near(damageDirection.x,1),
+        "physical motion hits bounded reach segment and replaces native impact position/direction");
     Publish(Frame(4,.1f));TickHook(testOwner);Publish(Frame(5,.2f));TickHook(testOwner);
     Check(nativeDamageCalls==1,"duplicate frame and continued penetration do not strike again");
     Publish(Frame(6,0),1);TickHook(testOwner);Publish(Frame(7,.1f),1);TickHook(testOwner);
@@ -162,6 +172,50 @@ int main()
     Check(ticks.load()==before,"missing/dead/blocked local state cannot enter contact tick");stateAvailable=true;
     ++testContext.rendererEpoch;TickHook(testOwner);
     Check(nativeDamageCalls==2,"old renderer/reference frame is discarded before native damage");
+    // Reproduce a short target just beyond the actual fist endpoint, then
+    // prove that the added reach cannot pass the nearest native obstruction.
+    geometricContact=true;
+    for (int side=0;side<2;++side) for (float scale:{.328084f,1.0f,2.0f})
+    {
+        targetPlane=.25f*scale;obstructionPlane=.15f*scale;
+        const auto strike=[&](bool wall,bool other,float end) {
+            contactWall=wall;contactOtherObject=other;meleeHands[side].Reset();
+            auto first=Frame(30,0),second=Frame(31,end);first.count=second.count=1;
+            first.transform.unitsPerMetre=second.transform.unitsPerMetre=scale;
+            Publish(first,side);TickHook(testOwner);Publish(second,side);TickHook(testOwner);
+        };
+        const unsigned before=nativeDamageCalls;
+        const uint64_t assistedBefore=meleeReachApplied[side].load();
+        strike(false,false,.04f);
+        Check(nativeDamageCalls==before,"reach allowance cannot turn subthreshold movement into a strike");
+        strike(false,false,.1f);
+        Check(nativeDamageCalls==before+1&&Near(damagePosition.x,targetPlane),
+            "both physical hands hit twenty-centimetre reach envelope with scale-correct native contact position");
+        Check(meleeReachApplied[side]==assistedBefore+1,"cold diagnostic counts successful reach-assisted native applications");
+        strike(true,false,.1f);
+        Check(nativeDamageCalls==before+1,"wall in added reach segment blocks native melee");
+        strike(false,true,.1f);
+        Check(nativeDamageCalls==before+1,"non-biped obstruction cannot be skipped to select target behind it");
+        targetPlane=.31f*scale;strike(false,false,.1f);
+        Check(nativeDamageCalls==before+1,"target beyond bounded reach remains out of range");
+    }
+    contact_melee::Sweep nativeSweep{};nativeSweep.end={.1f,0,0};
+    Backend reachBackend{testOwner,1};contact_melee::Hit reachHit{};
+    targetPlane=.25f;contactWall=contactOtherObject=false;
+    CollisionResult unextended{};const float originalVector[]{.1f,0,0};
+    Check(!TestCollision(0x1000e9,&nativeSweep.start.x,originalVector,testOwner,&unextended),
+        "baseline native collision query misses target fifteen centimetres beyond tracked endpoint");
+    Check(reachBackend.Query(nativeSweep,reachHit),"reach candidate enters native collision query");
+    contactWall=true;obstructionPlane=.15f;const unsigned beforeRequery=nativeDamageCalls;
+    Check(!reachBackend.Apply(testOwner,reachHit,nativeSweep)&&nativeDamageCalls==beforeRequery,
+        "wall appearing between candidate and dispatch rejects damage");
+    contactWall=false;collisionTarget=0x45670009;
+    Check(!reachBackend.Apply(testOwner,reachHit,nativeSweep)&&nativeDamageCalls==beforeRequery,
+        "same slot with a changed salt cannot receive candidate damage");
+    collisionTarget=testTarget;reachHit.unit=testOwner;
+    Check(!reachBackend.Apply(testOwner,reachHit,nativeSweep)&&nativeDamageCalls==beforeRequery,
+        "owner cannot replace physical target");
+    geometricContact=false;
     // A gun face can share its x extrema with a hand node and still needs a
     // native probe. The exact fourteen-point receipt survives queue transport.
     contact_melee::Frame mesh=Frame(20,.3f);mesh.count=15;mesh.shape=0x9876;

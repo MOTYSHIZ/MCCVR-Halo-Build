@@ -9,6 +9,25 @@ namespace halo_ce
 inline contact_melee::Point ContactPoint(Vec3 value) noexcept
 { return {value.x,value.y,value.z}; }
 
+// CE's native button melee searches a broad forward fan, while physical melee
+// still requires a real speed-qualified tracked swing. Give that swing a small
+// directional reach allowance so the player need not put the controller into
+// a short enemy's collision surface. This is VR policy, not an engine radius.
+inline constexpr float kPhysicalMeleeReachMetres=0.20f;
+inline bool BuildMeleeContactVector(const contact_melee::Sweep& sweep,float unitsPerMetre,
+    contact_melee::Point& out) noexcept
+{
+    if (!contact_melee::Finite(sweep.start)||!contact_melee::Finite(sweep.end)||
+        !std::isfinite(unitsPerMetre)||unitsPerMetre<=0||unitsPerMetre>10) return false;
+    const auto delta=contact_melee::Subtract(sweep.end,sweep.start);
+    const float length=std::sqrt(contact_melee::Dot(delta,delta));
+    if (!std::isfinite(length)||length<=0.000001f) return false;
+    const float extension=1+kPhysicalMeleeReachMetres*unitsPerMetre/length;
+    const contact_melee::Point extended{delta.x*extension,delta.y*extension,delta.z*extension};
+    if (!contact_melee::Finite(extended)) return false;
+    out=extended;return true;
+}
+
 struct ContactHandBinding
 {
     uint64_t mask{};

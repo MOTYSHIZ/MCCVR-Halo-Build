@@ -7,6 +7,7 @@
 #include "../common/halo2_render_logic.h"
 #include "../common/haloce_contracts.generated.h"
 #include "../common/title_registry.h"
+#include "../common/level_load_gate_logic.h"
 
 namespace
 {
@@ -287,6 +288,41 @@ namespace
             ++state.changeRun;
         return state.sawStill || state.changeRun >= kAlreadyRunningSamples;
     }
+}
+
+bool TitleReentryProbe_CeLevelAllowsInstall(uintptr_t moduleBase,
+    uint32_t generation,uint64_t nowMs) noexcept
+{
+    struct ColdAdmission
+    {
+        uintptr_t base{},clock{};
+        uint32_t generation{};
+        uint64_t tick{},sampleMs{},advanceMs{};
+        LevelLoadGateLogic logic;
+    };
+    static ColdAdmission state;
+    uint64_t tick{};uintptr_t clock{};bool still{};
+    if (!moduleBase||!generation||!nowMs||
+        !FingerprintHaloCE(moduleBase,tick,still,clock))
+    { state={};return false; }
+    if (state.base!=moduleBase||state.generation!=generation||state.clock!=clock||
+        (state.sampleMs&&(nowMs<=state.sampleMs||nowMs-state.sampleMs>kActivityFreshMs))||
+        (state.tick&&tick<state.tick))
+        state={};
+    state.base=moduleBase;state.generation=generation;state.clock=clock;
+    const bool sampled=state.sampleMs!=0;
+    const bool changed=sampled&&!still&&tick>state.tick;
+    state.tick=tick;state.sampleMs=nowMs;
+    if (changed) state.advanceMs=nowMs;
+    // An uninitialized/reset clock closes previous readiness. A frozen tick
+    // followed by forward simulation is the same load-boundary proof used by
+    // the other title gates. First observation of an already ticking clock
+    // is not itself a frozen sample or permission to touch a loading module.
+    if (still) { state.logic.Reset();state.advanceMs=0; }
+    if (still||sampled)
+        return state.logic.Observe(changed)!=LevelLoadGateLogic::Decision::Hold&&
+            state.advanceMs&&nowMs-state.advanceMs<=kActivityFreshMs;
+    return false;
 }
 
 void TitleReentryProbe_PublishPresentCaller(const void* caller,

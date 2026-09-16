@@ -1,3 +1,50 @@
+# Current continuation - September 16: CE community reports and custom-map loading
+
+Current user delivery refinement: finish ALL issues before packaging any ZIP;
+modded campaigns/Classic entry first, then the entire original CE report list.
+Game Pass-specific investigation is deferred pending its log; retain existing
+both-edition support. No partial candidate. Future GitHub asset replacement
+is explicitly deferred until the user asks. See the checklist in
+`CE-COMMUNITY-REPORTS-2026-09-16.md`; keep the full scope across continuations.
+
+Read `CE-COMMUNITY-REPORTS-2026-09-16.md`. Current user scope includes Classic
+startup/custom-map compatibility, Anniversary black flicker/light streaks,
+tracked aim/movement/reticles, body/grenade/audio orientation, firing jitter
+and melee reach. Both new d47a98c community logs are preserved there. The
+user confirms Cursed Halo Again and Minecraft 2 work without VR. No root
+cause is yet proved; do not equate later camera timeouts with loading failure.
+Continue evidence-backed local investigation, fixes and verification. Preserve
+accepted d47a98c and other titles; package matching ZIPs without -Install,
+then wait for headset testing. No game launch, installation, game-folder writes,
+PR or publication. All earlier standing/deferred scope remains preserved.
+
+September 16 local implementation and independent review are COMPLETE.
+Classic output scaling/cold simulation admission, complete-pair retention,
+controls retirement, bounded melee reach, body/grenade orientation with a
+separate private native movement basis, headset audio with native Doppler
+preservation, recoil comfort and flare guards are all in this cumulative
+candidate. Read `CE-COMMUNITY-CANDIDATE-2026-09-16.md` and its seven evidence
+records. The last movement review proved both native biped callers and corrected
+the false desired-facing-only assumption before packaging; no failed runtime
+candidate was delivered. Native input/throttle and camera angles stay intact.
+
+Final local Release, all 35 CTest suites, Reach gate, 140 pinned native
+contracts, 23 production binding groups, native execution checks and linked
+hook unwind coverage pass. Commit this source, package without -Install, and
+verify both archives. Exact final archive/source/hash identity belongs in
+`out/ce-community-current-handoff.json` (and compatibility
+`out/ce-current-handoff.json`) only after that audit. Deliver the NEW build and
+matching source ZIPs, then WAIT for the user's headset testing/instructions.
+No installation, game-folder writes, MCC launch, PR or publication. Do not
+resume earlier deferred work after delivery without a new user instruction.
+
+The custom loader's exact blocked stack remains unavailable; the cold gate
+closes a reproduced installation policy gap, not a headset-proven loading
+cure. The reports' visible symptoms, Cursed Halo Again/Minecraft 2, native
+body/grenade/audio feel, light streaks, melee tuning and Halo 3 regression all
+require the user's test. Accepted d47a98c and all prior deferred scope remain
+intact. Never advance `CURRENT-STATE.md` from local checks alone.
+
 # Current publication — accepted d47a98c all-campaign release
 
 Publication COMPLETE: [Alpha 0.4.0 — All Campaigns in VR](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0).

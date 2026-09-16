@@ -5,6 +5,7 @@
 #include "title_adapter.h"
 #include "../common/minhook_lifecycle.h"
 #include "../common/log.h"
+#include "../common/haloce_flare_logic.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
@@ -103,8 +104,10 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     return true;
 }
 }
+#include "haloce_flare_guard.inl"
 bool HaloCEComfort_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept
 {
+    ce_flare::Poll(base,size,gen,isActive);
     active.store(isActive,std::memory_order_release);
     if (retained&&(!isActive||base!=moduleBase||gen!=generation.load()||retiring.load()))
         if (!Remove()) return false;

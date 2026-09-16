@@ -103,14 +103,27 @@ int main()
         check(cache.ReleaseCompleted(complete.borrowId),"release exact submission borrow");
     }
     if (FAILED(device->CreateTexture2D(&d,nullptr,&source))) return 1;
-    check(!cache.AcquireCompleted(key,context.Get(),complete),"submission is consumed once");
-    check(!cache.Begin(Receipt(100,d.Width,d.Height),key),"same tracking frame cannot be replayed");
+    const auto retainedKey=key;
+    const auto retainedPairIntact=[&] {
+        EyeCache::Completed retained{};
+        if (!cache.AcquireCompleted(retainedKey,context.Get(),retained)) return false;
+        const bool intact=retained.key==retainedKey&&retained.tracking.serial==100&&
+            retained.tracking.headPosition.y==1.6f&&
+            Pixels(device.Get(),context.Get(),retained.eyes[0],retained.descriptor,0xff112233)&&
+            Pixels(device.Get(),context.Get(),retained.eyes[1],retained.descriptor,0xffaabbcc);
+        return cache.ReleaseCompleted(retained.borrowId)&&intact;
+    };
+    check(retainedPairIntact(),"last complete pair may be re-submitted with its original tracking");
+    check(!cache.Begin(Receipt(100,d.Width,d.Height),key),"same tracking frame cannot be rendered twice");
+    check(retainedPairIntact(),"duplicate preparation does not erase the complete pair");
     check(cache.Begin(Receipt(101,d.Width,d.Height),key),"next frame recovers");
     check(!cache.Capture(key,1,context.Get(),source.Get(),d)&&!cache.Finish(key),
         "out-of-order eye drops only its frame");
     check(cache.Begin(Receipt(102,d.Width,d.Height),key),"recover after order failure");
+    paint(0xff778899);
     check(cache.Capture(key,0,context.Get(),source.Get(),d)&&
         !cache.Capture(key,0,context.Get(),source.Get(),d)&&!cache.Finish(key),"duplicate eye invalidates pair");
+    check(retainedPairIntact(),"a partially copied or rejected successor never changes either retained eye");
     check(cache.Begin(Receipt(103,d.Width,d.Height),key),"start descriptor mismatch case");
     auto changed=d; ++changed.Width;
     check(!cache.Capture(key,0,context.Get(),source.Get(),changed)&&!cache.Finish(key),
@@ -121,14 +134,19 @@ int main()
         !cache.Capture(key,0,deferred.Get(),source.Get(),d),"wrong/deferred context cannot capture");
     check(cache.Begin(Receipt(105,d.Width,d.Height),key)&&cache.Drop(key)&&!cache.Finish(key),
         "native frame failure drops captured identity");
+    check(retainedPairIntact(),"all rejected successors preserve complete pixels and original poses");
     const auto oldKey=key;
     check(cache.Reset()&&cache.Prepare(device.Get(),context.Get(),d,3,2),"cold retirement and rebuild");
+    check(!cache.AcquireCompleted(retainedKey,context.Get(),complete),
+        "resource reset revokes retained pixels, even if tracking identity repeats");
     check(cache.Begin(Receipt(105,d.Width,d.Height),key)&&key.resourceEpoch!=oldKey.resourceEpoch,
         "new resource epoch prevents stale GPU identity reuse");
     check(!cache.Capture(oldKey,0,context.Get(),source.Get(),d),"old cache callback rejected");
     check(cache.Begin(Receipt(106,d.Width,d.Height),key)&&
         cache.Capture(key,0,context.Get(),source.Get(),d)&&
         cache.Capture(key,1,context.Get(),source.Get(),d)&&cache.Finish(key),"recover after stale callback");
+    check(!cache.AcquireCompleted(retainedKey,context.Get(),complete),
+        "new complete pair replaces the previous pair as a whole");
     check(!cache.AcquireCompleted(key,deferred.Get(),complete),"submission must preserve context ordering");
     borrowed=cache.AcquireCompleted(key,context.Get(),complete);
     check(borrowed,"incorrect context does not consume a valid pair");

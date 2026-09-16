@@ -193,5 +193,46 @@ int main()
     Check(f.Resolve(1251) == GameTitle::Halo3, "expired Present hint cannot select CE");
     g_presentHintMs.store(2000);
     Check(f.Resolve(1300) == GameTitle::Halo3, "future Present hint cannot select CE");
+    // Cold CE installation has its own history: sole-module detection or a
+    // Present hint must not turn a frozen loading clock into hook permission.
+    f.Reset();
+    auto resetGate=[&]() { (void)TitleReentryProbe_CeLevelAllowsInstall(0,0,1); };
+    auto gate=[&](uint64_t now,uint32_t gen=7) {
+        return TitleReentryProbe_CeLevelAllowsInstall(f.ce.Base(),gen,now);
+    };
+    resetGate();f.clock.bytes[0]=0;f.Tick(0);
+    for (uint64_t now=1000;now<21000;now+=50)
+        Check(!gate(now),"uninitialized loading clock never opens cold install gate");
+    f.clock.bytes[0]=1;f.Tick(1);
+    Check(gate(21000),"forward simulation after initialized loading boundary opens CE gate");
+    f.Tick(0);
+    Check(!gate(21050),"reset clock closes prior cold admission");
+    f.Tick(1);
+    Check(gate(21100),"new map tick recovers without a time-based bypass");
+    Check(!gate(21150,8),"new title generation cannot inherit cold readiness");
+    Check(!gate(21200,8),"new generation frozen sample still waits for forward tick");
+    f.Tick(2);Check(gate(21250,8),"matching new generation can open after simulation advances");
+    resetGate();f.Tick(100);
+    Check(!gate(1000),"first nonzero tick is no loading completion proof");
+    for (uint32_t i=1;i<LevelLoadGateLogic::kAlreadyRunningSamples;++i)
+    {
+        f.Tick(100+i);
+        Check(!gate(1000+50*i),"short outgoing tick run never opens already-running admission");
+    }
+    f.Tick(220);Check(gate(7000),"sustained six-second simulation opens midgame cold admission");
+    for (uint64_t now=7050;now<=7300;now+=50) (void)gate(now);
+    Check(!gate(7350),"frozen stale clock cannot keep granting cold installation");
+    Check(!gate(8000),"missing poll interval invalidates old readiness");
+    Check(!gate(7950),"backwards sample time invalidates old readiness");
+    f.clock.bytes[0]=2;Check(!gate(8050),"invalid clock boolean cannot grant cold permission");
+    f.clock.bytes[0]=1;f.Tick(-1);Check(!gate(8100),"negative initialized tick cannot grant cold permission");
+    f.Tick(1);resetGate();
+    Check(!gate(1000)&&!gate(1050),"prepare independent frozen cold sample");
+    f.replacementClock.bytes[0]=1;
+    *reinterpret_cast<int32_t*>(f.replacementClock.bytes+0xC)=2;
+    *reinterpret_cast<uintptr_t*>(f.ce.bytes+kCeClockSlot)=f.replacementClock.Base();
+    Check(!gate(1100),"replacement clock cannot inherit earlier object's freeze proof");
+    *reinterpret_cast<uintptr_t*>(f.ce.bytes+kCeClockSlot)=f.clock.Base();
+    resetGate();
     std::printf("PASS: %u production title reentry checks\n", checks);
 }

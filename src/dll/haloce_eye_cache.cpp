@@ -58,7 +58,9 @@ void EyeCache::ClearFrame() noexcept { key_={}; mask_=0; complete_=false; }
 void EyeCache::ReleaseResources() noexcept
 {
     ClearFrame();
+    completedKey_={}; completedTracking_={};
     for (auto*& eye:eyes_) { if (eye) eye->Release(); eye=nullptr; }
+    for (auto*& eye:completedEyes_) { if (eye) eye->Release(); eye=nullptr; }
     if (context_) context_->Release();
     context_=nullptr; source_={}; cache_={}; generation_=0; resourceEpoch_=0; lastSerial_=0;
 }
@@ -73,7 +75,7 @@ bool EyeCache::Prepare(ID3D11Device* device,ID3D11DeviceContext* context,
 {
     if (!Enter()) return false;
     // Even an unsuccessful replacement must revoke yesterday's completed pair.
-    ClearFrame();
+    ClearFrame(); completedKey_={};
     bool valid=device&&context&&generation&&resourceEpoch>lastResourceEpoch_&&Supported(source);
     ID3D11Device* contextDevice=nullptr;
     if (valid)
@@ -82,17 +84,20 @@ bool EyeCache::Prepare(ID3D11Device* device,ID3D11DeviceContext* context,
         valid=contextDevice==device&&context->GetType()==D3D11_DEVICE_CONTEXT_IMMEDIATE;
         if (contextDevice) contextDevice->Release();
     }
-    ID3D11Texture2D* prepared[2]{};
+    ID3D11Texture2D* prepared[4]{};
     D3D11_TEXTURE2D_DESC descriptor=source;
     descriptor.BindFlags=D3D11_BIND_SHADER_RESOURCE;
     if (valid)
         valid=SUCCEEDED(device->CreateTexture2D(&descriptor,nullptr,&prepared[0]))&&
-            SUCCEEDED(device->CreateTexture2D(&descriptor,nullptr,&prepared[1]));
+            SUCCEEDED(device->CreateTexture2D(&descriptor,nullptr,&prepared[1]))&&
+            SUCCEEDED(device->CreateTexture2D(&descriptor,nullptr,&prepared[2]))&&
+            SUCCEEDED(device->CreateTexture2D(&descriptor,nullptr,&prepared[3]));
     ReleaseResources();
     if (valid)
     {
         context->AddRef(); context_=context;
         eyes_[0]=prepared[0]; eyes_[1]=prepared[1];
+        completedEyes_[0]=prepared[2]; completedEyes_[1]=prepared[3];
         source_=source; cache_=descriptor;
         generation_=generation; resourceEpoch_=resourceEpoch; lastResourceEpoch_=resourceEpoch;
     }
@@ -137,9 +142,7 @@ bool EyeCache::Begin(const ClassicViewPair& pair,Key& key) noexcept
     for (int eye=0;eye<2&&valid;++eye)
     {
         const auto& w=pair.eyes[eye];
-        valid=ValidPrimary(w)&&w.raster.viewport.left==0&&w.raster.viewport.top==0&&
-            static_cast<uint32_t>(w.raster.viewport.right)==source_.Width&&
-            static_cast<uint32_t>(w.raster.viewport.bottom)==source_.Height;
+        valid=ClassicFullRaster(w);
     }
     if (t.generation==generation_&&t.serial>lastSerial_) lastSerial_=t.serial;
     if (valid)
@@ -155,7 +158,8 @@ bool EyeCache::Capture(Key key,int eye,ID3D11DeviceContext* context,
     if (!Enter()) return false;
     const bool valid=key.serial&&key==key_&&eye>=0&&eye<2&&!complete_&&
         mask_==(eye==0?0u:1u)&&context&&context==context_&&liveSource&&
-        liveSource!=eyes_[0]&&liveSource!=eyes_[1]&&SameSource(source_,provenSource);
+        liveSource!=eyes_[0]&&liveSource!=eyes_[1]&&
+        liveSource!=completedEyes_[0]&&liveSource!=completedEyes_[1]&&SameSource(source_,provenSource);
     if (valid)
     {
         const D3D11_BOX box{0,0,0,source_.Width,source_.Height,1};
@@ -172,6 +176,7 @@ bool EyeCache::CapturePacked(Key key,ID3D11DeviceContext* context,
     const bool valid=key.serial&&key==key_&&mask_==3&&!complete_&&
         context&&context==context_&&eyes_[0]&&eyes_[1]&&eyes_[0]!=eyes_[1]&&
         liveSource&&liveSource!=eyes_[0]&&liveSource!=eyes_[1]&&
+        liveSource!=completedEyes_[0]&&liveSource!=completedEyes_[1]&&
         Supported(provenPackedSource)&&provenPackedSource.Width==source_.Width&&
         provenPackedSource.Height==2*source_.Height&&
         CopyFormatFamily(provenPackedSource.Format)==CopyFormatFamily(source_.Format);
@@ -191,7 +196,19 @@ bool EyeCache::Finish(Key key) noexcept
 {
     if (!Enter()) return false;
     const bool valid=key.serial&&key==key_&&mask_==3&&!complete_;
-    if (valid) complete_=true; else ClearFrame();
+    if (valid)
+    {
+        // Publish pixels and their exact tracking identity together. Both
+        // banks were allocated cold; no COM ownership changes occur here.
+        for (int eye=0;eye<2;++eye)
+        {
+            auto* previous=completedEyes_[eye];
+            completedEyes_[eye]=eyes_[eye];eyes_[eye]=previous;
+            completedCovers_[eye]=covers_[eye];
+        }
+        completedKey_=key_;completedTracking_=tracking_;complete_=true;
+    }
+    else ClearFrame();
     Leave(); return valid;
 }
 bool EyeCache::Drop(Key key) noexcept
@@ -203,11 +220,12 @@ bool EyeCache::Drop(Key key) noexcept
 bool EyeCache::AcquireCompleted(Key key,ID3D11DeviceContext* submissionContext,Completed& out) noexcept
 {
     if (!Enter()) return false;
-    if (!key.serial||key!=key_||!complete_||mask_!=3||submissionContext!=context_||
+    if (!key.serial||key!=completedKey_||submissionContext!=context_||
         lastBorrowId_==std::numeric_limits<uint64_t>::max())
     { Leave(); return false; }
     const uint64_t borrow=++lastBorrowId_;
-    out={key_,tracking_,{covers_[0],covers_[1]},{eyes_[0],eyes_[1]},cache_,borrow};
+    out={completedKey_,completedTracking_,{completedCovers_[0],completedCovers_[1]},
+        {completedEyes_[0],completedEyes_[1]},cache_,borrow};
     use_.store(borrow,std::memory_order_release);
     return true;
 }
@@ -216,6 +234,8 @@ bool EyeCache::ReleaseCompleted(uint64_t borrowId) noexcept
     // A delayed/duplicate release cannot retire a newer submission's borrow.
     if (borrowId<2||!use_.compare_exchange_strong(borrowId,1,std::memory_order_acquire))
         return false;
-    ClearFrame(); Leave(); return true;
+    // A later rejected native frame may re-submit this same coherent pair.
+    // The adapter bounds reuse by its generation, reference, epoch and age.
+    Leave(); return true;
 }
 }

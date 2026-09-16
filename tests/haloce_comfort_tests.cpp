@@ -1,5 +1,7 @@
 #include "../src/dll/haloce_comfort.cpp"
 #include <cstdio>
+#include <array>
+#include <limits>
 
 namespace
 {
@@ -13,6 +15,15 @@ uintptr_t lastEffect{},lastSource{};
 const void* lastQuad{};
 const SaberCamera* lastCamera{};
 float lastStrength{};
+std::array<uint8_t,0x110> flareEffect{};
+float flareScreen[2]{600,400};
+unsigned flareDraws{};
+unsigned flareCallbackDepth{};
+unsigned flareIndex{};
+bool flareThrows{},flareForeignRecord{},flareNested{},flareReadFailure{},flareOwnershipRevoked{};
+const float* lastFlareScreen{};
+uintptr_t lastFlareRecord{};
+uint64_t lastFlareOpaque{};
 void Check(bool ok,const char* message)
 { if (!ok) { ++failures;std::fprintf(stderr,"CE comfort: %s\n",message); } }
 void __fastcall NativeBlur(uintptr_t effect,const void* quad,uintptr_t source,const SaberCamera* camera,float strength)
@@ -29,6 +40,54 @@ bool NativeException()
     { return true; }
     return false;
 }
+void __fastcall NativeFlareSprite(uintptr_t,const float* screen,uintptr_t record)
+{
+    ++flareDraws;lastFlareScreen=screen;lastFlareRecord=record;
+    flareCallbackDepth=ce_flare::callbacks.load();
+    if (flareThrows) RaiseException(0xe0424243,0,0,nullptr);
+}
+void __fastcall NativeFlareProjection(uintptr_t effect,uint64_t opaque,const SaberCamera* camera)
+{
+    lastFlareOpaque=opaque;
+    if (flareNested)
+    {
+        flareNested=false;
+        ce_flare::ProjectionDispatch(effect,opaque,camera,ce_flare::base+0x45109c);
+        flareNested=true;
+        return;
+    }
+    if (flareOwnershipRevoked) ce_flare::active=false;
+    ce_flare::DrawDispatch(effect,flareReadFailure?nullptr:flareScreen,
+        effect+(flareIndex?0x98:0x70)+(flareForeignRecord?4:0),
+        ce_flare::base+(flareIndex?0x4472eb:0x44718a));
+}
+void Flare(float depth,uintptr_t caller=0)
+{
+    const Vec3 light{.1f,.2f,depth};
+    std::memcpy(flareEffect.data()+(flareIndex?0x98:0x70),&light,sizeof(light));
+    ce_flare::ProjectionDispatch(reinterpret_cast<uintptr_t>(flareEffect.data()),0x1122334455667788,
+        &eyeCamera,caller?caller:ce_flare::base+0x45109b);
+}
+bool FlareException()
+{
+    __try { Flare(10); }
+    __except(GetExceptionCode()==0xe0424243?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH)
+    { return true; }
+    return false;
+}
+bool FlareHookException(bool projection)
+{
+    __try
+    {
+        if (projection)
+            ce_flare::ProjectionHook(reinterpret_cast<uintptr_t>(flareEffect.data()),0x1122334455667788,&eyeCamera);
+        else ce_flare::DrawHook(reinterpret_cast<uintptr_t>(flareEffect.data()),flareScreen,
+            reinterpret_cast<uintptr_t>(flareEffect.data())+0x70);
+    }
+    __except(GetExceptionCode()==0xe0424243?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH)
+    { return true; }
+    return false;
+}
 }
 GameTitle TitleAdapter_GetActiveTitle() { return testTitle; }
 uint32_t TitleAdapter_GetGeneration(GameTitle) { return testGeneration; }
@@ -39,6 +98,19 @@ bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t,
 { return !count.load(); }
 int main()
 {
+    for (const auto* entry:{reinterpret_cast<const void*>(&BlurHook),
+        reinterpret_cast<const void*>(&ce_flare::ProjectionHook),
+        reinterpret_cast<const void*>(&ce_flare::DrawHook),
+        reinterpret_cast<const void*>(&ce_flare::ProjectionDispatch),
+        reinterpret_cast<const void*>(&ce_flare::DrawDispatch)})
+    {
+        DWORD64 imageBase{};
+        const auto address=reinterpret_cast<DWORD64>(entry);
+        const auto* unwind=RtlLookupFunctionEntry(address,&imageBase,nullptr);
+        Check(unwind&&address>=imageBase+unwind->BeginAddress&&
+            address<imageBase+unwind->EndAddress,
+            "every real comfort/flare retirement entry has Release x64 unwind metadata");
+    }
     moduleBase=0x180000000;generation=testGeneration;active=installed=true;
     original=&NativeBlur;testTracking.generation=testGeneration;
     Draw();Draw();
@@ -69,5 +141,98 @@ int main()
         "native exception propagates after callback ownership retires");
     raiseNative=false;testTracking.motionBlur=false;Draw();
     Check(!callbacks.load()&&suppressed.load()==3,"subsequent valid eye recovers after native failure");
+    ce_flare::base=moduleBase;ce_flare::generation=5;ce_flare::installed=ce_flare::active=true;
+    ce_flare::projection.original=reinterpret_cast<void*>(&NativeFlareProjection);
+    ce_flare::draw.original=reinterpret_cast<void*>(&NativeFlareSprite);
+    eyeCamera.pose.matrix[10]=1;eyeCamera.nearPlane=.025f;
+    for (flareIndex=0;flareIndex<2;++flareIndex)
+    {
+        for (float depth:{10.0f,.025f,.024f,0.0f,-1.0f})
+        {
+            const auto before=flareDraws;Flare(depth);
+            Check(flareDraws==before+unsigned(depth>=.025f)&&!ce_flare::callbacks.load()&&!ce_flare::scope,
+                "each native flare record clips inside/behind its tracked near plane and retires its scope");
+        }
+    }
+    flareIndex=0;
+    flareScreen[1]=std::numeric_limits<float>::infinity();
+    const auto finiteBefore=flareDraws;Flare(10);
+    Check(flareDraws==finiteBefore,"nonfinite projected coordinates never reach the sprite draw");
+    flareScreen[1]=400;
+    const auto provenCamera=eyeCamera;
+    for (unsigned reason=0;reason<6;++reason)
+    {
+        switch(reason)
+        {
+        case 0:eyeCamera.pose.matrix[10]=0;break;
+        case 1:eyeCamera.pose.matrix[12]=std::numeric_limits<float>::quiet_NaN();break;
+        case 2:eyeCamera.nearPlane=0;break;
+        case 3:eyeCamera.nearPlane=std::numeric_limits<float>::infinity();break;
+        case 4:flareReadFailure=true;break;
+        case 5:eyeCamera.pose.matrix[10]=std::numeric_limits<float>::max();break;
+        }
+        const auto before=flareDraws;
+        const auto beforeUnproven=ce_flare::unproven.load();
+        Flare(-1);
+        Check(flareDraws==before+1&&ce_flare::unproven.load()==beforeUnproven+1&&
+            flareCallbackDepth==2&&!ce_flare::callbacks.load()&&!ce_flare::scope,
+            "unreadable or invalid native proof preserves the original draw with both callback pins");
+        eyeCamera=provenCamera;flareReadFailure=false;
+    }
+    for (int32_t player:{-1,1,3})
+    {
+        std::memcpy(reinterpret_cast<uint8_t*>(&eyeCamera)+0x220,&player,sizeof(player));
+        const auto before=flareDraws;Flare(-1);
+        Check(flareDraws==before+1,"other source-player identities stay entirely native");
+    }
+    eyeCamera=provenCamera;
+    const auto revokedBefore=flareDraws;flareOwnershipRevoked=true;Flare(-1);
+    Check(flareDraws==revokedBefore+1&&!ce_flare::callbacks.load()&&!ce_flare::scope,
+        "ownership retired between projection and sprite draw stays native");
+    flareOwnershipRevoked=false;ce_flare::active=true;
+    for (unsigned reason=0;reason<8;++reason)
+    {
+        switch(reason)
+        {
+        case 0:admitted=false;break;
+        case 1:testTitle=GameTitle::Halo3;break;
+        case 2:ce_flare::retiring=true;break;
+        case 3:ce_flare::installed=false;break;
+        case 4:testGeneration=6;break;
+        case 5:testTracking.generation=6;break;
+        case 6:flareForeignRecord=true;break;
+        case 7:flareNested=true;break;
+        }
+        const auto before=flareDraws;Flare(-1);
+        Check(flareDraws==before+1&&lastFlareScreen==flareScreen&&
+            lastFlareOpaque==0x1122334455667788&&!ce_flare::callbacks.load()&&!ce_flare::scope,
+            "unowned, stale, nested, retired and foreign flare draws pass through unchanged");
+        admitted=true;testTitle=GameTitle::HaloCE;ce_flare::retiring=false;ce_flare::installed=true;
+        testTracking.generation=testGeneration=5;flareForeignRecord=flareNested=false;
+    }
+    const auto callerBefore=flareDraws;Flare(-1,ce_flare::base+0x45109c);
+    Check(flareDraws==callerBefore+1,"unverified flare projection caller stays native");
+    Flare(10);const auto preserved=flareEffect;
+    Flare(10);
+    Check(flareEffect==preserved&&lastFlareRecord==reinterpret_cast<uintptr_t>(flareEffect.data())+0x70,
+        "valid flare passes its original native record and never mutates shared effect storage");
+    flareThrows=true;
+    Check(FlareException()&&flareCallbackDepth==2&&!ce_flare::callbacks.load()&&
+        !ce_flare::scope&&ce_flare::exceptions.load()==1,
+        "native sprite exception propagates after both optional callback scopes retire");
+    Check(FlareHookException(true)&&flareCallbackDepth==2&&!ce_flare::callbacks.load()&&
+        !ce_flare::scope&&ce_flare::exceptions.load()==2,
+        "actual native projection entry owns and releases its counter on exception");
+    Check(FlareHookException(false)&&flareCallbackDepth==1&&!ce_flare::callbacks.load()&&!ce_flare::scope,
+        "actual native sprite entry owns and releases its counter on exception");
+    flareThrows=false;const auto recovery=flareDraws;Flare(10);
+    Check(flareDraws==recovery+1,"visible light flares recover after native exceptions");
+    ce_flare::callbacks=1;
+    Check(!ce_flare::Remove()&&ce_flare::retiring.load()&&!ce_flare::active.load()&&
+        !ce_flare::installed.load()&&ce_flare::projection.original&&ce_flare::draw.original,
+        "optional retirement retains native dispatch while an admitted callback remains");
+    ce_flare::callbacks=0;
+    Check(ce_flare::Remove()&&!ce_flare::retiring.load()&&!ce_flare::base,
+        "optional retirement recovers after its callback drains without touching the camera core");
     return failures?1:0;
 }

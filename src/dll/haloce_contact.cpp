@@ -37,6 +37,7 @@ std::atomic<bool> worldReady{},meleeReady{};
 std::atomic<uint64_t> publications{},ticks{},worldQueries{},worldContacts{},corrections{},
     meleeQueries{},meleeContacts{},meleeApplied[2]{},dropped{},exceptions{};
 std::atomic<uint64_t> weaponEnvelopes{},weaponNodeFallbacks{};
+std::atomic<uint64_t> meleeReachApplied[2]{};
 std::atomic<uint64_t> lastWeaponGraph{};
 uint32_t failedGeneration{};
 uint64_t lastReport{};
@@ -128,10 +129,13 @@ __declspec(noinline) void __fastcall DamageHook(void* event,uint32_t target,
 struct Backend
 {
     uint32_t owner{};
+    float unitsPerMetre{};
+    bool assisted{};
     bool Query(const contact_melee::Sweep& sweep,contact_melee::Hit& hit) noexcept
     {
         CollisionResult result{};
-        const auto delta=contact_melee::Subtract(sweep.end,sweep.start);
+        contact_melee::Point delta{};
+        if (!BuildMeleeContactVector(sweep,unitsPerMetre,delta)) return false;
         meleeQueries.fetch_add(1,std::memory_order_relaxed);
         if (!reinterpret_cast<CollisionFn>(moduleBase+contract::contact::contact_collision)(
             0x1000e9,&sweep.start.x,&delta.x,owner,&result)||result.type!=3||
@@ -145,10 +149,11 @@ struct Backend
     bool Apply(uint32_t unit,const contact_melee::Hit& hit,const contact_melee::Sweep& sweep) noexcept
     {
         if (unit!=owner||!Object(owner,1)||!Object(hit.unit,1)) return false;
-        // Requery the chosen sweep to retain its native material and refuse a
-        // target replaced between the candidate query and damage dispatch.
+        // Requery the identical bounded reach segment to retain its first
+        // obstruction/material and refuse an occluded or replaced target.
         CollisionResult result{};
-        const auto delta=contact_melee::Subtract(sweep.end,sweep.start);
+        contact_melee::Point delta{};
+        if (!BuildMeleeContactVector(sweep,unitsPerMetre,delta)) return false;
         const float length=std::sqrt(contact_melee::Dot(delta,delta));
         if (!std::isfinite(length)||length<=0.000001f||
             !reinterpret_cast<CollisionFn>(moduleBase+contract::contact::contact_collision)(
@@ -162,6 +167,8 @@ struct Backend
                 owner,hit.unit,result.material);
         }
         __finally { damageScope.active=false; }
+        assisted=damageScope.applied&&result.fraction*length>
+            length-kPhysicalMeleeReachMetres*unitsPerMetre+0.00001f*unitsPerMetre;
         return damageScope.applied;
     }
 };
@@ -243,9 +250,13 @@ void ProcessMelee(int side,const contact_melee::Frame& frame) noexcept
 {
     __try
     {
-        Backend backend{frame.unit};
+        Backend backend{frame.unit,frame.transform.unitsPerMetre};
         if (meleeHands[side].Process(frame,g_config.physical_melee_swing_speed,backend)==contact_melee::ContactResult::Applied)
-        { meleeApplied[side].fetch_add(1,std::memory_order_relaxed);VR_PulseContactHaptics(side==0,0.35f); }
+        {
+            meleeApplied[side].fetch_add(1,std::memory_order_relaxed);
+            if (backend.assisted) meleeReachApplied[side].fetch_add(1,std::memory_order_relaxed);
+            VR_PulseContactHaptics(side==0,0.35f);
+        }
     }
     __except(EXCEPTION_EXECUTE_HANDLER)
     { damageScope.active=false;meleeFault=true;exceptions.fetch_add(1,std::memory_order_relaxed); }
@@ -368,6 +379,7 @@ bool Install(uintptr_t base,size_t size,uint32_t gen) noexcept
     if (!worldReady.load()&&!meleeReady.load()) { (void)Remove();return false; }
     installed=true;active=true;
     LOG("CE contact installed: native biped update, world clamp=%d physical melee=%d; 12 stock CE authored weapon envelopes in both renderers, exact custom/Anniversary replacement surfaces unproven",worldReady.load(),meleeReady.load());
+    LOG("CE physical melee reach: %.0f cm along speed-qualified physical swing; native first obstruction, exact target/material requery and per-hand retraction retained",kPhysicalMeleeReachMetres*100);
     return true;
 }
 }
@@ -390,6 +402,8 @@ bool HaloCEContact_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) n
             meleeApplied[0].load(),meleeApplied[1].load(),dropped.load(),exceptions.load());
         LOG("CE weapon contact stock-envelope=%llu node-only-fallback=%llu graph=%llX; 14 surface probes plus up to 7 node probes for held hand, unknown graph keeps nodes only",
             weaponEnvelopes.load(),weaponNodeFallbacks.load(),lastWeaponGraph.load());
+        LOG("CE physical melee reach applied=%llu/%llu allowance-cm=%.0f (within total native applications)",
+            meleeReachApplied[0].load(),meleeReachApplied[1].load(),kPhysicalMeleeReachMetres*100);
     }
     return Current();
 }

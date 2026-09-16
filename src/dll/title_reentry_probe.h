@@ -17,3 +17,9 @@ void TitleReentryProbe_PublishPresentCaller(const void* caller, uint64_t nowMs) 
 GameTitle TitleReentryProbe_Resolve(
     const TitleRuntimeModuleSet& modules, uint64_t nowMs,
     GameTitle retainedTitle) noexcept;
+
+// Worker-only CE cold-install admission. Shares the same pinned, bounded
+// native clock reader with adapter selection; never pins or scans a module.
+// Call with zero base/generation when CE is inactive to reset its history.
+bool TitleReentryProbe_CeLevelAllowsInstall(uintptr_t moduleBase,
+    uint32_t generation,uint64_t nowMs) noexcept;

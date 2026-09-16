@@ -180,7 +180,7 @@ void __fastcall NativeGame(float delta,float interpolation)
         std::memcmp(before.data(),reinterpret_cast<void*>(bindings.base+0x29af2c4),before.size())==0;
     if (scope&&scope->eye==1&&fault==Fault::DuplicateWindow)
         ClassicWindowBody(window,bindings.base+0xbbceeb);
-    halo_ce::Rectangle rectangle{0,0,static_cast<int16_t>(testDesc.Height),static_cast<int16_t>(testDesc.Width)};
+    halo_ce::Rectangle rectangle=stockWindow.raster.viewport;
     if (scope&&scope->eye==1&&fault==Fault::ResizedOutput) ++rectangle.right;
     if (!(scope&&scope->eye==1&&fault==Fault::MissingOutput))
         ClassicBlitBody(&rectangle,bindings.base+0xae0ecb);
@@ -411,8 +411,17 @@ int main()
         Fault::DuplicateWindow,Fault::MissingOutput,Fault::ResizedOutput,Fault::ChangedTick,
         Fault::ChangedClock,Fault::ModeSwitch,Fault::Recenter,Fault::ChangedSource,Fault::ChangedOwner})
     {
+        const auto beforeDrops=classicDrops.load();
         run(selected);
-        check(!HaloCE_AcquirePair(context.Get(),serial,7,pair),"invalid native consumer/output/lifetime drops the pair");
+        const bool retained=HaloCE_AcquirePair(context.Get(),serial,7,pair);
+        check(classicDrops.load()==beforeDrops+1&&(!retained||pair.key.serial<serial),
+            "invalid native consumer/output/lifetime never publishes the rejected attempt");
+        if (retained)
+        {
+            check(Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
+                "eligible retained pair contains both prior completed eyes");
+            HaloCE_ReleasePair(pair.borrowId); pair={};
+        }
         check(armed.load()&&installed.load()&&classicInstalled.load(),"a rejected frame preserves VR core and hook ownership");
         run(Fault::None);
         check(HaloCE_AcquirePair(context.Get(),serial,7,pair),"next good native frame recovers without reinstall");
@@ -568,7 +577,7 @@ int main()
         stockWindow.raster.viewport=stockWindow.raster.window=stockWindow.render.viewport;
         run(Fault::None);
         check(!HaloCE_AcquirePair(context.Get(),serial,7,pair)&&
-            classicLastFailure.load()==ClassicFailure::PairPreparation,
+            classicLastFailure.load()==ClassicFailure::OutputShape,
             "a differently sized DXGI buffer cannot reuse the previous eye cache");
         check(wanted.Read(discovered)&&discovered.descriptor.Width==48&&
             discovered.descriptor.Height==24,
@@ -586,8 +595,52 @@ int main()
         }
     }
     else check(false,"resized DXGI buffer is available");
+    // Native CE rounds its internal raster independently of the DXGI output.
+    // The final native quad scales the entire scene into kind 0. Preserve the
+    // raster's angular cover while capturing the actual host texture size.
+    for (const auto dims:std::array<std::array<int16_t,2>,4>{{{52,28},{96,48},{40,20},{48,24}}})
+    {
+        stockWindow.render.viewport=stockWindow.render.window={0,0,dims[1],dims[0]};
+        stockWindow.raster.viewport=stockWindow.raster.window=stockWindow.render.viewport;
+        run(Fault::None);
+        check(HaloCE_AcquirePair(context.Get(),serial,7,pair)&&pair.key.serial==serial,
+            "independent full native raster and host output dimensions admit Classic stereo");
+        if (pair.borrowId)
+        {
+            Cover expected{}; BuildCover(tracking,stockWindow.raster.viewport,expected);
+            check(pair.descriptor.Width==48&&pair.descriptor.Height==24&&
+                std::fabs(pair.covers[0].halfX-expected.halfX)<1e-6f&&
+                std::fabs(pair.covers[0].halfY-expected.halfY)<1e-6f&&
+                Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
+                "rescaled final outputs retain native angular coverage and independent complete pixels");
+            HaloCE_ReleasePair(pair.borrowId); pair={};
+        }
+    }
+    ++stockWindow.render.window.right; ++stockWindow.raster.window.right;
+    run(Fault::None);
+    check(classicLastFailure.load()==ClassicFailure::PairPreparation,
+        "cropped native windows are not admitted by the full-raster mapping");
+    stockWindow.render.viewport=stockWindow.render.window={0,0,24,48};
+    stockWindow.raster.viewport=stockWindow.raster.window=stockWindow.render.viewport;
+    Wanted invalidRequest{testDesc,3,reinterpret_cast<uintptr_t>(testContext)};
+    invalidRequest.descriptor.SampleDesc.Count=2; // unsupported native replacement
+    wanted.Publish(invalidRequest);
+    HaloCE_PresentResources(device.Get(),context.Get());
+    Wanted afterFailure{};
+    check(allocated.Read(afterFailure)&&!afterFailure.generation,
+        "failed cold replacement revokes the allocated-cache receipt");
+    wanted.Publish({testDesc,3,reinterpret_cast<uintptr_t>(testContext)});
+    HaloCE_PresentResources(device.Get(),context.Get());
+    run(Fault::None);
+    check(HaloCE_AcquirePair(context.Get(),serial,7,pair)&&pair.key.serial==serial,
+        "returning to former output size after failed replacement rebuilds usable eye banks");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId);pair={}; }
     classicInstalled=false;
     HaloCE_ForgetPresentationTexture();
     cache.Reset();
+    installed=false;armed=false;rejectedGeneration=0;
+    check(!HaloCE_Poll(bindings.base,mapped.size(),3,true,false)&&
+        !installed.load()&&!moduleReference&&!rejectedGeneration,
+        "closed cold gate reaches no native installation attempt, pin, or rejection latch");
     return failures?1:0;
 }

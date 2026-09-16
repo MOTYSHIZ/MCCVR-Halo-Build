@@ -1,0 +1,161 @@
+[
+  {
+    "name": "movement_consumer",
+    "rva": "0xbb5d88",
+    "signature": "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 38 FC FF FF 48 81 EC A0 04 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-MOVEMENT-BASIS-1",
+    "runtime_group": "unit_control",
+    "instruction_witnesses": [
+      {
+        "rva": "0xbb5dfe",
+        "signature": "0F B7 59 04",
+        "meaning": "Private motion-record flags at +0x04"
+      },
+      {
+        "rva": "0xbb5e4a",
+        "signature": "48 8B F9 66 44 89 A1 A0 00 00 00",
+        "meaning": "RCX is the single in/out motion-record pointer; native output begins at +0xa0"
+      },
+      {
+        "rva": "0xbb5fa3",
+        "signature": "F3 44 0F 10 59 3C F3 0F 10 49 40 45 0F 28 EB F3 0F 10 41 18 F3 44 0F 59 69 14 8B 41 44 F3 44 0F 59 59 18 89 81 C0 00 00 00 F3 0F 59 C1 F3 0F 59 49 14 F3 44 0F 5C E8 F3 44 0F 58 D9",
+        "meaning": "Native planar motion: forward +0x14 and throttle +0x3c; throttle Y is LEFT"
+      },
+      {
+        "rva": "0xbb5fe5",
+        "signature": "F3 44 0F 11 A9 B8 00 00 00 F3 44 0F 11 5D BC F3 44 0F 11 99 BC 00 00 00",
+        "meaning": "Native desired velocity output at +0xb8/+0xbc"
+      },
+      {
+        "rva": "0xbb6112",
+        "signature": "F2 0F 10 4F 20",
+        "meaning": "Special ground branches also read the current-aim input at record +0x20"
+      },
+      {
+        "rva": "0xbb612e",
+        "signature": "8B 47 28",
+        "meaning": "Third component of current-aim input at record +0x28"
+      }
+    ]
+  },
+  {
+    "name": "movement_producer_secondary",
+    "rva": "0xbb1efc",
+    "signature": "48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 18 FE FF FF 48 81 EC B0 02 00 00 0F 29 70 B8",
+    "function_entry": true,
+    "evidence": "E-CE-MOVEMENT-BASIS-1",
+    "runtime_group": "unit_control",
+    "instruction_witnesses": [
+      {
+        "rva": "0xbb1fa5",
+        "signature": "F2 41 0F 10 40 30 45 33 FF 41 8B 48 38",
+        "meaning": "Resolved biped body-forward unit+0x30 source"
+      },
+      {
+        "rva": "0xbb1fb9",
+        "signature": "89 74 24 30 F7 80 7C 01 00 00 00 08 00 00 66 44 89 7C 24 34 F2 0F 11 44 24 44 89 4C 24 4C",
+        "meaning": "Private RSP+0x30 motion record owner at +0 and body-forward at +0x14"
+      },
+      {
+        "rva": "0xbb2003",
+        "signature": "48 81 C2 50 02 00 00 49 03 D0 45 3B C1 48 0F 44 D0 F2 0F 10 02 8B 42 08",
+        "meaning": "Current aiming comes from unit+0x21c via object-heap +0x34 header"
+      },
+      {
+        "rva": "0xbb202c",
+        "signature": "F2 0F 11 44 24 50",
+        "meaning": "Private record current-aim XY at +0x20"
+      },
+      {
+        "rva": "0xbb2050",
+        "signature": "89 44 24 58",
+        "meaning": "Private record current-aim Z at +0x28"
+      },
+      {
+        "rva": "0xbb2112",
+        "signature": "44 21 7C 24 6C 44 21 7C 24 70 44 21 7C 24 74",
+        "meaning": "Native throttle vector storage at record +0x3c/+0x40/+0x44"
+      },
+      {
+        "rva": "0xbb2c33",
+        "signature": "48 8D 4C 24 30",
+        "meaning": "Single consumer argument points to the private RSP+0x30 motion record"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0xbb2c38",
+        "instruction_signature": "E8 4B 31 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0xbb5d88"
+      }
+    ]
+  },
+  {
+    "name": "movement_producer",
+    "rva": "0xbb31f4",
+    "signature": "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 68 FA FF FF 48 81 EC 60 06 00 00 0F 29 70 B8",
+    "function_entry": true,
+    "evidence": "E-CE-MOVEMENT-BASIS-1",
+    "runtime_group": "unit_control",
+    "instruction_witnesses": [
+      {
+        "rva": "0xbb32d0",
+        "signature": "F2 0F 10 43 30 48 8B F8 8B 43 38 44 89 A5 90 03 00 00 66 44 89 BD 94 03 00 00 F2 0F 11 85 A4 03 00 00 89 85 AC 03 00 00",
+        "meaning": "Private RBP+0x390 motion record receives owner at +0 and body-forward at +0x14"
+      },
+      {
+        "rva": "0xbb32f8",
+        "signature": "F7 87 7C 01 00 00 00 08 00 00 74 0A F2 0F 11 85 B0 03 00 00 EB 25 49 8D 82 50 02 00 00 B9 1C 02 00 00 49 03 C1 44 3B CE 48 0F 44 C1 F2 0F 10 00 F2 0F 11 85 B0 03 00 00 8B 40 08",
+        "meaning": "Tag +0x17c bit0x800 selects body-forward; ordinary biped current-aim unit+0x21c becomes record+0x20"
+      },
+      {
+        "rva": "0xbb3372",
+        "signature": "89 85 B8 03 00 00",
+        "meaning": "Private record current-aim Z at +0x28"
+      },
+      {
+        "rva": "0xbb3452",
+        "signature": "44 21 BD CC 03 00 00 44 21 BD D0 03 00 00",
+        "meaning": "Private record throttle XY storage at +0x3c/+0x40"
+      },
+      {
+        "rva": "0xbb346a",
+        "signature": "44 21 BD D4 03 00 00",
+        "meaning": "Private record throttle Z storage at +0x44"
+      },
+      {
+        "rva": "0xbb40e8",
+        "signature": "48 8D 8D 90 03 00 00",
+        "meaning": "Single consumer argument points to private RBP+0x390 motion record"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0xbb40ef",
+        "instruction_signature": "E8 94 1C 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0xbb5d88"
+      }
+    ]
+  },
+  {
+    "name": "movement_consumer_return",
+    "rva": "0xbb40f4",
+    "signature": "8B 85 2C 04 00 00 83 C9 FF 3B C1 74 0F C6 83 DF 04 00 00 3C",
+    "function_entry": false,
+    "evidence": "E-CE-MOVEMENT-BASIS-1",
+    "runtime_group": "unit_control"
+  },
+  {
+    "name": "movement_consumer_return_secondary",
+    "rva": "0xbb2c3d",
+    "signature": "8B 45 CC 83 CA FF 3B C2 74 0F C6 83 DF 04 00 00 3C 89 83 E0 04 00 00",
+    "function_entry": false,
+    "evidence": "E-CE-MOVEMENT-BASIS-1",
+    "runtime_group": "unit_control"
+  }
+]

@@ -1,0 +1,66 @@
+[
+  {
+    "name": "unit_control_set",
+    "rva": "0xafe098",
+    "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 33 F6 44 0F B7 C9 83 CF FF 41 8B D8 44 8A 05 76 D5 07 01",
+    "function_entry": true,
+    "evidence": "E-CE-UNIT-CONTROL-1",
+    "runtime_group": "unit_control",
+    "instruction_witnesses": [
+      {
+        "rva": "0xafe11a",
+        "signature": "0F 10 02 41 0F 11 82 78 04 00 00 0F 10 4A 10 41 0F 11 8A 88 04 00 00 0F 10 42 20 41 0F 11 82 98 04 00 00 0F 10 4A 30 41 0F 11 8A A8 04 00 00 0F 10 42 40 41 0F 11 82 B8 04 00 00",
+        "meaning": "Native multiplayer control packet history copies exactly 0x50 bytes"
+      },
+      {
+        "rva": "0xafe155",
+        "signature": "F2 0F 10 42 0C F2 41 0F 11 82 58 02 00 00 8B 42 14 41 89 82 60 02 00 00 8B 42 18 41 89 82 64 02 00 00 8A 42 01 41 88 82 68 02 00 00",
+        "meaning": "Native throttle and scalar fields"
+      },
+      {
+        "rva": "0xafe1da",
+        "signature": "F2 0F 10 42 34 F2 41 0F 11 82 34 02 00 00 8B 42 3C 41 89 82 3C 02 00 00 F2 0F 10 42 28 F2 41 0F 11 82 10 02 00 00 8B 42 30 41 89 82 18 02 00 00 F2 0F 10 42 1C F2 41 0F 11 82 04 02 00 00 8B 42 24 41 89 82 0C 02 00 00",
+        "meaning": "Looking, aiming and facing packet vectors copy to independent unit fields"
+      }
+    ]
+  },
+  {
+    "name": "unit_control_player_update",
+    "rva": "0xad0720",
+    "signature": "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 D8 FB FF FF 48 81 EC 00 05 00 00 48 8B",
+    "function_entry": true,
+    "evidence": "E-CE-UNIT-CONTROL-1",
+    "runtime_group": "unit_control",
+    "instruction_witnesses": [
+      {
+        "rva": "0xad0cb3",
+        "signature": "8B 44 24 60 48 8D 4F 20 F2 0F 10 44 24 58",
+        "meaning": "Native player action creates direction vector"
+      },
+      {
+        "rva": "0xad0cee",
+        "signature": "F2 0F 11 44 24 64 F2 0F 11 44 24 4C",
+        "meaning": "Normal live player duplicates aiming into looking and facing"
+      },
+      {
+        "rva": "0xad0d49",
+        "signature": "44 8B 44 24 24 48 8D 54 24 30 8B 4B 64",
+        "meaning": "unit, private control packet and client update ABI"
+      },
+      {
+        "rva": "0xad0d5b",
+        "signature": "4C 8B 7C 24 28",
+        "meaning": "Admitted normal player-control return site"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0xad0d56",
+        "target_rva": "0xafe098",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      }
+    ]
+  }
+]

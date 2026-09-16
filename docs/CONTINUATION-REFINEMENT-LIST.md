@@ -1,3 +1,32 @@
+# Current continuation - September 16: CE community reports and custom-map loading
+
+Current user delivery refinement: finish ALL issues before packaging any ZIP;
+modded campaigns/Classic entry first, then the entire original CE report list.
+Game Pass-specific investigation is deferred pending its log; retain existing
+both-edition support. No partial candidate. Future GitHub asset replacement
+is explicitly deferred until the user asks. See the checklist in
+`CE-COMMUNITY-REPORTS-2026-09-16.md`; keep the full scope across continuations.
+
+Read `CE-COMMUNITY-REPORTS-2026-09-16.md`. Current user scope includes Classic
+startup/custom-map compatibility, Anniversary black flicker/light streaks,
+tracked aim/movement/reticles, body/grenade/audio orientation, firing jitter
+and melee reach. Both new d47a98c community logs are preserved there. The
+user confirms Cursed Halo Again and Minecraft 2 work without VR. No root
+cause is yet proved; do not equate later camera timeouts with loading failure.
+Continue evidence-backed local investigation, fixes and verification. Preserve
+accepted d47a98c and other titles; package matching ZIPs without -Install,
+then wait for headset testing. No game launch, installation, game-folder writes,
+PR or publication. All earlier standing/deferred scope remains preserved.
+
+September 16 local scope is now implemented and reviewed; the cumulative
+Release and all 35 tests pass. See `CE-COMMUNITY-CANDIDATE-2026-09-16.md` for
+native verification and limits. Final committed packaging/verification records
+the matching ZIP pair in `out/ce-community-current-handoff.json`. Deliver that
+NEW pair, then WAIT for headset testing and further instructions. Do not resume
+earlier deferred work or publish/install this unaccepted candidate. Accepted
+source remains d47a98c. Custom-map loading and every reported visible symptom
+still require headset confirmation; no complete stalled-thread stack was given.
+
 # Current continuation - September 15 night: all-title re-entry and recovery
 
 User-tested **558fb2c** is explicitly accepted for CE Original and Anniversary:

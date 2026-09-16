@@ -1,0 +1,186 @@
+[
+  {
+    "name": "camera_effect_transform",
+    "rva": "0xbac0cc",
+    "signature": "48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A1 48 81 EC F0 00 00 00 0F 10 1D 10 E3 CE 00",
+    "function_entry": true,
+    "evidence": "E-CE-ORIENTATION-1",
+    "runtime_group": "camera_effect",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xbac7bf",
+        "target_rva": "0xba3360",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      },
+      {
+        "instruction_rva": "0xbac7f1",
+        "target_rva": "0xba807c",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xbac1ef",
+        "signature": "49 6B C4 34",
+        "meaning": "52-byte effect matrix per output user"
+      },
+      {
+        "rva": "0xbac7c4",
+        "signature": "0F 10 07 0F 11 06 0F 10 4F 10 0F 11 4E 10 0F 10 47 20 0F 11 46 20 8B 47 30 89 46 30",
+        "meaning": "Preserve native cached effect matrix before interpolated output"
+      }
+    ]
+  },
+  {
+    "name": "camera_effect_consumer",
+    "rva": "0xac450c",
+    "signature": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 70 20 55 48 8D 68 A1 48 81 EC 90 00 00 00 48 8B FA 48 8B D9 48 85 D2 0F 84 46 01 00 00 F2",
+    "function_entry": true,
+    "evidence": "E-CE-ORIENTATION-1",
+    "runtime_group": "camera_effect",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xac4618",
+        "target_rva": "0xbac0cc",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      },
+      {
+        "instruction_rva": "0xac4629",
+        "target_rva": "0xba24ec",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      },
+      {
+        "instruction_rva": "0xac4649",
+        "target_rva": "0xba3360",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xac4611",
+        "signature": "0F B7 0B 48 8D 55 1F",
+        "meaning": "output user and private effect result ABI"
+      },
+      {
+        "rva": "0xac461d",
+        "signature": "4C 8D 47 2C 48 8D 57 20 48 8D 4D E7",
+        "meaning": "native observer forward/up become camera basis"
+      },
+      {
+        "rva": "0xac4639",
+        "signature": "48 8D 55 1F 48 8D 4D E7",
+        "meaning": "effect is composed with native camera"
+      }
+    ]
+  },
+  {
+    "name": "audio_listener_submit",
+    "rva": "0xabcc54",
+    "signature": "48 8B C4 48 89 58 18 55 56 57 48 8D 68 D8 48 81 EC 10 01 00 00 0F 29 70 D8 0F 29 78 C8 44 0F 29 40 B8 44 0F 29 48 A8",
+    "function_entry": true,
+    "evidence": "E-CE-ORIENTATION-2",
+    "runtime_group": "audio_listener",
+    "image_pointers": [
+      {
+        "rva": "0x18988a8",
+        "target_rva": "0x1b7b880"
+      },
+      {
+        "rva": "0x1b7b8a8",
+        "target_rva": "0xabcc54"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0xabcca3",
+        "target_rva": "0x77e70",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xabcc90",
+        "signature": "8B F9 48 8D 4A 48 48 8B F2",
+        "meaning": "Listener index and matrix at packet +0x48"
+      },
+      {
+        "rva": "0xabcd5e",
+        "signature": "F3 0F 10 46 24 F3 0F 59 05 95 2A E9 00 F3 0F 59 F1 F3 0F 10 4E 28 F3 0F 59 0D 44 31 E9 00 F3 0F 11",
+        "meaning": "Native packet velocity is retained at +0x24,+0x28,+0x2c"
+      },
+      {
+        "rva": "0xabce19",
+        "signature": "8B D7 FF 90 A0 00 00 00",
+        "meaning": "Original listener index reaches native audio interface"
+      }
+    ]
+  },
+  {
+    "name": "audio_listener_producer",
+    "rva": "0xb4cb80",
+    "signature": "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 54 41 55 41 56 41 57 48 8D A8 B8 FD FF FF 48 81 EC 20 03 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-ORIENTATION-2",
+    "runtime_group": "audio_listener",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb4cd41",
+        "target_rva": "0xba24ec",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      },
+      {
+        "instruction_rva": "0xb4cd61",
+        "target_rva": "0xba31b0",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 ?? ?? ?? ??"
+      }
+    ],
+    "instruction_witnesses": [
+      {
+        "rva": "0xb4cd39",
+        "signature": "4D 8D 46 2C 49 8D 56 20",
+        "meaning": "Observer forward +0x20 and up +0x2c build listener basis"
+      },
+      {
+        "rva": "0xb4cdc1",
+        "signature": "8B 41 30 41 0F 11 41 30 0F 10 41 20 41 0F 11 49 40 41 0F 11 41 50 41 89 41 60",
+        "meaning": "52-byte native matrix copied to packet +0x48"
+      },
+      {
+        "rva": "0xb4ceee",
+        "signature": "48 03 D0 41 88 36 48 8B 05 1D 74 10 01 FF 50 28",
+        "meaning": "Synchronous listener table +0x28 call; return caller 0xb4cefe"
+      }
+    ]
+  },
+  {
+    "name": "audio_listener_basis",
+    "rva": "0xba24ec",
+    "signature": "48 83 EC 28 C7 01 00 00 80 3F F2 0F 10 02 F2 0F 11 41 04 8B 42 08 89 41 0C",
+    "function_entry": true,
+    "evidence": "E-CE-ORIENTATION-2",
+    "runtime_group": "audio_listener",
+    "instruction_witnesses": [
+      {
+        "rva": "0xba2558",
+        "signature": "F3 0F 11 49 10 F3 0F 5C DA F3 0F 11 79 18 0F 28 3C 24 F3 0F 11 59 14 F2 41 0F 10 00 F2 0F 11 41 1C 41 8B 40 08 89 41 24 33 C0 48 89 41 28 89 41 30 48 83 C4 28",
+        "meaning": "Native listener matrix is scale, forward, up cross forward, up, position"
+      }
+    ]
+  }
+]

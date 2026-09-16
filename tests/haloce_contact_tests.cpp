@@ -77,6 +77,25 @@ static int MeshFixture(const char* input,const char* output)
 int main(int argc,char** argv)
 {
     if (argc==4&&!std::strcmp(argv[1],"--weapon-mesh-fixture")) return MeshFixture(argv[2],argv[3]);
+    // The extra reach follows the physical swing, including a downward swing
+    // toward a short enemy. It remains twenty real centimetres at any scale.
+    for (float scale:{.1f,.328084f,1.0f,2.0f,10.0f})
+        for (Vec3 direction:{Vec3{1,0,0},Vec3{0,0,-1},Vec3{.6f,.8f,0}})
+        {
+            contact_melee::Sweep sweep{};sweep.start={10,20,30};
+            const Vec3 end=Vec(sweep.start)+direction*(.1f*scale);
+            sweep.end=ContactPoint(end);contact_melee::Point extended{};
+            CHECK(BuildMeleeContactVector(sweep,scale,extended));
+            CHECK(Near(Vec(extended),direction*(.3f*scale)));
+        }
+    contact_melee::Sweep invalidSweep{};contact_melee::Point unchanged{1,2,3};
+    CHECK(!BuildMeleeContactVector(invalidSweep,1,unchanged)&&Near(Vec(unchanged),{1,2,3}));
+    invalidSweep.end={.1f,0,0};
+    for (float scale:{0.0f,-1.0f,10.1f,std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity()})
+        CHECK(!BuildMeleeContactVector(invalidSweep,scale,unchanged)&&Near(Vec(unchanged),{1,2,3}));
+    invalidSweep.end.x=std::numeric_limits<float>::quiet_NaN();
+    CHECK(!BuildMeleeContactVector(invalidSweep,1,unchanged)&&Near(Vec(unchanged),{1,2,3}));
     AnimationNode nodes[13]{};
     Node(nodes[0],"frame root",-1);
     Node(nodes[1],"frame l upperarm",0);Node(nodes[2],"frame l forearm",1);

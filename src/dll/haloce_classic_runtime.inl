@@ -15,6 +15,9 @@ std::atomic<uint64_t> classicPairs{},classicDrops{},classicStock{},classicOutput
 enum class ClassicFailure : uint32_t { None,ScopeChanged,WindowCount,PairChanged,
     PairPreparation,CameraState,Consumer,Source,SourceChanged,OutputShape,IncompletePair };
 std::atomic<ClassicFailure> classicLastFailure{};
+std::atomic<uint32_t> classicPairStage{},classicRasterWidth{},classicRasterHeight{},
+    classicOutputWidth{},classicOutputHeight{};
+std::atomic<bool> classicCacheBegan{};
 uint32_t classicRejectedGeneration{};
 
 int32_t CeObserveRendererMode() noexcept
@@ -104,6 +107,7 @@ struct ClassicFrameScope
     int32_t tick{};
     uintptr_t window{},clock{};
     ClassicNativeSource sources[2];
+    halo_ce::Rectangle outputRectangle{};
     ClassicFailure failure{};
     void Fail(ClassicFailure reason) noexcept
     { failed=true; if (failure==ClassicFailure::None) failure=reason; }
@@ -241,12 +245,17 @@ void ClassicWindowBody(Window* window,uintptr_t caller)
         scope->window=reinterpret_cast<uintptr_t>(window);
         FollowRoomscale(source.render,scope->pair.tracking,scope->reference,
             scope->scale,scope->positional,scope->revision);
-        scope->prepared=StageClassicViewPair(source,scope->pair.tracking,scope->reference,
-            scope->epoch,scope->scale,scope->positional,scope->pair)==ClassicPairResult::Ready;
+        const auto stage=StageClassicViewPair(source,scope->pair.tracking,scope->reference,
+            scope->epoch,scope->scale,scope->positional,scope->pair);
+        classicPairStage.store(static_cast<uint32_t>(stage),std::memory_order_relaxed);
+        classicRasterWidth.store(source.raster.viewport.right,std::memory_order_relaxed);
+        classicRasterHeight.store(source.raster.viewport.bottom,std::memory_order_relaxed);
+        scope->prepared=stage==ClassicPairResult::Ready;
         if (scope->prepared)
             PublishGameplayContext({scope->pair.tracking,scope->reference,scope->pair.source.render,
                 scope->scale,scope->positional,scope->revision,scope->epoch});
         if (scope->prepared) scope->capture=cache.Begin(scope->pair,scope->key);
+        classicCacheBegan.store(scope->capture,std::memory_order_relaxed);
     }
     else if (!scope->prepared||scope->window!=reinterpret_cast<uintptr_t>(window)||
         !ClassicPairCurrent(scope->pair,source,scope->generation,
@@ -307,11 +316,16 @@ void ClassicBlitBody(const halo_ce::Rectangle* rectangle,uintptr_t caller)
         return;
     }
     wanted.Publish({source.record.descriptor,generation.load(),source.context});
+    classicOutputWidth.store(source.record.descriptor.Width,std::memory_order_relaxed);
+    classicOutputHeight.store(source.record.descriptor.Height,std::memory_order_relaxed);
     if (!scope||!scope->prepared||!scope->capture||scope->failed||
         scope->windows[scope->eye]!=1||scope->views[scope->eye]!=1||!ClassicScopeCurrent(*scope)) return;
     halo_ce::Rectangle rect{};
     const auto& descriptor=source.record.descriptor;
-    const auto& viewport=scope->pair.source.raster.viewport;
+    if (!Read(reinterpret_cast<uintptr_t>(rectangle),rect)||!Valid(rect)||rect.top||rect.left||
+        (scope->eye==1&&!Same(rect,scope->outputRectangle)))
+    { scope->Fail(ClassicFailure::OutputShape); return; }
+    if (scope->eye==0) scope->outputRectangle=rect;
     if (scope->eye==1)
     {
         const auto& first=scope->sources[0];
@@ -321,9 +335,7 @@ void ClassicBlitBody(const halo_ce::Rectangle* rectangle,uintptr_t caller)
         { scope->Fail(ClassicFailure::SourceChanged); return; }
     }
     scope->sources[scope->eye]=source;
-    if (++scope->outputs[scope->eye]!=1||!Read(reinterpret_cast<uintptr_t>(rectangle),rect)||
-        rect.top!=0||rect.left!=0||rect.bottom!=descriptor.Height||rect.right!=descriptor.Width||
-        viewport.top!=0||viewport.left!=0||viewport.bottom!=rect.bottom||viewport.right!=rect.right||
+    if (++scope->outputs[scope->eye]!=1||!ClassicFullRaster(scope->pair.source)||
         !cache.Capture(scope->key,scope->eye,reinterpret_cast<ID3D11DeviceContext*>(source.context),
             reinterpret_cast<ID3D11Resource*>(source.resource),descriptor))
         scope->Fail(ClassicFailure::OutputShape);
@@ -357,7 +369,8 @@ void ClassicGameRenderBody(float delta,float interpolation)
         return;
     }
     ClassicFrameScope scope{};
-    completedFrame.Publish({});
+    // A dropped attempt retains the previous coherent pair until its existing
+    // freshness/lifetime checks expire. The cache never publishes a partial eye.
     scope.generation=generation.load(); scope.epoch=ceRendererEpoch.load(); scope.tick=tick; scope.clock=clock;
     scope.revision=referenceRevision.load();
     if (recenter.exchange(false)||reference.generation!=scope.generation||

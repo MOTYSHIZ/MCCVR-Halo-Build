@@ -67,7 +67,7 @@ def main() -> None:
              ("input.cpp", "vr.cpp", "game.cpp", "haloce_stereo_core.cpp")}
     sources = {name: path.read_text(encoding="utf-8-sig") for name, path in paths.items()}
     ce_poll, _ = extract_function(sources["haloce_stereo_core.cpp"],
-                                 "bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) noexcept")
+                                 "bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive,bool allowInitialInstall) noexcept")
     output = ["// Generated from current shipping source; do not edit.",
               constant(sources["game.cpp"], "kRuntimeCapabilitiesRequiringArm"),
               constant(sources["game.cpp"], "kHalo3RuntimeCapabilities"),

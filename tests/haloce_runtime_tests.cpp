@@ -731,16 +731,16 @@ int main()
             *reinterpret_cast<int32_t*>(mapped.data()+0x1b7aa84)=mode;
             firstCameraMs=0;lastCameraMs=0;armed=false;
             lastReport=GetTickCount64();
-            (void)HaloCE_Poll(bindings.base,mapped.size(),3,true);
+            (void)HaloCE_Poll(bindings.base,mapped.size(),3,true,true);
             check(!publishedLifecycle.armed&&!(publishedLifecycle.enabledCapabilities&TitleCapability_Haptics),
                 "CE haptics stay closed before a fresh camera in either graphics mode");
             const uint64_t now=GetTickCount64();
             firstCameraMs=now-1100;lastCameraMs=now;
-            check(HaloCE_Poll(bindings.base,mapped.size(),3,true)&&publishedLifecycle.armed&&
+            check(HaloCE_Poll(bindings.base,mapped.size(),3,true,true)&&publishedLifecycle.armed&&
                     (publishedLifecycle.enabledCapabilities&TitleCapability_Haptics),
                 "armed CE publishes haptics in Original and Anniversary");
             lastCameraMs=now-600;
-            (void)HaloCE_Poll(bindings.base,mapped.size(),3,true);
+            (void)HaloCE_Poll(bindings.base,mapped.size(),3,true,true);
             check(!publishedLifecycle.armed&&!(publishedLifecycle.enabledCapabilities&TitleCapability_Haptics),
                 "expired CE camera withdraws haptics in either graphics mode");
         }
@@ -1030,6 +1030,13 @@ int main()
     if (initialDepth.failure!=FrameFailure::None)
         std::fprintf(stderr,"initial frame failure=%u depth=%u mask=%u\n",unsigned(initialDepth.failure),initialDepth.depthFailure,initialDepth.depthMask);
     EyeCache::Completed pair{};
+    const auto noCurrentPair=[&](uint64_t serial) {
+        EyeCache::Completed retained{};
+        if (!HaloCE_AcquirePair(context.Get(),serial,7,retained)) return true;
+        const bool valid=retained.key.serial<serial&&retained.tracking.serial==retained.key.serial;
+        HaloCE_ReleasePair(retained.borrowId);
+        return valid;
+    };
     check(HaloCE_AcquirePair(context.Get(),101,7,pair),"native frame/output/transfer scopes produce a submitted pair with its older prepared pose");
     if (pair.borrowId)
     {
@@ -1051,14 +1058,20 @@ int main()
     }
     resources.Forget(reinterpret_cast<uintptr_t>(testSource)^uintptr_t{0x20040});
     omitRight=true; publish(102); FrameBody(0,0);
-    check(!HaloCE_AcquirePair(context.Get(),102,7,pair),"partial native frame never submits");
+    check(noCurrentPair(102),"partial native frame never submits its incomplete pixels");
+    check(HaloCE_AcquirePair(context.Get(),102,7,pair)&&pair.tracking.serial==101&&
+        Pixels(device.Get(),pair.eyes[0],leftColor)&&Pixels(device.Get(),pair.eyes[1],rightColor),
+        "rejected successor keeps both last-good eye images paired with their original tracking");
+    if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId);pair={}; }
+    check(!HaloCE_AcquirePair(context.Get(),110,7,pair),
+        "retained pair expires after eight tracking frames and cannot conceal a persistent render failure");
     omitRight=false; publish(103); FrameBody(0,0);
     check(HaloCE_AcquirePair(context.Get(),103,7,pair),"frame after a partial failure recovers");
     if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
     publish(104); invalidBox=true; const auto before=nativeCopies; FrameBody(0,0); invalidBox=false;
-    check(nativeCopies==before&&!HaloCE_AcquirePair(context.Get(),104,7,pair),"invalid native rectangle performs no unsafe GPU operation and submits no pair");
+    check(nativeCopies==before&&noCurrentPair(104),"invalid native rectangle performs no unsafe GPU operation and never publishes that pair");
     publish(105); RevokeWrappedResource(reinterpret_cast<uintptr_t>(sourceWrapper.data())); FrameBody(0,0);
-    check(!HaloCE_AcquirePair(context.Get(),105,7,pair),"released resource identity cannot lend a stale descriptor");
+    check(noCurrentPair(105),"released resource identity cannot lend a stale descriptor");
     RecordResource(reinterpret_cast<uintptr_t>(sourceWrapper.data()));
     publish(106); FrameBody(0,0);
     testTitle=GameTitle::Halo3;
@@ -1090,7 +1103,7 @@ int main()
     resized.receipt.pair.cameras[0].viewportWidth+=1;
     reinterpret_cast<SaberViewPair*>(rendererAddress+0xb0)->views[0].camera.viewportWidth+=1;
     renderReady.Publish(resized); FrameBody(0,0);
-    check(!HaloCE_AcquirePair(context.Get(),111,7,pair),"source dimensions must match the raster whose FOV will be submitted");
+    check(noCurrentPair(111),"source dimensions must match the raster whose FOV will be submitted");
     publish(112); FrameBody(0,0);
     CompletedFrame aged{}; completedFrame.Read(aged); aged.capturedAtMs=GetTickCount64()-300; completedFrame.Publish(aged);
     check(!HaloCE_AcquirePair(context.Get(),112,7,pair),"elapsed time rejects old pixels even when the XR serial stops");
@@ -1113,20 +1126,20 @@ int main()
         diagnostic.cameraDifference>=sizeof(SaberCamera)&&diagnostic.eyeMask==0,
         "a displaced right camera is rejected and identified before any GPU capture");
     publish(116); omitDepth=true; FrameBody(0,0); omitDepth=false;
-    check(!HaloCE_AcquirePair(context.Get(),116,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(116)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.failure==FrameFailure::DepthResource&&diagnostic.depthFailure==5,
         "prepared cameras and two GPU colors cannot prove a missing native depth-camera consumption");
     publish(117); omitShading=true; FrameBody(0,0); omitShading=false;
-    check(!HaloCE_AcquirePair(context.Get(),117,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(117)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.consumerFailure==5,"missing native shading upload rejects the current pair only");
     publish(118); foreignUploadCamera=true; FrameBody(0,0); foreignUploadCamera=false;
-    check(!HaloCE_AcquirePair(context.Get(),118,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(118)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.consumerFailure==1,"identical bytes at an unrelated camera address cannot claim a native primary eye");
     publish(119); changedUploadCamera=true; FrameBody(0,0); changedUploadCamera=false;
-    check(!HaloCE_AcquirePair(context.Get(),119,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(119)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.consumerFailure==2,"camera changes after frame entry are rejected at the actual render consumer");
     publish(120); changedUploadPlayer=true; FrameBody(0,0); changedUploadPlayer=false;
-    check(!HaloCE_AcquirePair(context.Get(),120,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(120)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.consumerFailure==3,"camera source-player changes outside the pose prefix cannot claim the right eye");
     publish(121); FrameBody(0,0);
     check(HaloCE_AcquirePair(context.Get(),121,7,pair)&&frameDiagnostic.Read(diagnostic)&&
@@ -1139,21 +1152,21 @@ int main()
         "a new frame recovers and reports actual consumed cameras and recycled per-eye source identity");
     if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
     aliasDepthResource=true;publish(122);FrameBody(0,0);aliasDepthResource=false;
-    check(!HaloCE_AcquirePair(context.Get(),122,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(122)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==4&&diagnostic.depthResource[0]==diagnostic.depthResource[1]&&
         diagnostic.depthView[0]!=diagnostic.depthView[1],
         "different DSV identities cannot admit two eyes using the same depth texture");
     aliasDepthView=true;publish(123);FrameBody(0,0);aliasDepthView=false;
-    check(!HaloCE_AcquirePair(context.Get(),123,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(123)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==4,"aliased depth views reject a manufactured pair");
     wrongBoundDepth=true;publish(124);FrameBody(0,0);wrongBoundDepth=false;
-    check(!HaloCE_AcquirePair(context.Get(),124,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(124)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==1,"native depth draw must bind the selected native depth view");
     changeDepthAtScene=true;publish(125);FrameBody(0,0);changeDepthAtScene=false;
-    check(!HaloCE_AcquirePair(context.Get(),125,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(125)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==5,"scene cannot silently select the opposite eye depth");
     omitDepthDraw=true;publish(126);FrameBody(0,0);omitDepthDraw=false;
-    check(!HaloCE_AcquirePair(context.Get(),126,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(126)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==5,"camera uploads alone do not establish completed native depth draws");
     publish(127);FrameBody(0,0);
     check(HaloCE_AcquirePair(context.Get(),127,7,pair)&&frameDiagnostic.Read(diagnostic)&&
@@ -1161,10 +1174,10 @@ int main()
         "independent current depth restores frame submission after each rejected pair");
     if (pair.borrowId) { HaloCE_ReleasePair(pair.borrowId); pair={}; }
     recreateDepthAtScene=true;publish(128);FrameBody(0,0);recreateDepthAtScene=false;
-    check(!HaloCE_AcquirePair(context.Get(),128,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(128)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==5,"reused texture pointers cannot borrow depth from an earlier resource lifetime");
     auxiliaryDepthOverwrite=true;publish(129);FrameBody(0,0);auxiliaryDepthOverwrite=false;
-    check(!HaloCE_AcquirePair(context.Get(),129,7,pair)&&frameDiagnostic.Read(diagnostic)&&
+    check(noCurrentPair(129)&&frameDiagnostic.Read(diagnostic)&&
         diagnostic.depthFailure==6,"an auxiliary depth draw cannot overwrite a completed primary depth");
     publish(130);FrameBody(0,0);
     check(HaloCE_AcquirePair(context.Get(),130,7,pair),"new depth lifetime and clean native frame recover without disarming");
@@ -1393,12 +1406,13 @@ int main()
             FrameBody(0,flags);
             check(hudCallbacks-beforeHud==(expectedCallbacks==UINT_MAX?(expectedHud?2u:0u):expectedCallbacks),
                 "native HUD-enable bit and guards reach the expected output callbacks");
-            check(HaloCE_AcquirePair(context.Get(),serial,7,pair)==expectedPair,
+            const bool acquired=HaloCE_AcquirePair(context.Get(),serial,7,pair);
+            check((acquired&&pair.tracking.serial==serial)==expectedPair,
                 "HUD cleanup ownership determines whether the current world pair can be submitted");
             if (pair.borrowId)
             {
-                check(Pixels(device.Get(),pair.eyes[0],expectedHud?hudColor:leftColor)&&
-                    Pixels(device.Get(),pair.eyes[1],expectedHud?hudColor:rightColor),
+                check(!expectedPair||(Pixels(device.Get(),pair.eyes[0],expectedHud?hudColor:leftColor)&&
+                    Pixels(device.Get(),pair.eyes[1],expectedHud?hudColor:rightColor)),
                     "HUD callback pixels reach the two production eye captures only when admitted");
                 HaloCE_ReleasePair(pair.borrowId);pair={};
             }

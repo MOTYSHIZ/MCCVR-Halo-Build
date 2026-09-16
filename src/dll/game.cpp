@@ -35,6 +35,9 @@
 #include "haloce_controls.h"
 #include "../common/haloce_pause_logic.h"
 #include "haloce_comfort.h"
+#include "haloce_orientation.h"
+#include "haloce_unit_control.h"
+#include "title_reentry_probe.h"
 #include "roomscale.h"
 #include "d3d11_hook.h"
 #include "sigscan.h"
@@ -40972,7 +40975,10 @@ namespace
             // no-write. A missing module range or disabled cold-observation
             // build must therefore publish HOLD, never inherit the historical
             // fail-open true used by titles with established runtime paths.
-            bool activeLevelRunning = !halo2Active;
+            bool activeLevelRunning = !halo2Active&&
+                !(activeTitle&&activeTitle->title==GameTitle::HaloCE);
+            if (!activeTitle||activeTitle->title!=GameTitle::HaloCE)
+                (void)TitleReentryProbe_CeLevelAllowsInstall(0,0,pollNow);
             // Captured by the Halo 4 gate case so the cold observation below
             // reuses the SAME module range and only ever runs on a tick the
             // gate actually sampled: if the range query failed, the gate
@@ -41021,8 +41027,8 @@ namespace
                         // halo4.dll even during its loading screens - the
                         // exact touch the load-bounce rule forbids. Gating
                         // Halo 4 closes that pre-existing hole; hooks remain
-                        // hard-off regardless. (Halo CE still takes the
-                        // default and keeps the pre-existing behavior.)
+                        // hard-off regardless. CE now has its own native-clock
+                        // gate below rather than inheriting the open default.
                         activeLevelRunning =
                             g_halo4LevelLoadGate.AllowsInstall(
                                 gateGeneration, gateBase, gateSize,
@@ -41049,6 +41055,10 @@ namespace
                         halo2GateSize = gateSize;
                         halo2GateSampled = true;
                         break;
+                    case GameTitle::HaloCE:
+                        activeLevelRunning=TitleReentryProbe_CeLevelAllowsInstall(
+                            gateBase,gateGeneration,pollNow);
+                        break;
                     default:
                         break;
                     }
@@ -41067,7 +41077,8 @@ namespace
                 const bool ceActive=activeTitle&&activeTitle->title==GameTitle::HaloCE&&
                     !g_vrRuntimeFailureLatched.load(std::memory_order_acquire);
                 if (ceActive) sig::ModuleRange(L"halo1.dll",ceBase,ceSize);
-                HaloCE_Poll(ceBase,ceSize,TitleAdapter_GetGeneration(GameTitle::HaloCE),ceActive);
+                HaloCE_Poll(ceBase,ceSize,TitleAdapter_GetGeneration(GameTitle::HaloCE),
+                    ceActive,activeLevelRunning);
                 // Feature transactions retire independently. A missing hand
                 // graph or HUD target must never disarm CE's camera core.
                 const auto ceGeneration=TitleAdapter_GetGeneration(GameTitle::HaloCE);
@@ -41077,6 +41088,8 @@ namespace
                 (void)HaloCEHud_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
                 (void)HaloCEHudLayout_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
                 (void)HaloCEComfort_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEOrientation_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
+                (void)HaloCEUnitControl_Poll(ceBase,ceSize,ceGeneration,ceActive&&HaloCE_Armed());
             }
             if (!halo2Active)
                 Halo2ColdObservation_Rearm();

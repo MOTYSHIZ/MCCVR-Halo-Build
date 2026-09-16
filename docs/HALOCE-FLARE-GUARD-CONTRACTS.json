@@ -1,0 +1,82 @@
+[
+  {
+    "name": "flare_project",
+    "rva": "0x446f70",
+    "signature": "48 89 5C 24 08 48 89 54 24 10 57 48 81 EC E0 00 00 00 49 63 80 20 02 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-FLARE-1",
+    "runtime_group": "flare_guard",
+    "instruction_witnesses": [
+      {
+        "rva": "0x446f82",
+        "signature": "49 63 80 20 02 00 00"
+      },
+      {
+        "rva": "0x446fa3",
+        "signature": "F3 0F 10 84 CB 8C 00 00 00"
+      },
+      {
+        "rva": "0x446fb4",
+        "signature": "F3 0F 10 84 CB B4 00 00 00"
+      },
+      {
+        "rva": "0x4470fa",
+        "signature": "F3 41 0F 5E D0"
+      },
+      {
+        "rva": "0x447169",
+        "signature": "F3 45 0F 5E C8"
+      },
+      {
+        "rva": "0x447316",
+        "signature": "44 0F 28 64 24 70 4C 8D 9C 24 E0 00 00 00 49 8B 5B 10 45 0F 28 53 B0 49 8B E3 5F C3"
+      },
+      {
+        "rva": "0x447120",
+        "signature": "4C 8D 43 70"
+      },
+      {
+        "rva": "0x447145",
+        "signature": "48 63 87 20 02 00 00 0F 5B C9 48 8D 0C 80 48 C1 E1 04 F3 44 0F 58 CF 4C 03 C1"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0x451096",
+        "instruction_signature": "E8 D5 5E FF FF",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x446f70"
+      },
+      {
+        "instruction_rva": "0x44701d",
+        "instruction_signature": "E8 BE 4B EA FF",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x2ebbe0"
+      },
+      {
+        "instruction_rva": "0x447185",
+        "instruction_signature": "E8 16 0D 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x447ea0"
+      },
+      {
+        "instruction_rva": "0x4472e6",
+        "instruction_signature": "E8 B5 0B 00 00",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "target_rva": "0x447ea0"
+      }
+    ]
+  },
+  {
+    "name": "flare_draw",
+    "rva": "0x447ea0",
+    "signature": "48 8B C4 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 58 FE FF FF 48 81 EC 70 02 00 00 48 C7 45 E0",
+    "function_entry": true,
+    "evidence": "E-CE-FLARE-1",
+    "runtime_group": "flare_guard"
+  }
+]

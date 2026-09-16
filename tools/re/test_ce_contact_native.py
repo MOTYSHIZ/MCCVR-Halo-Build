@@ -1,4 +1,4 @@
-"""Execute pinned CE world resolver and explicit-target player melee helper.
+"""Execute pinned CE world resolver, target search and player melee helper.
 
 Only isolated Unicorn memory is used. Collision queries, tag/object services,
 damage submission, marker lookup, effect emission and security-cookie checks
@@ -100,7 +100,7 @@ class NativeContact:
             self.write(output+0x10, "<h", -1 if self.collision == "unresolved" else 0)
             self.write(output+0x18, "<3f", .5, 0, 0)
             self.ret(int(self.collision != "clear"))
-        elif self.mode == "resolver" and rva == 0xA9BD08:
+        elif self.mode in ("resolver", "target_search") and rva == 0xA9BD08:
             value = self.read(cx, "<3f")
             length = math.sqrt(sum(v*v for v in value))
             self.write(cx, "<3f", *(v/length for v in value))
@@ -119,10 +119,27 @@ class NativeContact:
             self.uc.mem_write(cx, bytes(0x60))
             self.write(cx, "<I", dx)
             self.ret()
-        elif self.mode == "melee" and rva == 0xB04C78:
+        elif self.mode in ("melee", "target_search") and rva == 0xB04C78:
             require(cx == OWNER, "Native marker origin lost owner")
             self.write(dx, "<3f", 11, 22, 33)
             self.ret()
+        elif self.mode == "target_search" and rva == 0xB6A3E0:
+            require(close(self.read(cx, "<3f"), (1, 0, 0)), "Unexpected search forward")
+            self.write(dx, "<3f", 0, 1, 0)
+            self.ret(dx)
+        elif self.mode == "target_search" and rva == 0xB913FC:
+            require(cx == 0x1000E9 and r9 == OWNER, "Native target-search flags/owner changed")
+            require(close(self.read(dx, "<3f"), (11, 22, 33)), "Native search origin changed")
+            vector = self.read(r8, "<3f")
+            self.rays.append(vector)
+            output = self.read(sp+0x28, "<Q")[0]
+            found = self.search_hit and len(self.rays) == 13
+            if found:
+                self.write(output, "<h", 3)
+                self.write(output+0x14, "<f", .5)
+                self.write(output+0x34, "<H", 12)
+                self.write(output+0x38, "<I", TARGET)
+            self.ret(int(found))
         elif self.mode == "melee" and rva in (0xB220A8, 0xBAD264):
             self.ret(0)
         elif self.mode == "melee" and rva == 0xB0BC7C:
@@ -151,6 +168,8 @@ class NativeContact:
         self.uc.reg_write(UC_X86_REG_RSP, sp)
         for reg, value in zip((UC_X86_REG_RCX, UC_X86_REG_RDX, UC_X86_REG_R8, UC_X86_REG_R9), args):
             self.uc.reg_write(reg, value)
+        for index, value in enumerate(args[4:]):
+            self.write(sp+0x28+8*index, "<Q", value)
         self.uc.emu_start(BASE+rva, STOP, count=20000)
         require(self.uc.reg_read(UC_X86_REG_RIP) == STOP, "Native helper did not return")
 
@@ -190,6 +209,25 @@ class NativeContact:
         return dict(armed=armed, fallback=fallback, clang=clang, target_type=target_type,
             material=material, damage=self.damage, responses=self.responses)
 
+    def target_search(self, hit):
+        self.mode, self.search_hit, self.rays = "target_search", hit, []
+        target, kind, material, surface, face = [HEAP+0x200+i*16 for i in range(5)]
+        for output in (target, kind, material, surface, face):
+            self.write(output, "<I", 0xFFFFFFFF)
+        self.write(self.target+0x70, "<H", 0)
+        self.write(self.target+0xD8, "<I", 0xFFFFFFFF)
+        self.call(0xB0BFAC, (OWNER, target, kind, material, surface, face))
+        expected = [(0.8, lateral*.1, vertical*.1) for lateral in range(-2, 3)
+            for vertical in range(-2, 3)]
+        require(len(self.rays) == 25 and all(close(a, b) for a, b in zip(self.rays, expected)),
+            "Native CE melee search no longer uses 25 rays with .8 forward and +/- .2 lateral/vertical")
+        require(self.read(target, "<I")[0] == (TARGET if hit else 0xFFFFFFFF),
+            "Native search did not preserve its collision target")
+        require(self.read(material, "<H")[0] == (12 if hit else 0xFFFF),
+            "Native search material changed")
+        return dict(hit=hit, rays=self.rays, target=self.read(target, "<I")[0],
+            material=self.read(material, "<H")[0])
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -200,7 +238,7 @@ def main():
     require(hashlib.sha256(raw).hexdigest().upper() == SHA, "Pinned image mismatch")
     pe = pefile.PE(data=raw)
     functions = {}
-    for name, begin in (("resolver", 0xB93C8C), ("melee", 0xB0C388)):
+    for name, begin in (("resolver", 0xB93C8C), ("melee", 0xB0C388), ("target_search", 0xB0BFAC)):
         entries = [entry.struct for entry in pe.DIRECTORY_ENTRY_EXCEPTION
             if entry.struct.BeginAddress == begin]
         require(len(entries) == 1, f"Native {name} function extent is not unique")
@@ -211,15 +249,16 @@ def main():
         for fallback in (False, True) for clang in (False, True)]
     melee += [native.melee(True, True, True, target_type=2),
         native.melee(True, True, True, material=0xFFFF)]
+    target_search = [native.target_search(hit) for hit in (False, True)]
     report = dict(status="PASS_NATIVE_CONTACT_CONTRACTS_ONLY", image_sha256=SHA,
         function_extents={name: [hex(value) for value in extent] for name, extent in functions.items()},
-        resolver_cases=len(resolver), melee_cases=len(melee), instructions=native.instructions,
-        resolver=resolver, melee=melee,
+        resolver_cases=len(resolver), melee_cases=len(melee), target_search_cases=len(target_search),
+        instructions=native.instructions, resolver=resolver, melee=melee, target_search=target_search,
         limit="Collision world, native damage execution, network authority, actual mesh surfaces and headset behavior remain unexecuted.")
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2)+"\n", encoding="utf-8")
-    print(json.dumps({k:v for k,v in report.items() if k not in ("resolver", "melee")}, indent=2))
+    print(json.dumps({k:v for k,v in report.items() if k not in ("resolver", "melee", "target_search")}, indent=2))
 
 
 if __name__ == "__main__":

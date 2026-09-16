@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'dpad-hand-alignment',
+        'ce-community-refinement',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1135,7 +1135,19 @@ try {
             title_coverage = 'CE-Original-Anniversary; H2-Classic-Anniversary; H3; ODST; Reach; H4'
             headset_accepted = $false
         }
-        current_accepted_source = '7ff9697685e78389dad16126e4d1ec7188a3acbe'
+        current_accepted_source = 'd47a98c947dc60dd98d7259a29a7582d5f46df7f'
+        ce_community_refinement = [ordered]@{
+            evidence = 'docs/CE-COMMUNITY-REPORTS-2026-09-16.md'
+            classic = 'independent-native-raster-and-host-output-sizes; pinned-full-quad-scaling; cold-native-clock-install-gate'
+            loading_limit = 'premature-install-policy-corrected; supplied-log-has-no-stalled-thread-stack; custom-campaign-headset-result-required'
+            frame_recovery = 'two-cold-allocated-eye-pair-banks; retain-last-complete-pair-with-original-pose-and-existing-freshness-guards; retry-failed-resource-replacement'
+            controls_recovery = 'real-unwindable-turn-entry; independent-feature-retirement-and-reinstall'
+            orientation_comfort = 'CE-native-body-and-grenade-packet-with-private-motion-input-basis; headset-audio-with-native-world-velocity-preserved; native-camera-effect-output-suppression; see-current-release-notes-for-exact-proof-and-limits'
+            lighting = 'optional-native-lens-flare-projection-guard; native-lighting-remains-enabled'
+            melee = 'CE-only-20cm-extension-of-speed-qualified-hand-and-gun-sweeps; first-obstruction-and-exact-native-damage-requery-preserved'
+            edition_scope = 'both-editions-preserved; new-Game-Pass-specific-investigation-user-deferred-pending-log'
+            headset_accepted = $false
+        }
         dpad_controls = [ordered]@{
             head_radius = '10-50cm; existing-30cm-default; CE-left-side-proof-and-Back-click-preserved'
             quest_thumbrest = 'optional-default-OFF; physical-left-thumbrest-touch-plus-physical-right-stick'
@@ -1214,13 +1226,13 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Current candidate scope is dpad_controls, left_hand_alignment and RELEASE-NOTES.md; accepted runtime including CE haptics is 7ff9697; new shared input/alignment headset acceptance is pending; roomscale_candidate excludes CE.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Current scope is ce_community_refinement and RELEASE-NOTES.md. Accepted runtime is d47a98c including all-campaign support, CE haptics, D-pad controls and hand alignment. This CE refinement candidate is unaccepted. Earlier standing/deferred scope is preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Configurable head-gesture radius, optional Quest 3 physical-left-thumbrest/right-stick D-pad, and opt-in left-handed hand alignment. Accepted 7ff9697 CE haptics, weapon rendering and normal right-handed behavior preserved. Keep existing config. Both editions; package only; no GitHub publication; new behavior headset acceptance pending.'
+        note = 'Cumulative CE community-report refinement from accepted d47a98c. Keep existing config. Both editions; package only; no installation, launch or publication. New behavior and custom campaigns require headset testing; supplied logs do not establish a common cause for every symptom.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/DPAD-CONTROLS-CANDIDATE-2026-09-15.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/CE-COMMUNITY-CANDIDATE-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'
     $json = $manifest | ConvertTo-Json -Depth 6
