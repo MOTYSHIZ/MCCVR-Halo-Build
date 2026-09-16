@@ -1,10 +1,23 @@
-# CE community-report refinement candidate
+# CE refinement verification and content-prerequisite handoff
 
 This is an unaccepted test candidate built on the accepted d47a98c all-campaign
 release. It supports Steam and Microsoft Store and keeps the existing shared
 configuration, D-pad controls, hand alignment and haptics. Keep your current
 `halomccvr.cfg` when updating. Both matching ZIPs are delivered for testing;
 this task performs no installation, game launch or GitHub publication.
+
+This handoff preserves **all runtime, launcher, configuration and test source
+from d7dbfcb**. The changes are documentation and package metadata only. The
+user confirms vanilla Anniversary/rotation are good and custom loading works
+after installing the missing CE Multiplayer pack. Both new Original-mode logs
+identify d7dbfcb; the longer run completes 2,610 stereo pairs without a drop.
+
+**For Cursed Halo Again, install both Halo CE Campaign and CE Multiplayer.**
+The native missing-file loop also reproduced with VR absent. Installing the
+required multiplayer content resolved this reported stall; no loading-hook
+workaround was added. Original-graphics mods still need their listed assets.
+See `HALOCE-CURSED-LOADING-2026-09-16.md` and the
+[mod author's instructions](https://www.patreon.com/infernoplus/posts/cursed-halo-81524237).
 
 ## CE corrections
 
@@ -13,9 +26,8 @@ this task performs no installation, game launch or GitHub publication.
   native field of view. Cropped/split views and incompatible source textures
   still fail safely.
 - Initial CE hook installation waits for verified native simulation activity.
-  This removes premature installation during loading. The custom-campaign log
-  does not contain the stalled thread stack, so whether this resolves Cursed
-  Halo Again and Minecraft 2 still requires the user's test.
+  This removes premature installation during loading and remains unchanged.
+  It was not the fix for the captured missing-content stall.
 - A briefly rejected stereo frame retains the previous complete eye pair and
   its original pose for compositor reprojection, within the existing short
   freshness limits. Resource replacement failures can retry even when returning
@@ -76,7 +88,8 @@ handoff identity is saved under `out/ce-community-current-handoff.json`.
 
 ## Test in the headset
 
-1. Start CE directly in Classic, including Cursed Halo Again and Minecraft 2.
+1. With each mod's required content installed, start CE directly in Classic,
+   including Cursed Halo Again and Minecraft 2.
    Confirm the loading screen finishes, VR starts, and both eyes track.
 2. Play Halo in Anniversary and pass through the first tunnel. Check for black
    flashes and vertical light streaks, and switch graphics both ways.
@@ -88,9 +101,11 @@ handoff identity is saved under `out/ce-community-current-handoff.json`.
 5. Run the required Halo 3 regression and ordinary campaign switching. Record
    the edition, OpenXR runtime, headset, graphics mode and mission with the log.
 
-Local builds and tests establish implementation and bounded failure handling;
-they do not establish headset acceptance or prove every community symptom had
-the same cause. The accepted pointer remains d47a98c. The new Game Pass-specific
+The user's Original-mode loading result and earlier Anniversary confirmation
+are scoped results for d7dbfcb. The supplied logs do not verify every custom
+weapon rig/contact path, long-session transition, community symptom or a new
+Halo 3 regression. Local checks cannot establish those headset results. The
+cumulative accepted pointer remains d47a98c. The new Game Pass-specific
 investigation is deferred by the user until its log arrives; existing edition
 support remains. Earlier vehicle/zoom/dual-wield and other standing or explicitly
 deferred work stays preserved in `CONTINUATION-REFINEMENT-LIST.md`.

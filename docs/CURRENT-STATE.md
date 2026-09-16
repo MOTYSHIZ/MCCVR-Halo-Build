@@ -1,5 +1,19 @@
 # Current state
 
+## September 16 scoped CE result: preserve d7dbfcb runtime
+
+The user confirms vanilla CE Anniversary/rotation are good on d7dbfcb and that
+installing the missing CE Multiplayer pack resolves the reported custom-campaign
+loading stall. New Steam/OpenXR 2.17.10 logs show working Original stereo and
+tracked controls/movement. Read `HALOCE-CURSED-LOADING-2026-09-16.md` for exact
+identities, the matching non-VR failure and remaining coverage limits.
+
+This is scoped CE feedback, not a new all-title/Halo 3 regression result. The
+cumulative accepted pointer remains **d47a98c**. The user requests another
+verified ZIP pair preserving d7dbfcb runtime source; only documentation and
+package metadata change. Package without -Install, deliver both archives, then
+wait. No installation, game launch, game-folder writes or publication.
+
 # Current publication — accepted d47a98c all-campaign release
 
 The user headset-ACCEPTS **d47a98c** and explicitly requests GitHub publication

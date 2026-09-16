@@ -138,6 +138,16 @@ native aim can keep up with the controller reticle.
 7. Apply the required settings in every campaign, load a level, allow normal
    initialization, and press F3 to recenter.
 
+### CE custom campaigns
+
+Install **both Halo CE Campaign and Halo CE Multiplayer** before playing Cursed
+Halo Again or other CE mods that require them. Original-graphics campaign mods
+can depend on multiplayer assets. Missing content can leave a full loading bar
+with music continuing, even without VR. Follow each mod's dependency list;
+Force Inject cannot supply missing game files. The Cursed Halo author's
+[installation instructions](https://www.patreon.com/infernoplus/posts/cursed-halo-81524237)
+require both packs.
+
 ## Updating
 
 1. Close MCC and back up the existing `Halo_MCC_VR` folder.

@@ -1,4 +1,26 @@
-# Current continuation - September 16: CE community reports and custom-map loading
+# Current handoff - September 16: loading resolved by required game content
+
+User confirms mod loading after installing missing CE Multiplayer and requests
+a new verified ZIP pair. This lifts the packaging hold below. Preserve d7dbfcb
+runtime, launcher, config and tests, especially Original tracking/movement and
+confirmed Anniversary behavior. Only documentation/package metadata change.
+Read `HALOCE-CURSED-LOADING-2026-09-16.md`; run cumulative verification, package
+without -Install, verify both archives and deliver them, then wait. No install,
+game-folder writes, game launch, PR or publication. Keep earlier standing scope
+and limits; no speculative loading-hook changes are justified.
+
+# Previous investigation - September 16: latest candidate Cursed Halo stall
+
+User tested d7dbfcb: vanilla CE Anniversary/rotation good, preserve it. Cursed
+Halo Again Quick Start into the first mission still stalls with a full loading
+bar and music. Cursed and the relevant custom campaigns use Original CE; this
+is already established. Modded-campaign loading is the immediate priority.
+No ZIP until a satisfactory result; no installation/game-folder writes/game
+launch/PR/publication. Read-only diagnosis of the existing stalled process is
+authorized. Read `HALOCE-CURSED-LOADING-2026-09-16.md` for captured thread and
+file-read evidence. Preserve the entire earlier scope and both editions.
+
+# Previous continuation - September 16: CE community reports and custom-map loading
 
 Current user delivery refinement: finish ALL issues before packaging any ZIP;
 modded campaigns/Classic entry first, then the entire original CE report list.

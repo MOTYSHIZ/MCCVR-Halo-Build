@@ -1,4 +1,54 @@
-# Current continuation - September 16: CE community reports and custom-map loading
+# Current handoff - September 16: preserve tested CE, package after verification
+
+The user installed the missing **CE Multiplayer pack** and confirms that modded
+campaign loading now works. The earlier packaging hold is lifted: explicitly
+requested due diligence and a new build/source ZIP pair. Preserve d7dbfcb CE
+Original tracking/movement and the already-confirmed Anniversary behavior.
+No runtime or launcher source changed during diagnosis or this handoff; only
+documentation and package metadata change. Existing both-edition support and
+all prior scope remain intact. Do not resume speculative loading refinements.
+
+Read `HALOCE-CURSED-LOADING-2026-09-16.md`. The same missing beavercreek.map loop
+was captured with and without VR; the multiplayer pack supplies it. New d7dbfcb
+logs are preserved in `out/test-runs/d7dbfcb-ce-multiplayer-installed-20260916/`.
+The longer run completes 2,610 Original stereo pairs with no drops and active
+tracked controls/movement. Custom first-person rig/contact coverage and fresh
+Halo 3/Store/long-session testing remain limited; do not overstate acceptance.
+
+Complete cumulative Release/CTest/Reach gate and exact archive verification.
+Package without -Install; deliver NEW matching build/source ZIPs, then WAIT for
+testing/instructions. Exact package identity belongs in
+`out/ce-community-current-handoff.json`. No installation, game-folder writes,
+game launch, PR or publication. Cumulative accepted pointer stays d47a98c;
+scoped d7dbfcb CE feedback is recorded separately in CURRENT-STATE.md.
+
+# Previous investigation - September 16: d7dbfcb Cursed Halo loading stall
+
+The user has now tested the latest delivered source **d7dbfcb**. Vanilla CE
+Anniversary and rotation are reported good: preserve that behavior. Cursed Halo
+Again Quick Start (first campaign mission) still stops at the full loading bar
+with menu music. These mods use **Original CE**; do not ask the user to establish
+that again or infer Anniversary rendering from a shared loader's name.
+
+**Packaging is on hold until a satisfactory loading result.** Do not package a
+partial or speculative ZIP. Investigate modded-campaign entry first; preserve
+all prior scope and both editions. No installation, game-folder writes, game
+launch, PR or publication is authorized. The existing process was left running
+for read-only diagnosis. Details: `HALOCE-CURSED-LOADING-2026-09-16.md`.
+
+Live PID 9480 and the supplied log match d7dbfcb and its exact delivered DLL
+hash. Native CE clock is uninitialized/tick zero; no CE camera or optional hooks
+have installed. Read-only thread snapshots identify a native loading wait and
+a separate worker repeatedly reporting missing-file/invalid-handle errors.
+This replaces the earlier missing-stack limitation; it does not yet establish
+why the wrong/missing resource is requested or prove a correction.
+
+The cumulative accepted pointer remains d47a98c. Record the user's scoped
+Anniversary confirmation separately; do not promote the failed cumulative
+candidate or discard working CE features. Earlier delivery instructions below
+are historical and superseded by this packaging hold.
+
+# Previous continuation - September 16: CE community reports and custom-map loading
 
 Current user delivery refinement: finish ALL issues before packaging any ZIP;
 modded campaigns/Classic entry first, then the entire original CE report list.

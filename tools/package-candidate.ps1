@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 50
+        schema_version = 51
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1139,7 +1139,12 @@ try {
         ce_community_refinement = [ordered]@{
             evidence = 'docs/CE-COMMUNITY-REPORTS-2026-09-16.md'
             classic = 'independent-native-raster-and-host-output-sizes; pinned-full-quad-scaling; cold-native-clock-install-gate'
-            loading_limit = 'premature-install-policy-corrected; supplied-log-has-no-stalled-thread-stack; custom-campaign-headset-result-required'
+            loading_evidence = 'docs/HALOCE-CURSED-LOADING-2026-09-16.md'
+            loading_result = 'same-native-missing-beavercreek-map-loop-with-and-without-VR; user-confirmed-resolved-after-installing-required-CE-Multiplayer-content'
+            loading_requirement = 'Cursed-Halo-Again-requires-both-CE-Campaign-and-CE-Multiplayer; follow-each-mod-dependency-list'
+            preserved_runtime_source = 'd7dbfcbfdb4f204a72721c936d69e9f38ecda95e'
+            runtime_source_changed = $false
+            loading_limit = 'scoped-user-confirmation; full-custom-weapon-rig-contact-and-long-session-transition-coverage-unverified'
             frame_recovery = 'two-cold-allocated-eye-pair-banks; retain-last-complete-pair-with-original-pose-and-existing-freshness-guards; retry-failed-resource-replacement'
             controls_recovery = 'real-unwindable-turn-entry; independent-feature-retirement-and-reinstall'
             orientation_comfort = 'CE-native-body-and-grenade-packet-with-private-motion-input-basis; headset-audio-with-native-world-velocity-preserved; native-camera-effect-output-suppression; see-current-release-notes-for-exact-proof-and-limits'
@@ -1226,9 +1231,9 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Current scope is ce_community_refinement and RELEASE-NOTES.md. Accepted runtime is d47a98c including all-campaign support, CE haptics, D-pad controls and hand alignment. This CE refinement candidate is unaccepted. Earlier standing/deferred scope is preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results describe inherited work. Cumulative accepted runtime remains d47a98c. User confirmed d7dbfcb CE Anniversary and mod loading after installing required CE Multiplayer. This documentation/metadata handoff preserves d7dbfcb runtime source; rebuilt artifact is not independently headset-tested. Earlier standing/deferred scope is preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Cumulative CE community-report refinement from accepted d47a98c. Keep existing config. Both editions; package only; no installation, launch or publication. New behavior and custom campaigns require headset testing; supplied logs do not establish a common cause for every symptom.'
+        note = 'Documentation/metadata handoff preserving d7dbfcb runtime, launcher and configuration source. Keep existing config. Both editions; package only; no installation, launch or publication. Missing CE Multiplayer content caused the captured custom-campaign loading stall; user confirms resolution after installation. Broader headset coverage remains limited.'
 
     }
 

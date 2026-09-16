@@ -12,6 +12,9 @@ Download Halo-MCC-VR.zip for playing. Its four files are:
   halomccvr.cfg
   README.txt (this guide, credits and license notices)
 Developers can use Halo-MCC-VR-Source.zip; players do not need it.
+Test-candidate ZIPs also include a manifest, release notes and separate license
+files; their copy instructions are the same. Keep your existing configuration
+when updating.
 Release notes and the full supported-games table:
 https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.0
 
@@ -36,6 +39,17 @@ INSTALL
 You need Windows x64, MCC with the desired campaigns installed, controllers,
 and a working PCVR/OpenXR setup. Run MCC normally once for first-run setup.
 No Visual Studio, source ZIP or separate OpenXR SDK is needed to play.
+
+CE CUSTOM CAMPAIGNS
+-------------------
+Install BOTH Halo CE Campaign and Halo CE Multiplayer before playing Cursed
+Halo Again or other CE mods that require them. Original-graphics campaign mods
+can depend on multiplayer assets. Follow each mod's listed dependencies.
+Missing content can leave a full loading bar with music continuing even without
+VR. Check the installed content and try the same mod without VR before using
+Force Inject; recovery cannot supply missing game files.
+Cursed Halo author's installation instructions:
+https://www.patreon.com/infernoplus/posts/cursed-halo-81524237
 
 UPDATING
 --------

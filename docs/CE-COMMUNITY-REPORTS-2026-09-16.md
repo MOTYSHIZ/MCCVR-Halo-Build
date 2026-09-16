@@ -1,5 +1,13 @@
 # CE community reports and custom-map loading investigation
 
+September 16 update: the user confirms that installing the missing **CE
+Multiplayer** content resolves mod loading and requests a new verified ZIP pair.
+The earlier hold below is lifted. Read `HALOCE-CURSED-LOADING-2026-09-16.md` for
+the same missing-file loop with and without VR and two post-install d7dbfcb logs.
+Preserve d7dbfcb runtime, including Original tracking/movement and confirmed
+Anniversary behavior. This handoff changes documentation/package metadata only;
+remaining headset coverage limits and all prior scope are preserved.
+
 Active user scope (September 16): correct CE Classic VR startup/custom-map
 compatibility, Anniversary periodic black flicker and vertical light streaks,
 head/controller-relative movement and firing/native VR reticle, player/grenade
