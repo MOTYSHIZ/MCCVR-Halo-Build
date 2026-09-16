@@ -10,6 +10,8 @@
 // inventory, ammo, animation clocks, native tags or camera ownership.
 namespace weapon_interaction
 {
+// User-rejected grip/four-stroke gesture remains dormant for history.
+inline constexpr bool kLegacyGripNeedleShakeEnabled = false;
 inline constexpr unsigned kTitleCount = 6;
 inline constexpr const char* kTitleKeys[kTitleCount]{"halo3", "odst", "reach", "halo4", "ce", "halo2"};
 inline constexpr const char* kTitleNames[kTitleCount]{"Halo 3", "ODST", "Reach", "Halo 4", "Halo CE", "Halo 2"};
@@ -258,7 +260,7 @@ public:
                 out.consumeSupport=true;out.releaseTwoHand=true;
                 out.pickedMagazine=true;out.supportHaptic=0.20f;
             }
-            else if(c.reload&&c.needleShake&&NeedleWeapon(s.title,s.weaponGraph)&&
+            else if(kLegacyGripNeedleShakeEnabled&&c.reload&&c.needleShake&&NeedleWeapon(s.title,s.weaponGraph)&&
                 c.reloadButton&&armedP_&&heldP)
             {
                 phase_=3;started_=s.now;ownedP_=true;
