@@ -28,7 +28,7 @@ All three features are **off by default**, including when their settings are abs
 
 ### Manual reload and visible reload parts
 
-Enable **Manual Reload** under **Weapon & Aim**. Reach to the support-side hip, hold support-hand grip to take a reload part, bring it just below the gun hand and release to request a reload. Releasing elsewhere cancels. Grab and completion provide haptic feedback. **IF IT DOES NOT WORK, TRY DIFFERENT GAMEPAD SETTINGS (RECON, RECLAIMER, ETC)**
+Enable **Manual Reload** under **Weapon & Aim**. Reach to the support-side hip, hold support-hand grip to take a reload part, bring it just below the gun hand and release to request a reload. Releasing elsewhere cancels. Grab and completion provide haptic feedback.
 
 - Includes 42 reload-part meshes across all six games, with the same accessory used in both CE/H2 graphics modes. Separate sliders adjust grab and insertion radii.
 - Recognized weapon models use their catalogued part. Unfamiliar valid modded models can use an optional **blue generic reload item**; this does not extract a custom gun's own magazine or infer its ammo type.
@@ -52,6 +52,31 @@ Reload and holster gestures operate during focused, tracked, on-foot, single-wea
 Enable **F1 > Controls > Point at game menus**. Aim the primary controller at the displayed MCC/game menu and use its trigger to click or drag. A visible white cursor shows pointer position. The pointer follows handedness and requires MCC to have focus. Existing F1 pointing remains available independently.
 
 The pointer now handles MCC's menu even when multiple campaign modules remain loaded. It applies to the native menu screen, not normal gameplay or cinematic theater; individual native widgets and transition cases still need broader testing.
+
+### Per-game controller layouts and interaction settings
+
+Open **F1 > Weapon & Aim > Reload and holsters** (or click both sticks together to open VR settings). Enable **Manual Reload** or **Weapon Holsters** to reveal the shared setup controls.
+
+- **Controller layout for:** choose Halo CE, Halo 2, Halo 3, ODST, Reach or Halo 4. The selector follows the active title when it changes; you can also select a game yourself. Button choices are saved separately for each title. CE's two graphics modes share one set, as do Halo 2's.
+- **MCC Reload button:** choose the native controller button your selected game's MCC layout uses for reload. Visible with Manual Reload enabled; defaults to **X**.
+- **MCC Switch Weapon button:** choose the native controller button your selected game's MCC layout uses to switch weapons. Visible with Weapon Holsters enabled; defaults to **Y**.
+- Both button selectors offer **X, Right bumper, Left bumper, B, Y, A, Left trigger and Right trigger**. These settings tell the VR gestures which native button to send; they do not change MCC's controller preset. Match your actual in-game layout (Recon, Reclaimer, or whichever preset you use). If a gesture performs the wrong action or does nothing, check these mappings in the selected campaign.
+- **Pouch / hip depth below head:** adjust the shared vertical placement from **25–85 cm** for seated or standing reach.
+
+The smaller interaction adjustments are available alongside these mappings:
+
+| Feature | Available controls |
+| --- | --- |
+| Manual reload | Independent enable toggle; **Magazine grab radius** 8–40 cm; **Magazine insertion radius** 6–30 cm |
+| Reload behavior | Independent **Disable automatic reload** and **Skip reload and weapon-ready animations** options; both default off and require Manual Reload |
+| Unfamiliar weapons | **Generic reload item for unknown weapons** toggle; uses a blue interaction item for valid unfamiliar models, without claiming a custom magazine mesh or ammo-type detection |
+| Needle weapons | **Shake to reload needle weapons** toggle and **Minimum shake stroke** 6–20 cm; one rapid gun-hand out-and-back, no grip required, then let the hand settle |
+| Holster placement | **Weapon-side shoulder** or **Weapon-side hip**, plus **Holster grab radius** 8–40 cm |
+| Holster activation | Separate **Holster slide / draw gesture** and **Holster click gesture** toggles; click takes precedence if both are on; enable at least one |
+| Slide-only holster distance | **Minimum holster draw distance** 10–50 cm; shown when slide is on and click is off |
+| Menu interaction | **F1 > Controls > Point at game menus** toggle; primary-controller aim, trigger click/drag, visible white cursor, and handedness support |
+
+Reload/holster gestures mirror for left-handed play and give a short vibration on grabs and completed gestures. They apply to focused, tracked, on-foot, single-weapon gameplay and cancel during menus, vehicles, death or tracking loss. Regular controller buttons remain available; Halo's native ammo and inventory rules still apply. Release grip before repeating a holster switch. These controls supplement the retained D-pad head-radius slider, optional Quest 3 thumb-rest/right-stick D-pad, handedness/hand-alignment options and precision arrows beside F1 sliders described below.
 
 ### Additional corrections
 

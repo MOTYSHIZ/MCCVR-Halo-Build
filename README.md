@@ -135,6 +135,31 @@ animation and magazine. Skipping playback does not simulate magazine removal. Ge
 or identify custom ammo types. See the [release notes](releases/0.4.2/RELEASE-NOTES.md)
 for full controls, cancellation behavior and remaining coverage limits.
 
+### Per-game controller layouts and interaction settings
+
+Open **F1 > Weapon & Aim > Reload and holsters** (or click both sticks together to open VR settings). Enable **Manual Reload** or **Weapon Holsters** to reveal the shared setup controls.
+
+- **Controller layout for:** choose Halo CE, Halo 2, Halo 3, ODST, Reach or Halo 4. The selector follows the active title when it changes; you can also select a game yourself. Button choices are saved separately for each title. CE's two graphics modes share one set, as do Halo 2's.
+- **MCC Reload button:** choose the native controller button your selected game's MCC layout uses for reload. Visible with Manual Reload enabled; defaults to **X**.
+- **MCC Switch Weapon button:** choose the native controller button your selected game's MCC layout uses to switch weapons. Visible with Weapon Holsters enabled; defaults to **Y**.
+- Both button selectors offer **X, Right bumper, Left bumper, B, Y, A, Left trigger and Right trigger**. These settings tell the VR gestures which native button to send; they do not change MCC's controller preset. Match your actual in-game layout (Recon, Reclaimer, or whichever preset you use). If a gesture performs the wrong action or does nothing, check these mappings in the selected campaign.
+- **Pouch / hip depth below head:** adjust the shared vertical placement from **25–85 cm** for seated or standing reach.
+
+The smaller interaction adjustments are available alongside these mappings:
+
+| Feature | Available controls |
+| --- | --- |
+| Manual reload | Independent enable toggle; **Magazine grab radius** 8–40 cm; **Magazine insertion radius** 6–30 cm |
+| Reload behavior | Independent **Disable automatic reload** and **Skip reload and weapon-ready animations** options; both default off and require Manual Reload |
+| Unfamiliar weapons | **Generic reload item for unknown weapons** toggle; uses a blue interaction item for valid unfamiliar models, without claiming a custom magazine mesh or ammo-type detection |
+| Needle weapons | **Shake to reload needle weapons** toggle and **Minimum shake stroke** 6–20 cm; one rapid gun-hand out-and-back, no grip required, then let the hand settle |
+| Holster placement | **Weapon-side shoulder** or **Weapon-side hip**, plus **Holster grab radius** 8–40 cm |
+| Holster activation | Separate **Holster slide / draw gesture** and **Holster click gesture** toggles; click takes precedence if both are on; enable at least one |
+| Slide-only holster distance | **Minimum holster draw distance** 10–50 cm; shown when slide is on and click is off |
+| Menu interaction | **F1 > Controls > Point at game menus** toggle; primary-controller aim, trigger click/drag, visible white cursor, and handedness support |
+
+Reload/holster gestures mirror for left-handed play and give a short vibration on grabs and completed gestures. They apply to focused, tracked, on-foot, single-weapon gameplay and cancel during menus, vehicles, death or tracking loss. Regular controller buttons remain available; Halo's native ammo and inventory rules still apply. Release grip before repeating a holster switch. These controls supplement the retained D-pad head-radius slider, optional Quest 3 thumb-rest/right-stick D-pad, handedness/hand-alignment options and precision arrows beside F1 sliders described below.
+
 ### Earlier additions retained
 
 - **Halo CE Anniversary is now playable in VR**, alongside Original graphics:
