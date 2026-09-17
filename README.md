@@ -8,10 +8,11 @@ An independently maintained continuation of
 maintained here by **moistman42069**. Original contributor credit, history, and
 the MIT license are preserved.
 
-## Latest release: Alpha 0.4.1 — Experimental Manual Reload, Holsters & Menu Pointer
+## Latest release: Alpha 0.4.2 — Quick Patch Update
 
-Alpha 0.4.1 adds optional experimental manual reload, weapon holsters and a
-controller menu pointer. Every Halo: The Master Chief Collection campaign
+Alpha 0.4.2 refines optional experimental manual reload with automatic-reload
+suppression and reload/weapon-ready animation skipping. Weapon holsters and the
+controller menu pointer are retained. Every Halo: The Master Chief Collection campaign
 retains a playable VR path:
 
 - Halo: Combat Evolved Anniversary — Original and Anniversary graphics
@@ -25,7 +26,7 @@ The same build supports Steam and Microsoft Store / Xbox app. This remains an
 alpha: complete campaign coverage does not mean every feature,
 mission, transition, headset, or runtime combination is finished.
 
-Read the [complete Alpha 0.4.1 release notes](releases/0.4.1/RELEASE-NOTES.md)
+Read the [complete Alpha 0.4.2 release notes](releases/0.4.2/RELEASE-NOTES.md)
 for the detailed title-by-title breakdown, exact limits, planned work, and
 artifact hashes.
 
@@ -47,13 +48,13 @@ artifact hashes.
 
 ## Downloads
 
-- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.1/Halo-MCC-VR.zip)** — the mod for players.
-- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.1/Halo-MCC-VR-Source.zip) — complete source and build instructions for developers.
-- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.1) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.1/SHA256.txt)
+- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.2/Halo-MCC-VR.zip)** — the mod for players.
+- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.2/Halo-MCC-VR-Source.zip) — complete source and build instructions for developers.
+- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.2) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.2/SHA256.txt)
 
 The player ZIP contains only the DLL, launcher, default config, and `README.txt`,
 all at the ZIP root. Existing users should **keep their own config**.
-The published runtime is the exact tested **46c124b** build, without recompiling.
+The published runtime is the exact tested **1a9766c** build, without recompiling.
 The release tag and matching source ZIP point to that same runtime source.
 
 ## Quick controller reference
@@ -82,7 +83,18 @@ native aim can keep up with the controller reticle.
 
 ## Major features
 
-### New in Alpha 0.4.1 (experimental)
+### New in Alpha 0.4.2 — manual reload refinements
+
+Two independent options are now available under **F1 > Weapon & Aim > Manual Reload**, across CE, Halo 2, Halo 3, ODST, Reach and Halo 4, including both CE/H2 graphics modes:
+
+- **Disable automatic reload:** prevents the native empty-trigger automatic reload so you can use manual reload gestures. Normal reload buttons remain available.
+- **Skip reload and weapon-ready animations:** skips the identified first-person reload/equip playback and shortens native reload waits, allowing magazine insertion to complete promptly through the game's own ammo handling.
+
+Both options are **off by default** and require **Manual Reload** to be enabled. Enable either or both; keep your existing config when updating. Halo still owns ammo eligibility, reserves and inventory. Custom weapon delays can remain; this does not promise zero delay for every weapon. If an optional feature cannot be verified, that feature stays stock and logs the fallback while VR continues.
+
+All previous manual reload, Needler shake, holster, menu pointer, campaign and edition support is retained.
+
+### Retained from Alpha 0.4.1 (experimental)
 
 These features are **off by default**. Enable them individually in F1 and keep
 your existing configuration when upgrading. Both handedness modes are supported.
@@ -113,13 +125,14 @@ your existing configuration when upgrading. Both handedness modes are supported.
 Match each game's **MCC Reload button** and **MCC Switch Weapon button** to its
 controller layout. Reload/holster gestures apply to focused, tracked, on-foot,
 single-weapon gameplay; ordinary buttons remain available. Halo still owns
-ammo, inventory, automatic reloads and animation timing. Holsters do not add
+ammo and inventory; automatic reloads and animation timing remain native unless
+the new options are enabled. Holsters do not add
 inventory slots or visible body-mounted guns.
 
 Reload parts use simple grey shading without native textures or world occlusion
-and may show through nearby surfaces. The native gun retains its normal reload
-animation and magazine. Generic items do not reproduce custom magazine geometry
-or identify custom ammo types. See the [release notes](releases/0.4.1/RELEASE-NOTES.md)
+and may show through nearby surfaces. With animation skipping disabled, the native gun retains its normal reload
+animation and magazine. Skipping playback does not simulate magazine removal. Generic items do not reproduce custom magazine geometry
+or identify custom ammo types. See the [release notes](releases/0.4.2/RELEASE-NOTES.md)
 for full controls, cancellation behavior and remaining coverage limits.
 
 ### Earlier additions retained
@@ -261,11 +274,11 @@ Attach `HaloMCCVR.log` and `HaloMCCVRLauncher.log`, and include:
 
 ## Validation
 
-- The author approved **46c124b** as the Alpha 0.4.1 release baseline after
+- The author approved **1a9766c** as the Alpha 0.4.2 release baseline after
   headset testing. The supplied log identifies Steam, SteamVR/OpenXR 2.17.10
   and an Oculus-family headset at 90 Hz.
-- Release x64, all **39 CTest suites**, the Reach consistency gate, 14,820
-  interaction checks and 4,945 accessory checks passed locally.
+- Release x64, all **40 CTest suites**, the Reach consistency gate, 387,629
+  native reload checks and pinned reload-binding verification passed locally.
 - Published build/source downloads and checksums were verified. The DLL,
   launcher and default config match the tested candidate byte for byte.
 - The earlier d47a98c baseline established all-six-campaign smoke-test coverage.

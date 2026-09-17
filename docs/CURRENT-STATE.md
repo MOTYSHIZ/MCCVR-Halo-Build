@@ -1,3 +1,25 @@
+# September 16: Alpha 0.4.2 patch release baseline accepted
+
+The user approves the delivered native reload policy build and explicitly requests
+a new GitHub patch release, preserving prior release guidance and updating README
+and About. This supersedes earlier publication holds for this candidate.
+
+Accepted release source: `1a9766ca971a9e5f09b942d508abecd9753bdb35`.
+DLL SHA-256: `8B6FFB78884420588432DA19A5348F330689F201094660729FA8B9AB72C58F60`.
+Preserve exact tested runtime bytes and matching source ZIP; no rebuild.
+User log: `out/test-runs/1a9766c-release-accepted-20260916/user.log`.
+Log SHA-256: `9F36A6B31424064657BA00C0ABDA17F5C6A122640EBE73266B1035F109636CEC`.
+Steam, SteamVR/OpenXR 2.17.10, Oculus-family headset at 90 Hz.
+This is release-baseline acceptance, not exhaustive all-title, Store, custom-mod
+or long-session confirmation. All prior coverage limits and deferred work remain.
+
+Release: https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.2
+Publication verification: `out/published-0.4.2-handoff.json`.
+Deliver release/build/source links after verification, then wait for instructions.
+No installation, game-folder writes, game launch or PR. Both editions supported.
+
+# Historical record follows
+
 # September 16: Alpha 0.4.1 release baseline accepted
 
 The user explicitly approves the latest delivered 46c124b candidate as a good
