@@ -1,5 +1,6 @@
 #pragma once
 #include "weapon_interaction_logic.h"
+#include <cstring>
 
 namespace weapon_accessory
 {
@@ -21,6 +22,10 @@ inline Presentation Build(const weapon_interaction::Sample& sample,
     using namespace weapon_interaction;
     const auto* model=weapon_model::Find(sample.title,sample.weaponGraph);
     if(!model&&sample.weaponGraph&&settings.genericVisual) model=&weapon_model::kGenericReloadModel;
+    // These H4 kit models have articulated reload assemblies, not a detached
+    // clip node. A known zero-vertex model must still receive a visible item.
+    if(model&&model->title==GameTitle::Halo4&&!model->vertexCount&&
+        std::strstr(model->name,"forerunner_")) model=&weapon_model::kPrometheanReloadModel;
     Vec pouch{},holster{};
     if(!settings.reload||!sample.ready||sample.dualWield||!sample.now||
         !sample.generation||!sample.space||!model||!model->vertexCount||
@@ -70,6 +75,8 @@ inline bool Projection(const Presentation& p,const Pose& eye,
         {0.24f,0.28f,0.31f,1}};
     if(p.model==&weapon_model::kGenericReloadModel)
     { out.color[0]=.12f;out.color[1]=.45f;out.color[2]=.65f; }
+    if(p.model==&weapon_model::kPrometheanReloadModel)
+    { out.color[0]=.95f;out.color[1]=.38f;out.color[2]=.06f; }
     return true;
 }
 }

@@ -21,6 +21,9 @@ struct Vertex { float position[3],normal[3]; };
 // Unfamiliar held models get a mod-authored interaction token. It does not
 // claim the gun takes a box magazine; the native game still decides reloads.
 inline constexpr Model kGenericReloadModel{GameTitle::None,0,"generic reload token",false,0,0,36,{},{}};
+inline constexpr Model kPrometheanReloadModel{GameTitle::Halo4,0,"Promethean reload item",false,0,0,36,{},{}};
+inline bool UsesTokenGeometry(const Model* model) noexcept
+{ return model==&kGenericReloadModel || model==&kPrometheanReloadModel; }
 }
 #include "weapon_models.generated.h"
 namespace weapon_model

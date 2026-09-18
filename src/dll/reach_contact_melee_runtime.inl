@@ -220,7 +220,7 @@ void ReachContactTick(uint32_t unit)
     __try
     {
         const uint64_t now=GetTickCount64();
-        const bool admit=g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
+        const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
             VR_IsStereoEnabled() && !g_reachCinematicLocked.load(std::memory_order_acquire) &&
             g_reachContact.playback && !g_reachContact.playback() &&
             g_reachCamera.unitInVehicle && !g_reachCamera.unitInVehicle(static_cast<int32_t>(unit));

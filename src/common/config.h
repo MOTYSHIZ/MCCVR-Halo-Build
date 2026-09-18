@@ -539,6 +539,7 @@ struct Config
     // separate from HUD scale/curvature so players can keep the complete HUD
     // while hiding only the helmet frame.
     bool halo4_helmet = true;
+    bool hide_hud = false;
 
     // rendering. The game's own HUD reticle sits at head-center and is wrong
     // whenever hand aim is on; this one is the truth.

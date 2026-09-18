@@ -14,6 +14,7 @@
 #include "../common/config.h"
 #include "../common/halo2_render_logic.h"
 #include "../common/input_logic.h"
+#include "../common/exclusive_input.h"
 #include "../common/odst_bringup_logic.h"
 #include "../common/scope_logic.h"
 
@@ -132,6 +133,22 @@ namespace
             Game_Recenter();
             Menu_Toggle();
             LOG("L3+R3: recentered immersive/theatre space and toggled F1 menu");
+        }
+
+        static thread_local ExclusiveInputHolds physicalHolds;
+        physicalHolds.ApplyPhysical(state->Gamepad,pad.exclusiveInput||Menu_IsOpen());
+        if(pad.exclusiveInput&&!Menu_IsOpen())
+        {
+            Roomscale_Input(false,0,0);
+            (void)Game_GestureMeleeInput(GetTickCount64()); // drains a pending gesture pulse
+            g_pauseChord.Reset();
+            g_scopeToggle.Update(false,false,true);
+            g_startPulseUntilMs.store(0);
+            state->Gamepad={};
+            if(pad.thumbrestDpad)
+                state->Gamepad.wButtons=DpadDirectionButtons(pad.dpadX,pad.dpadY);
+            NoteFedButtons(state->Gamepad.wButtons);
+            return;
         }
 
         // The universal scope owns R3 while it is available. Passing that click
@@ -373,8 +390,7 @@ namespace
             if ((roomscale && mx * mx + my * my > 1e-6f) ||
                 mx * mx + my * my > 0.02f)
             {
-                state->Gamepad.sThumbLX = ToRawStick(mx);
-                state->Gamepad.sThumbLY = ToRawStick(my);
+                RadialMoveStick(mx,my,state->Gamepad.sThumbLX,state->Gamepad.sThumbLY);
             }
         }
         else

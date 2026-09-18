@@ -6,6 +6,7 @@ int RunRoomscaleInputTests();
 #include "../src/common/halo4_runtime_weapon_bounds.h"
 #include "../src/common/legacy_runtime_weapon_bounds.h"
 #include "../src/common/halo2_snap_turn_logic.h"
+#include "../src/common/halo2_datum_logic.h"
 #include "../src/common/halo3_melee_selection_logic.h"
 #include "../src/common/contact_melee_motion.h"
 #include "../src/dll/contact_melee_queue.h"
@@ -199,6 +200,26 @@ namespace
 
 int main()
 {
+    {
+        std::array<uint8_t,0x500> memory{};
+        auto put=[&](size_t at,auto value) { std::memcpy(memory.data()+at,&value,sizeof(value)); };
+        put(0x20,uint32_t(2));put(0x24,uint32_t(0x224));put(0x48,uintptr_t(0x80));
+        memory[0x29]=1;put(0x80+0x224,uint16_t(9));
+        Check(halo2_datum::Record(memory.data(),0x90001,0x224,16)==memory.data()+0x2a4,
+            "H2 full salted handle resolves its own player record");
+        Check(!halo2_datum::Record(memory.data(),0x80001,0x224,16),
+            "H2 checkpoint slot reuse rejects the old handle");
+        Check(!halo2_datum::Record(memory.data(),0x90002,0x224,16)&&
+            !halo2_datum::Record(memory.data(),0x90001,12,0x2800)&&
+            !halo2_datum::Record(memory.data(),UINT32_MAX,0x224,16),
+            "H2 wrong table type, capacity and invalid handles refuse");
+        memory[0x29]=0;
+        Check(!halo2_datum::Record(memory.data(),0x90001,0x224,16),
+            "H2 invalidated level table refuses stale ownership");
+        memory[0x29]=1;put(0x48,UINTPTR_MAX);
+        Check(!halo2_datum::Record(memory.data(),0x90001,0x224,16),
+            "H2 relative datum storage cannot overflow address space");
+    }
     {
         for (float eyeOffset : {-0.032f, 0.032f})
         {

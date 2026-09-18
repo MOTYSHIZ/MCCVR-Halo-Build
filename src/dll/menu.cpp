@@ -1365,6 +1365,7 @@ namespace
         if (g_activeCategory == Cat_Hud)
         {
         ImGui::Text("HUD layout");
+        changed |= ImGui::Checkbox("Hide HUD completely", &g_config.hide_hud);
         changed |= vr_menu::SliderFloat("HUD size", &g_config.hud_size, 0.30f, 1.00f, "%.2f");
         changed |= vr_menu::SliderFloat("HUD width / aspect", &g_config.hud_aspect,
                                       kHudAspectMin, kHudAspectMax, "%.2f");

@@ -1,3 +1,4 @@
+#include "../common/hud_visibility.h"
 #include "haloce_hud_layout.h"
 #include "haloce_hud.h"
 #include "haloce_native_bindings.h"
@@ -298,8 +299,11 @@ void MainBody()
 void __fastcall MainHook()
 {
     callbacks.fetch_add(1,std::memory_order_acq_rel);
+    RenderContext owner{};ID3D11DeviceContext* context{};
+    const bool hideHud=Current()&&NativeOwner(owner,context)&&owner.tracking.hud.hidden;
+    if(hideHud) ++hud_visibility::depth;
     __try { MainBody(); }
-    __finally { callbacks.fetch_sub(1,std::memory_order_release); }
+    __finally { if(hideHud) --hud_visibility::depth;callbacks.fetch_sub(1,std::memory_order_release); }
 }
 bool Remove() noexcept
 {

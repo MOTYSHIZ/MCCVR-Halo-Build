@@ -120,6 +120,7 @@ struct ControllerRig
 struct HudSettings
 {
     float size{0.75f},aspect{1.0f},curvature{0.5f},verticalOffset{16.0f};
+    bool hidden{};
 };
 struct Tracking
 {

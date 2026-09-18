@@ -10,6 +10,7 @@ static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
 static halo_ce::RenderContext testOwner{};
 static bool ownerValid=true,crosshairScopeAvailable=true;
+static bool expectHidden=false;
 static bool nativeResourcesReady=true;
 static uintptr_t nativeResourceCheckedBase{};
 static uint32_t nativeResourceCheckedGeneration{};
@@ -79,6 +80,7 @@ static void __fastcall FullResolutionHud()
 static void __fastcall NativeHud()
 {
     ++nativeCalls;
+    Check(hud_visibility::Hidden()==expectHidden,"only the admitted hidden HUD owns draw suppression");
     auto v=ActualViewport();
     if (scenario==9)
     {
@@ -181,6 +183,15 @@ int main()
     testOwner.referenceRevision=2;testOwner.rendererEpoch=4;
     active=installed=true;generation=3;original=&NativeHud;
     HaloCEHudLayout_SetObservationAvailable(true);
+    scenario=0;Seed();testOwner.tracking.hud.hidden=expectHidden=true;
+    const auto beforeHidden=nativeCalls;
+    MainHook();
+    Check(nativeCalls==beforeHidden+1&&!hud_visibility::Hidden()&&HaloCE_Armed(),
+        "hiding HUD retains native callback and VR ownership and restores world draws");
+    scenario=6;Seed();
+    Check(NativeException()&&!hud_visibility::Hidden(),
+        "native exception cannot leak hidden HUD state into world or menus");
+    testOwner.tracking.hud.hidden=expectHidden=false;
     for (scenario=0;scenario<4;++scenario)
     {
         Seed();MainHook();

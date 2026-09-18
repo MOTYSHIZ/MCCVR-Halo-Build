@@ -105,6 +105,7 @@ def xml_model(path, kit):
     for data, header, mapping in mesh_data:
         h2 = kit == "H2EK"
         vertices = []
+        uvs=[]
         node_map = [int(value(n, "node index")) & 0xFF for n in (block(data, "node map") if h2 else mapping)]
         for vertex in block(data, "raw vertices"):
             position = floats(value(vertex, "position"))
@@ -128,12 +129,21 @@ def xml_model(path, kit):
                 assert node < len(names)
                 influences.append(node)
             vertices.append((position, influences))
+            uv=floats(value(vertex,"texcoord"))
+            if not h2 and ("compressed texture" in value(compression,"compression flags","") or (value(compression,"compression flags","0").isdigit() and int(value(compression,"compression flags","0"))&2)):
+                uv=[lo+t*(hi-lo) for t,(lo,hi) in zip(uv,[floats(value(compression,"texcoord bounds "+a)) for a in "01"])]
+            uvs.append(uv)
         raw = block(data, "strip indices" if h2 else "raw indices")
         indices = [int(value(index, "index" if h2 else "word")) & 0xFFFF for index in raw]
         if h2 and len(raw) and not values(raw[0], "index"):
             raise ValueError("unrecognized H2 strip field")
         strip = h2 or "strip" in value(header, "index buffer type", "")
-        parts.append(dict(vertices=vertices, indices=indices, strip=strip))
+        materials=[]
+        for part in block(data if h2 else header,"parts"):
+            materials.append(dict(start=int(value(part,"strip start" if h2 else "index start","0")),
+                count=int(value(part,"strip length" if h2 else "index count","0")),
+                material=value(part,"material" if h2 else "render method index","-1")))
+        parts.append(dict(vertices=vertices, indices=indices, strip=strip,uvs=uvs,materials=materials))
     return dict(names=names, parents=parents, checksum=checksum, bounds=bounds, parts=parts)
 
 

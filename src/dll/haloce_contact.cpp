@@ -1,4 +1,5 @@
 #include "haloce_contact.h"
+#include "../common/exclusive_input.h"
 #include "haloce_controls.h"
 #include "haloce_stereo_core.h"
 #include "haloce_native_bindings.h"
@@ -282,7 +283,7 @@ void ContactTick(uint32_t unit)
                     packet.publishedAtMs>now||now-packet.publishedAtMs>150||!packet.frame.Valid())
                 { meleeHands[side].Reset();workers[side].seeded=false;continue; }
                 latest=packet;found=true;
-                if (g_config.physical_melee&&meleeReady.load()&&!meleeFault.load()) ProcessMelee(side,packet.frame);
+                if (!exclusive_input::Active()&&g_config.physical_melee&&meleeReady.load()&&!meleeFault.load()) ProcessMelee(side,packet.frame);
                 else meleeHands[side].Reset();
             }
             if (found&&g_config.world_collision&&worldReady.load()&&!worldFault.load())

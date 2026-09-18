@@ -28,6 +28,7 @@
 #include "menu.h"
 #include "native_menu_pointer.h"
 #include "../common/game_menu_pointer.h"
+#include "../common/exclusive_input.h"
 #include "../common/game_menu_pointer_xr.h"
 #include "game.h"
 #include "haloce_stereo_core.h"
@@ -6792,6 +6793,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     XrAction g_actX = XR_NULL_HANDLE, g_actY = XR_NULL_HANDLE;
     XrAction g_actClickL = XR_NULL_HANDLE, g_actClickR = XR_NULL_HANDLE;
     VrPadState g_padState{};
+    float g_nativePointerTrigger = 0;
 
     bool CreateControllerActions()
     {
@@ -7448,6 +7450,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
     void InvalidateWeaponInteractionSample()
     {
+        exclusive_input::active.store(false,std::memory_order_release);
         g_weaponAccessory={};
         g_weaponInteraction.Cancel();
         g_weaponGestureReadyMs.store(0,std::memory_order_release);
@@ -7724,6 +7727,24 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (pad.x && !previousPad.x) LOG("controller edge: X");
         if (pad.y && !previousPad.y) LOG("controller edge: Y");
         previousPad = pad;
+        // Keep the pointer click private while suppressing all gameplay
+        // consumers (including camera snapshots that bypass XInput).
+        g_nativePointerTrigger=pad.trigR;
+        const bool pointerMode=g_config.game_menu_pointer&&!Menu_IsOpen()&&
+            g_sessionState==XR_SESSION_STATE_FOCUSED&&valid&&
+            NativeMenuPointer_ConsumesTrigger()&&
+            game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+                VR_IsPausePresentation()&&VR_IsPausePresentationTarget())&&
+            !VR_IsCutsceneTheaterActive();
+        pad.exclusiveInput=pad.thumbrestDpad||pointerMode;
+        exclusive_input::active.store(pad.exclusiveInput||Menu_IsOpen(),std::memory_order_release);
+        const bool f1Chord=pointerMode&&pad.clickL&&pad.clickR;
+        static ExclusiveInputHolds consumedControls;
+        // Include the raw physical right axes in the hold latch, even though
+        // ConsumeThumbrestDpad already moved them to the D-pad fields.
+        if(pad.thumbrestDpad) {pad.turnX=pad.dpadX;pad.turnY=pad.dpadY;}
+        consumedControls.ApplyVr(pad,pad.exclusiveInput);
+        if(f1Chord) pad.clickL=pad.clickR=true;
         const float rawSupportGrip=pad.gripL;
         weapon_interaction::Output weaponGesture{};
         if(g_config.manual_reload || g_config.weapon_holsters || g_weaponInteraction.HasClaimedGrip())
@@ -7742,7 +7763,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             sample.space=g_contactSpaceEpoch.load(std::memory_order_acquire);
             sample.weaponGraph=VR_GetWeaponModelIdentity(sample.title,sample.generation,sample.space,inputNow);
             sample.dualWield=SecondaryWeaponPresentationActive();
-            sample.ready=pad.valid&&valid&&leftValid&&headValid&&!handChanged&&
+            sample.ready=!pad.exclusiveInput&&pad.valid&&valid&&leftValid&&headValid&&!handChanged&&
                 primaryGripActive&&supportGripActive&&
                 (location.locationFlags&tracked)==tracked&&(leftLocation.locationFlags&tracked)==tracked&&
                 g_sessionState==XR_SESSION_STATE_FOCUSED&&Game_IsHeadTracking()&&VR_IsStereoEnabled()&&
@@ -7848,8 +7869,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             !game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
                 VR_IsPausePresentation() && VR_IsPausePresentationTarget()) ||
             VR_IsCutsceneTheaterActive()) { pressed = false; return; }
-        if (g_padState.trigR >= 0.65f) pressed = true;
-        else if (g_padState.trigR <= 0.35f) pressed = false;
+        if (g_nativePointerTrigger >= 0.65f) pressed = true;
+        else if (g_nativePointerTrigger <= 0.35f) pressed = false;
 
         XrVector3f origin = g_rightAimPose.position;
         XrVector3f direction = Rotate(g_rightAimPose.orientation, {0, 0, -1});
@@ -7877,8 +7898,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     {
         static bool pressed = false;
         const bool headLocked = quad.space == g_viewSpace;
-        if (!g_config.game_menu_pointer || Menu_IsOpen()) {
-            NativeMenuPointer_FrameStatus("disabled-or-F1"); pressed=false; return;
+        if (!g_config.game_menu_pointer || Menu_IsOpen() || g_padState.thumbrestDpad) {
+            NativeMenuPointer_FrameStatus("disabled-F1-or-Dpad"); pressed=false; return;
         }
         if (!game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
                 VR_IsPausePresentation() && VR_IsPausePresentationTarget()) ||
@@ -7890,8 +7911,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             !g_rightAimPoseValid || (headLocked && !g_headPoseValid)) {
             NativeMenuPointer_FrameStatus("focus-or-tracking"); pressed=false; return;
         }
-        if (g_padState.trigR >= 0.65f) pressed = true;
-        else if (g_padState.trigR <= 0.35f) pressed = false;
+        if (g_nativePointerTrigger >= 0.65f) pressed = true;
+        else if (g_nativePointerTrigger <= 0.35f) pressed = false;
         float u=0,v=0;
         const bool hit=game_menu_pointer::RayHit(quad,g_rightAimPose,g_headPose,headLocked,u,v);
         g_nativePointerFrame = {hit, pressed, u, v};
@@ -9295,7 +9316,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 ce.predictedDisplayTimeNs=frameState.predictedDisplayTime;
                 ce.motionBlur=g_config.motion_blur;
                 ce.hud={g_config.hud_size,g_config.hud_aspect,g_config.hud_curvature,
-                    g_config.hud_vertical_offset};
+                    g_config.hud_vertical_offset,g_config.hide_hud};
                 ce.headPosition={g_headPose.position.x,g_headPose.position.y,g_headPose.position.z};
                 ce.headOrientation={g_headPose.orientation.x,g_headPose.orientation.y,g_headPose.orientation.z,g_headPose.orientation.w};
                 // Same action-sync, role routing, mount calibration and support
@@ -10511,7 +10532,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             Game_TitlePositionsNativeCrosshair();
                         const bool reticleUploadAdmitted =
                             reticleTitleAdmitted && !titlePositionsNativeReticle &&
-                            g_config.crosshair && haveAim &&
+                            g_config.crosshair && !g_config.hide_hud && haveAim &&
                             EnsureReticleChain();
                         // Reach uploads its captured widget art exactly like
                         // Halo 3 and ODST. The previous "!reachTitle" excluded
@@ -10854,7 +10875,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         const bool reticleQuadSubmitted =
                             reticleOwnerAdmitted &&
                             !titlePositionsNativeReticle &&
-                            g_config.crosshair &&
+                            g_config.crosshair && !g_config.hide_hud &&
                             // Halo 4 uses kill_reticle=0 as an explicit request
                             // for the stock face-centred CUI reticle. Never add
                             // a held authored gun-ray quad on top of it.

@@ -1,4 +1,6 @@
 #include "../common/vr_interaction_refinement_logic.h"
+#include "../common/exclusive_input.h"
+#include "../common/halo2_datum_logic.h"
 #include "../common/weapon_model_catalog.h"
 #include "../common/weapon_hand_logic.h"
 #include "../common/halo2_contact_melee_logic.h"
@@ -1684,15 +1686,24 @@ namespace
         const uintptr_t objectsData =
             *reinterpret_cast<const volatile uintptr_t*>(
                 module + kHalo2ObjectsDataArrayPointerRva);
-        const uintptr_t storage = objectsData
-            ? *reinterpret_cast<const volatile uintptr_t*>(
-                  objectsData + kHalo2DataArrayStorageOffset)
-            : 0;
-        if (!objectsData || !storage) return nullptr;
-        const uintptr_t entry = objectsData + storage +
-            static_cast<uintptr_t>(objectIndex & 0xffffu) *
-                kHalo2ObjectDataEntryStride;
-        return accessor(reinterpret_cast<const void*>(entry));
+        const auto* entry=halo2_datum::Record(reinterpret_cast<const uint8_t*>(objectsData),
+            objectIndex,kHalo2ObjectDataEntryStride,0x2800);
+        if (!entry || entry[3]>=32) return nullptr;
+        auto* object=static_cast<uint8_t*>(accessor(entry));
+        return object && object[0xAA]==entry[3] ? object : nullptr;
+    }
+
+    uint32_t Halo2OwnedUnit() noexcept
+    {
+        const auto module=g_moduleBase.load(std::memory_order_acquire);
+        if (!module) return UINT32_MAX;
+        const auto globals=*reinterpret_cast<const uintptr_t*>(module+kHalo2PlayersGlobalsPointerRva);
+        const auto* players=*reinterpret_cast<const uint8_t* const*>(module+kHalo2PlayersDataArrayPointerRva);
+        if (!globals) return UINT32_MAX;
+        const auto handle=*reinterpret_cast<const uint32_t*>(
+            globals+kHalo2PlayerUserMappingOffset+kOwnedUser*sizeof(uint32_t));
+        const auto* player=halo2_datum::Record(players,handle,kHalo2PlayerDatumStride,kHalo2MaximumPlayers);
+        return player ? *reinterpret_cast<const uint32_t*>(player+kHalo2PlayerUnitIndexOffset) : UINT32_MAX;
     }
 
     void Halo2TryPushCollisionObject(
@@ -3122,38 +3133,7 @@ namespace
         {
             __try
             {
-                const uintptr_t module =
-                    g_moduleBase.load(std::memory_order_acquire);
-                uint32_t ownedUnit = UINT32_MAX;
-                const uintptr_t playersGlobals = module
-                    ? *reinterpret_cast<const volatile uintptr_t*>(
-                          module + kHalo2PlayersGlobalsPointerRva)
-                    : 0;
-                const uintptr_t playersData = module
-                    ? *reinterpret_cast<const volatile uintptr_t*>(
-                          module + kHalo2PlayersDataArrayPointerRva)
-                    : 0;
-                if (playersGlobals && playersData)
-                {
-                    const uint32_t playerIndex =
-                        *reinterpret_cast<const volatile uint32_t*>(
-                            playersGlobals + kHalo2PlayerUserMappingOffset +
-                            kOwnedUser * sizeof(uint32_t));
-                    const uint32_t absolutePlayer = playerIndex & 0xffffu;
-                    const uintptr_t storage =
-                        *reinterpret_cast<const volatile uintptr_t*>(
-                            playersData + kHalo2DataArrayStorageOffset);
-                    if (playerIndex != UINT32_MAX &&
-                        absolutePlayer < kHalo2MaximumPlayers && storage)
-                    {
-                        const uintptr_t player = playersData + storage +
-                            static_cast<uintptr_t>(absolutePlayer) *
-                                kHalo2PlayerDatumStride;
-                        ownedUnit =
-                            *reinterpret_cast<const volatile uint32_t*>(
-                                player + kHalo2PlayerUnitIndexOffset);
-                    }
-                }
+                const uint32_t ownedUnit=Halo2OwnedUnit();
                 if (ownedUnit == UINT32_MAX || objectIndex != ownedUnit)
                 {
                     g_nativeAimNonOwned.fetch_add(1, std::memory_order_relaxed);
@@ -3161,27 +3141,9 @@ namespace
                 }
 
 
+                auto* const unit=static_cast<uint8_t*>(Halo2ObjectFromIndex(objectIndex));
+                if (!unit || unit[0xAA]!=0) __leave;
                 ownedForContact = true;
-                const uintptr_t objectsData = module
-                    ? *reinterpret_cast<const volatile uintptr_t*>(
-                          module + kHalo2ObjectsDataArrayPointerRva)
-                    : 0;
-                const uintptr_t objectStorage = objectsData
-                    ? *reinterpret_cast<const volatile uintptr_t*>(
-                          objectsData + kHalo2DataArrayStorageOffset)
-                    : 0;
-                const auto objectAccessor =
-                    reinterpret_cast<Halo2ObjectDatumAccessorFn>(
-                        g_objectDatumAccessor.load(std::memory_order_acquire));
-                if (!objectsData || !objectStorage || !objectAccessor)
-                    __leave;
-                const uintptr_t entry = objectsData + objectStorage +
-                    static_cast<uintptr_t>(objectIndex & 0xffffu) *
-                        kHalo2ObjectDataEntryStride;
-                auto* const unit = static_cast<uint8_t*>(
-                    objectAccessor(reinterpret_cast<const void*>(entry)));
-                if (!unit)
-                    __leave;
                 if (g_vehicleSeatVerified.load(std::memory_order_acquire))
                 {
                     const bool seated = *reinterpret_cast<const int16_t*>(
@@ -3295,6 +3257,7 @@ namespace
             Halo2Observer6Dof_DirectWeaponAimArmed();
 
         bool originalCompleted = false;
+        bool originalStarted = false;
         bool completed = false;
         if (suppress)
         {
@@ -3317,6 +3280,7 @@ namespace
                         controllerDirection, sizeof(controllerDirection));
                     __try
                     {
+                        originalStarted = true;
                         original(userIndex, control, targeting);
                         originalCompleted = true;
                     }
@@ -3371,7 +3335,7 @@ namespace
                 g_aimAssistSuppressed.fetch_add(1, std::memory_order_relaxed);
         }
 
-        if (!completed && original && !originalCompleted)
+        if (!completed && original && !originalStarted)
         {
             __try
             {
@@ -3423,38 +3387,7 @@ namespace
                 // layout, then require the helper's unit handle to match it.
                 // This is a read-only hot-path guard: no scan, lock, or call
                 // into another engine subsystem occurs here.
-                uint32_t ownedUnit = UINT32_MAX;
-                const uintptr_t module =
-                    reinterpret_cast<uintptr_t>(g_moduleReference);
-                const uintptr_t playersGlobals = module
-                    ? *reinterpret_cast<const volatile uintptr_t*>(
-                          module + kHalo2PlayersGlobalsPointerRva)
-                    : 0;
-                const uintptr_t playersData = module
-                    ? *reinterpret_cast<const volatile uintptr_t*>(
-                          module + kHalo2PlayersDataArrayPointerRva)
-                    : 0;
-                if (playersGlobals && playersData)
-                {
-                    const uint32_t playerIndex =
-                        *reinterpret_cast<const volatile uint32_t*>(
-                            playersGlobals + kHalo2PlayerUserMappingOffset +
-                            kOwnedUser * sizeof(uint32_t));
-                    const uint32_t absolutePlayer = playerIndex & 0xffffu;
-                    const uintptr_t storage =
-                        *reinterpret_cast<const volatile uintptr_t*>(
-                            playersData + kHalo2DataArrayStorageOffset);
-                    if (playerIndex != UINT32_MAX &&
-                        absolutePlayer < kHalo2MaximumPlayers && storage)
-                    {
-                        const uintptr_t player = playersData + storage +
-                            static_cast<uintptr_t>(absolutePlayer) *
-                                kHalo2PlayerDatumStride;
-                        ownedUnit =
-                            *reinterpret_cast<const volatile uint32_t*>(
-                                player + kHalo2PlayerUnitIndexOffset);
-                    }
-                }
+                const uint32_t ownedUnit=Halo2OwnedUnit();
                 if (ownedUnit == UINT32_MAX)
                 {
                     g_weaponAimNoOwnedUnit.fetch_add(
@@ -5782,18 +5715,7 @@ void* Halo2Observer6Dof_ReloadWeapon(uint32_t weapon) noexcept
     if (!Halo2Observer6Dof_OnFootFresh()) return nullptr;
     __try
     {
-        const auto base=g_moduleBase.load(std::memory_order_acquire);
-        if (!base) return nullptr;
-        const auto globals=*reinterpret_cast<const uintptr_t*>(base+kHalo2PlayersGlobalsPointerRva);
-        const auto players=*reinterpret_cast<const uintptr_t*>(base+kHalo2PlayersDataArrayPointerRva);
-        if (!globals || !players) return nullptr;
-        const auto player=*reinterpret_cast<const uint32_t*>(globals+kHalo2PlayerUserMappingOffset);
-        const auto storage=*reinterpret_cast<const uintptr_t*>(players+kHalo2DataArrayStorageOffset);
-        if (player==UINT32_MAX || !(player>>16) || (player&0xffff)>=kHalo2MaximumPlayers || !storage)
-            return nullptr;
-        const auto record=players+storage+(player&0xffff)*kHalo2PlayerDatumStride;
-        if (*reinterpret_cast<const uint16_t*>(record)!=uint16_t(player>>16)) return nullptr;
-        const auto owner=*reinterpret_cast<const uint32_t*>(record+kHalo2PlayerUnitIndexOffset);
+        const auto owner=Halo2OwnedUnit();
         const auto* object=Halo2ContactObject(weapon);
         if (!Halo2ContactBiped(owner) || !object || object[0xAA]!=2 || !(object[0x130]&1) ||
             *reinterpret_cast<const uint32_t*>(object+0x158)!=owner) return nullptr;

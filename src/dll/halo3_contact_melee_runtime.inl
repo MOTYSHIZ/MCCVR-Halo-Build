@@ -189,7 +189,7 @@ void Halo3ContactTick(uint32_t unit)
     {
         const uint64_t now=GetTickCount64();
         int32_t scene=-1,shot=-1;
-        const bool admit=g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
+        const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
             VR_IsStereoEnabled() && g_halo3Contact.generation==g_halo3RuntimeGeneration.load() &&
             g_halo3Contact.playback && !g_halo3Contact.playback() &&
             ReadCinematicControl(scene,shot)==CinematicControlState::PlayerControlled &&

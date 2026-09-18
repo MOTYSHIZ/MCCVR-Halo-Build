@@ -468,7 +468,7 @@ try {
 
     $createdUtc = [DateTime]::UtcNow
     $packageId = '{0}-{1}-{2}' -f $commit.Substring(0, 7),
-        'native-reload-policy',
+        'refinement-audit',
         $createdUtc.ToString("yyyyMMdd-HHmmssfff'Z'")
     $packageDir = Join-Path $candidateRoot $packageId
     if (Test-Path -LiteralPath $packageDir) {
@@ -1278,14 +1278,15 @@ try {
             bindings = 'docs/NATIVE-RELOAD-BINDINGS-2026-09-16.json'
             headset_accepted = $false
         }
+        refinement_audit = [ordered]@{ evidence = 'docs/REFINEMENT-WORK-2026-09-18.md'; full_requested_scope_complete = $false; headset_accepted = $false }
         current_notes = 'RELEASE-NOTES.md'
-        historical_metadata_notice = 'Older stage/profile IDs and feature results below describe inherited work and retain their original coverage limits. Current accepted release baseline is Alpha 0.4.1 source 46c124b. This candidate adds the optional native reload policy described in native_reload_policy and RELEASE-NOTES.md; its headset results remain pending. Earlier standing and deferred scope is preserved.'
+        historical_metadata_notice = 'Older stage/profile IDs and feature results below describe inherited work and retain their original coverage limits. Current accepted baseline is Alpha 0.4.2 source 1a9766c. This unaccepted refinement audit candidate does not complete the full standing scope. Current changes and unresolved items are listed in RELEASE-NOTES.md. Earlier standing and deferred scope is preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Optional native reload policy controls above accepted Alpha 0.4.1 source 46c124b: disable empty-trigger automatic reload and skip identified first-person reload/ready animations with shortened native countdowns. Both default off beneath Manual Reload. All six titles, both editions; native ammo transfer and reserve rules retained. Package only; headset testing pending. Read RELEASE-NOTES.md and docs/NATIVE-RELOAD-POLICY-2026-09-16.md in matching source.'
+        note = 'Unaccepted refinement audit above Alpha 0.4.2 source 1a9766c: exclusive XR/XInput and native melee admission, radial locomotion mapping, known Promethean reload token, optional gameplay HUD hiding, H2 salted datum validation and no native aim-assist replay, ODST full seated handle identity. Full refinement scope remains incomplete; read RELEASE-NOTES.md. Package only; both editions; headset/co-op validation pending.'
 
     }
 
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/NATIVE-RELOAD-POLICY-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/REFINEMENT-RELEASE-NOTES-2026-09-18.md') -Destination (Join-Path $packageDir 'RELEASE-NOTES.md')
     Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/RELOAD-ACCESSORIES-RELEASE-NOTES-2026-09-16.md') -Destination (Join-Path $packageDir 'RELOAD-ACCESSORIES-NOTES.md')
 
     $manifestPath = Join-Path $packageDir 'CANDIDATE-MANIFEST.json'

@@ -690,6 +690,7 @@ void ConfigLoad(const wchar_t* path)
             g_config.quest_thumbrest_dpad = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "hide_hud")) { g_config.hide_hud=atoi(val)!=0; continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -1349,6 +1350,7 @@ void ConfigSave()
     fprintf(f, "# shields, radar, ammo, objectives, or the aiming reticle. (default %d)\n",
             d.halo4_helmet ? 1 : 0);
     fprintf(f, "halo4_helmet = %d\n\n", g_config.halo4_helmet ? 1 : 0);
+    fprintf(f, "# Hide gameplay HUD and VR reticle; menus remain available.\nhide_hud = %d\n\n", g_config.hide_hud ? 1 : 0);
     fprintf(f, "# Floating VR-crosshair smoothing only; bullets stay raw.\n");
     fprintf(f, "# (default %.2f, range 0 to 0.95)\n", d.aim_stabilization);
     fprintf(f, "aim_stabilization = %.2f\n\n", g_config.aim_stabilization);

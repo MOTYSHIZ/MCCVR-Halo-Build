@@ -92,7 +92,7 @@ HRESULT WeaponAccessoryRenderer::Draw(ID3D11Device* device,ID3D11DeviceContext* 
 {
     if(staged) *staged=nullptr;
     const auto* model=item.model;
-    const bool generic=model==&weapon_model::kGenericReloadModel;
+    const bool generic=weapon_model::UsesTokenGeometry(model);
     const size_t available=generic?std::size(weapon_model::kGenericVertices):std::size(weapon_model::kVertices);
     if(!immediate||!target||!model||!model->vertexCount||
         model->firstVertex>available||

@@ -4,6 +4,8 @@
 #include "../common/weapon_model_catalog.h"
 #include "../common/camera_recovery_logic.h"
 #include "../common/dual_weapon_aim_logic.h"
+#include "../common/hud_visibility.h"
+#include "../common/exclusive_input.h"
 #include "../common/weapon_hand_logic.h"
 #include "../common/anatomical_palette_logic.h"
 #include "../common/halo4_runtime_weapon_bounds.h"
@@ -1603,8 +1605,12 @@ namespace
         const bool previousCapture = g_authoredReticleCaptureStarted;
         g_insideHudDrawWidget = true;
         g_authoredReticleCaptureStarted = false;
-        g_realHudDrawWidget(userIndex, descriptor, widgetIndex,
-                            useAlternatePath, drawState);
+        const bool hideHud=g_config.hide_hud&&g_enabled.load()&&VR_IsStereoEnabled()&&
+            Game_MoveStickIsLocomotion();
+        if(hideHud) ++hud_visibility::depth;
+        __try { g_realHudDrawWidget(userIndex, descriptor, widgetIndex,
+                            useAlternatePath, drawState); }
+        __finally { if(hideHud) --hud_visibility::depth; }
         if (g_authoredReticleCaptureStarted)
         {
             // This widget's art was redirected into the authored texture, so
@@ -11305,8 +11311,8 @@ namespace
             return;                       // authored camera owns the view
         const int32_t seated =
             g_odstSeatedPlayerUnit.load(std::memory_order_relaxed);
-        // The engine keys units by the low 16 bits of the handle.
-        if (seated == -1 || ((seated ^ unitIndex) & 0xFFFF) != 0)
+        // Full salted identity rejects a recycled unit slot after a checkpoint.
+        if (seated == -1 || seated != unitIndex)
             return;                       // somebody else's weapon
         if (!OdstSeatFiresPersonalWeapon())
             return;                       // driver/mounted gun fires from a barrel
@@ -20415,6 +20421,8 @@ namespace
         unsigned int useAlternatePath, void* drawState)
     {
         bool captureStarted = false;
+        const bool hideHud=g_config.hide_hud&&ReachOwnsHudStereoTransaction();
+        if(hideHud) ++hud_visibility::depth;
         const bool previousHeightRedirected = g_reachHudHeightRedirected;
         g_reachCamera.activeCallbacks.fetch_add(
             1, std::memory_order_acq_rel);
@@ -20680,6 +20688,7 @@ namespace
         }
         __finally
         {
+            if(hideHud) --hud_visibility::depth;
             g_reachHudHeightRedirected = previousHeightRedirected;
             if (captureStarted)
             {
@@ -37186,6 +37195,8 @@ namespace
             return;
         }
 
+        const bool hideHud=g_config.hide_hud;
+        if(hideHud) ++hud_visibility::depth;
         scope.gameplayPassActive = true;
         g_halo4HudGameplayThreadId = GetCurrentThreadId();
         if constexpr (kEnableHalo4ParityTrace)
@@ -37250,6 +37261,7 @@ namespace
         }
         __finally
         {
+            if(hideHud) --hud_visibility::depth;
             // A malformed/missing 0x29 must restore the eye target before the
             // full-size CUI call returns. Auxiliary and later menu calls never
             // enter this phase and therefore remain completely stock.
@@ -42235,7 +42247,7 @@ uint32_t Game_GestureMeleeInput(uint64_t nowMs)
     telemetry.polls.fetch_add(1,std::memory_order_relaxed);
     // With both modes selected, contact owns melee. The gesture must never
     // add a second native target/animation to the same physical strike.
-    if (!g_config.gesture_melee || g_config.physical_melee || !transport ||
+    if (exclusive_input::Active() || !g_config.gesture_melee || g_config.physical_melee || !transport ||
         TitleAdapter_GetRuntimeMode()!=RuntimeMode::Gameplay ||
         !g_enabled.load(std::memory_order_acquire) ||
         !VR_IsStereoEnabled())
@@ -44241,12 +44253,19 @@ static bool ComputeHalo2ControllerAimStick(
     static uint64_t lastCallMs = 0;
     static float heldRx = 0.0f;
     static float heldRy = 0.0f;
+    static Halo2CameraBasis steeringReference{};
+    // Investigation retained but inactive: a fixed target needs the rendered
+    // vehicle camera/reticle to share that reference before it can be enabled.
+    constexpr bool useFrozenSteeringReference=false;
+    static uint64_t referenceEpoch=0;
+    static bool haveSteeringReference=false;
     static std::atomic<int> lastBlock{-1};
     auto blocked = [&](int reason, const char* what) {
         if (lastBlock.exchange(reason) != reason)
             LOG("Halo 2 controller aim: loop idle: %s", what);
         Halo4ResetPitchServo(yawServo);
         Halo4ResetPitchServo(pitchServo);
+        haveSteeringReference=false;
         lastSerial = 0;
         lastSerialChangeMs = 0;
         heldRx = heldRy = 0.0f;
@@ -44260,10 +44279,12 @@ static bool ComputeHalo2ControllerAimStick(
     }
     const uint64_t now = GetTickCount64();
     if (publication.generation != lastGeneration ||
-        !lastCallMs || now < lastCallMs || now - lastCallMs > 100)
+        !lastCallMs || now < lastCallMs || now - lastCallMs > 100 ||
+        (useFrozenSteeringReference && referenceEpoch!=publication.snapshot.trackingSpaceEpoch))
     {
         Halo4ResetPitchServo(yawServo);
         Halo4ResetPitchServo(pitchServo);
+        haveSteeringReference=false;
         lastSerial = lastSerialChangeMs = 0;
         heldRx = heldRy = 0.0f;
     }
@@ -44280,12 +44301,24 @@ static bool ComputeHalo2ControllerAimStick(
     lastSerial = publication.serial;
     lastSerialChangeMs = now;
 
+    // The native camera is the FEEDBACK, not the target's world reference.
+    // Reusing its changing yaw in the target makes a held hand offset command
+    // perpetual rotation. Keep a room-to-world heading until re-entry/recenter;
+    // translate it with the vehicle without feeding camera yaw back into it.
+    if(useFrozenSteeringReference && !haveSteeringReference) {
+        steeringReference=publication.stock;
+        referenceEpoch=publication.snapshot.trackingSpaceEpoch;
+        haveSteeringReference=true;
+    }
+    memcpy(steeringReference.position,publication.stock.position,sizeof(steeringReference.position));
     Halo2CameraBasis controller{};
     const float worldScale = Game_GetWorldScale();
-    if (!Halo2BuildControllerCarrier(
-            publication.tracked, headOrientation, headPosition,
-            controllerOrientation, controllerPosition, worldScale, 0.0f,
-            controller))
+    const bool carrierBuilt=useFrozenSteeringReference ? Halo2BuildStableControllerCarrier(
+            steeringReference, publication.referenceOrientation, publication.referencePosition,
+            controllerOrientation, controllerPosition, worldScale, 0.0f, controller) :
+        Halo2BuildControllerCarrier(publication.tracked,headOrientation,headPosition,
+            controllerOrientation,controllerPosition,worldScale,0.0f,controller);
+    if (!carrierBuilt)
     {
         return blocked(3, "the controller carrier could not be built");
     }

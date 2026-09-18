@@ -180,7 +180,7 @@ void Halo4ContactTick(uint32_t unit,void* instance)
         if(unit==g_halo4Contact.owner.load(std::memory_order_acquire) && biped==instance)
         {
             const uint64_t now=GetTickCount64();
-            const bool admit=g_config.physical_melee && g_enabled.load() && VR_IsStereoEnabled() &&
+            const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load() && VR_IsStereoEnabled() &&
                 g_halo4Camera.armed.load() && !g_halo4Camera.teardownRequested.load() &&
                 g_halo4Contact.generation==g_halo4Camera.generation.load() &&
                 g_halo4Contact.playbackMode && g_halo4Contact.playbackMode()==0 &&

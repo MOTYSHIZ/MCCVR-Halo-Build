@@ -38,29 +38,8 @@ bool Halo2ContactMeleeReady()
 
 const uint8_t* Halo2ContactObject(uint32_t handle,bool requireBiped=false)
 {
-    if(handle==UINT32_MAX || !(handle>>16)) return nullptr;
-    const uintptr_t module=g_halo2Contact.base;
-    if(!module) return nullptr;
-    const auto* table=*reinterpret_cast<const uint8_t* const*>(
-        module+kHalo2ObjectsDataArrayPointerRva);
-    // H2EK datum_get A24F0 verifies valid/stride/full salt. Retail allocator
-    // 67AFA0 retains capacity +20, stride +24, valid +29; storage is now +48.
-    // Object creation 8DD4D0 proves the 0xC entries and maximum 0x2800 capacity.
-    if(!table || !table[0x29] || *reinterpret_cast<const int32_t*>(table+0x24)!=0xC)
-        return nullptr;
-    const int32_t capacity=*reinterpret_cast<const int32_t*>(table+0x20);
-    const uintptr_t offset=*reinterpret_cast<const uintptr_t*>(table+0x48);
-    if(capacity<=0 || capacity>0x2800 || (handle&0xFFFF)>=uint32_t(capacity) || !offset ||
-        offset>UINTPTR_MAX-reinterpret_cast<uintptr_t>(table)-size_t(capacity)*0xC)
-        return nullptr;
-    const auto* entry=table+offset+(handle&0xFFFF)*0xC;
-    if(*reinterpret_cast<const uint16_t*>(entry)!=uint16_t(handle>>16) || entry[3]>=32 ||
-        (requireBiped && entry[3]!=0))
-        return nullptr;
-    const auto accessor=reinterpret_cast<Halo2ObjectDatumAccessorFn>(
-        g_objectDatumAccessor.load(std::memory_order_acquire));
-    const auto* object=accessor ? static_cast<const uint8_t*>(accessor(entry)) : nullptr;
-    return object && object[0xAA]==entry[3] ? object : nullptr;
+    const auto* object=static_cast<const uint8_t*>(Halo2ObjectFromIndex(handle));
+    return object && (!requireBiped || object[0xAA]==0) ? object : nullptr;
 }
 
 const uint8_t* Halo2ContactBiped(uint32_t handle) { return Halo2ContactObject(handle,true); }
@@ -193,7 +172,7 @@ __declspec(noinline) void Halo2ContactTick(uint32_t unit)
         {
             const uint64_t now=GetTickCount64();
             const auto* biped=Halo2ContactBiped(unit);
-            const bool admit=g_config.physical_melee && Game_Halo2ControllerAimActive() &&
+            const bool admit=!exclusive_input::Active() && g_config.physical_melee && Game_Halo2ControllerAimActive() &&
                 Halo2Observer6Dof_DirectWeaponAimArmed() && biped &&
                 g_vehicleSeatVerified.load(std::memory_order_acquire) &&
                 *reinterpret_cast<const int16_t*>(biped+kHalo2UnitParentSeatOffset)==-1 &&

@@ -1,3 +1,4 @@
+#include "../common/hud_visibility.h"
 #include <windows.h>
 #include <d3d11.h>
 #include <d3d11_1.h>
@@ -177,7 +178,7 @@ static halo2_hud_shader::Role LookupHalo2PixelShader(
 
 struct Halo2HudDrawMutation
 {
-    enum class Kind : uint8_t { None, Raster, NativeCrosshair } kind = Kind::None;
+    enum class Kind : uint8_t { None, Raster, NativeCrosshair, Hidden } kind = Kind::None;
     UINT viewportCount = 0;
     D3D11_VIEWPORT viewports[
         D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE]{};
@@ -219,6 +220,9 @@ static Halo2HudDrawMutation BeginHalo2HudDraw(
     // old procedural VR marker transparent. Until this first real draw occurs,
     // the procedural controller marker remains visible as the fail-open
     // fallback.
+    if(g_config.hide_hud&&Game_IsHeadTracking()&&Game_MoveStickIsLocomotion()&&
+        (role==halo2_hud_shader::Role::Crosshair||role==halo2_hud_shader::Role::GameplayHud))
+    { mutation.kind=Halo2HudDrawMutation::Kind::Hidden;return mutation; }
     if (role == halo2_hud_shader::Role::Crosshair)
     {
         if (VR_BeginAuthoredReticleCapture())
@@ -309,7 +313,9 @@ static void STDMETHODCALLTYPE Halo2DrawIndexedCensusHook(
 {
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
         VR_Halo2NoteDraw();
+    if(hud_visibility::Hidden()) return;
     Halo2HudDrawMutation mutation = BeginHalo2HudDraw(context);
+    if(mutation.kind==Halo2HudDrawMutation::Kind::Hidden) return;
     VR_Halo4PrepareAuthoredReticleDraw(context);
     g_origHalo2DrawIndexed(context, indexCount, startIndex, baseVertex);
     EndHalo2HudDraw(context, mutation);
@@ -320,7 +326,9 @@ static void STDMETHODCALLTYPE Halo2DrawCensusHook(
 {
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
         VR_Halo2NoteDraw();
+    if(hud_visibility::Hidden()) return;
     Halo2HudDrawMutation mutation = BeginHalo2HudDraw(context);
+    if(mutation.kind==Halo2HudDrawMutation::Kind::Hidden) return;
     VR_Halo4PrepareAuthoredReticleDraw(context);
     g_origHalo2Draw(context, vertexCount, startVertex);
     EndHalo2HudDraw(context, mutation);
@@ -419,7 +427,7 @@ static void STDMETHODCALLTYPE PixelShaderSetHook(
     const bool suppress = halo4_helmet_shader::ShouldSuppress(
         g_halo4HelmetShaderPathAvailable.load(std::memory_order_acquire),
         TitleAdapter_GetActiveTitle() == GameTitle::Halo4,
-        g_config.halo4_helmet, IsHalo4HelmetShader(shader));
+        g_config.halo4_helmet && !g_config.hide_hud, IsHalo4HelmetShader(shader));
     if (suppress)
     {
         // Match the working V6 bridge exactly: replace only the shader pointer
@@ -1898,6 +1906,8 @@ bool InstallD3D11Hooks()
     halo2ShaderPathCreated =
         createPixelShader == MH_OK &&
         halo2DrawIndexed == MH_OK && halo2Draw == MH_OK;
+    if (halo2DrawIndexed != MH_OK || halo2Draw != MH_OK)
+        LOG("Gameplay HUD hiding: GPU draw interception unavailable; native HUD may remain visible; camera ownership retained");
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     halo4ReticleDrawPathCreated =
         halo2DrawIndexed == MH_OK && halo2Draw == MH_OK &&

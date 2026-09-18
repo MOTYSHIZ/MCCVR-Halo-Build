@@ -53,7 +53,14 @@ int main(int argc,char** argv)
                     "manual reload off hides generic custom-weapon item with either holster state");
             }
             auto p=weapon_accessory::Build(s,c,{},{});
-            Check((p.model!=nullptr)==(model.vertexCount!=0),"only actual reload geometry creates presentation");
+            const bool promethean=model.title==GameTitle::Halo4&&std::strstr(model.name,"forerunner_");
+            if (promethean && !model.vertexCount) {
+                auto knownOnly=c;knownOnly.genericVisual=false;
+                Check(weapon_accessory::Build(s,knownOnly,{},{}).model==&weapon_model::kPrometheanReloadModel,
+                    "known Promethean item survives disabling unfamiliar weapon placeholders");
+            }
+            Check((p.model!=nullptr)==(model.vertexCount!=0||promethean),
+                "authored magazines and recognized Promethean reload tokens are visible");
             if(p.model)
             {
                 Vec pouch{},holster{};Zones(s,c,pouch,holster);
@@ -134,9 +141,10 @@ int main(int argc,char** argv)
     std::vector<unsigned char> montage;std::ofstream manifest;
     if(argc>1) manifest.open(std::string(argv[1])+".txt");
     unsigned picture=0;double leftCenter=0,rightCenter=0;
-    for(size_t modelIndex=0;modelIndex<=std::size(weapon_model::kModels);++modelIndex)
+    for(size_t modelIndex=0;modelIndex<std::size(weapon_model::kModels)+2;++modelIndex)
     {
-        const auto& model=modelIndex==std::size(weapon_model::kModels)?weapon_model::kGenericReloadModel:
+        const auto& model=modelIndex==std::size(weapon_model::kModels)+1?weapon_model::kPrometheanReloadModel:
+            modelIndex==std::size(weapon_model::kModels)?weapon_model::kGenericReloadModel:
             weapon_model::kModels[modelIndex];
         if(!model.vertexCount) continue;
         weapon_accessory::Presentation p{};p.model=&model;p.pose.position={0,0,-.45f};

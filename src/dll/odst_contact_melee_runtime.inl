@@ -183,7 +183,7 @@ void OdstContactTick(uint32_t unit)
     {
         const uint64_t now=GetTickCount64();
         int32_t scene=-1,shot=-1;
-        const bool admit=g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
+        const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
             VR_IsStereoEnabled() && g_odstContact.generation==g_odstRuntimeGeneration.load() &&
             g_odstContact.playback && !g_odstContact.playback() &&
             ReadCinematicControl(scene,shot)==CinematicControlState::PlayerControlled &&

@@ -1,4 +1,7 @@
 #include "../src/common/input_logic.h"
+#include "../src/common/exclusive_input.h"
+#include <windows.h>
+#include <Xinput.h>
 #include "../src/common/weapon_hand_logic.h"
 #include "../src/dll/vr.h"
 #include <cmath>
@@ -111,6 +114,37 @@ int main()
             pad.turnX == -0.9f && pad.turnY == 0.7f,
             "touch release clears D-pad and restores next right-stick turn/zoom sample");
     }
+    for(bool pointer:{false,true}) {
+        ExclusiveInputHolds holds,physical;
+        VrPadState p{};p.valid=true;p.moveY=1;p.turnX=.8f;p.trigR=1;p.gripL=1;
+        p.a=p.menu=true;p.weaponButtons=0xffff;
+        p.thumbrestDpad=!pointer;p.dpadY=.9f;
+        holds.ApplyVr(p,true);
+        Check(p.valid&&!p.moveY&&!p.turnX&&!p.trigR&&!p.gripL&&!p.a&&!p.menu&&!p.weaponButtons,
+            "exclusive input suppresses gameplay without disconnecting controllers");
+        Check(p.dpadY==.9f,"D-pad direction survives exclusive filtering");
+        p.moveY=1;p.turnX=.8f;p.trigR=1;p.gripL=1;p.a=p.menu=true;
+        holds.ApplyVr(p,false);
+        Check(!p.moveY&&!p.turnX&&!p.trigR&&!p.gripL&&!p.a&&!p.menu,
+            "held actions cannot fire or turn when leaving selection mode");
+        p={};holds.ApplyVr(p,false);
+        p.moveY=1;p.trigR=1;p.a=true;holds.ApplyVr(p,false);
+        Check(p.moveY==1&&p.trigR==1&&p.a,"release then fresh input resumes normally");
+        XINPUT_GAMEPAD raw{};raw.wButtons=0xffff;raw.sThumbLX=31000;raw.sThumbRY=-29000;
+        raw.bLeftTrigger=raw.bRightTrigger=255;physical.ApplyPhysical(raw,true);
+        Check(!raw.wButtons&&!raw.sThumbLX&&!raw.sThumbRY&&!raw.bLeftTrigger&&!raw.bRightTrigger,
+            "physical-pad input cannot bypass exclusive mode");
+        raw.wButtons=0xffff;raw.sThumbLX=31000;raw.bRightTrigger=255;physical.ApplyPhysical(raw,false);
+        Check(!raw.wButtons&&!raw.sThumbLX&&!raw.bRightTrigger,"physical holds drain independently");
+    }
+    for(float angle:{-.8f,-.02f,0.f,.02f,.8f,1.6f}) {
+        const float x=std::sin(angle)*.7f,y=std::cos(angle)*.7f;
+        int16_t rx{},ry{};RadialMoveStick(x,y,rx,ry);
+        Check(std::fabs(float(rx)*y-float(ry)*x)<1.1f,
+            "radial deadzone preserves head-relative movement direction");
+    }
+    int16_t rx=1,ry=1;RadialMoveStick(nan,1,rx,ry);
+    Check(rx==0&&ry==0,"invalid movement is neutral");
     std::printf("D-pad input: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }
