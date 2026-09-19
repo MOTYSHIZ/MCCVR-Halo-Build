@@ -151,10 +151,10 @@ ammo and inventory; automatic reloads and animation timing remain native unless
 the new options are enabled. Holsters do not add
 inventory slots or visible body-mounted guns.
 
-Reload parts use simple grey shading without native textures or world occlusion
-and may show through nearby surfaces. With animation skipping disabled, the native gun retains its normal reload
-animation and magazine. Skipping playback does not simulate magazine removal. Generic items do not reproduce custom magazine geometry
-or identify custom ammo types. See the [release notes](releases/0.4.2/RELEASE-NOTES.md)
+Reload parts now use authored textures, but do not have world occlusion and may
+show through nearby surfaces. With animation shortening and disabling off, the native gun retains its normal reload
+animation and magazine. These options do not simulate removal from the original gun. Generic items do not reproduce custom magazine geometry
+or identify custom ammo types. See the [release notes](releases/0.5.0/RELEASE-NOTES.md)
 for full controls, cancellation behavior and remaining coverage limits.
 
 ### Per-game controller layouts and interaction settings
@@ -323,17 +323,15 @@ Attach `HaloMCCVR.log` and `HaloMCCVRLauncher.log`, and include:
 
 ## Validation
 
-- The author approved **1a9766c** as the Alpha 0.4.2 release baseline after
-  headset testing. The supplied log identifies Steam, SteamVR/OpenXR 2.17.10
-  and an Oculus-family headset at 90 Hz.
-- Release x64, all **40 CTest suites**, the Reach consistency gate, 387,629
-  native reload checks and pinned reload-binding verification passed locally.
-- Published build/source downloads and checksums were verified. The DLL,
-  launcher and default config match the tested candidate byte for byte.
-- The earlier d47a98c baseline established all-six-campaign smoke-test coverage.
-  The new release does not claim exhaustive retesting of every title, feature,
-  mission, custom mod, edition or runtime. Experimental interactions still need
-  broader headset feedback.
+- Alpha 0.5.0 was packaged from exact runtime source **d088171**. Release x64,
+  all **59 CTest suites**, 516 production vehicle-camera checks, 24 pinned
+  signature checks and the Reach consistency gate passed locally.
+- Published build/source downloads and their GitHub digests match the packaged
+  archives. The tag points to the exact runtime source; the public branch can
+  contain later documentation-only commits.
+- Alpha 0.5.0 has not been accepted as a new headset-tested baseline. The prior
+  Alpha 0.4.2 acceptance and earlier all-campaign smoke coverage are preserved,
+  but the new experimental additions still need broader headset feedback.
 
 This is an unofficial derivative of
 [pancreations/Halo-MCC-VR](https://github.com/pancreations/Halo-MCC-VR), under
