@@ -1338,6 +1338,12 @@ namespace
                 ImGui::Unindent();
             }
             ImGui::TextDisabled("Uses the equipped weapon's authored crosshair and target colors.");
+            ImGui::Spacing();
+            changed |= ImGui::Checkbox("Honest reticle on foot (comparison)", &g_config.honest_reticle_onfoot);
+            ImGui::TextDisabled("On foot the crosshair normally shows where your HAND points, but the\n"
+                                "game's aim lags behind through its turn-rate loop, so shots trail the\n"
+                                "crosshair while you turn. This puts the crosshair on the REAL aim\n"
+                                "instead, so the gap is visible. For comparison capture; off by default.");
         }
         ImGui::TextDisabled("Crosshair smoothing is visual only; bullets keep the current controller ray.\n"
                             "Set it to 0%% for exact raw tracking.");

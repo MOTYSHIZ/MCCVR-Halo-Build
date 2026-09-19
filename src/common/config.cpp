@@ -1020,6 +1020,8 @@ void ConfigLoad(const wchar_t* path)
             g_config.halo4_hands_mirrored = atoi(val) != 0;
         else if (!strcmp(key, "crosshair"))
             g_config.crosshair = atoi(val) != 0;
+        else if (!strcmp(key, "honest_reticle_onfoot"))
+            g_config.honest_reticle_onfoot = atoi(val) != 0;
         else if (!strcmp(key, "crosshair_distance_m"))
             g_config.crosshair_distance_m = (float)atof(val);
         else if (!strcmp(key, "crosshair_size_deg"))
@@ -1459,6 +1461,7 @@ void ConfigSave()
     fprintf(f, "# Optional CE Anniversary lens-flare suppression. Does not alter world lighting.\nce_anniversary_disable_lens_flares = %d\n\n", g_config.ce_anniversary_disable_lens_flares ? 1 : 0);
     fprintf(f, "# Each owned dual-wielded gun follows its own controller.\nindependent_dual_aim = %d\n\n", g_config.independent_dual_aim ? 1 : 0);
     fprintf(f, "# Use verified visible weapon muzzle origin and orientation.\ngun_barrel_aim = %d\n\n", g_config.gun_barrel_aim ? 1 : 0);
+    fprintf(f, "# DEMO: also show the crosshair at the game's REAL aim ON FOOT, not just in\n# seats. On foot the hand-ray crosshair leads the shot while you turn; this puts\n# it on the true (integrated) aim so the lag is visible. Off by default.\nhonest_reticle_onfoot = %d\n\n", g_config.honest_reticle_onfoot ? 1 : 0);
     fprintf(f, "# Floating VR-crosshair smoothing only; bullets stay raw.\n");
     fprintf(f, "# (default %.2f, range 0 to 0.95)\n", d.aim_stabilization);
     fprintf(f, "aim_stabilization = %.2f\n\n", g_config.aim_stabilization);

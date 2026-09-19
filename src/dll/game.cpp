@@ -45225,8 +45225,16 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
         // direction the whole time. That is the reported "the shots don't
         // follow the covenant turret proper": the shots leave the BARREL, so
         // the only reticle that can be honest about them is the one riding it.
-        if (turretSeat ? kAimServoTurretReticleRidesBarrel
-                       : (stalledSinceMs && nowMs - stalledSinceMs >= stallMs))
+        // DEMO (honest_reticle_onfoot): force the true-aim reticle while ON FOOT
+        // too, so the integrator's lag behind the hand is visible for capture.
+        // On foot nothing is seated and the loop rarely stalls long enough, so
+        // publish unconditionally here; this never touches the seated/turret
+        // logic (both guards below stay exactly as they were).
+        const bool honestOnFoot =
+            g_config.honest_reticle_onfoot && !turretSeat && !seated;
+        if (honestOnFoot ||
+            (turretSeat ? kAimServoTurretReticleRidesBarrel
+                        : (stalledSinceMs && nowMs - stalledSinceMs >= stallMs)))
         {
             // Invert the same mapping the desired angles came through, so the
             // published direction is the engine's aim expressed in VR space.
