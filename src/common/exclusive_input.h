@@ -30,11 +30,13 @@ struct ExclusiveInputHolds
         else if (consume) analog[index]=true;
         return consume||analog[index] ? 0 : value;
     }
-    template<class Pad> void ApplyVr(Pad& p, bool consume) noexcept
+    template<class Pad> void ApplyVr(Pad& p, bool consume, bool allowConfirm=false) noexcept
     {
         const uint32_t bits=(p.a?1u:0)|(p.b?2u:0)|(p.x?4u:0)|(p.y?8u:0)|
             (p.clickL?16u:0)|(p.clickR?32u:0)|(p.menu?64u:0);
-        const auto b=Buttons(bits,consume);
+        // Still latch the confirm hold so closing the menu cannot turn that
+        // same press into gameplay input. Only the active pointer may pass A.
+        const auto b=Buttons(bits,consume)|(consume&&allowConfirm?(bits&1u):0u);
         p.a=b&1;p.b=b&2;p.x=b&4;p.y=b&8;p.clickL=b&16;p.clickR=b&32;p.menu=b&64;
         // Vector latches preserve direction and require BOTH axes to rest.
         const float m=Axis(std::hypot(p.moveX,p.moveY),0,consume,.2f);
@@ -45,9 +47,10 @@ struct ExclusiveInputHolds
         p.gripL=Axis(p.gripL,4,consume,.15f);p.gripR=Axis(p.gripR,5,consume,.15f);
         if (consume) p.weaponButtons=0;
     }
-    template<class Pad> void ApplyPhysical(Pad& p, bool consume) noexcept
+    template<class Pad> void ApplyPhysical(Pad& p, bool consume, bool allowConfirm=false) noexcept
     {
-        p.wButtons=static_cast<uint16_t>(Buttons(p.wButtons,consume));
+        const uint32_t confirm=consume&&allowConfirm?(p.wButtons&0x1000u):0u; // XINPUT_GAMEPAD_A
+        p.wButtons=static_cast<uint16_t>(Buttons(p.wButtons,consume)|confirm);
         if (!Axis(std::hypot(float(p.sThumbLX),float(p.sThumbLY)),0,consume,7849))
             p.sThumbLX=p.sThumbLY=0;
         if (!Axis(std::hypot(float(p.sThumbRX),float(p.sThumbRY)),1,consume,8689))

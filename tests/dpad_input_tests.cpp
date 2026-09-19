@@ -146,10 +146,12 @@ int main()
         ExclusiveInputHolds holds,physical;
         VrPadState p{};p.valid=true;p.moveY=1;p.turnX=.8f;p.trigR=1;p.gripL=1;
         p.a=p.menu=true;p.weaponButtons=0xffff;
+        p.b=p.x=p.y=p.clickL=p.clickR=true;
         p.thumbrestDpad=!pointer;p.dpadY=.9f;
-        holds.ApplyVr(p,true);
-        Check(p.valid&&!p.moveY&&!p.turnX&&!p.trigR&&!p.gripL&&!p.a&&!p.menu&&!p.weaponButtons,
-            "exclusive input suppresses gameplay without disconnecting controllers");
+        holds.ApplyVr(p,true,pointer);
+        Check(p.valid&&!p.moveY&&!p.turnX&&!p.trigR&&!p.gripL&&p.a==pointer&&
+            !p.b&&!p.x&&!p.y&&!p.clickL&&!p.clickR&&!p.menu&&!p.weaponButtons,
+            "pointer preserves A only; D-pad suppresses all other gameplay without disconnecting controllers");
         Check(p.dpadY==.9f,"D-pad direction survives exclusive filtering");
         p.moveY=1;p.turnX=.8f;p.trigR=1;p.gripL=1;p.a=p.menu=true;
         holds.ApplyVr(p,false);
@@ -159,9 +161,9 @@ int main()
         p.moveY=1;p.trigR=1;p.a=true;holds.ApplyVr(p,false);
         Check(p.moveY==1&&p.trigR==1&&p.a,"release then fresh input resumes normally");
         XINPUT_GAMEPAD raw{};raw.wButtons=0xffff;raw.sThumbLX=31000;raw.sThumbRY=-29000;
-        raw.bLeftTrigger=raw.bRightTrigger=255;physical.ApplyPhysical(raw,true);
-        Check(!raw.wButtons&&!raw.sThumbLX&&!raw.sThumbRY&&!raw.bLeftTrigger&&!raw.bRightTrigger,
-            "physical-pad input cannot bypass exclusive mode");
+        raw.bLeftTrigger=raw.bRightTrigger=255;physical.ApplyPhysical(raw,true,pointer);
+        Check(raw.wButtons==(pointer?XINPUT_GAMEPAD_A:0)&&!raw.sThumbLX&&!raw.sThumbRY&&!raw.bLeftTrigger&&!raw.bRightTrigger,
+            "physical pointer confirmation passes A only; D-pad still suppresses it");
         raw.wButtons=0xffff;raw.sThumbLX=31000;raw.bRightTrigger=255;physical.ApplyPhysical(raw,false);
         Check(!raw.wButtons&&!raw.sThumbLX&&!raw.bRightTrigger,"physical holds drain independently");
     }

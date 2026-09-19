@@ -1,3 +1,13 @@
+## Menu cursor A-button follow-up
+
+User requests ONLY preserving A selection while the menu-cursor toggle suppresses
+other inputs, then another ZIP. Implemented XR and physical-XInput A passage and
+final XInput merge. Existing D-pad/F1 exclusivity and exit-held-input draining
+stay intact. Updated regression fixture. Package matching build/source ZIPs
+without Install, then wait. No other refinement work requested in this follow-up.
+Previous candidate5ba2c6d was packaged/delivered; verification receipt is
+out/refinement-20260918/DELIVERY-VERIFIED.json. Accepted pointer unchanged.
+
 ## September 18 delivery preparation - circular zoom and optional CE flares
 
 Latest user requires graphical adjustment to be a toggle, then matching ZIPs

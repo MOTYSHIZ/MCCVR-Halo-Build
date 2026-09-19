@@ -1,5 +1,15 @@
 # September 18 cumulative refinement candidate
 
+## Menu cursor confirmation follow-up
+
+Only follow-up change from candidate5ba2c6d: while the in-game menu cursor is
+active, A passes through from VR controllers and physical XInput to select the
+pointed item. Other inputs remain suppressed. Thumbrest D-pad/F1 exclusivity
+is unchanged. A held while leaving the menu drains until release so it cannot
+become a gameplay action. Existing pointer-trigger clicking is retained.
+Regression checks cover A-only passage and held-input draining; packaging reruns
+the full build/test/gate. No other standing refinement is advanced here.
+
 One build supports Steam and Microsoft Store and all six Halo titles. Based on
 accepted Alpha 0.4.2 source `1a9766ca971a9e5f09b942d508abecd9753bdb35`.
 This is a test candidate, not headset-accepted or completion of the entire

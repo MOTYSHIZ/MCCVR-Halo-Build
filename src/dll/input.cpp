@@ -138,7 +138,8 @@ namespace
         }
 
         static thread_local ExclusiveInputHolds physicalHolds;
-        physicalHolds.ApplyPhysical(state->Gamepad,pad.exclusiveInput||Menu_IsOpen());
+        const bool pointerConfirm=pad.exclusiveInput&&!pad.thumbrestDpad&&!Menu_IsOpen();
+        physicalHolds.ApplyPhysical(state->Gamepad,pad.exclusiveInput||Menu_IsOpen(),pointerConfirm);
         if(pad.exclusiveInput&&!Menu_IsOpen())
         {
             Roomscale_Input(false,0,0);
@@ -146,7 +147,10 @@ namespace
             g_pauseChord.Reset();
             g_scopeToggle.Update(false,false,true);
             g_startPulseUntilMs.store(0);
+            const WORD confirm=pointerConfirm&&
+                (pad.a||(state->Gamepad.wButtons&XINPUT_GAMEPAD_A))?XINPUT_GAMEPAD_A:0;
             state->Gamepad={};
+            state->Gamepad.wButtons=confirm;
             if(pad.thumbrestDpad)
                 state->Gamepad.wButtons=DpadDirectionButtons(pad.dpadX,pad.dpadY);
             NoteFedButtons(state->Gamepad.wButtons);

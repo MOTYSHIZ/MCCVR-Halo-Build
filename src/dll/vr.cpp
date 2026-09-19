@@ -7762,7 +7762,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // Include the raw physical right axes in the hold latch, even though
         // ConsumeThumbrestDpad already moved them to the D-pad fields.
         if(pad.thumbrestDpad) {pad.turnX=pad.dpadX;pad.turnY=pad.dpadY;}
-        consumedControls.ApplyVr(pad,pad.exclusiveInput);
+        consumedControls.ApplyVr(pad,pad.exclusiveInput,pointerMode&&!pad.thumbrestDpad);
         if(f1Chord) pad.clickL=pad.clickR=true;
         const float rawSupportGrip=pad.gripL;
         weapon_interaction::Output weaponGesture{};
