@@ -1,9 +1,15 @@
 #include "contact_melee_queue.h"
+#include "../common/reach_wind_replay.h"
 #include "native_reload_policy.h"
 #include "haloce_native_bindings.h"
 #include "../common/weapon_model_catalog.h"
+#include "../common/weapon_muzzle.h"
+#include "../common/visual_hand_config.h"
+#include "../common/vr_turn_mode.h"
 #include "../common/camera_recovery_logic.h"
 #include "../common/dual_weapon_aim_logic.h"
+#include "../common/native_shot_target_lease.h"
+#include "../common/halo4_vehicle_input_logic.h"
 #include "../common/hud_visibility.h"
 #include "../common/exclusive_input.h"
 #include "../common/weapon_hand_logic.h"
@@ -1146,6 +1152,7 @@ namespace
         int lElbow = -1;
         int lShoulder = -1;
         uint64_t lWristDescendants = 0;
+        uint32_t muzzleUnit=UINT32_MAX,muzzleWeapon=UINT32_MAX;
         bool valid = false;
     };
 
@@ -1182,6 +1189,33 @@ namespace
     // palette hook matches its `source` pointer against both, so any
     // interpolate/palette call ordering pairs correctly.
     thread_local FpInterpolationContext g_fpInterpolationContexts[2];
+    weapon_muzzle::Store g_halo3Muzzles;
+    std::atomic<bool> g_halo3MuzzleBindingsReady{false};
+    bool Halo3CaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon) noexcept;
+    void Halo3PublishMuzzlePalette(uint16_t tag,const FpInterpolationContext& context,
+        const BoneMatrix* destination,uint32_t generation) noexcept;
+    weapon_muzzle::Store g_odstMuzzles;
+    std::atomic<bool> g_odstMuzzleBindingsReady{false};
+    bool OdstCaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon) noexcept;
+    void PublishOdstIndependentAim();
+    void OdstPublishMuzzlePalette(uint16_t tag,const FpInterpolationContext& context,
+        const BoneMatrix* destination,uint32_t generation) noexcept;
+    bool InstallOdstMuzzle(uintptr_t base,size_t size,uint32_t generation);
+    bool RemoveOdstMuzzle();
+    void ReportOdstMuzzle();
+    weapon_muzzle::Store g_reachBarrelMuzzles;
+    std::atomic<bool> g_reachBarrelBindingsReady{false};
+    bool ReachCaptureMuzzleOwner(int view,int slot,uint32_t& unit,uint32_t& weapon) noexcept;
+    struct ReachFpInterpolationContext;
+    void ReachApplyVisualHandOffsets(uint16_t tag,const int32_t* boneMap,
+        const ReachFpInterpolationContext& context,BoneMatrix* destination);
+    void ReachPublishMuzzlePalette(uint16_t tag,const ReachFpInterpolationContext& context,const BoneMatrix* destination) noexcept;
+    bool InstallReachMuzzle(uintptr_t base,size_t size,uint32_t generation);
+    bool RemoveReachMuzzle();
+    void ReportReachMuzzle();
+    void LegacyApplyVisualHandOffsets(GameTitle title,uint16_t tag,const int32_t* boneMap,
+        const FpInterpolationContext& context,BoneMatrix* destination);
+    bool ReachApplyBarrelAim(int32_t unit,float* origin,float* direction,const float* velocity,uint8_t collision,uint32_t simulation);
     thread_local BoneMatrix g_fpUnmodifiedInterpolations[2][64];
     thread_local BoneMatrix g_fpPaletteScratch[kReachFpMaxSourceNodeCount];
     thread_local BoneMatrix g_scopeHiddenPalette[64];
@@ -1298,6 +1332,9 @@ namespace
     thread_local bool g_legacyCollisionOwnedQuery = false;
 
     LegacyWorldCollisionFeature* LegacyCollisionForTitle(GameTitle title);
+    void LegacyPublishReloadTarget(GameTitle title,uint16_t tag,uint32_t generation,
+        const FpInterpolationContext& context,const BoneMatrix& root,const BoneMatrix* solved,
+        const int32_t* boneMap,const FpExplicitPoseTargets* targets=nullptr);
     bool LegacyApplyWorldCollision(
         GameTitle title, int hand, BoneMatrix& target,
         float* appliedCorrection = nullptr);
@@ -1759,6 +1796,13 @@ namespace
     {
         g_odstCamera.activeCallbacks.fetch_add(
             1, std::memory_order_acq_rel);
+        if(g_scopeRenderActive.load(std::memory_order_acquire))
+        {
+            ++hud_visibility::depth;
+            __try {g_realHudDrawWidget(userIndex,descriptor,widgetIndex,useAlternatePath,drawState);}
+            __finally {--hud_visibility::depth;g_odstCamera.activeCallbacks.fetch_sub(1,std::memory_order_acq_rel);}
+            return;
+        }
         if (OdstOwnsHudStereo())
             HudDrawWidgetHook(
                 userIndex, descriptor, widgetIndex,
@@ -3540,10 +3584,9 @@ namespace
     // brightness hook, HudXformHook. HUD layout is instead controlled through
     // the verified chud_globals curvature fields above.)
 
-    // Bullet-origin measurement: on each right-trigger pull, log where Halo
-    // spawns the bullet (the camera) vs the gun muzzle world position, so the
-    // "bullets from thin air" gap is quantified. The true fix moves the spawn
-    // to the muzzle via a fire hook (runtime hunt); this proves + measures it.
+    // Camera/wrist separation diagnostic only. Neither value is the native
+    // firing origin or an authored muzzle marker. The firing helper projects
+    // and collision-adjusts an origin later; this probe cannot measure it.
     bool DesiredWristWorld(bool left, BoneMatrix& out, float& meshScale,
                            float* collisionCorrection = nullptr); // defined below
     void ProbeBulletOrigin()
@@ -3560,8 +3603,8 @@ namespace
             {
                 const float dx=cam[0]-w.translation[0],dy=cam[1]-w.translation[1],
                             dz=cam[2]-w.translation[2];
-                LOG("BULLET-PROBE shot: spawn(camera)=(%.2f,%.2f,%.2f) "
-                    "gun=(%.2f,%.2f,%.2f) offset=%.2f wu (%.2f m)",
+                LOG("BULLET-PROBE trigger: camera=(%.2f,%.2f,%.2f) "
+                    "wrist=(%.2f,%.2f,%.2f) separation=%.2f wu (%.2f m); native shot origin not sampled",
                     cam[0],cam[1],cam[2],
                     w.translation[0],w.translation[1],w.translation[2],
                     sqrtf(dx*dx+dy*dy+dz*dz), sqrtf(dx*dx+dy*dy+dz*dz)*3.048f);
@@ -5011,6 +5054,8 @@ namespace
     bool __fastcall FpInterpolateHook(int view,int id,int slot,
                                       BoneMatrix** outBones,int* outCount)
     {
+        uint32_t muzzleUnit=UINT32_MAX,muzzleWeapon=UINT32_MAX;
+        const bool muzzleOwner=Halo3CaptureMuzzleOwner(view,slot,muzzleUnit,muzzleWeapon);
         const bool result=g_origFpInterpolate(view,id,slot,outBones,outCount);
         if (slot==0 || slot==1)
         {
@@ -5032,6 +5077,10 @@ namespace
                 context.count=count;
                 context.player=view;
                 context.slot=slot;
+                uint32_t currentUnit=UINT32_MAX,currentWeapon=UINT32_MAX;
+                if(muzzleOwner && Halo3CaptureMuzzleOwner(view,slot,currentUnit,currentWeapon) &&
+                    currentUnit==muzzleUnit && currentWeapon==muzzleWeapon)
+                {context.muzzleUnit=muzzleUnit;context.muzzleWeapon=muzzleWeapon;}
                 context.wrist=wrist;
                 context.cameraControl=cameraControl;
                 context.elbow=elbow;
@@ -6119,10 +6168,14 @@ namespace
                       g_legacyAnatomicalRefusals[0]).fetch_add(1, std::memory_order_relaxed);
         }
         if(reconstructed && root && selectedSource==g_fpPaletteScratch)
+        {
+            LegacyPublishReloadTarget(GameTitle::Halo3,tag,collisionGeneration,
+                contactContext,*root,selectedSource,boneMap);
             LegacyPublishWorldCollisionVolumes(
                 GameTitle::Halo3,tag,contactContext,*root,selectedSource,
                 LegacyCollisionIgnoredObject(GameTitle::Halo3),
                 collisionGeneration);
+        }
 
         // FLOATING HANDS (optional, OFF by default): a pure presentation filter
         // over the already-solved palette. The VRIK solve above still tracks the
@@ -6161,6 +6214,12 @@ namespace
         }
 
         g_origFpVisiblePalette(tag,root,destination,unused,selectedSource,boneMap);
+        if(reconstructed && selectedSource==g_fpPaletteScratch &&
+            !g_scopeRenderActive.load(std::memory_order_acquire))
+        {
+            Halo3PublishMuzzlePalette(tag,context,destination,collisionGeneration);
+            LegacyApplyVisualHandOffsets(GameTitle::Halo3,tag,boneMap,context,destination);
+        }
 
         // Collect every UNIQUE final-palette submission, not just the first
         // one for a weapon. A shotgun-only secondary arm palette can otherwise
@@ -6726,6 +6785,7 @@ namespace
     // whether this seat's steering is authored instead of closed-loop aimed.
     void Halo3ApplySeatYawFollow();
     bool Halo3SeatAuthorsSteeringNow();
+    bool SharedVrTurnSeated();
 
     bool ApplyHeadLook(void* src)
     {
@@ -6931,59 +6991,7 @@ namespace
     // M3: snap/smooth turning from the right Sense stick. Rotating the yaw
     // reference turns the head-locked view instantly, and the hand-steered aim
     // follows because its target is expressed relative to the same reference.
-    void ApplyVrTurn(const VrPadState& pad)
-    {
-        if (!g_vrAim.load())
-            return;
-        if (!pad.valid)
-            return;
-        // Smooth turn needs a sub-frame timebase. GetTickCount only updates on
-        // the ~15.6 ms system tick, but this runs several times per 11 ms (90 Hz)
-        // frame from CamCopyHook, so a GetTickCount delta was 0 on most frames
-        // and ~15 ms in a lump on others -> a visible ~5 Hz yaw stutter. The
-        // performance counter gives the true elapsed time between calls, so the
-        // yaw advances evenly regardless of how many calls land in a frame.
-        static LARGE_INTEGER freq{}, last{};
-        if (freq.QuadPart == 0)
-            QueryPerformanceFrequency(&freq);
-        LARGE_INTEGER now;
-        QueryPerformanceCounter(&now);
-        float dt = last.QuadPart == 0 ? 0.0f
-                       : (float)(now.QuadPart - last.QuadPart) / (float)freq.QuadPart;
-        last = now;
-        if (dt > 0.1f) dt = 0.1f;
-
-        // The stick remains Halo's steering fallback in an authored driver
-        // seat. While the two-hand wheel is actively supplying steering, that
-        // stick is free and resumes the configured snap/smooth VR turn. Keep
-        // the QPC clock warm across both states so taking the wheel cannot
-        // inherit a capped 100 ms turn step.
-        const float x = pad.turnX; // stick right = turn right = yaw decreases
-        const bool turnOwnsStick = Halo3VrTurnOwnsStick(
-            Halo3SeatAuthorsSteeringNow(), Game_Halo3VehicleWheelActive());
-        static bool snapLatched = false;
-        if (!turnOwnsStick)
-        {
-            Halo3ConsumeSnapTurn(false, x, snapLatched);
-            return;
-        }
-        if (g_config.turn_smooth)
-        {
-            // Track the held/centred state across a runtime mode switch too.
-            Halo3ConsumeSnapTurn(false, x, snapLatched);
-            if (fabsf(x) > 0.15f)
-                g_gameYawRef = WrapPi(g_gameYawRef -
-                    x * (g_config.turn_smooth_deg_s / 57.2958f) * dt);
-        }
-        else
-        {
-            if (Halo3ConsumeSnapTurn(true, x, snapLatched))
-            {
-                g_gameYawRef = WrapPi(g_gameYawRef -
-                    (x > 0 ? 1.0f : -1.0f) * g_config.turn_snap_deg / 57.2958f);
-            }
-        }
-    }
+    #include "shared_vr_turn.inl"
 
     void ApplyVrTurn()
     {
@@ -10237,7 +10245,7 @@ namespace
         g_eyeFpView.store(nullptr,std::memory_order_release);
 
         // One mono world-only camera at Halo's collision-safe gameplay origin.
-        // Its bullet-aligned direction remains hand-aimed, and the physical 4:3
+        // Its bullet-aligned direction remains hand-aimed, and the circular
         // display remains mounted on the gun independently.
         if(g_buildViewport && g_buildMatrices && VR_ScopeShouldRenderThisFrame() &&
            BuildRightHandScopeCamera(camera,saved) && VR_BeginScopeRaster())
@@ -10277,7 +10285,7 @@ namespace
             VR_EndScopeRaster();
             static std::atomic<bool> logged{false};
             if(!logged.exchange(true))
-                LOG("scope camera active: collision-safe bullet origin, %.2fx 4:3 lens",
+                LOG("scope camera active: collision-safe bullet origin, %.2fx circular lens",
                     zoom);
         }
         memcpy(camera, saved, sizeof(saved));
@@ -10433,14 +10441,11 @@ namespace
                 bytes + offset);
             return bounds[0] < bounds[2] && bounds[1] < bounds[3];
         };
-        return modeFlags == 0 && isfinite(verticalFov) &&
-            verticalFov > 0.0001f && verticalFov < 3.1415f &&
-            isfinite(referenceFov) && referenceFov > 0.0001f &&
-            referenceFov < 3.1415f && verticalOffset == 0.0f &&
+        return OdstPlainPerspectiveScalars(modeFlags, verticalFov,
+            referenceFov, verticalOffset, nearClip, farClip) &&
             boundsAreOrdered(layout.windowBounds) &&
             boundsAreOrdered(layout.renderBounds) &&
-            boundsAreOrdered(layout.activeBounds) && isfinite(nearClip) &&
-            isfinite(farClip) && nearClip > 0.0f && farClip > nearClip &&
+            boundsAreOrdered(layout.activeBounds) &&
             oblique[0] == 0.0f && oblique[1] == 0.0f &&
             oblique[2] == 0.0f && oblique[3] == 0.0f &&
             customProjection == 0 && customData[0] == 0.0f &&
@@ -10751,134 +10756,7 @@ namespace
     };
     OdstHeadReference g_odstHeadReference;
 
-    // Seat-flag patch (hide body). Same transaction shape as Halo 3's: patch
-    // only the occupied loaded seat, restore only a value that is still ours.
-    struct OdstNativeSeatPatch
-    {
-        uint32_t generation = 0;
-        uint32_t definitionIndex = 0xFFFFFFFFu;
-        int seatIndex = -1;
-        uint32_t* flags = nullptr;
-        uint32_t originalFlags = 0;
-        bool active = false;
-    };
-    OdstNativeSeatPatch g_odstNativeSeatPatch;
-    std::atomic<uint32_t> g_odstNativeSeatState{0};   // 0 stock,1 active,2 fail
-    std::atomic<uint32_t> g_odstNativeSeatSerial{0};
-
-    void OdstRestoreNativeSeatPatch()
-    {
-        OdstNativeSeatPatch& patch = g_odstNativeSeatPatch;
-        const bool hadState =
-            g_odstNativeSeatState.load(std::memory_order_relaxed) != 0;
-        if (patch.active && patch.flags)
-        {
-            const uint32_t patchedFlags =
-                patch.originalFlags & ~kOdstSeatThirdPersonCameraBit;
-            __try
-            {
-                // Restore only what is still ours; a concurrent engine write
-                // wins rather than being clobbered back.
-                if (*patch.flags == patchedFlags)
-                    *patch.flags = patch.originalFlags;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-            }
-        }
-        patch = {};
-        if (hadState)
-        {
-            g_odstNativeSeatState.store(0, std::memory_order_relaxed);
-            g_odstNativeSeatSerial.fetch_add(1, std::memory_order_release);
-        }
-    }
-
-    bool OdstEnsureFirstPersonSeatFlag(uint32_t definitionIndex, int seatIndex,
-                                       uint32_t generation)
-    {
-        if (!g_config.vehicle_first_person || !g_config.vehicle_hide_body)
-        {
-            OdstRestoreNativeSeatPatch();
-            return false;
-        }
-        OdstNativeSeatPatch& patch = g_odstNativeSeatPatch;
-        const uint32_t state =
-            g_odstNativeSeatState.load(std::memory_order_relaxed);
-        const bool sameSeat = patch.generation == generation &&
-            patch.definitionIndex == definitionIndex &&
-            patch.seatIndex == seatIndex;
-        if (sameSeat && state == 1)
-            return true;
-        if (sameSeat && state == 2)
-            return false;           // proven bad for this seat: never retry
-        OdstRestoreNativeSeatPatch();
-        patch.generation = generation;
-        patch.definitionIndex = definitionIndex;
-        patch.seatIndex = seatIndex;
-
-        bool installed = false;
-        if (definitionIndex <= 0xFFFFu && seatIndex >= 0 && seatIndex <= 125)
-        {
-            __try
-            {
-                unsigned char* definition =
-                    OdstLoadedTagDefinition(definitionIndex);
-                void** baseSlot = g_odstTagDataBase;
-                auto* tagBase = baseSlot
-                    ? static_cast<unsigned char*>(*baseSlot) : nullptr;
-                if (definition && tagBase)
-                {
-                    const int32_t seatCount =
-                        *reinterpret_cast<const int32_t*>(
-                            definition + kOdstVehicleSeatsCountOffset);
-                    const uint32_t seatsAddress =
-                        *reinterpret_cast<const uint32_t*>(
-                            definition + kOdstVehicleSeatsDataOffset);
-                    if (seatCount > 0 && seatCount <= 126 &&
-                        seatIndex < seatCount && seatsAddress)
-                    {
-                        unsigned char* seat = tagBase +
-                            static_cast<size_t>(seatsAddress) * 4 +
-                            static_cast<size_t>(seatIndex) *
-                                kOdstVehicleSeatStride;
-                        auto* flags = reinterpret_cast<uint32_t*>(
-                            seat + kOdstSeatFlagsOffset);
-                        const uint32_t originalFlags = *flags;
-                        // Only ever touch a seat that actually is a
-                        // third-person player seat today.
-                        if (originalFlags & kOdstSeatThirdPersonCameraBit)
-                        {
-                            const uint32_t patchedFlags =
-                                originalFlags & ~kOdstSeatThirdPersonCameraBit;
-                            patch.flags = flags;
-                            patch.originalFlags = originalFlags;
-                            patch.active = true;
-                            *flags = patchedFlags;
-                            installed = *flags == patchedFlags;
-                        }
-                    }
-                }
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                installed = false;
-            }
-        }
-        if (!installed)
-        {
-            OdstRestoreNativeSeatPatch();
-            patch.generation = generation;
-            patch.definitionIndex = definitionIndex;
-            patch.seatIndex = seatIndex;
-            g_odstNativeSeatState.store(2, std::memory_order_relaxed);
-            g_odstNativeSeatSerial.fetch_add(1, std::memory_order_release);
-            return false;
-        }
-        g_odstNativeSeatState.store(1, std::memory_order_relaxed);
-        g_odstNativeSeatSerial.fetch_add(1, std::memory_order_release);
-        return true;
-    }
+    #include "odst_native_seat_patch.inl"
 
     // The authored point in the seat node's local space: tag point + trims,
     // through the render model's stored default inverse for that node.
@@ -11136,6 +11014,8 @@ namespace
         const uint64_t nowMs = GetTickCount64();
         return sampleMs && nowMs >= sampleMs && nowMs - sampleMs <= 500;
     }
+
+    #include "vr_turn_vehicle_state.inl"
 
     bool OdstComputeAuthoredAnchor(float out[3])
     {
@@ -12926,15 +12806,26 @@ namespace
         sc.key.store(key, std::memory_order_release);
     }
 
-    __declspec(noinline) bool __fastcall OdstFpInterpolateWeaponHook(
+    bool OdstFpInterpolateWeaponBody(
         int view, int id, int slot, BoneMatrix** outBones, int* outCount)
     {
-        g_odstCamera.activeCallbacks.fetch_add(1, std::memory_order_acq_rel);
+        uint32_t muzzleUnit=UINT32_MAX,muzzleWeapon=UINT32_MAX;
+        const bool muzzleOwner=OdstCaptureMuzzleOwner(view,slot,muzzleUnit,muzzleWeapon);
         bool result = false;
         FpInterpolateFn original =
             reinterpret_cast<FpInterpolateFn>(g_odstCamera.originalFpInterpolate);
         if (original)
             result = original(view, id, slot, outBones, outCount);
+        if(g_scopeRenderActive.load(std::memory_order_acquire))
+        {
+            if(slot==0||slot==1)
+            {
+                auto& scopeContext=g_fpInterpolationContexts[slot];scopeContext={};
+                if(view==0&&result&&outBones&&outCount&&*outBones&&*outCount>0&&*outCount<=64)
+                {scopeContext.source=*outBones;scopeContext.count=*outCount;scopeContext.slot=slot;scopeContext.valid=true;}
+            }
+            return result;
+        }
         const bool ownsWeapons =
             g_odstCamera.armed.load(std::memory_order_acquire) &&
             !g_odstCamera.teardownRequested.load(std::memory_order_acquire) &&
@@ -12955,6 +12846,11 @@ namespace
                     g_fpInterpolationContexts[slot];
                 context.source = *outBones;
                 context.count = count;
+                context.generation=g_odstRuntimeGeneration.load(std::memory_order_acquire);
+                uint32_t currentUnit=UINT32_MAX,currentWeapon=UINT32_MAX;
+                if(muzzleOwner&&OdstCaptureMuzzleOwner(view,slot,currentUnit,currentWeapon)&&
+                    currentUnit==muzzleUnit&&currentWeapon==muzzleWeapon)
+                {context.muzzleUnit=muzzleUnit;context.muzzleWeapon=muzzleWeapon;}
                 context.player = view;
                 context.slot = slot;
                 context.wrist = layout.rightWrist;
@@ -12985,19 +12881,24 @@ namespace
         }
         else if (slot == 0 || slot == 1)
             g_fpInterpolationContexts[slot] = {};
-        g_odstCamera.activeCallbacks.fetch_sub(1, std::memory_order_acq_rel);
         return result;
     }
 
-    __declspec(noinline) void __fastcall OdstFpVisiblePaletteWeaponHook(
+    __declspec(noinline) bool __fastcall OdstFpInterpolateWeaponHook(
+        int view,int id,int slot,BoneMatrix** bones,int* count)
+    {
+        g_odstCamera.activeCallbacks.fetch_add(1,std::memory_order_acq_rel);bool result=false;
+        __try {result=OdstFpInterpolateWeaponBody(view,id,slot,bones,count);}
+        __finally {g_odstCamera.activeCallbacks.fetch_sub(1,std::memory_order_acq_rel);}
+        return result;
+    }
+
+    void OdstFpVisiblePaletteWeaponBody(
         uint16_t tag, const BoneMatrix* root, BoneMatrix* destination,
         uintptr_t unused, const BoneMatrix* source, const int32_t* boneMap)
     {
-        g_odstCamera.activeCallbacks.fetch_add(1, std::memory_order_acq_rel);
         const uint32_t collisionGeneration=
             g_odstRuntimeGeneration.load(std::memory_order_acquire);
-        (void)LegacyObserveWeaponRenderModel(
-            GameTitle::Halo3ODST,tag,collisionGeneration,source,boneMap);
         FpInterpolationContext context{};
         for (FpInterpolationContext& candidate : g_fpInterpolationContexts)
             if (candidate.valid && source && candidate.source == source)
@@ -13007,6 +12908,20 @@ namespace
                 break;
             }
 
+        if(g_scopeRenderActive.load(std::memory_order_acquire))
+        {
+            const BoneMatrix* hidden=source;
+            if(context.valid&&source&&context.count>0&&context.count<=64)
+            {
+                std::memcpy(g_scopeHiddenPalette,source,context.count*sizeof(BoneMatrix));
+                for(int i=0;i<context.count;++i)g_scopeHiddenPalette[i].scale=.0001f;
+                hidden=g_scopeHiddenPalette;
+            }
+            auto original=reinterpret_cast<FpVisiblePaletteFn>(g_odstCamera.originalFpVisiblePalette);
+            if(original)original(tag,root,destination,unused,hidden,boneMap);
+            return;
+        }
+        (void)LegacyObserveWeaponRenderModel(GameTitle::Halo3ODST,tag,collisionGeneration,source,boneMap);
         const BoneMatrix* selectedSource = source;
         if (context.valid && source == context.source)
             selectedSource = g_fpUnmodifiedInterpolations[context.slot];
@@ -13029,10 +12944,14 @@ namespace
                       g_legacyAnatomicalRefusals[1]).fetch_add(1, std::memory_order_relaxed);
         }
         if(reconstructed && root && selectedSource==g_fpPaletteScratch)
+        {
+            LegacyPublishReloadTarget(GameTitle::Halo3ODST,tag,collisionGeneration,
+                contactContext,*root,selectedSource,boneMap);
             LegacyPublishWorldCollisionVolumes(
                 GameTitle::Halo3ODST,tag,contactContext,*root,selectedSource,
                 LegacyCollisionIgnoredObject(GameTitle::Halo3ODST),
                 collisionGeneration);
+        }
         if (g_config.floating_hands && reconstructed && context.valid &&
             selectedSource == g_fpPaletteScratch &&
             context.count > 0 && context.count <= 64)
@@ -13058,7 +12977,21 @@ namespace
         if (original)
             original(
                 tag, root, destination, unused, selectedSource, boneMap);
-        g_odstCamera.activeCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+        if(original&&reconstructed&&selectedSource==g_fpPaletteScratch&&
+            !g_scopeRenderActive.load(std::memory_order_acquire))
+        {
+            OdstPublishMuzzlePalette(tag,context,destination,collisionGeneration);
+            LegacyApplyVisualHandOffsets(GameTitle::Halo3ODST,tag,boneMap,context,destination);
+        }
+    }
+
+    __declspec(noinline) void __fastcall OdstFpVisiblePaletteWeaponHook(
+        uint16_t tag,const BoneMatrix* root,BoneMatrix* destination,uintptr_t unused,
+        const BoneMatrix* source,const int32_t* boneMap)
+    {
+        g_odstCamera.activeCallbacks.fetch_add(1,std::memory_order_acq_rel);
+        __try {OdstFpVisiblePaletteWeaponBody(tag,root,destination,unused,source,boneMap);}
+        __finally {g_odstCamera.activeCallbacks.fetch_sub(1,std::memory_order_acq_rel);}
     }
 
     // ---- Full-parity diagnostics: non-first-person camera capture ----------
@@ -13092,7 +13025,7 @@ namespace
         // sub-checks, so a flat cutscene camera tells us precisely which field
         // disqualifies it rather than a single YES/NO.
         OdstNonFpModeZero = 1u << 4,          // +0x24 mode flags == 0
-        OdstNonFpVoffZero = 1u << 5,          // +0x34 vertical offset == 0
+        OdstNonFpVoffFinite = 1u << 5,          // +0x34 observer offset is finite
         OdstNonFpFovInRange = 1u << 6,        // vertical/reference FOV in range
         OdstNonFpObliqueZero = 1u << 7,       // +0x6C..+0x7B oblique plane zero
         OdstNonFpCustomProjZero = 1u << 8,    // +0x7C enable + data zero
@@ -13185,7 +13118,7 @@ namespace
         const float referenceFov = readFloat(layout.referenceFov);
         const float verticalOffset = readFloat(layout.verticalOffset);
         const bool modeZero = modeFlags == 0;
-        const bool voffZero = verticalOffset == 0.0f;
+        const bool voffFinite = isfinite(verticalOffset);
         const bool fovInRange = isfinite(verticalFov) && verticalFov > 0.0001f &&
             verticalFov < 3.1415f && isfinite(referenceFov) &&
             referenceFov > 0.0001f && referenceFov < 3.1415f;
@@ -13212,7 +13145,7 @@ namespace
         if (OdstCompactCameraIsActive(compact)) flags |= OdstNonFpActive;
         if (plainPerspective) flags |= OdstNonFpPlainPerspective;
         if (modeZero) flags |= OdstNonFpModeZero;
-        if (voffZero) flags |= OdstNonFpVoffZero;
+        if (voffFinite) flags |= OdstNonFpVoffFinite;
         if (fovInRange) flags |= OdstNonFpFovInRange;
         if (obliqueZero) flags |= OdstNonFpObliqueZero;
         if (customProjZero) flags |= OdstNonFpCustomProjZero;
@@ -13265,7 +13198,7 @@ namespace
         const bool active = (flags & OdstNonFpActive) != 0;
         const bool plain = (flags & OdstNonFpPlainPerspective) != 0;
         // Decode the exact gate sub-checks. The redirect actually requires ALL
-        // of: tail, nested, active, mode==0, FOV in range, vertical offset 0,
+        // of: tail, nested, active, mode==0, FOV in range, finite observer offset,
         // oblique zero, custom projection zero, bounds ordered, clips valid.
         // List only the ones that FAILED so a flat cutscene names its cause.
         char why[192];
@@ -13282,7 +13215,7 @@ namespace
         appendIfFailed(active, "active");
         appendIfFailed((flags & OdstNonFpModeZero) != 0, "mode");
         appendIfFailed((flags & OdstNonFpFovInRange) != 0, "fov");
-        appendIfFailed((flags & OdstNonFpVoffZero) != 0, "voff");
+        appendIfFailed((flags & OdstNonFpVoffFinite) != 0, "voff");
         appendIfFailed((flags & OdstNonFpObliqueZero) != 0, "oblique");
         appendIfFailed((flags & OdstNonFpCustomProjZero) != 0, "customProj");
         appendIfFailed((flags & OdstNonFpBoundsOrdered) != 0, "bounds");
@@ -13396,6 +13329,8 @@ namespace
                     ? "target-1 source identity did not match; stock copy retained"
                     : "exact target-1 copy was not observed; stock path retained");
     }
+    #include "odst_scope.inl"
+
     __declspec(noinline) void __fastcall OdstRenderViewBody(void* view)
     {
         RenderViewFn original = g_odstCamera.originalRenderView;
@@ -13602,6 +13537,8 @@ namespace
         bool capturesOk = true;
         // Exactly one articulated pose per stereo pair, matching Halo 3. The
         // second eye reprojects the cached center-root solve into its own root.
+        // Ordinary ODST dual-wield expansion is out of scope. Its independent
+        // controller publisher remains dormant; authored barrel aiming stays.
         g_fpStereoSolveScope = {};
         g_fpStereoSolveScope.armed = true;
         g_fpStereoSolveScope.twoHandAimActive = VR_IsTwoHandAiming();
@@ -13755,6 +13692,8 @@ namespace
                savedNestedSecondaryCompact, layout.compactSize);
         memcpy(bytes + layout.nestedSecondaryDerived,
                savedNestedSecondaryDerived, layout.derivedSize);
+
+        if(capturesOk&&!cutsceneTheater)RenderOdstScope(view);
 
         if (capturesOk)
             g_odstCamera.captureFailures.store(0, std::memory_order_release);
@@ -15490,10 +15429,10 @@ namespace
                 kHalo3CollisionVectorSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
         (void)InstallHalo3ContactMelee(base,size,runtimeGeneration);
-        // d77c9dd headset: independent shots were not observed. Keep the
-        // failed experimental firing hooks dormant until the dual-aim pass.
-        if constexpr (false)
-            (void)InstallHalo3DualAim(base,size,runtimeGeneration);
+        // The rejected early-helper-only detours remain inert. The new optional
+        // path owns acquisition and downstream assist together, with its own
+        // default-off setting and feature-only failure isolation.
+        (void)InstallHalo3DualAim(base,size,runtimeGeneration);
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
         uintptr_t prepareHit = sig::Find(base, size, kPrepareViewSig);
@@ -17201,6 +17140,7 @@ namespace
 
     bool DisableAndRemoveOdstHooks()
     {
+        if(!RemoveOdstMuzzle())return false;
         if(!DisableAndRemoveOdstContactMelee()) return false;
         // Stop new outer stereo transactions first. Existing ones retain all FP
         // dependencies until their complete two-eye callback has returned.
@@ -17577,6 +17517,7 @@ namespace
         }
 
         (void)InstallOdstContactMelee(base,size,runtimeGeneration);
+        (void)InstallOdstMuzzle(base,size,runtimeGeneration);
 
         // The ownership block that used to sit here now runs the moment the
         // core hooks go live, above. In particular g_odstLastCamCopyMs is NOT
@@ -17982,6 +17923,16 @@ namespace
         float headPosition[3]{};
     };
 
+    struct ReachScopeFrame
+    {
+        bool ready=false;
+        alignas(16) unsigned char compact[kReachCompactCameraBytes]{};
+        alignas(16) unsigned char derived[kReachDerivedBlockSize]{};
+    };
+    thread_local bool g_reachScopeRendering=false;
+    std::atomic<uint32_t> g_reachScopeFaultGeneration{0};
+    std::atomic<uint32_t> g_reachScopeFaults{0};
+
     struct ReachOwnerScope
     {
         bool active = false;
@@ -18000,6 +17951,7 @@ namespace
         FpExplicitPoseTargets fpTargets{};
         alignas(16) unsigned char headCenter[kReachCompactCameraBytes]{};
         ReachEyeRenderInput eyes[2]{};
+        ReachScopeFrame scope{};
     };
 
     // Outer and inner hooks run on the same render thread in one synchronous
@@ -18039,6 +17991,9 @@ namespace
     };
     thread_local ReachFpCameraEyeScope g_reachFpCameraEyeScope;
 
+    std::atomic<uint32_t> g_reachWindReplayFaults{0};
+    std::atomic<uint32_t> g_reachWindReplayPairs{0};
+
     struct ReachCameraCore
     {
         std::atomic<bool> installed{false};
@@ -18056,6 +18011,7 @@ namespace
         void* innerTarget = nullptr;
         void* outerTarget = nullptr;
         uint64_t installedAtMs = 0;
+        void* decoratorWindState = nullptr;
         MotionBlurVar motionBlurVars[2]{};
         bool motionBlurResolved = false;
         bool motionBlurSuppressed = false;
@@ -18906,6 +18862,10 @@ namespace
         if (!original)
             return -1;
         const int32_t stock = original(outputUserIndex);
+        if(g_reachScopeRendering && g_reachOwnerScope.active &&
+            caller==g_reachFirstPersonRenderGateReturn.load(std::memory_order_acquire))
+            return 0; // Exact native render predicate: non-NONE skips FP pixels.
+        if(!kReachR_V24PassengerRenderAdmissionEnabled)return stock;
         if (static_cast<uint16_t>(stock) == 0xFFFFu ||
             caller != g_reachFirstPersonRenderGateReturn.load(
                 std::memory_order_acquire))
@@ -19104,6 +19064,9 @@ namespace
             1, std::memory_order_acq_rel);
         __try
         {
+            if (reinterpret_cast<uintptr_t>(_ReturnAddress())==g_reachCamera.base+0x4C303F &&
+                ReachApplyBarrelAim(unitIndex,origin,direction,basisForward,collision,simulation))
+                __leave;
             ReachUnitAdjustBody(
                 unitIndex, origin, direction, basisForward, barrelOffset,
                 optionalCameraPoint, firesFromCamera, useUnitAim, collision,
@@ -20421,7 +20384,8 @@ namespace
         unsigned int useAlternatePath, void* drawState)
     {
         bool captureStarted = false;
-        const bool hideHud=g_config.hide_hud&&ReachOwnsHudStereoTransaction();
+        const bool hideHud=g_reachScopeRendering ||
+            (g_config.hide_hud&&ReachOwnsHudStereoTransaction());
         if(hideHud) ++hud_visibility::depth;
         const bool previousHeightRedirected = g_reachHudHeightRedirected;
         g_reachCamera.activeCallbacks.fetch_add(
@@ -20431,6 +20395,12 @@ namespace
             ReachHudDrawWidgetFn original = g_reachOrigHudDrawWidget;
             if (!original)
                 return;
+            if(g_reachScopeRendering)
+            {
+                // Retain native widget bookkeeping; suppress only its GPU draws.
+                original(userIndex,descriptor,widgetIndex,useAlternatePath,drawState);
+                return;
+            }
 
             const bool ownsStereo = ReachOwnsHudStereoTransaction();
             const bool matchingEyeScope =
@@ -20746,6 +20716,7 @@ namespace
         bool valid = false;
         bool transformed = false;
         uint32_t generation = 0;
+        uint32_t muzzleUnit = UINT32_MAX, muzzleWeapon = UINT32_MAX;
         uint64_t preparedSerial = 0;
         uint64_t captureSerial = 0;
         BoneMatrix* source = nullptr;
@@ -22530,6 +22501,18 @@ namespace
         }
     }
 
+    bool ReachWindCopy(void* destination, const void* source, size_t bytes)
+    {
+        __try { memcpy(destination, source, bytes); return true; }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            g_reachWindReplayFaults.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+    }
+
+    #include "reach_scope.inl"
+
     bool ReachStereoTransaction(uintptr_t playerView, ReachVrRenderAccess& access)
     {
         const uintptr_t workspace = g_reachOwnerScope.workspace;
@@ -22611,6 +22594,11 @@ namespace
         bool transactionValid = true;
         uint32_t capturedEyes = 0;
         uint32_t committedOuterCameraEyes = 0;
+        ReachRenderScope(playerView,access);
+        ReachWindReplay windReplay{};
+        void* const windState = g_reachWindReplayFaults.load(
+            std::memory_order_relaxed) == 0 ?
+            g_reachCamera.decoratorWindState : nullptr;
         __try
         {
             for (uint32_t pass = 0; pass < 2; ++pass)
@@ -22744,6 +22732,14 @@ namespace
                 __try
                 {
                     fpCameraScope.active = true;
+                    if (windState)
+                    {
+                        if (pass == 0) windReplay.Begin(windState, ReachWindCopy);
+                        else if (windReplay.Replay(windState, ReachWindCopy))
+                            g_reachWindReplayPairs.fetch_add(
+                                1, std::memory_order_relaxed);
+                        else windReplay.Finish(windState, ReachWindCopy);
+                    }
                     renderReturned =
                         ReachCallPlayerViewWithEyeScopedSuppressions(playerView);
                 }
@@ -22796,6 +22792,7 @@ namespace
         }
         __finally
         {
+            windReplay.Finish(windState, ReachWindCopy);
             // The first-person interpolation/palette work occurs earlier in
             // the admitted outer render. Keep that outer-owned pair scope
             // alive across both eye renders, but do not leak an eye selection
@@ -23117,7 +23114,46 @@ namespace
         __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
     }
 
+    void LegacyPublishReloadTarget(GameTitle title,uint16_t tag,uint32_t generation,
+        const FpInterpolationContext& context,const BoneMatrix& root,const BoneMatrix* solved,
+        const int32_t* boneMap,const FpExplicitPoseTargets* targets)
+    {
+        if(!g_config.manual_reload||!context.valid||context.slot!=0||!solved||!boneMap||
+            context.count<=0||context.count>64) return;
+        uint32_t identity=0;int32_t mapped=-1;
+        if(!LegacyReadWeaponRenderModelChecksum(title,tag,identity)||
+            !SafeReadBytes(boneMap,&mapped,sizeof(mapped))||mapped<0||mapped>=context.count) return;
+        const auto* model=weapon_model::Find(title,identity);
+        BoneMatrix held{};float basis[9]{},point[3]{};
+        if(!model||!model->vertexCount||!ComposeBoneMatrices(root,solved[mapped],held)||
+            !NormalizedBasis(held,basis)||
+            !weapon_model::ReceiverPoint(model,held.scale,basis,held.translation,point)) return;
+        contact_melee::TrackingToWorld transform{};
+        uint64_t serial=0;
+        if(title==GameTitle::HaloReach)
+        {
+            if(!targets) return;
+            transform=targets->contactSpace[1];serial=targets->contactSerial;
+        }
+        else
+        {
+            if(!g_fpStereoSolveScope.armed||!g_baseCamValid.load()) return;
+            serial=g_fpStereoSolveScope.anatomicalTracking.serial;
+            const float sh=sinf(g_headYawRef),ch=cosf(g_headYawRef);
+            const float cg=cosf(g_gameYawRef),sg=sinf(g_gameYawRef);
+            transform.unitsPerMetre=g_worldScale.load();
+            transform.axis[0]={cg*sh+sg*ch,sg*sh-cg*ch,0};
+            transform.axis[1]={0,0,1};
+            transform.axis[2]={-cg*ch+sg*sh,-sg*ch-cg*sh,0};
+            const auto reference=transform.World({g_headPosRef[0],g_headPosRef[1],g_headPosRef[2]});
+            transform.origin={g_baseCamX.load()-reference.x,g_baseCamY.load()-reference.y,
+                g_baseCamZ.load()-reference.z};
+        }
+        VR_PublishReloadTarget(title,generation,identity,serial,transform,point);
+    }
+
 #include "left_hand_presentation.inl"
+#include "visual_hand_palette.inl"
 #include "legacy_runtime_weapon_bounds.inl"
 
     void LegacyObserveReloadModel(
@@ -23127,7 +23163,7 @@ namespace
         // Optional reload identity is independent of collision settings. Read
         // through each title's existing verified tag reader; never change a
         // palette, inventory, native animation or camera to select an accessory.
-        if(g_config.manual_reload && source && boneMap && generation)
+        if((g_config.manual_reload || g_config.per_gun_alignment) && source && boneMap && generation)
         {
             const bool primary=title==GameTitle::HaloReach ||
                 (g_fpInterpolationContexts[0].source==source &&
@@ -23486,9 +23522,9 @@ namespace
         const uint64_t now=GetTickCount64();
         if(now-lastLogMs<2000) return;
         lastLogMs=now;
-        if(title==GameTitle::HaloReach) ReportReachContactMelee();
+        if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();}
         if(title==GameTitle::Halo3) ReportHalo3ContactMelee();
-        if(title==GameTitle::Halo3ODST) ReportOdstContactMelee();
+        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
                 "%u polls / %u unavailable, %u missing velocity, peak %.2f m/s, "
@@ -24072,7 +24108,7 @@ namespace
 
     void ReachCaptureFpInterpolation(
         int view, int id, int slot, bool result,
-        BoneMatrix** outBones, int* outCount)
+        BoneMatrix** outBones, int* outCount, uint32_t muzzleUnit, uint32_t muzzleWeapon)
     {
         if (slot!=0 || g_reachNestedOuterSuppressed || !result ||
             !outBones || !outCount || !*outBones ||
@@ -24108,6 +24144,10 @@ namespace
         context.interpolationView=view;
         context.interpolationId=id;
         context.interpolationSlot=slot;
+        uint32_t currentUnit=UINT32_MAX,currentWeapon=UINT32_MAX;
+        if (ReachCaptureMuzzleOwner(view,slot,currentUnit,currentWeapon) &&
+            muzzleUnit==currentUnit && muzzleWeapon==currentWeapon)
+        { context.muzzleUnit=muzzleUnit;context.muzzleWeapon=muzzleWeapon; }
 
         const ReachFpLayoutCacheEntry* frozen=
             ReachFindFrozenLayout(count,view,id,slot);
@@ -24171,12 +24211,14 @@ namespace
     {
         g_reachCamera.activeCallbacks.fetch_add(1,std::memory_order_acq_rel);
         bool result=false;
+        uint32_t muzzleUnit=UINT32_MAX,muzzleWeapon=UINT32_MAX;
+        (void)ReachCaptureMuzzleOwner(view,slot,muzzleUnit,muzzleWeapon);
         __try
         {
             ReachFpInterpolateFn original=g_reachOrigFpInterpolate;
             if (original)
                 result=original(view,id,slot,outBones,outCount);
-            ReachCaptureFpInterpolation(view,id,slot,result,outBones,outCount);
+            ReachCaptureFpInterpolation(view,id,slot,result,outBones,outCount,muzzleUnit,muzzleWeapon);
         }
         __finally
         {
@@ -24482,6 +24524,9 @@ namespace
                         std::swap(contactContext.wrist, contactContext.lWrist);
                         std::swap(contactContext.wristDescendants, contactContext.lWristDescendants);
                     }
+                    LegacyPublishReloadTarget(GameTitle::HaloReach,tag,
+                        g_reachCamera.generation.load(std::memory_order_acquire),
+                        contactContext,*root,g_fpPaletteScratch,boneMap,&targets);
                     LegacyPublishWorldCollisionVolumes(
                         GameTitle::HaloReach,tag,contactContext,*root,
                         g_fpPaletteScratch,
@@ -24546,6 +24591,14 @@ namespace
         }
         if (original)
             original(tag,root,destination,unused,selectedSource,boneMap);
+
+        if (original && selectedSource==g_fpPaletteScratch && !bodyLayout &&
+            action==ReachFpPaletteAction::ArticulateKnownTransaction && !g_reachNestedOuterSuppressed)
+            ReachPublishMuzzlePalette(tag,context,destination);
+
+        if (original && selectedSource==g_fpPaletteScratch && exactBodyMatchesFrozen &&
+            action==ReachFpPaletteAction::ArticulateKnownTransaction)
+            ReachApplyVisualHandOffsets(tag,boneMap,context,destination);
 
         // Candidate 511eb0b put alignedRight here after the visible palette had
         // already been composed. alignedRight is an absolute world pose; the
@@ -24646,6 +24699,16 @@ namespace
     #include "halo3_contact_melee_runtime.inl"
     #include "halo3_dual_wield_runtime.inl"
     #include "odst_contact_melee_runtime.inl"
+    #include "odst_muzzle_ownership.inl"
+    #include "odst_muzzle_publication.inl"
+    #include "odst_muzzle_shots.inl"
+    #include "odst_independent_publication.inl"
+    #include "odst_muzzle_lifecycle.inl"
+    #include "reach_muzzle_ownership.inl"
+    #include "reach_muzzle_publication.inl"
+    #include "reach_muzzle_shots.inl"
+    #include "reach_muzzle_lifecycle.inl"
+    #include "reach_visual_hand_offset.inl"
 
     // Optional per-frame read of the SAME local unit handle whose native
     // camera-info call proved the occupied seat. Keep its SEH boundary separate
@@ -26554,6 +26617,8 @@ namespace
                 workspace, playerView, windowIndex);
         }
 
+        ReachPrepareScope(candidate,headDerived,access);
+
         if (candidate.vehicleViewApplied)
         {
             const float* handOrigin = g_config.vehicle_hands_follow_body
@@ -27533,6 +27598,7 @@ namespace
 
     bool RemoveReachCameraCore()
     {
+        if (!RemoveReachMuzzle()) return false;
         TitleAdapter_ClearCinematicControl(
             GameTitle::HaloReach,
             g_reachCamera.generation.load(std::memory_order_acquire));
@@ -27753,6 +27819,7 @@ namespace
         g_reachCamera.motionBlurVars[1] = {};
         g_reachCamera.motionBlurResolved = false;
         g_reachCamera.motionBlurSuppressed = false;
+        g_reachCamera.decoratorWindState = nullptr;
         g_reachCamera.patchyFogFlags = nullptr;
         // render_rain is a plain module global, so a suppression can be handed
         // back from any thread once the hooks are quiescent. The atmospheric-fog
@@ -27847,6 +27914,32 @@ namespace
         const uintptr_t next=first+1;
         const uintptr_t end=base+size;
         return next>=end || sig::Find(next,static_cast<size_t>(end-next),pattern)==0;
+    }
+
+    void* ResolveReachDecoratorWind(uintptr_t base, size_t size)
+    {
+        // HREK 0x831790 -> 0x2AAA50; retail decorator draw -> wind update.
+        // Verify unique update, accumulator access, call site and shader uploads.
+        if (size < 0xD1F180 ||
+            !ReachColdExactSignatureAt(base, size, 0x77EC2C,
+                "48 8B C4 48 89 58 08 57 48 81 EC A0 00 00 00 0F 29 70 E8 48 8B F9 0F 29 78 D8 44 0F 29 40 C8 44 0F 29 48 B8") ||
+            !ReachColdExactSignatureAt(base, size, 0x77EC8A,
+                "66 0F 6E 05 C2 04 5A 00 41 0F 28 CD F3 0F 59 0D 6A C9 30 00 0F 5B C0 F3 0F 58 C8 F3 0F 2C C1 89 05 A5 04 5A 00") ||
+            !ReachColdExactSignatureAt(base, size, 0x2A0C41,
+                "48 85 DB 74 17 48 8B 05 5B 7D B9 04 39 B0 90 03 00 00 75 08 48 8B CB E8 CF DF 4D 00") ||
+            !ReachColdExactSignatureAt(base, size, 0x77EBF7,
+                "41 B8 10 00 00 00 48 8D 15 5C 05 5A 00 B9 00 00 2C 00 E8 F2 25 AF FF 41 B8 10 00 00 00 48 8D 15 55 05 5A 00 B9 01 00 2C 00"))
+            return nullptr;
+        MEMORY_BASIC_INFORMATION memory{};
+        void* state = reinterpret_cast<void*>(base + 0xD1F150);
+        if (!VirtualQuery(state, &memory, sizeof(memory)) ||
+            memory.State != MEM_COMMIT ||
+            (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) ||
+            !(memory.Protect & (PAGE_READWRITE | PAGE_WRITECOPY)) ||
+            reinterpret_cast<uintptr_t>(memory.BaseAddress) + memory.RegionSize <
+                base + 0xD1F180)
+            return nullptr;
+        return state;
     }
 
     // Optional shot-line feature only (R-V10). HREK proves the unit
@@ -29461,6 +29554,11 @@ namespace
                 base + kReachCameraStackCallbackRva);
         g_reachCamera.base = base;
         g_reachCamera.size = size;
+        g_reachCamera.decoratorWindState = ResolveReachDecoratorWind(base, size);
+        g_reachWindReplayFaults.store(0, std::memory_order_relaxed);
+        g_reachWindReplayPairs.store(0, std::memory_order_relaxed);
+        LOG("Reach decorator wind: %s; native wind advances once per stereo pair; camera/LOD remain native",
+            g_reachCamera.decoratorWindState ? "Installed" : "StockFallback (binding unavailable)");
         g_reachCamera.generation = generation;
         g_reachCamera.moduleReference = moduleReference;
         moduleReferenceGuard.transferred = true;
@@ -29585,8 +29683,6 @@ namespace
             uintptr_t renderGate = 0;
             uintptr_t renderReturn = 0;
             const bool renderGateResolved =
-                kReachR_V24PassengerRenderAdmissionEnabled &&
-                reachVehicleCameraResolved &&
                 ResolveReachFirstPersonRenderGateBinding(
                     base, size, renderGate, renderReturn);
             if (renderGateResolved)
@@ -29606,11 +29702,10 @@ namespace
                 {
                     g_reachFirstPersonRenderGateReturn.store(
                         renderReturn, std::memory_order_release);
-                    LOG("Reach passenger first-person presentation: Installed "
+                    LOG("Reach scope first-person render gate: Installed "
                         "at the exact render_first_person_view admission "
-                        "predicate (+0x%llX, caller +0x%llX); only the current "
-                        "allows-weapons passenger admits native hands/gun "
-                        "rendering",
+                        "predicate (+0x%llX, caller +0x%llX); scope suppresses "
+                        "native first-person pixels; passenger admission stays disabled",
                         (unsigned long long)(renderGate - base),
                         (unsigned long long)(renderReturn - base));
                 }
@@ -29634,10 +29729,10 @@ namespace
                         g_reachFirstPersonRenderGateTarget = nullptr;
                         g_origReachFirstPersonRenderGate = nullptr;
                     }
-                    LOG("Reach passenger first-person presentation: FAILED to "
+                    LOG("Reach scope first-person suppression: FAILED to "
                         "install the exact render admission hook (create=%d, "
-                        "cleanup=%s); passenger hands/gun remain stock while "
-                        "the vehicle camera stays active",
+                        "cleanup=%s); separate scope stays unavailable while "
+                        "the stereo camera stays active",
                         (int)created, retained
                             ? "retained for verified teardown"
                             : "complete");
@@ -30104,6 +30199,7 @@ namespace
             0x0012C5D4, kReachCollisionResolveSignature, true,
             0x0012969C, kReachCollisionVectorSignature);
         InstallReachContactMelee(base,size,generation);
+        (void)InstallReachMuzzle(base,size,generation);
         LOG("Reach camera core installed: outer/inner stereo + FP "
             "interpolation/palette + per-eye world-projection camera "
             "transactions hooked; waiting one-second fresh-camera interval "
@@ -30935,7 +31031,8 @@ namespace
             return;
         }
         if (!g_reachCamera.renderRainSlot &&
-            !g_reachCamera.atmosphereFogTlsIndex)
+            !g_reachCamera.atmosphereFogTlsIndex &&
+            !g_reachCamera.decoratorWindState)
         {
             return; // Neither control was proven; nothing to report.
         }
@@ -30943,6 +31040,12 @@ namespace
         if (lastReportMs != 0 && now - lastReportMs < 10000)
             return;
         lastReportMs = now;
+        LOG("Reach decorator wind: replay-pairs=%u faults=%u state=%s",
+            g_reachWindReplayPairs.load(std::memory_order_relaxed),
+            g_reachWindReplayFaults.load(std::memory_order_relaxed),
+            g_reachCamera.decoratorWindState &&
+                !g_reachWindReplayFaults.load(std::memory_order_relaxed) ?
+                "Installed" : "StockFallback");
         LOG("Reach weather: rain %s (setting %s, held-off eyes=%u), "
             "atmospheric fog %s (setting %s, held-off eyes=%u), "
             "flags-unresolved=%u, write-failures=%u",
@@ -31633,6 +31736,7 @@ namespace
         LogReachOuterCameraCommitIfReady();
         LogReachFpCameraUploadIfReady();
         LogReachFpStatusIfNew();
+        ReportReachScope();
         ReachVehicleInputLogTick();
         const bool installed =
             g_reachCamera.installed.load(std::memory_order_acquire);
@@ -32397,6 +32501,9 @@ namespace
     // One record is processed per detour call, so a single scratch serves both
     // the arms solve and the weapon carry.
     thread_local BoneMatrix g_halo4VrikScratch[kHalo4FirstPersonBankTransforms];
+    thread_local BoneMatrix g_halo4ScopeHidden[kHalo4FirstPersonBankTransforms];
+    thread_local bool g_halo4ScopeRendering=false,g_halo4ScopePixelsValid=true;
+    std::atomic<uint32_t> g_halo4ScopeFaultGeneration{0},g_halo4ScopeFaults{0};
     // Roots published for the Halo 4 first-person path.
     //
     // SUPERSEDED BY E-H4-22 / C-H4-29, and the superseded reasoning is left
@@ -32623,6 +32730,8 @@ namespace
     };
     struct Halo4FloatingPair
     {
+        contact_melee::TrackingToWorld reloadTrackingTransform{};
+        bool reloadTrackingValid=false;
         contact_melee::Frame contactFrames[2]{};
         bool rightContactPublished=false;
         bool active = false;
@@ -32662,6 +32771,7 @@ namespace
     // Retained dormant for history. C-H4-35 has no previous-pair fallback.
     thread_local Halo4FloatingRelation g_halo4FloatingLatest[2]{};
     thread_local Halo4FloatingPair g_halo4FloatingPair{};
+    thread_local bool g_halo4MuzzleOwnedQuery=false;
 
     // =======================================================================
     // Halo 4 experimental authored-volume world contact, Stage 4.
@@ -32892,6 +33002,7 @@ namespace
     constexpr uint32_t kHalo4CollisionFailureObjectPushException = 3;
 
     #include "halo4_contact_melee_runtime.inl"
+    #include "halo4_vehicle_input.inl"
 
     void Halo4PublishCollisionTarget(
         int hand, uint32_t generation, const float samples[][3],
@@ -33518,6 +33629,7 @@ namespace
             g_halo4WorldCollision.originalRayCast;
         if (!original)
             return false;
+        if(g_halo4MuzzleOwnedQuery)return original(input,output);
         uint32_t originalFlags = kHalo4CollisionFixedObjectsOnly;
         __try
         {
@@ -33550,7 +33662,7 @@ namespace
             1, std::memory_order_acq_rel);
         __try
         {
-            if(!Halo4RedirectContactRay(reinterpret_cast<uintptr_t>(_ReturnAddress()),input,output,result))
+            if(g_halo4MuzzleOwnedQuery||!Halo4RedirectContactRay(reinterpret_cast<uintptr_t>(_ReturnAddress()),input,output,result))
                 result = Halo4PhysicsRayCastDetourBody(input, output);
         }
         __finally
@@ -35340,6 +35452,11 @@ namespace
                 g_halo4RigTracking.preparedSerial;
     }
 
+    #include "halo4_muzzle_ownership.inl"
+    #include "halo4_muzzle_publication.inl"
+    #include "halo4_muzzle_shots.inl"
+    #include "halo4_muzzle_lifecycle.inl"
+
     void Halo4BeginFloatingPair()
     {
         g_halo4FloatingPair=Halo4FloatingPair{};
@@ -35353,6 +35470,8 @@ namespace
             g_halo4RigTracking.preparedSerial;
         Halo4FloatingTargetFrame targetFrame{};
         const bool frameValid=Halo4FreezeFloatingTargetFrame(targetFrame);
+        g_halo4FloatingPair.reloadTrackingValid=frameValid&&g_config.manual_reload&&
+            Halo4BuildReloadTrackingTransform(targetFrame.common,g_halo4FloatingPair.reloadTrackingTransform);
         if (frameValid)
         {
             g_halo4FloatingPair.worldScale=targetFrame.common.worldScale;
@@ -35733,6 +35852,7 @@ namespace
             ? primaryWeaponDelta : rightDeltaWorld;
         staged.expectedHeldSource=heldSource;
         Halo4PublishAuthoredHandCollisionVolumes(solved, objectIndex);
+        Halo4ApplyVisualHandOffsets(solved,g_halo4FloatingPair.worldScale,g_config.left_handed,g_halo4FloatingPair.handAlignment);
         return Halo4VrikStage::Solved;
     }
 
@@ -35780,6 +35900,16 @@ namespace
                 return false;
             moved[node]=result;
         }
+        if(g_halo4FloatingPair.reloadTrackingValid)
+        {
+            const auto* model=weapon_model::Find(GameTitle::Halo4,runtimeImportChecksum);
+            float basis[9]{},point[3]{};
+            if(NormalizedBasis(moved[0],basis)&&
+                weapon_model::ReceiverPoint(model,moved[0].scale,basis,moved[0].translation,point))
+                VR_PublishReloadTarget(GameTitle::Halo4,g_halo4FloatingPair.generation,
+                    runtimeImportChecksum,g_halo4FloatingPair.preparedSerial,
+                    g_halo4FloatingPair.reloadTrackingTransform,point);
+        }
         Halo4WeaponCollisionBounds runtimeBounds{};
         const bool needsBounds=g_halo4WorldCollision.configured.load(
             std::memory_order_acquire) || (Halo4ContactMeleeReady() && g_config.physical_melee);
@@ -35806,8 +35936,22 @@ namespace
     {
         g_halo4Camera.activeCallbacks.fetch_add(1,std::memory_order_acq_rel);
         const BoneMatrix* selected=inputObjectNodeMatrices;
+        Halo4MuzzlePending muzzlePending{};
         __try
         {
+            if(g_halo4ScopeRendering && reinterpret_cast<uintptr_t>(_ReturnAddress())==
+                g_halo4Camera.base+kHalo4FirstPersonSkinningReturnRva)
+            {
+                if(Halo4SafeRead(inputObjectNodeMatrices,g_halo4ScopeHidden,sizeof(g_halo4ScopeHidden)))
+                {
+                    for(auto& matrix:g_halo4ScopeHidden)matrix.scale=.0001f;
+                    selected=g_halo4ScopeHidden;
+                }
+                else g_halo4ScopePixelsValid=false;
+                g_halo4OrigModelSkinning(objectIndex,renderModelIndex,selected,nodeMap,
+                    flagA,flagB,totalNodeMatrixCount,skinning);
+                return;
+            }
             if (!g_halo4Camera.teardownRequested.load(std::memory_order_acquire) &&
                 g_halo4Camera.armed.load(std::memory_order_acquire) &&
                 // C-H4-32: `arm_ik` is NO LONGER A GATE. There is no arm IK in
@@ -35906,6 +36050,8 @@ namespace
                 else if (decision.action==
                          Halo4FloatingRecordAction::CarryHeldModel)
                 {
+                    muzzlePending=Halo4PrepareMuzzlePalette(uint32_t(objectIndex),renderModelIndex,
+                        identity.runtimeImportChecksum,identity.nodeCount,nullptr);
                     g_halo4Camera.vrikLastHeldChecksum.store(
                         identity.runtimeImportChecksum,
                         std::memory_order_relaxed);
@@ -35918,6 +36064,8 @@ namespace
                             identity.descriptor))
                     {
                         selected=g_halo4VrikScratch;
+                        muzzlePending=Halo4PrepareMuzzlePalette(uint32_t(objectIndex),renderModelIndex,
+                            identity.runtimeImportChecksum,identity.nodeCount,selected);
                         VR_ObserveWeaponModel(GameTitle::Halo4,
                             g_halo4Camera.generation.load(std::memory_order_acquire),
                             weapon_model::LiveIdentity(identity.runtimeImportChecksum,renderModelIndex));
@@ -35948,8 +36096,11 @@ namespace
             }
             else g_halo4Camera.vrikStockPalettes.fetch_add(1,std::memory_order_relaxed);
             Halo4ModelSkinningFn original=g_halo4OrigModelSkinning;
-            if(original) original(objectIndex,renderModelIndex,selected,nodeMap,
-                                  flagA,flagB,totalNodeMatrixCount,skinning);
+            if(original)
+            {
+                original(objectIndex,renderModelIndex,selected,nodeMap,flagA,flagB,totalNodeMatrixCount,skinning);
+                Halo4CommitMuzzlePalette(muzzlePending);
+            }
         }
         __finally
         {
@@ -36151,49 +36302,7 @@ namespace
     // Halo 3 relies on. Halo 4 needs its own copy rather than sharing Halo 3's
     // because its reference lives in the per-level camera core, but the snap
     // latch, the smooth rate and the config keys are all shared.
-    void Halo4ApplyVrTurn(const VrPadState& pad)
-    {
-        if (!Halo4ControllerAimActive() || !pad.valid)
-            return;
-        // Same sub-frame timebase reasoning as Halo 3's ApplyVrTurn: this runs
-        // several times per frame, and GetTickCount's ~15.6 ms granularity
-        // turned smooth turn into a visible ~5 Hz stutter there.
-        static LARGE_INTEGER freq{}, last{};
-        if (freq.QuadPart == 0)
-            QueryPerformanceFrequency(&freq);
-        LARGE_INTEGER now;
-        QueryPerformanceCounter(&now);
-        float dt = last.QuadPart == 0
-            ? 0.0f
-            : (float)(now.QuadPart - last.QuadPart) / (float)freq.QuadPart;
-        last = now;
-        if (dt > 0.1f) dt = 0.1f;
-
-        const float x = pad.turnX; // stick right = turn right = yaw decreases
-        static bool snapLatched = false;
-        float reference =
-            g_halo4Camera.gameYawReference.load(std::memory_order_relaxed);
-        if (g_config.turn_smooth)
-        {
-            Halo3ConsumeSnapTurn(false, x, snapLatched);
-            if (fabsf(x) > 0.15f)
-            {
-                reference = WrapPi(reference -
-                    x * (g_config.turn_smooth_deg_s / 57.2958f) * dt);
-                g_halo4Camera.gameYawReference.store(
-                    reference, std::memory_order_relaxed);
-                g_halo4Camera.vrTurns.fetch_add(1, std::memory_order_relaxed);
-            }
-        }
-        else if (Halo3ConsumeSnapTurn(true, x, snapLatched))
-        {
-            reference = WrapPi(reference -
-                (x > 0 ? 1.0f : -1.0f) * g_config.turn_snap_deg / 57.2958f);
-            g_halo4Camera.gameYawReference.store(
-                reference, std::memory_order_relaxed);
-            g_halo4Camera.vrTurns.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
+    #include "halo4_vr_turn.inl"
 
     // The yaw reference pair and the engine's own aim direction, read together
     // so the aim loop cannot mix generations. Mirrors ReachReadYawReferencePair
@@ -37184,6 +37293,13 @@ namespace
         Halo4CuiReticleEyeScope& scope = g_halo4CuiReticleEyeScope;
         const uintptr_t expectedCaller = g_halo4Camera.base +
             kHalo4CuiGameplayCallerReturnRva;
+        if(g_halo4ScopeRendering && caller==expectedCaller)
+        {
+            ++hud_visibility::depth;
+            __try {original(windowIndex,renderBufferChannel,viewportBounds,optionalProfileValue,renderMode,flag);}
+            __finally {--hud_visibility::depth;}
+            return;
+        }
         const bool ownsGameplayPass = caller == expectedCaller &&
             !scope.gameplayPassActive &&
             Halo4OwnsCuiReticleEyeTransaction() &&
@@ -37871,6 +37987,8 @@ namespace
         }
     }
 
+    #include "halo4_scope.inl"
+
     // C-H4-7: stock-projection geometry on C-H4-5's sustained wrapper scope.
     // The snapshot, camera basis, and both eye transforms are validated before
     // the first mutation. Once mutation begins, any failure drops this frame;
@@ -38242,6 +38360,7 @@ namespace
             // model_skinning. Hand-to-held motion is captured and consumed
             // inside each eye's current ordered record sequence.
             Halo4BeginFloatingPair();
+            if(!authoredTheater)Halo4RenderScope(element,view,window,args,savedObserver,controllerRoot,calibration);
             const int firstEye = g_config.right_eye_first ? 1 : 0;
             for (int pass = 0; pass < 2; ++pass)
             {
@@ -39536,6 +39655,8 @@ namespace
 
     bool RemoveHalo4CameraCore()
     {
+        if(!RemoveHalo4Muzzle())
+        { LOG("Halo 4 teardown: optional muzzle hooks need cleanup retry; retaining native dependencies");return false; }
         const uint32_t generation =
             g_halo4Camera.generation.load(std::memory_order_acquire);
         // The module can stay resident across levels, so capability withdrawal
@@ -39548,6 +39669,8 @@ namespace
             false, std::memory_order_release);
         g_halo4Camera.teardownRequested.store(true, std::memory_order_release);
         g_halo4Camera.armed.store(false, std::memory_order_release);
+        if(!RemoveHalo4VehicleInput())
+        { LOG("Halo 4 teardown: vehicle input readers need cleanup retry; retaining native module"); return false; }
         if(!RemoveHalo4ContactMelee())
         { LOG("Halo 4 teardown: contact hooks need cleanup retry; retaining native module/trampolines"); return false; }
         RemoveHalo4WorldCollision();
@@ -39936,6 +40059,8 @@ namespace
         // query leaves the already-installed floating hands entirely intact.
         (void)InstallHalo4WorldCollision(base, size, generation);
         (void)InstallHalo4ContactMelee(base,size,generation);
+        (void)InstallHalo4VehicleInput(base,size,generation);
+        (void)InstallHalo4Muzzle(base,size,generation);
         // C-H4-46: Halo 4 supplies authored pixels to the same shared VR
         // reticle chain as Halo 3/ODST/Reach. CUI never owns placement.
         (void)InstallHalo4CuiReticle(base, size, generation);
@@ -40043,6 +40168,10 @@ namespace
 
     void Halo4CameraLogTick()
     {
+        static uint32_t reportedScopeFaults=0;
+        const auto scopeFaults=g_halo4ScopeFaults.load();
+        if(scopeFaults!=reportedScopeFaults)
+        { reportedScopeFaults=scopeFaults;LOG("Halo 4 zoom stock fallback: optional scope faults=%u generation=%u; stereo core retained",scopeFaults,g_halo4ScopeFaultGeneration.load()); }
         if (!g_halo4Camera.installed.load(std::memory_order_acquire))
             return;
         // C-H4-52: retire on a stale camera heartbeat, exactly the rule every
@@ -40246,6 +40375,12 @@ namespace
         const uint64_t collisionFailures =
             g_halo4WorldCollision.failures.load(std::memory_order_relaxed);
         ReportHalo4ContactMelee();
+        ReportHalo4Muzzle();
+        if (g_halo4VehicleInput.ready.load(std::memory_order_acquire))
+            LOG("Halo 4 vehicle input in 2s: seated=%llu unknown/stock=%llu guardedFaults=%llu",
+                static_cast<unsigned long long>(g_halo4VehicleInput.seated.exchange(0)),
+                static_cast<unsigned long long>(g_halo4VehicleInput.unknown.exchange(0)),
+                static_cast<unsigned long long>(g_halo4VehicleInput.faults.exchange(0)));
         const uint64_t collisionEngineContextCalls =
             g_halo4WorldCollision.engineContextCalls.exchange(
                 0, std::memory_order_relaxed);
@@ -41215,6 +41350,7 @@ namespace
                     default: break;
                     }
                     Config_ApplyTitleProfile(tunableProfile);
+                    VR_UpdateWeaponAlignment();
                 }
                 // C-H2-10. The classic core cannot serve Anniversary: with
                 // those graphics selected render_player_window is never
@@ -41786,6 +41922,7 @@ namespace
             g_hooked.store(gameHooked || odstHooked, std::memory_order_release);
             LogOdstNonFpCameraIfNew();     // emit any non-FP (death/vehicle) cam
             LogOdstRenderSkipIfNew();      // emit why a frame stayed flat 2D
+            ReportOdstScope();
             LogOdstFpLayoutSelfCheckIfNew(); // emit FP weapon-layout self-check
             LogOdstNativeHudRouteOnce();    // bounded in-place CHUD route result
             LogHalo3VehicleProbeIfNew();   // live H3 feature status/fallback
@@ -41895,6 +42032,36 @@ bool Game_IsHeadTrackingApplied()
         (Game_UsesTitleOwnedHeadTracking() ||
          !Game_IsStereoGeometryOnlyBringup());
 }
+bool Game_HasScopeRenderer()
+{
+    const auto title=TitleAdapter_GetActiveTitle();
+    if(title==GameTitle::Halo3)return !Game_IsCameraOnlyBringup();
+#if HALOMCCVR_HALO2_STEREO6DOF
+    if(title==GameTitle::Halo2)return Halo2Observer6Dof_FinalPaletteArmed()&&
+        (Halo2Stereo_ScopeAvailable()||Halo2AnniversaryStereo_ScopeAvailable());
+#endif
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+    if(title==GameTitle::Halo3ODST)return g_odstCamera.armed.load()&&
+        !g_odstCamera.teardownRequested.load()&&g_odstRuntimeGeneration.load()!=0&&
+        g_odstScopeFaultGeneration.load()!=g_odstRuntimeGeneration.load();
+#endif
+ #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+    if(title==GameTitle::HaloReach)return g_reachCamera.armed.load()&&
+        !g_reachCamera.teardownRequested.load()&&g_reachCamera.generation.load()!=0&&
+        g_reachScopeFaultGeneration.load()!=g_reachCamera.generation.load()&&
+        g_reachFirstPersonRenderGateReturn.load()!=0&&g_reachCamera.hudDrawWidgetTarget&&
+        g_reachCamera.decoratorWindState&&!g_reachWindReplayFaults.load();
+ #endif
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    if(title==GameTitle::Halo4)return g_halo4Camera.armed.load()&&
+        !g_halo4Camera.teardownRequested.load()&&g_halo4Camera.generation.load()!=0&&
+        g_halo4ScopeFaultGeneration.load()!=g_halo4Camera.generation.load()&&
+        g_halo4OrigCuiGameplayRender&&g_halo4OrigModelSkinning;
+#endif
+    return false;
+}
+bool Game_IsScopeRendering(){return g_scopeRenderActive.load(std::memory_order_acquire);}
+bool Game_SetScopeRendering(bool active){return g_scopeRenderActive.exchange(active,std::memory_order_acq_rel);}
 bool Game_IsCameraOnlyBringup()
 {
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
@@ -44250,12 +44417,14 @@ static bool ComputeHalo2ControllerAimStick(
     static uint64_t lastSerial = 0;
     static uint64_t lastSerialChangeMs = 0;
     static uint32_t lastGeneration = 0;
+    static uint32_t lastVehicleUnit=UINT32_MAX,lastVehicleParent=UINT32_MAX;
+    static int16_t lastVehicleSeat=-1;
     static uint64_t lastCallMs = 0;
     static float heldRx = 0.0f;
     static float heldRy = 0.0f;
     static Halo2CameraBasis steeringReference{};
-    // Investigation retained but inactive: a fixed target needs the rendered
-    // vehicle camera/reticle to share that reference before it can be enabled.
+    // Earlier input-only investigation remains inactive. The observer now
+    // publishes one vehicle reference consumed by view, hands and steering.
     constexpr bool useFrozenSteeringReference=false;
     static uint64_t referenceEpoch=0;
     static bool haveSteeringReference=false;
@@ -44277,10 +44446,14 @@ static bool ComputeHalo2ControllerAimStick(
     {
         return blocked(1, "the observer has not published a camera yet");
     }
+    if(!publication.vehicleReferenceValid)
+        return blocked(9,"no coherent vehicle view/controller reference; controller steering withheld");
     const uint64_t now = GetTickCount64();
     if (publication.generation != lastGeneration ||
+        publication.vehicleUnit!=lastVehicleUnit || publication.vehicleParent!=lastVehicleParent ||
+        publication.vehicleSeat!=lastVehicleSeat ||
         !lastCallMs || now < lastCallMs || now - lastCallMs > 100 ||
-        (useFrozenSteeringReference && referenceEpoch!=publication.snapshot.trackingSpaceEpoch))
+        referenceEpoch!=publication.snapshot.trackingSpaceEpoch)
     {
         Halo4ResetPitchServo(yawServo);
         Halo4ResetPitchServo(pitchServo);
@@ -44289,6 +44462,9 @@ static bool ComputeHalo2ControllerAimStick(
         heldRx = heldRy = 0.0f;
     }
     lastGeneration = publication.generation;
+    referenceEpoch=publication.snapshot.trackingSpaceEpoch;
+    lastVehicleUnit=publication.vehicleUnit;lastVehicleParent=publication.vehicleParent;
+    lastVehicleSeat=publication.vehicleSeat;
     lastCallMs = now;
     if (publication.serial == lastSerial)
     {
@@ -44316,7 +44492,8 @@ static bool ComputeHalo2ControllerAimStick(
     const bool carrierBuilt=useFrozenSteeringReference ? Halo2BuildStableControllerCarrier(
             steeringReference, publication.referenceOrientation, publication.referencePosition,
             controllerOrientation, controllerPosition, worldScale, 0.0f, controller) :
-        Halo2BuildControllerCarrier(publication.tracked,headOrientation,headPosition,
+        Halo2BuildStableControllerCarrier(Halo2ControllerReference(publication),
+            publication.referenceOrientation,publication.referencePosition,
             controllerOrientation,controllerPosition,worldScale,0.0f,controller);
     if (!carrierBuilt)
     {
@@ -44769,7 +44946,7 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
 #endif
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
     {
-        if (!halo2VehicleAim) return false;
+        if (!halo2VehicleAim || !g_config.vehicle_motion) return false;
     }
     if (!Game_HasTitleCapability(TitleCapability_ControllerAim) &&
         !ReachControllerAimActive())
@@ -45249,6 +45426,13 @@ bool Game_GetClampedAimDirection(float outDir[3])
 
 void Game_MapMoveStick(float& mx, float& my)
 {
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+    // ODST has its own generation/liveness-checked seat state. The shared
+    // H3 movement branch below cannot detect it through Halo3VehicleFpActive.
+    // A seated stick is throttle/steering, not head-relative walking.
+    if (TitleAdapter_GetActiveTitle()==GameTitle::Halo3ODST&&OdstVehicleFpActive())
+        return;
+#endif
     if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
     {
         float x{},y{};
@@ -45310,6 +45494,8 @@ void Game_MapMoveStick(float& mx, float& my)
     {
         if (!Halo4ControllerAimActive())
             return;
+        Halo4VehicleInputState seat{};
+        if (Halo4ReadVehicleInput(seat)&&seat.seated) return;
         float gameYawReference = 0.0f;
         float headYawReference = 0.0f;
         float aimForward[3]{};
@@ -45343,6 +45529,9 @@ void Game_MapMoveStick(float& mx, float& my)
     // stick passes through unrotated.
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
     {
+        // A seated stick controls native throttle/strafe, not head-relative
+        // walking. Looking across the cockpit must not rotate that command.
+        if(Halo2Observer6Dof_VehicleControlActive()) return;
         Halo2ObserverPosePublication publication{};
         float delta = 0.0f;
         if (!Halo2Observer6Dof_Armed() || !g_enabled.load() ||

@@ -47,6 +47,9 @@ bool Game_IsStereoGeometryOnlyBringup();
 // engine writes for such a title.
 bool Game_UsesTitleOwnedHeadTracking();
 bool Game_IsCameraOnlyBringup(); // private ODST camera core; no gameplay features
+bool Game_HasScopeRenderer(); // optional title-local zoom view is available
+bool Game_IsScopeRendering();
+bool Game_SetScopeRendering(bool active);
 // True only while the exact Reach stereo + mandatory authored-crosshair
 // transaction owns the active title. Used to admit its frame-bound authored
 // quad without granting unrelated shared gameplay capabilities.

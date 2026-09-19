@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <vector>
 static uintptr_t testCaller;
 #define _ReturnAddress() reinterpret_cast<void*>(testCaller)
 #include "../src/dll/native_reload_policy.cpp"
@@ -58,6 +59,87 @@ template<unsigned I> static void __fastcall StockAction(uint32_t unit,uint32_t w
 }
 static void __fastcall StockCeAction(uint32_t,uint32_t)
 {++initializations;PlayHook<0>(0,13,1,0);}
+static uint8_t tailUsersBytes[0x18000],tailDescriptor[0x100],ceWeaponTag[0x500],ceGraph[0x100];
+static std::vector<uint8_t> ceGlobals(0x110000);
+static int eventFrame=30,seekCalls;static bool clampSeek=false,duplicatePlay=false,foreignChannel=false;
+static uint8_t* __fastcall FakeUsers(unsigned) {return tailUsersBytes;}
+static uint8_t* __fastcall FakeAnimation(void*) {return tailDescriptor;}
+static int __fastcall FakeEvent(void*,uint16_t event)
+{Check(event==(selected>=native_reload::Reach?1:0),"own title insertion event number");return eventFrame;}
+static void __fastcall FakeSeek(void* p,float frame)
+{
+    ++seekCalls;if(clampSeek&&frame>20) frame=20;
+    std::memcpy(static_cast<uint8_t*>(p)+kTailLayout[selected].frame,&frame,4);
+}
+static void __fastcall FakeH4Seek(void* p,float frame,void* manager)
+{Check(manager==p,"H4 passes the real first-person manager");FakeSeek(p,frame);}
+static uint8_t* __fastcall FakeCeTag(uint32_t tag) {return tag==9?ceGraph:ceWeaponTag;}
+template<class T> static void Store(uint8_t* p,size_t at,T value) {std::memcpy(p+at,&value,sizeof value);}
+template<unsigned I> static void __fastcall TailState(uint32_t weapon,int16_t magazine,int32_t state)
+{
+    ++stockCalls;const auto& m=native_reload::layouts[I];const auto& l=kTailLayout[I];
+    Put(m.base+magazine*m.stride,int16_t(state));Put(m.base+magazine*m.stride+2,50);
+    if constexpr(I!=0) Put(m.base+magazine*m.stride+(I==1?12:16),30);
+    Store(tailUsersBytes,4,uint32_t(42));Store(tailUsersBytes,l.weapon,foreignChannel?otherWeapon:weapon);
+    auto* channel=tailUsersBytes+l.channel;
+    if constexpr(I==0) {Store(channel,l.identity,int16_t(13));Store(channel,l.frame,int16_t(0));}
+    else {
+        Store(channel,l.graph,uint32_t(8));Store(channel,l.index,int16_t(0));
+        Store(channel,l.identity,uint32_t(123));Store(channel,l.frame,0.0f);
+        if(l.initialized) Store(channel,l.initialized,uint8_t(1));
+    }
+    ActionHook<I>(I==0?weapon:42,I==0?9:weapon,7,0,1);
+    if(duplicatePlay) ActionHook<I>(I==0?weapon:42,I==0?9:weapon,7,0,1);
+    if(advanceGeneration) ++activeGeneration;
+}
+static void __fastcall TailCeStart(uint32_t weapon,int16_t magazine,uint8_t) {TailState<0>(weapon,magazine,1);}
+template<unsigned I> static void TailRun()
+{
+    selected=I;activeTitle=kBindings[I].title;activeGeneration=3;own=true;
+    auto& r=runtime[I];r.generation=3;r.options=4;r.tailReady=true;r.tailFaulted=false;r.faulted=false;
+    r.tailUsers=&FakeUsers;r.tailFunctions[0]=I==0?reinterpret_cast<void*>(&FakeCeTag):reinterpret_cast<void*>(&FakeAnimation);
+    r.tailFunctions[1]=reinterpret_cast<void*>(&FakeEvent);
+    r.tailFunctions[2]=I==5?reinterpret_cast<void*>(&FakeH4Seek):reinterpret_cast<void*>(&FakeSeek);
+    r.original[Auto]=reinterpret_cast<void*>(&TailCeStart);r.original[State]=reinterpret_cast<void*>(&TailState<I>);
+    r.original[Action]=I==0?reinterpret_cast<void*>(&StockCeAction):reinterpret_cast<void*>(&StockAction<I>);
+    r.original[Play]=I==0?reinterpret_cast<void*>(&StockCePlay):I==1?reinterpret_cast<void*>(&StockPlay):I==5?reinterpret_cast<void*>(&StockH4Check):reinterpret_cast<void*>(&StockBoolPlay);
+    r.original[Duration]=I==0?reinterpret_cast<void*>(&StockCeDuration):reinterpret_cast<void*>(&StockDuration);
+    std::fill(std::begin(tailUsersBytes),std::end(tailUsersBytes),uint8_t(0));
+    std::fill(std::begin(object),std::end(object),uint8_t(0));
+    const auto& m=native_reload::layouts[I];const auto& l=kTailLayout[I];
+    if constexpr(I==0) {
+        r.base=reinterpret_cast<uintptr_t>(ceGlobals.data())-kTailBindings[0].globals[1];
+        Store(ceGlobals.data(),0,reinterpret_cast<uintptr_t>(tailDescriptor));
+        Store(ceGlobals.data(),kTailBindings[0].globals[2]-kTailBindings[0].globals[1],uintptr_t(0x1000));
+        Store(ceWeaponTag,0x478,uint32_t(9));Store(ceGraph,0x74,int32_t(1));Store(ceGraph,0x78,uint32_t(0x1000));
+        Store(tailDescriptor,0x22,int16_t(50));Store(tailDescriptor,0x34,int16_t(30));
+    }
+    auto run=[] {if constexpr(I==0) {testCaller=0;AutoHook<0>(localWeapon,0,0);} else StateHook<I>(localWeapon,0,1);};
+    eventFrame=30;seekCalls=0;played=0;stockCalls=0;initializations=0;run();
+    Check(Read(m.base+2)==20,"shortened mode retains twenty native tail ticks");
+    if constexpr(I!=0) Check(Read(m.base+(I==1?12:16))==20,"transfer remains native and blocked until tail finishes");
+    Check(played==1 && initializations==1 && stockCalls==1,"shortened mode executes native reload initialization and play once");
+    Check((I==0?float(TailRead<int16_t>(tailUsersBytes+l.channel,l.frame)):TailRead<float>(tailUsersBytes+l.channel,l.frame))==30,"visible native animation starts at insertion frame");
+    Check(Read(m.base+(I==1?8:10))==0,"tail seek never manufactures ammunition");
+    Check(animationScope==-1&&timingScope==-1&&tailScope==nullptr&&!tailAction&&r.callbacks==0,"all tail scopes drain");
+    constexpr uint32_t ready[]{10,0x5000024,0x26,0x26,0x27,0x71};
+    Check(DurationHook<I>(localWeapon,I==0?0:ready[I],I==0?10:1,0)==37,"shortened mode does not disable ready animation");
+    foreignChannel=true;run();foreignChannel=false;Check(Read(m.base+2)==50,"foreign first-person weapon retains full reload");
+    duplicatePlay=true;run();duplicatePlay=false;Check(Read(m.base+2)==50,"ambiguous first-person animation retains full reload");
+    advanceGeneration=true;run();advanceGeneration=false;activeGeneration=3;Check(Read(m.base+2)==50,"generation change rejects pending seek");
+    if constexpr(I!=0) {
+        eventFrame=-1;run();Check(Read(m.base+2)==50,"missing authored event retains full reload");
+        eventFrame=0;run();Check(Read(m.base+2)==50,"zero authored event retains full reload");
+        eventFrame=30;clampSeek=true;seekCalls=0;run();clampSeek=false;
+        Check(seekCalls==2&&Read(m.base+2)==50&&TailRead<float>(tailUsersBytes+l.channel,l.frame)==0,"clamped event restores stock animation and timing");
+    } else {
+        Store(tailDescriptor,0x34,int16_t(60));run();Check(Read(m.base+2)==50,"CE out-of-range event retains native reload");Store(tailDescriptor,0x34,int16_t(30));
+    }
+    r.options=6;run();Check(Read(m.base+2)==0,"full skip retains precedence even for an unfiltered option mask");
+    r.options=7;r.tailFaulted=true;Check(Current(I,1)&&Current(I,2)&&!Current(I,4),"tail fault preserves automatic/full-skip options");
+    r.tailFaulted=false;r.faulted=true;Check(Current(I,1)&&!Current(I,2)&&Current(I,4),"full-skip fault does not disable independent tail");
+    r.faulted=false;r.options=0;r.tailReady=false;
+}
 template<unsigned I> static void Run()
 {
     selected=I;activeTitle=kBindings[I].title;activeGeneration=3;own=true;
@@ -126,7 +208,7 @@ template<unsigned I> static void Run()
 }
 int main()
 {
-    Check(!g_config.manual_reload_disable_auto&&!g_config.manual_reload_skip_animations,"options default off");
+    Check(!g_config.manual_reload_disable_auto&&!g_config.manual_reload_skip_animations&&!g_config.manual_reload_shortened_animation,"options default off");
     wchar_t directory[MAX_PATH]{},path[MAX_PATH]{};
     GetTempPathW(MAX_PATH,directory);
     swprintf_s(path,L"%smccvr-reload-policy-%lu-%llu.cfg",directory,GetCurrentProcessId(),GetTickCount64());
@@ -135,8 +217,16 @@ int main()
     ConfigSave();g_config.manual_reload_disable_auto=false;g_config.manual_reload_skip_animations=false;
     ConfigLoad(path);
     Check(g_config.manual_reload_disable_auto&&g_config.manual_reload_skip_animations,"both settings survive config roundtrip");
+    for(unsigned bits=0;bits<8;++bits) {
+        g_config.manual_reload_disable_auto=(bits&1)!=0;g_config.manual_reload_skip_animations=(bits&2)!=0;g_config.manual_reload_shortened_animation=(bits&4)!=0;
+        ConfigSave();g_config.manual_reload_disable_auto=false;g_config.manual_reload_skip_animations=false;g_config.manual_reload_shortened_animation=false;ConfigLoad(path);
+        Check(g_config.manual_reload_disable_auto==bool(bits&1)&&g_config.manual_reload_skip_animations==bool(bits&2)&&g_config.manual_reload_shortened_animation==bool(bits&4),"three reload options persist independently");
+        Check(native_reload::Options(true,bits&1,bits&2,bits&4)==((bits&2)?(bits&3):bits),"full skip has deterministic precedence");
+        Check(native_reload::Options(false,bits&1,bits&2,bits&4)==0,"manual mode gates all reload options");
+    }
     DeleteFileW(path);
     Run<0>();Run<1>();Run<2>();Run<3>();Run<4>();Run<5>();
+    TailRun<0>();TailRun<1>();TailRun<2>();TailRun<3>();TailRun<4>();TailRun<5>();
     Check(!native_reload::ShortenMagazine(6,object,0),"unsupported title rejected");
     std::printf("%d native reload policy checks passed\n",checks);
 }

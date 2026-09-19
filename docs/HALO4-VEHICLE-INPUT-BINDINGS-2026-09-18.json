@@ -1,0 +1,40 @@
+{
+  "sha256": "7C53E7D5BC9848545A1B70E2768242479336FBA1B7630D7AB955F7FD0C34FA84",
+  "bindings": [
+    {
+      "name": "output_unit",
+      "rva": "0x95bb4",
+      "signature": "40 53 48 83 EC 20 83 CB FF 83 F9 03 77 56 8B D1 4C 63 D1 E8 F8 08 FB FF 84 C0 74 24 49 6B CA 70 48 8D 15 11 B5 72 02 8B 1C 11 BA 03 20 00 00 8B CB E8 16 48 54 00 48 85 C0 75 29 83 C8 FF EB 26 8B 0D 1E 16 FC 00 65 48 8B 04 25 58 00 00 00 BA 38 01 00 00 48 8B 04 C8 48 8B 0C 10 42 8B 9C 91 C8 00 00 00 8B C3 48 83 C4 20 5B C3"
+    },
+    {
+      "name": "output_player",
+      "rva": "0x95b8c",
+      "signature": "8B 15 86 16 FC 00 65 48 8B 04 25 58 00 00 00 41 B8 38 01 00 00 48 63 C9 48 8B 04 D0 4A 8B 04 00 8B 84 88 B8 00 00 00"
+    },
+    {
+      "name": "input_unit",
+      "rva": "0x959c9",
+      "signature": "65 48 8B 04 25 58 00 00 00 41 BC 38 01 00 00 48 63 D9 4E 8B 34 C0 4B 8B 2C 26 3B 54 9D 14"
+    },
+    {
+      "name": "input_player",
+      "rva": "0x958c0",
+      "signature": "49 8B CA E8 60 27 31 00 84 C0 75 0A 41 8B 02 C1 E8 02 A8 01 74 04 45 8B 5A 04 41 8B CB 48 83 C4 28 E9 9E 02 00 00 CC CC 48 83 CA FF 3B CA 75 05 45 33 C0 EB 12 8D 41 01 44 8B C2 83 F8 03 44 0F 46 C0 44 3B C2 74 4D 8B 0D 0B 19 FC 00 65 48 8B 04 25 58 00 00 00 41 BA 38 01 00 00 48 8B 04 C8 49 63 C8 4D 8B 14 02 41 39 54 8A 04 75 23 41 FF C0 44 8B CA 48 8B C2 41 83 F8 03 77"
+    },
+    {
+      "name": "object_datum",
+      "rva": "0x43ad8",
+      "signature": "45 33 C0 83 FA FF 74 25 0F B7 C2 3B 41 44 7D 1D 4C 8B 49 20 4C 0F AF C8 4C 03 49 50 66 45 39 01 74 0B C1 FA 10 66 41 39 11 4D 0F 44 C1 49"
+    },
+    {
+      "name": "object_get",
+      "rva": "0x5da400",
+      "signature": "48 83 EC 28 44 8B 05 0D CE A7 00 44 8B DA 65 48 8B 04 25 58 00 00 00 8B D1 41 B9 18 00 00 00 45 33 D2 4A 8B 04 C0 49 8B 0C 01 E8 A9 96 A6 FF 48 8B C8 48 85 C0 74 0E 0F B6 40 04 41 0F A3 C3 73 04 4C 8B 51 10 49 8B C2 48 83 C4 28"
+    },
+    {
+      "name": "parent_seat",
+      "rva": "0x5ed434",
+      "signature": "8B 4E 24 41 3B CD 74 7A 66 44 3B 6E 2C 74 73 BA 03 20 00 00 E8 B3 CF FE FF"
+    }
+  ]
+}

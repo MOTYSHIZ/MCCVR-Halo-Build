@@ -3,6 +3,36 @@
 #include "contact_melee_motion.h"
 #include "halo4_render_logic.h"
 
+// Reload targets need XR-local coordinates, whereas the melee frame below is
+// body-relative. Sample H4's own linear position mapping rather than treating
+// those two spaces as interchangeable.
+inline bool Halo4BuildReloadTrackingTransform(const Halo4ControllerWorldPoseInput& input,
+    contact_melee::TrackingToWorld& output) noexcept
+{
+    if(!std::isfinite(input.worldScale)||input.worldScale<=0) return false;
+    auto sample=input;
+    sample.forwardTrim=sample.verticalTrim=sample.lateralTrim=0;
+    const float identity[]{0,0,0,1};
+    std::memcpy(sample.controllerOrientation,identity,sizeof(identity));
+    Halo4ControllerWorldPose poses[4]{};
+    for(int i=0;i<4;++i)
+    {
+        for(float& value:sample.controllerPosition) value=0;
+        if(i) sample.controllerPosition[i-1]=1;
+        if(!Halo4BuildControllerWorldPose(sample,poses[i])) return false;
+    }
+    contact_melee::TrackingToWorld candidate{};
+    candidate.unitsPerMetre=input.worldScale;
+    candidate.origin={poses[0].position[0],poses[0].position[1],poses[0].position[2]};
+    for(int axis=0;axis<3;++axis)
+        candidate.axis[axis]={
+            (poses[axis+1].position[0]-poses[0].position[0])/input.worldScale,
+            (poses[axis+1].position[1]-poses[0].position[1])/input.worldScale,
+            (poses[axis+1].position[2]-poses[0].position[2])/input.worldScale};
+    if(!candidate.Valid()) return false;
+    output=candidate;return true;
+}
+
 // Use Halo 4's own carrier mapping, including its mirror and sign controls.
 // Contact coordinates are body-relative metres. Current actor translation/yaw
 // live only in transform, so locomotion never contributes to strike velocity.

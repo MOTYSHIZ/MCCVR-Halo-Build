@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <cmath>
 #include <iostream>
+#include <thread>
+#include <array>
 #include "../src/common/input_logic.h"
 #include "../src/common/config.h"
 #include "../src/dll/vr.h"
@@ -128,6 +130,100 @@ int RunRoomscaleInputTests()
         check(singleMotion,"60/90/120 Hz follow consumes native travel once without changing height");
         check(std::hypot(body[0]/scale-0.3f,-body[1]/scale-0.15f)<=0.021f && mx==0 && my==0,
             "body reaches the physical step and stays stopped within the 2 cm deadband");
+    }
+    // A native walker does not stop instantly when the requested stick reaches
+    // zero. Every resulting centimetre must be consumed exactly once, including
+    // a bounded stopping tail; otherwise the rendered view slides past the head.
+    {
+        testTitle=GameTitle::Halo3;++testGeneration;testNow+=1000;
+        const float q[4]{0,0,0,1},forward[3]{1,0,0};
+        float body[3]{},head[3]{0,1.7f,0},ref[3]{0,1.7f,0};
+        Roomscale_Input(false,0,0);Roomscale_Input(true,0,0);
+        auto sample=[&]{Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);};
+        sample();testNow+=16;head[2]=-.2f;Roomscale_Input(true,0,0);sample();
+        float x=0,y=0;check(Roomscale_Move(x,y),"coasting fixture begins with a delivered command");
+        for(float nativePosition:{.19f,.21f,.23f})
+        {
+            testNow+=16;body[0]=nativePosition;Roomscale_Input(true,0,0);sample();
+            check(std::fabs(body[0]-head[2]+ref[2]-.2f)<1e-5f,
+                "native stopping travel cannot slide the view away from the physical head");
+            x=y=0;Roomscale_Move(x,y);
+        }
+        check(y<0,"overshoot requests correction instead of accepting body drift");
+    }
+    // The same title's engine callbacks can migrate threads. A global tracking
+    // reference must not be paired with separate per-thread feedback histories.
+    {
+        testTitle=GameTitle::Halo3;++testGeneration;testNow+=1000;
+        const float q[4]{0,0,0,1},forward[3]{1,0,0};
+        float body[3]{},head[3]{0,1.7f,0},ref[3]{0,1.7f,0};
+        Roomscale_Input(false,0,0);Roomscale_Input(true,0,0);
+        Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);
+        testNow+=16;head[2]=-.2f;Roomscale_Input(true,0,0);
+        std::thread first([&]{Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);});first.join();
+        float x=0,y=0;check(Roomscale_Move(x,y)&&y>0,"callback migration preserves the physical step");
+        testNow+=16;body[0]=.1f;Roomscale_Input(true,0,0);
+        std::thread second([&]{Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);});second.join();
+        check(std::fabs(ref[2]+.1f)<1e-5f,"another camera thread consumes the same owned body travel once");
+    }
+    // Delayed, accelerating native locomotion rather than instantaneous velocity.
+    // A head turn during the step changes the input basis, not the physical goal.
+    for(int hz:{60,90,120})for(int bodyHz:{30,hz})for(int delayMs:{0,33,66})for(float speed:{2.0f,4.0f})
+    {
+        testTitle=GameTitle::Halo3;++testGeneration;testNow+=1000;
+        Roomscale_Input(false,0,0);
+        float q[4]{0,0,0,1},forward[3]{1,0,0};
+        float body[3]{},head[3]{0,1.7f,0},ref[3]{0,1.7f,0};
+        std::array<std::array<float,2>,32> pending{};float velocity[2]{},nativeBody[2]{};
+        const int lag=delayMs*hz/1000;float worstViewError=0;
+        for(int frame=0;frame<hz*6;++frame)
+        {
+            const auto applied=pending[(frame+32-lag)%32];
+            const float blend=1-std::exp(-1.0f/(hz*.09f));
+            for(int axis=0;axis<2;++axis){velocity[axis]+=(applied[axis]*speed-velocity[axis])*blend;nativeBody[axis]+=velocity[axis]/hz;}
+            if(frame==0||frame*bodyHz/hz!=(frame-1)*bodyHz/hz)
+                for(int axis=0;axis<2;++axis)body[axis]=nativeBody[axis];
+            const float t=std::min(1.0f,float(frame)/hz);head[0]=.15f*t;head[2]=-.3f*t;
+            if(frame==hz+hz/4){q[1]=-.707106781f;q[3]=.707106781f;forward[0]=0;forward[1]=-1;}
+            testNow+=1000/hz;Roomscale_Input(true,0,0);
+            Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);
+            worstViewError=std::max(worstViewError,std::hypot(body[0]+ref[2],body[1]+ref[0]));
+            float x=0,y=0;Roomscale_Move(x,y);
+            pending[frame%32]={y*forward[0]+x*forward[1],y*forward[1]-x*forward[0]};
+            // Zero-delay transport means the newest packet applies next frame.
+            if(lag==0)pending[(frame+1)%32]=pending[frame%32];
+        }
+        if(worstViewError>=.0001f||std::hypot(body[0]-.3f,body[1]+.15f)>=.025f)std::cerr << "roomscale model hz=" << hz << " body-hz=" << bodyHz << " lag=" << delayMs << " speed=" << speed << " view-error=" << worstViewError << " body-error=" << std::hypot(body[0]-.3f,body[1]+.15f) << '\n';
+        check(worstViewError<.0001f,"delayed native acceleration and turning never double physical camera travel");
+        check(std::hypot(body[0]-.3f,body[1]+.15f)<.025f,
+            "delayed native walker settles near the tracked body without recentering");
+    }
+    // Repeated out-and-back walks must not accumulate a need to recenter.
+    {
+        testTitle=GameTitle::Halo3;++testGeneration;testNow+=1000;Roomscale_Input(false,0,0);
+        const float q[4]{0,0,0,1},forward[3]{1,0,0};
+        float body[3]{},head[3]{0,1.7f,0},ref[3]{0,1.7f,0},velocity=0,requested=0,worstDrift=0;
+        for(int frame=0;frame<120*4*24;++frame)
+        {
+            velocity+=(requested*3-velocity)*(1-std::exp(-1.0f/(120*.09f)));body[0]+=velocity/120;
+            const float phase=float(frame%(120*4))/120;
+            head[2]=-.3f*(phase<1?phase:phase<2?1:phase<3?3-phase:0);
+            testNow+=8;Roomscale_Input(true,0,0);Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);
+            worstDrift=std::max(worstDrift,std::fabs(body[0]+ref[2]));
+            float x=0,y=0;Roomscale_Move(x,y);requested=y;
+        }
+        check(worstDrift<.001f&&std::fabs(body[0])<.025f,"repeated physical walks do not accumulate body/view drift");
+        // Let the final native stopping tail finish, then move the native body
+        // externally with no physical step or follow request.
+        for(int frame=0;frame<180;++frame)
+        {
+            velocity+=(requested*3-velocity)*(1-std::exp(-1.0f/(120*.09f)));body[0]+=velocity/120;
+            testNow+=8;Roomscale_Input(true,0,0);Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);
+            float x=0,y=0;Roomscale_Move(x,y);requested=y;
+        }
+        const float savedReference=ref[2];body[0]+=.1f;testNow+=8;Roomscale_Input(true,0,0);
+        Roomscale_Camera(testTitle,true,body,head,q,forward,ref,1);
+        check(ref[2]==savedReference,"expired settling does not consume unrelated native motion");
     }
     for (GameTitle title : {GameTitle::None,GameTitle::Unknown,GameTitle::HaloCE})
         check(!RoomscaleGameplayEligible(title,RuntimeMode::Gameplay),

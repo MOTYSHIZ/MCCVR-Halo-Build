@@ -98,7 +98,15 @@ struct ScopeProjectionTangents
     float vertical = 0.0f;
 };
 
-// A conventional 70-degree horizontal lens at 1x. The final image is 4:3;
+// A conventional 70-degree horizontal lens at 1x. The final image is square;
 // horizontal is widened only enough to compensate for the source center crop.
 ScopeProjectionTangents ComputeScopeProjectionTangents(float zoom,
                                                         float sourceAspect);
+
+// Conservative angular union at a shared origin. Refuse rays behind the head
+// hemisphere rather than asking a perspective camera to represent >180 degrees.
+// Existing head tangents can only grow; output is unchanged on refusal.
+bool ExpandScopeCullTangents(const float headForward[3], const float headUp[3],
+                            const ScopeCameraPose& scope,
+                            const ScopeProjectionTangents& lens,
+                            ScopeProjectionTangents& head);

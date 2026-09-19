@@ -14,6 +14,7 @@
 #include <initializer_list>
 
 #include "../common/config.h"
+#include "../common/scope_logic.h"
 #include "../common/halo2_render_logic.h"
 #include "../common/log.h"
 #include "game.h"
@@ -60,6 +61,7 @@ namespace
     };
 
     std::atomic<bool> g_installed{false};
+    std::atomic<uint32_t> g_zoomFaultGeneration{0},g_zoomFaults{0};
     std::atomic<bool> g_armed{false};
     std::atomic<bool> g_levelLive{false};
     std::atomic<bool> g_remasteredLive{false};
@@ -1013,6 +1015,8 @@ namespace
             }
         }
 
+#include "halo2_anniversary_scope_pass.inl"
+
         // The engine's own state is put back before anything else, always:
         // the stock camera AND the stock first-person projection.
         Halo2Observer6Dof_SetFirstPersonPassCameras(nullptr);
@@ -1696,6 +1700,9 @@ bool Halo2AnniversaryStereo_Armed() noexcept
     return g_armed.load(std::memory_order_acquire);
 }
 
+bool Halo2AnniversaryStereo_ScopeAvailable() noexcept
+{ return Halo2AnniversaryStereo_Armed()&&g_generation.load()!=0&&g_zoomFaultGeneration.load()!=g_generation.load(); }
+
 uint32_t Halo2AnniversaryStereo_Generation() noexcept
 {
     return g_generation.load(std::memory_order_acquire);
@@ -1724,6 +1731,7 @@ bool Halo2AnniversaryStereo_Poll(
 }
 bool Halo2AnniversaryStereo_Installed() noexcept { return false; }
 bool Halo2AnniversaryStereo_Armed() noexcept { return false; }
+bool Halo2AnniversaryStereo_ScopeAvailable() noexcept { return false; }
 uint32_t Halo2AnniversaryStereo_Generation() noexcept { return 0; }
 void Halo2AnniversaryStereo_RequestRecenter() noexcept {}
 void Halo2AnniversaryStereo_ShutdownForVrFailure() noexcept {}

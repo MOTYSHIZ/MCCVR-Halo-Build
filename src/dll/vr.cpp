@@ -2,6 +2,7 @@
 #include "../common/weapon_hand_logic.h"
 #include "../common/weapon_interaction_logic.h"
 #include "../common/weapon_model_observation.h"
+#include "../common/weapon_reload_target.h"
 #include "weapon_accessory_renderer.h"
 #include "../common/title_runtime_state.h"
 #include <windows.h>
@@ -198,7 +199,7 @@ namespace
     std::vector<ID3D11Texture2D*> g_scopeScreenImages;
     std::vector<ID3D11RenderTargetView*> g_scopeScreenRtvs;
     constexpr uint32_t kScopeScreenWidth = 1024;
-    constexpr uint32_t kScopeScreenHeight = 768;
+    constexpr uint32_t kScopeScreenHeight = 1024;
     std::atomic<bool> g_scopeActive{false};
     ID3D11Texture2D* g_scopeCache = nullptr;
     ID3D11RenderTargetView* g_scopeCacheRtv = nullptr;
@@ -207,6 +208,8 @@ namespace
     std::atomic<bool> g_rasterScope{false};
     bool g_scopeRedirected = false;
     std::atomic<bool> g_scopeHasImage{false};
+    GameTitle g_scopeImageTitle=GameTitle::None,g_scopeRequestTitle=GameTitle::None;
+    uint32_t g_scopeImageGeneration=0,g_scopeRequestGeneration=0;
     ScopeRefreshScheduler g_scopeRefreshScheduler;
     ScopeZoomResolver g_scopeZoomResolver;
     ScopeZoomController g_scopeZoomController;
@@ -484,6 +487,12 @@ namespace
     // engine's eye pass changed the target at all (capture-side problem) or
     // changed it to the same picture twice (camera-side problem).
     ID3D11Texture2D* g_halo2PrePairCache = nullptr;
+    ID3D11Texture2D* g_halo2ScopeSource=nullptr;
+    ID3D11RenderTargetView* g_halo2ScopeSourceRtv=nullptr; // identity only; source owns lifetime
+    D3D11_TEXTURE2D_DESC g_halo2ScopeSourceDesc{};
+    uint32_t g_halo2ScopeGeneration=0;
+    uint64_t g_halo2ScopeSerial=0;
+    bool g_halo2ScopeCopyActive=false,g_halo2ScopeSourceBound=false;
     std::atomic<bool> g_halo2PrePairWanted{false};
     // E-H2-34: a one-shot eye-picture request (tick count it is due at).
     std::atomic<uint64_t> g_halo2EyeDumpDueMs{0};
@@ -3235,17 +3244,17 @@ float4 ps_main(VSOut i) : SV_Target
         g_scopeHasImage.store(false);
     }
 
-    bool EnsureScopeCache()
+    bool EnsureScopeCache(const D3D11_TEXTURE2D_DESC& sourceDesc)
     {
-        if (!g_device || !g_eyeCacheDesc.Width || !g_eyeCacheDesc.Height)
+        if (!g_device || !sourceDesc.Width || !sourceDesc.Height || sourceDesc.SampleDesc.Count!=1)
             return false;
         if (g_scopeCache && g_scopeCacheRtv && g_scopeCacheSrv &&
-            g_scopeCacheDesc.Width == g_eyeCacheDesc.Width &&
-            g_scopeCacheDesc.Height == g_eyeCacheDesc.Height &&
-            g_scopeCacheDesc.Format == g_eyeCacheDesc.Format)
+            g_scopeCacheDesc.Width == sourceDesc.Width &&
+            g_scopeCacheDesc.Height == sourceDesc.Height &&
+            g_scopeCacheDesc.Format == sourceDesc.Format)
             return true;
         ReleaseScopeCache();
-        D3D11_TEXTURE2D_DESC desc = g_eyeCacheDesc;
+        D3D11_TEXTURE2D_DESC desc = sourceDesc;
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
         desc.CPUAccessFlags = 0;
@@ -3293,18 +3302,24 @@ VSOut vs_main(uint id : SV_VertexID) {
 float lin(float c) { return c<=0.04045 ? c/12.92 : pow((c+0.055)/1.055,2.4); }
 float4 paint(float2 uv, bool decode) {
     uint sw,sh; srcTex.GetDimensions(sw,sh);
-    float sa=(float)sw/max(1.0,(float)sh), da=4.0/3.0;
+    float sa=(float)sw/max(1.0,(float)sh), da=1.0;
     float2 scale=sa>da ? float2(da/sa,1) : float2(1,sa/da);
     float3 rgb=srcTex.Sample(smp,0.5+(uv-0.5)*scale).rgb;
     if(decode) rgb=float3(lin(rgb.r),lin(rgb.g),lin(rgb.b));
-    float2 px=abs((uv-0.5)*float2(1024,768));
+    float2 px=abs((uv-0.5)*1024);
     float outer=max((1-step(3,px.x))*(1-step(16,px.y)),
                     (1-step(3,px.y))*(1-step(16,px.x)));
     float inner=max((1-step(1.2,px.x))*(1-step(12,px.y)),
                     (1-step(1.2,px.y))*(1-step(12,px.x)));
     rgb=lerp(rgb,float3(0,0,0),outer);
     rgb=lerp(rgb,float3(0.35,1,0.35),inner);
-    return float4(rgb,1);
+    // Analytic antialiasing gives a clean circular lens on the alpha quad.
+    float radius=length((uv-0.5)*2);
+    float aa=max(fwidth(radius),1.0/1024.0);
+    float alpha=1-smoothstep(0.985-aa,0.985+aa,radius);
+    float rim=smoothstep(0.973-aa,0.973+aa,radius);
+    rgb=lerp(rgb,float3(0.025,0.025,0.025),rim);
+    return float4(rgb*alpha,alpha);
 }
 float4 ps_scope(VSOut i):SV_Target { return paint(i.uv,false); }
 float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
@@ -3375,7 +3390,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     bool PrepareScopeImageDelivery()
     {
         static bool creationFailed = false;
-        if (creationFailed || !g_scopeHasImage.load() || !g_scopeCache ||
+        if (creationFailed || !g_scopeHasImage.load() ||
+            g_scopeImageTitle!=TitleAdapter_GetActiveTitle()||
+            g_scopeImageGeneration!=TitleAdapter_GetGeneration(g_scopeImageTitle)||!g_scopeCache ||
             !g_scopeCacheSrv || !EnsureScopeUploadPipeline())
             return false;
         if (g_scopeScreenChain == XR_NULL_HANDLE &&
@@ -7032,10 +7049,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     std::atomic<bool> g_twoHandActive{false};
     weapon_interaction::State g_weaponInteraction;
     weapon_model::Observations g_weaponModels;
+    weapon_interaction::ReloadTargets g_reloadTargets;
     WeaponAccessoryRenderer g_weaponAccessoryRenderer;
     weapon_accessory::Presentation g_weaponAccessory; // compositor thread only
     std::atomic<HRESULT> g_weaponAccessoryResult{S_FALSE};
     std::atomic<unsigned> g_weaponGestureGrabs{0},g_weaponReloadRequests{0},g_weaponSwapRequests{0};
+    std::atomic<unsigned> g_authoredInsertionRequests{0},g_fallbackInsertionRequests{0};
     std::atomic<uint64_t> g_weaponGestureReadyMs{0};
     std::array<RecentSecondaryWeaponPresentation, kTitleRuntimeSlotCount>
         g_secondaryWeaponPresentation;
@@ -7774,6 +7793,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             sample.primary={location.pose.position.x,location.pose.position.y,location.pose.position.z};
             sample.primaryRotation={location.pose.orientation.x,location.pose.orientation.y,location.pose.orientation.z,location.pose.orientation.w};
             sample.support={leftLocation.pose.position.x,leftLocation.pose.position.y,leftLocation.pose.position.z};
+            sample.supportRotation={leftLocation.pose.orientation.x,leftLocation.pose.orientation.y,
+                leftLocation.pose.orientation.z,leftLocation.pose.orientation.w};
+            (void)g_reloadTargets.Read(sample,leftHanded);
             sample.primaryGrip=pad.gripR;sample.supportGrip=pad.gripL;
             if(!primaryGripActive||!supportGripActive)
                 sample.primaryGrip=sample.supportGrip=std::numeric_limits<float>::quiet_NaN();
@@ -7817,7 +7839,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             if(weaponGesture.supportHaptic>0) VR_PulseContactHaptics(true,weaponGesture.supportHaptic);
             if(weaponGesture.pickedMagazine||weaponGesture.grabbedHolster)
                 g_weaponGestureGrabs.fetch_add(1,std::memory_order_relaxed);
-            if(weaponGesture.reloadRequested) g_weaponReloadRequests.fetch_add(1,std::memory_order_relaxed);
+            if(weaponGesture.reloadRequested)
+            {
+                g_weaponReloadRequests.fetch_add(1,std::memory_order_relaxed);
+                if(!weapon_interaction::NeedleWeapon(sample.title,sample.weaponGraph))
+                    (sample.receiverValid?g_authoredInsertionRequests:g_fallbackInsertionRequests)
+                        .fetch_add(1,std::memory_order_relaxed);
+            }
             if(weaponGesture.swapRequested) g_weaponSwapRequests.fetch_add(1,std::memory_order_relaxed);
             g_weaponGestureReadyMs.store(sample.ready&&!sample.dualWield?inputNow:0,std::memory_order_release);
         }
@@ -8379,6 +8407,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             next.referenceEpoch=g_contactSpaceEpoch.load(std::memory_order_acquire);
         const bool rightFresh=trackingFresh && g_rightAimPoseValid;
         const bool leftFresh=trackingFresh && g_leftAimPoseValid;
+        next.rawPrimaryValid=rightFresh;
+        if(rightFresh)
+        {
+            const auto& q=g_rightAimPose.orientation;
+            const auto& p=g_rightAimPose.position;
+            const float orientation[]{q.x,q.y,q.z,q.w},position[]{p.x,p.y,p.z};
+            memcpy(next.rawPrimaryOrientation,orientation,sizeof(orientation));
+            memcpy(next.rawPrimaryPosition,position,sizeof(position));
+        }
         const AimPoseResult aim=ComputeAimPose(CurrentAimPoseInputs(
             rightFresh,g_rightAimPose,leftFresh,g_leftAimPose));
         next.twoHandAimActive=aim.valid && aim.twoHandActive;
@@ -9001,6 +9038,25 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     {
         if (g_preparedFrame.begun)
             return;
+        // Resource creation belongs at the frame preparation boundary, never
+        // inside a title's optional third-camera callback.
+        if(g_config.scope_enabled)
+        {
+            D3D11_TEXTURE2D_DESC scopeSource=g_eyeCacheDesc;
+#if HALOMCCVR_HALO2_STEREO6DOF
+            if(TitleAdapter_GetActiveTitle()==GameTitle::Halo2)scopeSource=g_halo2ScopeSourceDesc;
+#endif
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+            if(TitleAdapter_GetActiveTitle()==GameTitle::HaloReach)
+            {
+                scopeSource={};
+                g_reachCaptureUsers.fetch_add(1,std::memory_order_seq_cst);
+                if(g_reachCaptureEnabled.load(std::memory_order_seq_cst))scopeSource=g_reachCaptureDesc;
+                g_reachCaptureUsers.fetch_sub(1,std::memory_order_seq_cst);
+            }
+#endif
+            (void)EnsureScopeCache(scopeSource);
+        }
 
         if constexpr (kEnableFramePacingTransitionCapture)
             g_framePacingPending = {};
@@ -9315,6 +9371,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 ce.spaceEpoch=g_contactSpaceEpoch.load(std::memory_order_acquire);
                 ce.predictedDisplayTimeNs=frameState.predictedDisplayTime;
                 ce.motionBlur=g_config.motion_blur;
+                ce.disableAnniversaryLensFlares=g_config.ce_anniversary_disable_lens_flares;
                 ce.hud={g_config.hud_size,g_config.hud_aspect,g_config.hud_curvature,
                     g_config.hud_vertical_offset,g_config.hide_hud};
                 ce.headPosition={g_headPose.position.x,g_headPose.position.y,g_headPose.position.z};
@@ -9326,8 +9383,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 rig.leftHanded=g_capturedLeftHanded.load(std::memory_order_acquire);
                 rig.handAlignment=rig.leftHanded&&g_config.experimental_hand_alignment;
                 rig.turnSmooth=g_config.turn_smooth;
+                rig.vehicleSmoothTurn=g_config.vehicle_smooth_turn;
                 rig.turnSnapDeg=g_config.turn_snap_deg;
                 rig.turnSmoothDegS=g_config.turn_smooth_deg_s;
+                rig.vehicleMotion=g_config.vehicle_motion;
+                rig.vehicleViewFollow=g_config.vehicle_view_follow;
                 // CE bring-up: physical body following is deferred until the
                 // basic VR implementation has passed the user's headset test.
                 rig.roomscaleEnabled=false;
@@ -9340,7 +9400,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 rig.gunScale=g_config.gun_scale;
                 rig.supportScale=g_config.left_hand_scale;
                 rig.supportForwardM=g_config.left_hand_forward_m;
+                rig.visualLeftHandOffset[0]=g_config.left_hand_mesh_x_m;
+                rig.visualLeftHandOffset[1]=g_config.left_hand_mesh_y_m;
+                rig.visualLeftHandOffset[2]=g_config.left_hand_mesh_z_m;
+                rig.visualRightHandOffset[0]=g_config.right_hand_mesh_x_m;
+                rig.visualRightHandOffset[1]=g_config.right_hand_mesh_y_m;
+                rig.visualRightHandOffset[2]=g_config.right_hand_mesh_z_m;
                 rig.visualPitchDeg=g_config.barrel_pitch_deg;
+                rig.gunBarrelAim=g_config.gun_barrel_aim;
                 rig.visualYawDeg=g_config.barrel_yaw_deg;
                 rig.visualRollDeg=g_config.barrel_roll_deg;
                 rig.supportMountPitchDeg=g_config.gun_pitch_deg;
@@ -11085,18 +11152,19 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
                         if (reachProjectionAdmitted &&
                             !theaterPresentation &&
-                            Game_AllowsSharedGameplayFeatures() &&
+                            Game_HasScopeRenderer() &&
                             g_config.scope_enabled &&
                             g_scopeActive.load() &&
                             !Menu_IsOpen() && haveAim && PrepareScopeImageDelivery())
                         {
                             const ScopeQuadTransform transform = ComputeScopeQuadTransform(
                                 aimQ, aimP,
-                                g_config.scope_screen_right_m,
+                                g_config.left_handed?-g_config.scope_screen_right_m:g_config.scope_screen_right_m,
                                 g_config.scope_screen_up_m,
                                 g_config.scope_screen_forward_m,
                                 g_config.scope_screen_width_m);
                             scopeQuad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                            scopeQuad.layerFlags=XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
                             scopeQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
                             scopeQuad.space = g_localSpace;
                             scopeQuad.subImage.swapchain = g_scopeScreenChain;
@@ -12372,6 +12440,9 @@ void VR_Halo2InvalidateSynchronousPair(
 
 void VR_ResetHalo2SynchronousStereo()
 {
+    if(g_halo2ScopeSource){g_halo2ScopeSource->Release();g_halo2ScopeSource=nullptr;}
+    g_halo2ScopeSourceRtv=nullptr;g_halo2ScopeGeneration=0;g_halo2ScopeSerial=0;
+    g_halo2ScopeCopyActive=g_halo2ScopeSourceBound=false;
     g_halo2LastPair = {};
     g_halo2SynchronousSceneRtv.store(nullptr, std::memory_order_release);
     std::memset(g_halo2ProbeHasImage, 0, sizeof(g_halo2ProbeHasImage));
@@ -12710,6 +12781,25 @@ bool VR_ReachBeginRenderAccess(
     return true;
 }
 
+bool VR_ReachScopeReady(const ReachVrRenderAccess& access)
+{
+    return access.active && access.context && access.source && g_scopeCache &&
+        g_scopeCacheSrv && g_reachCaptureEnabled.load(std::memory_order_seq_cst) &&
+        g_scopeCacheDesc.Width==g_reachCaptureDesc.Width &&
+        g_scopeCacheDesc.Height==g_reachCaptureDesc.Height &&
+        g_scopeCacheDesc.Format==g_reachCaptureDesc.Format;
+}
+bool VR_ReachCopyScope(ReachVrRenderAccess& access)
+{
+    if(!VR_ReachScopeReady(access))return false;
+    // Reach owns the final native target. Never redirect a render-target bind
+    // or publish an eye serial for the optional mono image.
+    access.context->CopyResource(g_scopeCache,access.source);
+    g_scopeImageTitle=GameTitle::HaloReach;
+    g_scopeImageGeneration=access.proof.continuity.epoch.generation;
+    g_scopeHasImage.store(true,std::memory_order_release);
+    return true;
+}
 bool VR_ReachCopyEye(ReachVrRenderAccess& access, int eye)
 {
     if (!access.active || eye < 0 || eye > 1 ||
@@ -14053,7 +14143,16 @@ static bool Halo2CopyFinishedEyeFrame(const Halo2SynchronousEyeScope& scope)
             "not be created",
             desc.Width, desc.Height, static_cast<unsigned>(desc.Format));
     }
-    texture->Release();
+    if(copied)
+    {
+        // Transfer the reference already acquired by the eye copy. No extra
+        // COM discovery/AddRef is performed by the optional scope callback.
+        if(g_halo2ScopeSource)g_halo2ScopeSource->Release();
+        g_halo2ScopeSource=texture;g_halo2ScopeSourceRtv=candidates[source];
+        g_halo2ScopeSourceDesc=desc;g_halo2ScopeGeneration=scope.generation;
+        g_halo2ScopeSerial=scope.preparedSerial;
+    }
+    else texture->Release();
     return copied;
 }
 #endif
@@ -14448,8 +14547,15 @@ void VR_GetNativeHudRouteStats(unsigned& completedPhaseScopes,
 
 bool VR_ScopeShouldRenderThisFrame()
 {
+    const auto title=TitleAdapter_GetActiveTitle();
+    const auto generation=TitleAdapter_GetGeneration(title);
+    if(title!=g_scopeRequestTitle||generation!=g_scopeRequestGeneration)
+    {
+        g_scopeRequestTitle=title;g_scopeRequestGeneration=generation;
+        VR_SetScopeActive(false);
+    }
     const bool enabled=g_config.scope_enabled && !Menu_IsOpen() &&
-                       Game_IsHeadTracking();
+                       Game_IsHeadTracking() && Game_HasScopeRenderer();
     if(g_scopeResetRequested.exchange(false,std::memory_order_acq_rel))
     {
         g_scopeZoomResolver.Reset();
@@ -14476,12 +14582,18 @@ bool VR_ScopeShouldRenderThisFrame()
         active,g_scopeZoomStickY.load(std::memory_order_acquire),
         deltaSeconds,g_config.scope_zoom);
     g_scopeRuntimeZoom.store(zoom,std::memory_order_release);
-    return g_scopeRefreshScheduler.Advance(active,g_config.scope_refresh_divisor);
+    // A fixed workload each frame avoids alternating cheap two-eye frames and
+    // expensive scope-refresh frames. Keep the old config key readable only.
+    const bool render=g_scopeRefreshScheduler.Advance(active,1);
+    if(render)g_scopeHasImage.store(false,std::memory_order_release);
+    return render;
 }
 
 bool VR_BeginScopeRaster()
 {
-    if(!g_gameSwapchain || !g_sceneColorRtv || !EnsureScopeCache())
+    if(!g_gameSwapchain || !g_sceneColorRtv || !g_scopeCache || !g_scopeCacheRtv || !g_scopeCacheSrv ||
+        g_scopeCacheDesc.Width!=g_eyeCacheDesc.Width||g_scopeCacheDesc.Height!=g_eyeCacheDesc.Height||
+        g_scopeCacheDesc.Format!=g_eyeCacheDesc.Format)
         return false;
     g_scopeRedirected=false;
     g_rasterScope.store(true,std::memory_order_release);
@@ -14491,7 +14603,11 @@ bool VR_BeginScopeRaster()
 void VR_CaptureScope()
 {
     if(g_scopeRedirected && g_scopeCache)
+    {
+        g_scopeImageTitle=TitleAdapter_GetActiveTitle();
+        g_scopeImageGeneration=TitleAdapter_GetGeneration(g_scopeImageTitle);
         g_scopeHasImage.store(true,std::memory_order_release);
+    }
 }
 
 void VR_EndScopeRaster()
@@ -14506,6 +14622,38 @@ bool VR_GetScopeRenderAspect(float& outAspect)
     outAspect = static_cast<float>(g_scopeCacheDesc.Width) /
                 static_cast<float>(g_scopeCacheDesc.Height);
     return std::isfinite(outAspect) && outAspect > 0.0f;
+}
+
+void VR_InvalidateScopeImage()
+{
+    g_scopeHasImage.store(false,std::memory_order_release);
+}
+
+bool VR_BeginHalo2Scope(uint32_t generation,uint64_t serial)
+{
+#if HALOMCCVR_HALO2_STEREO6DOF
+    if(!g_context||!g_scopeCache||!g_halo2ScopeSource||!generation||!serial||
+        generation!=g_halo2ScopeGeneration||serial!=g_halo2ScopeSerial||
+        TitleAdapter_GetActiveTitle()!=GameTitle::Halo2||
+        g_scopeCacheDesc.Width!=g_halo2ScopeSourceDesc.Width||
+        g_scopeCacheDesc.Height!=g_halo2ScopeSourceDesc.Height||
+        g_scopeCacheDesc.Format!=g_halo2ScopeSourceDesc.Format)return false;
+    g_halo2ScopeCopyActive=true;g_halo2ScopeSourceBound=false;return true;
+#else
+    return false;
+#endif
+}
+void VR_EndHalo2Scope(bool completed)
+{
+#if HALOMCCVR_HALO2_STEREO6DOF
+    if(completed&&g_halo2ScopeCopyActive&&g_halo2ScopeSourceBound&&g_context&&g_scopeCache&&g_halo2ScopeSource)
+    {
+        g_context->CopyResource(g_scopeCache,g_halo2ScopeSource);
+        g_scopeImageTitle=GameTitle::Halo2;g_scopeImageGeneration=g_halo2ScopeGeneration;
+        g_scopeHasImage.store(true,std::memory_order_release);
+    }
+    g_halo2ScopeCopyActive=false;g_halo2ScopeSourceBound=false;
+#endif
 }
 
 
@@ -14727,6 +14875,8 @@ bool VR_RedirectRenderTargets(ID3D11DeviceContext* context, UINT count,
     // also never fed through Halo 3's 0xA8 shape discovery below.
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
     {
+        if(g_halo2ScopeCopyActive&&input)
+            for(UINT i=0;i<count;++i)if(input[i]==g_halo2ScopeSourceRtv)g_halo2ScopeSourceBound=true;
         Halo2SynchronousEyeScope& halo2Scope = g_halo2SynchronousEyeScope;
         if (halo2Scope.active && count && input && input[0])
         {
@@ -15065,7 +15215,7 @@ void VR_GetPadState(VrPadState& out)
 
 void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept
 {
-    if(!g_config.manual_reload||title!=TitleAdapter_GetActiveTitle()||
+    if((!g_config.manual_reload&&!g_config.per_gun_alignment)||title!=TitleAdapter_GetActiveTitle()||
         generation!=TitleAdapter_GetGeneration(title)) return;
     (void)g_weaponModels.Publish({title,generation,identity,
         g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64()});
@@ -15077,13 +15227,47 @@ uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t 
     return g_weaponModels.Read(title,generation,space,now);
 }
 
+void VR_PublishReloadTarget(GameTitle title,uint32_t generation,uint64_t identity,uint64_t serial,
+    const contact_melee::TrackingToWorld& trackingToWorld,const float world[3]) noexcept
+{
+    if(!g_config.manual_reload||!world||title!=TitleAdapter_GetActiveTitle()||
+        generation!=TitleAdapter_GetGeneration(title)) return;
+    VrContactTrackingSnapshot current{};
+    contact_melee::TrackingToWorld primaryController{};
+    if(!VR_GetContactTrackingSnapshot(current)||current.serial!=serial||!current.rawPrimaryValid||
+        !primaryController.SetPose(current.rawPrimaryOrientation,current.rawPrimaryPosition)) return;
+    weapon_interaction::ReloadTarget target{};
+    if(weapon_interaction::BuildReloadTarget(title,generation,identity,
+        current.referenceEpoch,GetTickCount64(),current.leftHanded,{world[0],world[1],world[2]},
+        trackingToWorld,primaryController,target)) (void)g_reloadTargets.Publish(target);
+}
+
+void VR_UpdateWeaponAlignment()
+{
+    static GameTitle previousTitle=GameTitle::None;
+    static uint32_t previousGeneration=0;
+    static uint64_t previousIdentity=0;
+    const auto title=TitleAdapter_GetActiveTitle();
+    const auto generation=TitleAdapter_GetGeneration(title);
+    if(title!=previousTitle||generation!=previousGeneration)
+        previousIdentity=0;
+    previousTitle=title;previousGeneration=generation;
+    const uint64_t identity=VR_GetWeaponModelIdentity(title,generation,
+        g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64());
+    // A pause/F1 menu may stop native palette submission. Retain only the
+    // previously admitted gun in this generation while the player edits it.
+    if(identity||(!Menu_IsOpen()&&!VR_IsPausePresentation()&&!VR_IsPausePresentationTarget()))
+        previousIdentity=identity;
+    Config_ApplyWeaponProfile(previousIdentity);
+}
+
 void VR_ReportWeaponInteractions(uint64_t nowMs)
 {
     static HRESULT previousAccessory=S_FALSE;
     const HRESULT accessory=g_weaponAccessoryResult.load(std::memory_order_acquire);
     if(accessory!=previousAccessory)
     {
-        LOG("Reload accessory: %s HRESULT=0x%08X; isolated magazine geometry, mod surface shading; "
+        LOG("Reload accessory: %s HRESULT=0x%08X; isolated authored geometry and surface atlas, simple accessory lighting; "
             "native animation/ammo and camera unaffected",
             SUCCEEDED(accessory)?"compositor draw ready":"stock gesture fallback",static_cast<unsigned>(accessory));
         previousAccessory=accessory;
@@ -15120,6 +15304,11 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
     previousModel=modelIdentity;
     const unsigned grabs=g_weaponGestureGrabs.load(std::memory_order_relaxed);
     const unsigned reloads=g_weaponReloadRequests.load(std::memory_order_relaxed);
+    if((options&1)&&(changed||reloads!=previousReloads))
+        LOG("Reload insertion receivers: authoredAssembly=%u genericControllerFallback=%u; "
+            "fallback preserves the existing gesture when no fresh authored receiver is available",
+            g_authoredInsertionRequests.load(std::memory_order_relaxed),
+            g_fallbackInsertionRequests.load(std::memory_order_relaxed));
     const unsigned swaps=g_weaponSwapRequests.load(std::memory_order_relaxed);
     if(((options|previousOptions)&3)&&(changed||ready!=previousReady||grabs!=previousGrabs||
         reloads!=previousReloads||swaps!=previousSwaps))

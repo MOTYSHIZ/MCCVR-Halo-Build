@@ -3,6 +3,8 @@
 // With two verified owned weapons, each role overrides its own native ray.
 // A single equipped weapon retains the existing native aiming path.
 using Halo2DualFireFn = void(__fastcall*)(uint32_t, int16_t, int32_t, uint8_t);
+using Halo2DualCameraFn = int32_t(__fastcall*)(uint32_t,float*,float*);
+using Halo2DualLocationFn = const void*(__fastcall*)(uint32_t);
 struct Halo2DualRuntime
 {
     uintptr_t base = 0;
@@ -10,9 +12,16 @@ struct Halo2DualRuntime
     void* aimTarget = nullptr;
     Halo2DualFireFn fireOriginal = nullptr;
     Halo2WeaponAimHelperFn aimOriginal = nullptr;
+    void* cameraTarget=nullptr;
+    void* locationTarget=nullptr;
+    Halo2DualCameraFn cameraOriginal=nullptr;
+    Halo2DualLocationFn locationOriginal=nullptr;
+    uint32_t generation=0;
+    uint64_t installedAtMs=0;
     std::atomic<bool> enabled{false}, faulted{false};
     std::atomic<uint32_t> callbacks{0};
     std::atomic<uint64_t> primaryRays{0}, secondaryRays{0}, refused{0};
+    std::atomic<uint64_t> nativeQueries{0},targetRestoresRefused{0};
 } g_halo2Dual;
 thread_local uint32_t g_halo2FiringWeapon = UINT32_MAX;
 
@@ -139,9 +148,11 @@ __declspec(noinline) void __fastcall Halo2DualAimDetour(uint32_t unit,
     __finally { g_halo2Dual.callbacks.fetch_sub(1, std::memory_order_acq_rel); }
 }
 
+#include "halo2_independent_shots.inl"
+
 bool RemoveHalo2DualAim();
 
-bool InstallHalo2DualAim(uintptr_t base, size_t size)
+bool InstallHalo2DualAimLegacy(uintptr_t base, size_t size)
 {
     g_halo2Dual.enabled.store(false, std::memory_order_release);
     if (g_halo2Dual.fireTarget || g_halo2Dual.aimTarget) return false;
@@ -186,7 +197,7 @@ bool InstallHalo2DualAim(uintptr_t base, size_t size)
     return true;
 }
 
-bool RemoveHalo2DualAim()
+bool RemoveHalo2DualAimLegacy()
 {
     g_halo2Dual.enabled.store(false, std::memory_order_release);
     const void* functions[]{reinterpret_cast<const void*>(&Halo2DualFireDetour),
@@ -199,7 +210,7 @@ bool RemoveHalo2DualAim()
     {
         if (!*target) continue;
         any = true;
-        const auto status = MH_DisableHook(*target);
+        const auto status = MCCVR_DisableHookForRetirement(*target);
         if (status != MH_OK && status != MH_ERROR_DISABLED)
         { LOG("Halo 2 dual aim cleanup pending: hook disable failed"); return false; }
     }
@@ -217,3 +228,6 @@ bool RemoveHalo2DualAim()
     g_halo2Dual.aimOriginal = nullptr;
     return true;
 }
+
+#include "halo2_muzzle_lifecycle.inl"
+#include "halo2_dual_lifecycle.inl"

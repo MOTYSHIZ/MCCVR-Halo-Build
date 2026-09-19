@@ -25,6 +25,8 @@ private:
     Ptr<ID3D11RasterizerState> raster_;
     Ptr<ID3D11DepthStencilState> depthState_;
     Ptr<ID3D11DepthStencilView> depth_;
+    Ptr<ID3D11ShaderResourceView> surface_;
+    Ptr<ID3D11SamplerState> sampler_;
     unsigned width_{},height_{};
     HRESULT prepared_{S_FALSE};
 };

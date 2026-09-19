@@ -111,10 +111,14 @@ struct ControllerRig
     float supportMountPitchDeg{},supportMountYawDeg{},supportMountRollDeg{};
     float gunForwardM{-0.14f},gunRightM{},gunUpM{};
     float supportForwardM{-0.063f};
+    float visualLeftHandOffset[3]{},visualRightHandOffset[3]{};
     float shoulderBackM{},primaryShoulderDrop{0.06f};
     float turnX{},moveX{},moveY{};
     bool turnSmooth{true},controlsPresentationBlocked{true};
+    bool vehicleSmoothTurn{};
+    bool gunBarrelAim{};
     bool roomscaleEnabled{};
+    bool vehicleMotion{true},vehicleViewFollow{};
     float turnSnapDeg{30.0f},turnSmoothDegS{120.0f};
 };
 struct HudSettings
@@ -133,6 +137,7 @@ struct Tracking
     ControllerRig controllers;
     HudSettings hud;
     bool motionBlur{};
+    bool disableAnniversaryLensFlares{};
 };
 struct Reference
 {

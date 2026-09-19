@@ -1,0 +1,116 @@
+[
+  {
+    "module": "halo1.dll",
+    "sha256": "0a12dc561780f449d3f4d0df10bb8d3bc7be7840a5beb2b236f672eb6cd42e6c",
+    "functions": [
+      "0xa9b648",
+      "0x0",
+      "0x0"
+    ],
+    "global_proofs": [
+      "0xb285ef",
+      "0xb77482",
+      "0xb7747b"
+    ],
+    "globals": [
+      "0x2d9cd90",
+      "0x2d9ce10",
+      "0x2ea3410"
+    ]
+  },
+  {
+    "module": "halo2.dll",
+    "sha256": "de65b4f4fdbf3f0a5eab7431fe530da17dd815599182dfd6ae9b7e21cf171946",
+    "functions": [
+      "0x7a0730",
+      "0x79df70",
+      "0x7a0d60"
+    ],
+    "global_proofs": [
+      "0x81a2f6",
+      "0x0",
+      "0x0"
+    ],
+    "globals": [
+      "0x187c300",
+      "0x0",
+      "0x0"
+    ]
+  },
+  {
+    "module": "halo3.dll",
+    "sha256": "b209d8454b12dc77e54ccd2c9924ec8d44b8619d21cf98e36ffaf601e67efb63",
+    "functions": [
+      "0x15d174",
+      "0x231968",
+      "0x26b1a0"
+    ],
+    "global_proofs": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "globals": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ]
+  },
+  {
+    "module": "halo3odst.dll",
+    "sha256": "5bb20976efdfd9e1ce59c589339804725fec239021027c8d65b2733eab94829a",
+    "functions": [
+      "0x18b158",
+      "0x26062c",
+      "0x296ff8"
+    ],
+    "global_proofs": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "globals": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ]
+  },
+  {
+    "module": "haloreach.dll",
+    "sha256": "738dd2d24ea3aea12e1ee9aa4a61094bf116027d42004c35a19e5048608b0894",
+    "functions": [
+      "0x211310",
+      "0x217d38",
+      "0x20ef14"
+    ],
+    "global_proofs": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "globals": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ]
+  },
+  {
+    "module": "halo4.dll",
+    "sha256": "7c53e7d5bc9848545a1b70e2768242479336fba1b7630d7ab955f7fd0c34fa84",
+    "functions": [
+      "0x2f9028",
+      "0x2ef5a4",
+      "0x2f9a00"
+    ],
+    "global_proofs": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ],
+    "globals": [
+      "0x0",
+      "0x0",
+      "0x0"
+    ]
+  }
+]

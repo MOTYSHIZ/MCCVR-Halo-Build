@@ -162,6 +162,48 @@ int main()
                     CHECK(Near(std::sqrt(x*x+y*y),.5f));
                 }
     }
-    std::puts("CE controls: native admission, shared snap transitions, smooth elapsed time, head-relative movement and stale rejection passed");
+    {
+        auto view=context;view.rendererEpoch=2;view.tracking.controllers.vehicleViewFollow=true;
+        constexpr uint32_t occupant=0x12340001,parent=0x23450002;
+        for (int hz:{30,60,72,90,120,144}) for (float direction:{-1.0f,1.0f})
+        {
+            VehicleTurnFollow follow;
+            float accumulated=0;
+            CHECK(follow.Step(view,occupant,parent,0,3.0f,1)==0);
+            // Sweep multiple complete revolutions, crossing both +/-pi seams.
+            for (int frame=1;frame<=hz*10;++frame)
+            {
+                const float angle=3.0f+direction*float(frame)/hz;
+                accumulated+=follow.Step(view,occupant,parent,0,
+                    std::atan2(std::sin(angle),std::cos(angle)),1.0+double(frame)/hz);
+            }
+            CHECK(std::fabs(accumulated-direction*10)<.0002f);
+        }
+        for (int change=0;change<10;++change)
+        {
+            auto next=view;VehicleTurnFollow follow;
+            CHECK(follow.Step(view,occupant,parent,0,0,1)==0);
+            auto unit=occupant,vehicle=parent;int16_t seat=0;double now=1.01;
+            switch(change)
+            {
+            case 0:++next.tracking.generation;break;
+            case 1:++next.tracking.spaceEpoch;break;
+            case 2:++next.referenceRevision;break;
+            case 3:++next.rendererEpoch;break;
+            case 4:unit+=0x10000;break;
+            case 5:vehicle+=0x10000;break;
+            case 6:seat=1;break;
+            case 7:now=1.3;break;
+            case 8:now=.9;break;
+            case 9:next.tracking.controllers.vehicleViewFollow=false;break;
+            }
+            CHECK(follow.Step(next,unit,vehicle,seat,1,now)==0);
+        }
+        VehicleTurnFollow follow;
+        CHECK(follow.Step(view,occupant,parent,0,0,1)==0);
+        CHECK(follow.Step(view,occupant,parent,0,std::numeric_limits<float>::quiet_NaN(),1.01)==0);
+        CHECK(follow.Step(view,occupant,parent,0,1,1.02)==0);
+    }
+    std::puts("CE controls: native admission, shared snap transitions, smooth elapsed time, vehicle hull following, head-relative movement and stale rejection passed");
     return 0;
 }

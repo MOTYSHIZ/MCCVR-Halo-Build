@@ -35,7 +35,7 @@ RANGES = ((0x205E40, 0x206160), (0x204E40, 0x204F40),
           (0x206160, 0x206233))
 
 
-def run(image, *, config9=True, selection=True, children="independent"):
+def run(image, *, config9=True, selection=True, children="independent", third_view=False):
     uc = Uc(UC_ARCH_X86, UC_MODE_64)
     image_size = (len(image)+4095)&~4095
     uc.mem_map(BASE, image_size)
@@ -166,11 +166,13 @@ def run(image, *, config9=True, selection=True, children="independent"):
     # The native binder/clear below are real instructions. In place of omitted
     # scene geometry, owners records which eye would last have written a target.
     for stage in ("depth", "scene"):
-        for eye in (0, 1):
+        for eye in ((0, 1, 2) if third_view else (0, 1)):
             state.update(stage=stage, eye=eye)
-            write(selector+0x1D0, "<I", ((1 << 15) if selection else 0) | (eye << 16))
+            # Native455A10 compares viewIndex == 1; all other primary views
+            # clear selector16. A third list entry is NOT a third target.
+            write(selector+0x1D0, "<I", ((1 << 15) if selection else 0) | ((eye == 1) << 16))
             selected_wrapper = call(0xAD5F0, (primary,))
-            expected = (left if eye == 0 else right) if (
+            expected = (right if eye == 1 else left) if (
                 config9 and selection and children != "missing") else primary
             assert selected_wrapper == expected
             selected.append(selected_wrapper)
@@ -187,19 +189,25 @@ def run(image, *, config9=True, selection=True, children="independent"):
                 scene_receipts.append((selected_wrapper, resource, dsv, owners[resource]))
     resources_distinct = depth_receipts[0][1] != depth_receipts[1][1]
     correct_depth = all(receipt[3] == eye for eye, receipt in enumerate(scene_receipts))
-    assert resources_distinct == correct_depth
-    assert correct_depth == (config9 and selection and children == "independent")
+    if third_view:
+        assert resources_distinct and not correct_depth
+        assert depth_receipts[2][1] == depth_receipts[0][1]
+        assert scene_receipts[0][3] == 2, "third depth must overwrite left before scene"
+    else:
+        assert resources_distinct == correct_depth
+        assert correct_depth == (config9 and selection and children == "independent")
     # Native dimensions route through SPLIT_1 whenever selector15 is set;
     # unlike AD5F0, width/height getters do not test config9 or selector16.
     height = 1050 if selection and children != "missing" else 2100
-    assert viewport_calls == [[(0.0, 0.0, 2912.0, float(height), 0.0, 1.0)]]*4
-    assert scissor_calls == [[(0, 0, 2912, height)]]*4
-    assert [event["kind"] for event in events] == ["bind", "clear", "bind", "clear", "bind", "bind"]
+    count = 3 if third_view else 2
+    assert viewport_calls == [[(0.0, 0.0, 2912.0, float(height), 0.0, 1.0)]]*(count*2)
+    assert scissor_calls == [[(0, 0, 2912, height)]]*(count*2)
+    assert [event["kind"] for event in events] == ["bind", "clear"]*count+["bind"]*count
     return dict(config9=config9, selection15=selection, children=children,
         selected_wrappers=selected, depth_receipts=depth_receipts,
         scene_receipts=scene_receipts, resources_distinct=resources_distinct,
         modeled_correct_depth=correct_depth, viewport_height=height,
-        instructions=state["instructions"], native_events=events)
+        third_view=third_view, instructions=state["instructions"], native_events=events)
 
 
 def main():
@@ -212,7 +220,8 @@ def main():
     image = pefile.PE(data=raw, fast_load=True).get_memory_mapped_image()
     cases = [run(image), run(image, config9=False), run(image, selection=False),
              run(image, children="missing"), run(image, children="aliased_wrapper"),
-             run(image, children="aliased_dsv"), run(image, children="aliased_resource")]
+             run(image, children="aliased_dsv"), run(image, children="aliased_resource"),
+             run(image, third_view=True)]
     print(json.dumps(dict(status="PASS_NATIVE_DEPTH_ROUTING_EMULATION_ONLY",
         image_sha256=SHA, cases=cases,
         limit="D3D endpoints and geometry ownership are modeled; no native scene, GPU, or headset result."), indent=2))

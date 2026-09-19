@@ -515,7 +515,7 @@ try {
         (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
 
     $manifest = [ordered]@{
-        schema_version = 53
+        schema_version = 54
         status = 'UNTESTED_LOCAL_CANDIDATE'
         accepted = $false
         package_id = $packageId
@@ -1094,8 +1094,8 @@ try {
             handedness_scope = 'anatomical-presentation-and-primary-support-pose-trigger-grip-velocity-haptic-routing'
             anatomical_mesh_mirroring = 'implemented-unaccepted-title-specific-anatomical-routing'
             halo2_dual_controller_rays = $true
-            halo3_dual_controller_rays = $false
-            halo3_dual_controller_ray_scope = 'disabled-after-d77c9dd-headset-failure'
+            halo3_dual_controller_rays = $true
+            halo3_dual_controller_ray_scope = 'new-optional-native-per-hand-acquisition-and-homing; old-failed-experiment-remains-disabled; headset-pending'
             support_grip_dual_exclusion_halo2_halo3_odst = $true
             menu_slider_last_displayed_digit_arrows = $true
             physical_melee_maximum_metres_per_second = 10.0
@@ -1109,8 +1109,8 @@ try {
             halo3_stale_camera_retirement_ms = 2000
             crosshair_trajectory_controls = $true
             visual_support_hand_offsets_change_aim = $false
-            ordinary_campaign_dual_acquisition_odst_reach_halo4 = 'unfinished-not-enabled'
-            independent_secondary_firing_odst_reach_halo4 = 'unfinished'
+            ordinary_campaign_dual_acquisition_odst_reach_halo4 = 'removed-from-scope-by-user; not-enabled'
+            independent_secondary_firing_odst_reach_halo4 = 'removed-from-scope-by-user; not-enabled'
         }
         roomscale_candidate = [ordered]@{
             config_key = 'roomscale_movement'
@@ -1135,19 +1135,19 @@ try {
             title_coverage = 'CE-Original-Anniversary; H2-Classic-Anniversary; H3; ODST; Reach; H4'
             headset_accepted = $false
         }
-        current_accepted_source = 'd47a98c947dc60dd98d7259a29a7582d5f46df7f'
+        current_accepted_source = '1a9766ca971a9e5f09b942d508abecd9753bdb35'
         weapon_interactions = [ordered]@{
             base_with_preserved_comfort_fixes = '918e2f23fb519c00aa920fde2970af0dc7df70eb'
             titles = 'CE-Original-and-Anniversary; Halo2-Classic-and-Anniversary; Halo3; ODST; Reach; Halo4'
             default_enabled = $false
-            manual_reload = 'support-hip-grip-pickup; carry-to-primary-grip-and-release; native-reload-request'
+            manual_reload = 'support-hip-grip-pickup; authored-per-model-insertion-and-release-haptic; native-reload-request'
             holsters = 'primary-side-shoulder-or-hip-grip; configurable-slide-or-click; independent-radii; native-carried-weapon-exchange'
-            magazine_visuals = '42-isolated-authored-reload-parts; shared-stereo-compositor; hip-and-support-hand; same-CE-H2-accessory-in-both-graphics-modes'
+            magazine_visuals = '42-authored-textured-reload-parts; native-UV-BC1-surfaces; Promethean-orange-token; shared-stereo-compositor; both-CE-H2-graphics-modes'
             custom_weapons = 'live-held-model-observation-in-all-six-titles; optional-generic-blue-reload-item-for-unfamiliar-valid-models; no-custom-ammo-or-mesh-guessing'
             needle_shake = 'optional-default-off; each-title-Needler-plus-Reach-Needle-Rifle; one-rapid-out-and-back-any-direction; no-grip; settle-to-rearm'
             input_mapping = 'user-selected-MCC-reload-and-switch-buttons-saved-per-title; initial-X-and-Y'
             admission = 'focused-tracked-on-foot-single-weapon; same-title-generation-space-options-and-bindings'
-            limits = 'simple-grey-shading-no-native-textures-or-world-occlusion; native-gun-animation-magazine-retained; native-auto-reload-ammo-inventory-retained; no-holstered-gun-model-extra-inventory-or-empty-hand-state'
+            limits = 'no-world-occlusion; native-gun-animation-magazine-retained; native-ammo-inventory-retained; no-holstered-gun-model-extra-inventory-or-empty-hand-state'
             shared_input_tests = 'gesture-timelines; both-hands; all-six-titles; cancellation-and-held-grip-release; production-pad-reader; config-roundtrip'
             evidence = 'docs/RELOAD-ACCESSORIES-2026-09-16.md'
             headset_accepted = $false
@@ -1271,7 +1271,7 @@ try {
             evidence = 'docs/ALL-TITLE-REENTRY-2026-09-15.md'
         }
         native_reload_policy = [ordered]@{
-            options = 'manual_reload_disable_auto; manual_reload_skip_animations; both default off and require Manual Reload'
+            options = 'manual_reload_disable_auto; manual_reload_skip_animations; manual_reload_shortened_animation; all-default-off-require-Manual-Reload; full-disable-takes-priority'
             titles = 'CE; Halo2; Halo3; ODST; Reach; Halo4; both editions'
             behavior = 'exact empty-trigger caller suppression; scoped first-person reload/ready playback suppression; native countdown shortening; native ammo transfer retained'
             evidence = 'docs/NATIVE-RELOAD-POLICY-2026-09-16.md'
@@ -1279,10 +1279,26 @@ try {
             headset_accepted = $false
         }
         refinement_audit = [ordered]@{ evidence = 'docs/REFINEMENT-WORK-2026-09-18.md'; full_requested_scope_complete = $false; headset_accepted = $false }
+        circular_zoom = [ordered]@{
+            implemented_titles = 'H2-Classic-Anniversary; H3; ODST; Reach; H4'
+            output_pixels = '1024x1024'
+            refresh = 'every-admitted-render-frame; old-divisor-key-ignored'
+            ce_separate_lens = 'unfinished; native-zoom-retained; third-view-depth-alias-proven-offline'
+            headset_quality_and_timing_accepted = $false
+            evidence = 'docs/ZOOM-AND-CE-FLARES-2026-09-18.md'
+        }
+        ce_flare_workaround = [ordered]@{
+            config_key = 'ce_anniversary_disable_lens_flares'
+            default_enabled = $false
+            menu = 'F1-Picture'
+            behavior = 'suppress-proven-Anniversary-flare-draws-only; native-world-lighting-preserved'
+            reported_streak_root_cause_proven = $false
+            headset_accepted = $false
+        }
         current_notes = 'RELEASE-NOTES.md'
         historical_metadata_notice = 'Older stage/profile IDs and feature results below describe inherited work and retain their original coverage limits. Current accepted baseline is Alpha 0.4.2 source 1a9766c. This unaccepted refinement audit candidate does not complete the full standing scope. Current changes and unresolved items are listed in RELEASE-NOTES.md. Earlier standing and deferred scope is preserved.'
         halo4_new_damage_blackout_report = 'deferred-unresolved-distinct-from-earlier-cryptum-shader-suppression'
-        note = 'Unaccepted refinement audit above Alpha 0.4.2 source 1a9766c: exclusive XR/XInput and native melee admission, radial locomotion mapping, known Promethean reload token, optional gameplay HUD hiding, H2 salted datum validation and no native aim-assist replay, ODST full seated handle identity. Full refinement scope remains incomplete; read RELEASE-NOTES.md. Package only; both editions; headset/co-op validation pending.'
+        note = 'Cumulative unaccepted refinement candidate above Alpha0.4.2 source1a9766c. Circular zoom in H2/H3/ODST/Reach/H4; CE separate lens unfinished. Default-off CE Anniversary flare workaround, textured manual reload/shortened tail, haptics/insertion, per-gun/hand alignment, H2/H3 independent dual aim, all-six barrel aiming, roomscale/vehicle/input/foliage/stability corrections. Complete status in RELEASE-NOTES.md. Full scope incomplete; package only; both editions; headset/co-op validation pending.'
 
     }
 

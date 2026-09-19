@@ -1,0 +1,26 @@
+[
+  {
+    "name": "continuous_target_query",
+    "rva": "0xb683ec",
+    "signature": "40 53 55 56 57 41 54 41 55 41 56 41 57 B8 68 14 00 00 E8 5D EA A9 00 48 2B E0 48 8B 05 03 CC 00 01 48 33 C4 48 89 84 24 50 14 00 00 48 8B BC 24 D8 14 00 00 48 8B F1 48 8B CA 44 89 4C 24 40 45",
+    "function_entry": true,
+    "evidence": "E-CE-TARGET-20260918",
+    "runtime_group": "continuous_target",
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb680f8",
+        "target_rva": "0xb683ec",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 EF 02 00 00"
+      },
+      {
+        "instruction_rva": "0xb6839b",
+        "target_rva": "0xb683ec",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 4C 00 00 00"
+      }
+    ]
+  }
+]

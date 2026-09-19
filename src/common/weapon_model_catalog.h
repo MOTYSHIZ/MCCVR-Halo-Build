@@ -16,8 +16,9 @@ struct Model
     bool needles;
     unsigned nodeCount, firstVertex, vertexCount;
     float minimum[3],maximum[3]; // H2's independently proven compression identity.
+    float receiverAnchor[3]{}; // Rest assembly centre in the native held root's bind-local frame.
 };
-struct Vertex { float position[3],normal[3]; };
+struct Vertex { float position[3],normal[3],uv[2]{}; };
 // Unfamiliar held models get a mod-authored interaction token. It does not
 // claim the gun takes a box magazine; the native game still decides reloads.
 inline constexpr Model kGenericReloadModel{GameTitle::None,0,"generic reload token",false,0,0,36,{},{}};
@@ -33,6 +34,21 @@ inline const Model* Find(GameTitle title,uint64_t identity) noexcept
     if(!identity) return nullptr;
     for(const auto& m:kModels) if(m.title==title&&m.identity==identity) return &m;
     return nullptr;
+}
+inline bool ReceiverPoint(const Model* model,float scale,const float basis[9],
+    const float position[3],float output[3]) noexcept
+{
+    if(!model||!model->vertexCount||!basis||!position||!output||
+        !std::isfinite(scale)||scale<=.000001f||scale>=100) return false;
+    for(int row=0;row<3;++row)
+    {
+        float value=position[row];
+        for(int column=0;column<3;++column)
+            value+=scale*basis[column*3+row]*model->receiverAnchor[column];
+        if(!std::isfinite(value)||std::abs(value)>1000000.f) return false;
+        output[row]=value;
+    }
+    return true;
 }
 inline const Model* FindHalo2(const float minimum[3],const float maximum[3],unsigned nodes) noexcept
 {

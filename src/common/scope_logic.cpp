@@ -176,7 +176,7 @@ ScopeQuadTransform ComputeScopeQuadTransform(const float orientation[4],
     result.position[1] = origin[1] + worldOffset[1];
     result.position[2] = origin[2] + worldOffset[2];
     result.width = widthMeters;
-    result.height = widthMeters * 0.75f;
+    result.height = widthMeters;
     return result;
 }
 
@@ -227,6 +227,45 @@ ScopeProjectionTangents ComputeScopeProjectionTangents(float zoom,
         sourceAspect = 4.0f / 3.0f;
     constexpr float kBaseHorizontalTangent = 0.70020754f; // tan(70 degrees / 2)
     const float finalHorizontal = kBaseHorizontalTangent / zoom;
-    const float finalVertical = finalHorizontal / (4.0f / 3.0f);
+    const float finalVertical = finalHorizontal / std::min(sourceAspect,1.f);
     return {finalVertical * sourceAspect, finalVertical};
+}
+
+bool ExpandScopeCullTangents(const float headForward[3], const float headUp[3],
+                            const ScopeCameraPose& scope,
+                            const ScopeProjectionTangents& lens,
+                            ScopeProjectionTangents& head)
+{
+    if (!headForward || !headUp || !std::isfinite(head.horizontal) ||
+        !std::isfinite(head.vertical) || head.horizontal <= 0 || head.vertical <= 0 ||
+        !std::isfinite(lens.horizontal) || !std::isfinite(lens.vertical) ||
+        lens.horizontal <= 0 || lens.vertical <= 0) return false;
+    auto orthonormal = [](const float* f, const float* u) {
+        float ff=0, uu=0, fu=0;
+        for(int i=0;i<3;++i){ff+=f[i]*f[i];uu+=u[i]*u[i];fu+=f[i]*u[i];}
+        return std::isfinite(ff)&&std::isfinite(uu)&&std::isfinite(fu)&&
+            std::fabs(ff-1)<.002f&&std::fabs(uu-1)<.002f&&std::fabs(fu)<.002f;
+    };
+    if(!orthonormal(headForward,headUp)||!orthonormal(scope.forward,scope.up))return false;
+    const float hr[]{headForward[1]*headUp[2]-headForward[2]*headUp[1],
+        headForward[2]*headUp[0]-headForward[0]*headUp[2],
+        headForward[0]*headUp[1]-headForward[1]*headUp[0]};
+    const float sr[]{scope.forward[1]*scope.up[2]-scope.forward[2]*scope.up[1],
+        scope.forward[2]*scope.up[0]-scope.forward[0]*scope.up[2],
+        scope.forward[0]*scope.up[1]-scope.forward[1]*scope.up[0]};
+    auto expanded=head;
+    for(int x=-1;x<=1;x+=2)for(int y=-1;y<=1;y+=2)
+    {
+        float depth=0,right=0,up=0;
+        for(int i=0;i<3;++i)
+        {
+            const float ray=scope.forward[i]+x*lens.horizontal*sr[i]+y*lens.vertical*scope.up[i];
+            depth+=ray*headForward[i];right+=ray*hr[i];up+=ray*headUp[i];
+        }
+        if(!std::isfinite(depth)||!std::isfinite(right)||!std::isfinite(up)||depth<=.001f)return false;
+        expanded.horizontal=std::fmax(expanded.horizontal,std::fabs(right/depth));
+        expanded.vertical=std::fmax(expanded.vertical,std::fabs(up/depth));
+    }
+    if(!std::isfinite(expanded.horizontal)||!std::isfinite(expanded.vertical))return false;
+    head=expanded;return true;
 }

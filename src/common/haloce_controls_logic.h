@@ -1,6 +1,7 @@
 #pragma once
 #include "haloce_frame_context.h"
 #include "halo3_vehicle_logic.h"
+#include "vr_turn_mode.h"
 
 namespace halo_ce
 {
@@ -27,7 +28,7 @@ struct ControlTurnState
     double previousSeconds{};
     bool latched{true};
 
-    float Step(const RenderContext& context,bool admitted,double nowSeconds) noexcept
+    float Step(const RenderContext& context,bool admitted,double nowSeconds,bool seated=false) noexcept
     {
         const auto& rig=context.tracking.controllers;
         if (!std::isfinite(nowSeconds)||nowSeconds<=0) return 0;
@@ -53,13 +54,49 @@ struct ControlTurnState
         previousSeconds=nowSeconds;
         constexpr float radians=0.0174532925199433f;
         const float x=std::clamp(rig.turnX,-1.0f,1.0f);
-        if (rig.turnSmooth)
+        if (UseSmoothVrTurn(rig.turnSmooth,rig.vehicleSmoothTurn,seated))
         {
             Halo3ConsumeSnapTurn(false,x,latched);
             return std::fabs(x)>0.15f?-x*std::clamp(rig.turnSmoothDegS,30.0f,360.0f)*radians*elapsed:0;
         }
         return Halo3ConsumeSnapTurn(true,x,latched)?
             -std::copysign(std::clamp(rig.turnSnapDeg,5.0f,90.0f)*radians,x):0;
+    }
+};
+
+// Add actual hull yaw to the native following-camera angles. Never use the
+// desired hand direction here: doing so would feed steering back into itself.
+// First samples, seat changes, reference changes and gaps establish a new
+// baseline without rotating the view. Follow-off still observes the hull so
+// enabling follow cannot replay accumulated rotation.
+struct VehicleTurnFollow
+{
+    uint32_t generation{},unit{},parent{};
+    int16_t seat{-1};
+    uint64_t space{},reference{},renderer{};
+    double previousSeconds{};
+    float yaw{};
+    bool following{};
+    float Step(const RenderContext& context,uint32_t nextUnit,uint32_t nextParent,
+        int16_t nextSeat,float nextYaw,double nowSeconds) noexcept
+    {
+        if (!std::isfinite(nextYaw)||!std::isfinite(nowSeconds)||nowSeconds<=0||
+            !context.tracking.generation||!context.tracking.spaceEpoch||
+            !context.referenceRevision||!context.rendererEpoch||
+            nextUnit==UINT32_MAX||!(nextUnit>>16)||nextParent==UINT32_MAX||
+            !(nextParent>>16)||nextSeat<0)
+        { *this={};return 0; }
+        const bool follow=context.tracking.controllers.vehicleViewFollow;
+        const bool continuous=generation==context.tracking.generation&&
+            unit==nextUnit&&parent==nextParent&&seat==nextSeat&&
+            space==context.tracking.spaceEpoch&&reference==context.referenceRevision&&
+            renderer==context.rendererEpoch&&previousSeconds>0&&
+            nowSeconds>=previousSeconds&&nowSeconds-previousSeconds<0.25&&following&&follow;
+        const float delta=continuous?std::remainder(nextYaw-yaw,6.283185307179586f):0;
+        generation=context.tracking.generation;unit=nextUnit;parent=nextParent;seat=nextSeat;
+        space=context.tracking.spaceEpoch;reference=context.referenceRevision;
+        renderer=context.rendererEpoch;previousSeconds=nowSeconds;yaw=nextYaw;following=follow;
+        return delta;
     }
 };
 

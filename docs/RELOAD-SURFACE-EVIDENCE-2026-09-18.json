@@ -1,0 +1,1892 @@
+{
+  "dimensions": [
+    1024,
+    4096
+  ],
+  "bc1_sha256": "2fd5d407dcc1751971f5f51e5483f47de6c0e14ceebc028482660c02392a96e8",
+  "materials": [
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\battle_rifle\\shaders\\battle_rifle_metal,rmsh",
+      "shader": "objects/weapons/rifle/battle_rifle/shaders/battle_rifle_metal.shader",
+      "shader_sha256": "2ed09a9dc4ef55fa2076faa00af413b46763029dd76362d7508cd7317183ce47",
+      "bitmap": "objects/weapons/rifle/battle_rifle/bitmaps/battle_rifle.bitmap",
+      "bitmap_sha256": "e26a90ad8ee92ea6e6fb70781c6b57b03a69a3d6b60c4f8bae63ec6255bf352d",
+      "image": "out/reload-kits/surfaces/H3EK/e26a90ad8ee92ea6e6fb70781c6b57b03a69a3d6b60c4f8bae63ec6255bf352d-battle_rifle_00_00.tga",
+      "image_sha256": "8e0e02cc9b42c052897ec8f7f0ef75a47b53038287f33e8329e9b421d21f3b7d",
+      "parameter": "base_map",
+      "crop": [
+        -4,
+        388,
+        156,
+        515
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        16,
+        0
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model",
+      "material": "objects\\weapons\\rifle\\smg_silenced\\shaders\\smg_metal,rmsh",
+      "shader": "objects/weapons/rifle/smg_silenced/shaders/smg_metal.shader",
+      "shader_sha256": "b296ecd57c4137da293c1fa5fa73644e7715ba4dd56d893f53c17680d6df7ee6",
+      "bitmap": "objects/weapons/rifle/smg/bitmaps/smg.bitmap",
+      "bitmap_sha256": "89ec01f7765df00f8c43c11a07c573ae9f07ac7279b92cae4c4920c1f5f60f2a",
+      "image": "out/reload-kits/surfaces/H3EK/89ec01f7765df00f8c43c11a07c573ae9f07ac7279b92cae4c4920c1f5f60f2a-smg_00_00.tga",
+      "image_sha256": "4a8c550d938c825c690fb622c2abe5398eeec79a35df821f67a50ff8dbc374f1",
+      "parameter": "base_map",
+      "crop": [
+        187,
+        450,
+        507,
+        506
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        176,
+        0
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\sniper_rifle\\shaders\\sniper_rifle_metal,rmsh",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_rifle_metal.shader",
+      "shader_sha256": "0615795a05656b7cb6d9d916faa817461e245604c7afb6bbc0083493aed87ca5",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle.bitmap",
+      "bitmap_sha256": "c2926b6600132deb89376e0ca6c7152f6ac06ded668d6405976c5adb749b705d",
+      "image": "out/reload-kits/surfaces/H3EK/c2926b6600132deb89376e0ca6c7152f6ac06ded668d6405976c5adb749b705d-sniper_rifle_00_00.tga",
+      "image_sha256": "c3cf018590cd8c776d048939a6381659cb54bb436d2b3d4cbafbb1235ee5f583",
+      "parameter": "base_map",
+      "crop": [
+        298,
+        108,
+        423,
+        356
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        496,
+        0
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\sniper_rifle\\shaders\\sniper_rifle_plastic,rmsh",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_rifle_plastic.shader",
+      "shader_sha256": "a66157795c85cd6d57cb49034fc816cf3a62aac7cdd503ab312a8289f515cd39",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle.bitmap",
+      "bitmap_sha256": "c2926b6600132deb89376e0ca6c7152f6ac06ded668d6405976c5adb749b705d",
+      "image": "out/reload-kits/surfaces/H3EK/c2926b6600132deb89376e0ca6c7152f6ac06ded668d6405976c5adb749b705d-sniper_rifle_00_00.tga",
+      "image_sha256": "c3cf018590cd8c776d048939a6381659cb54bb436d2b3d4cbafbb1235ee5f583",
+      "parameter": "base_map",
+      "crop": [
+        281,
+        350,
+        425,
+        414
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        624,
+        0
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/pistol/automag/fp_automag/fp_automag.render_model",
+      "material": "objects\\weapons\\pistol\\automag\\shaders\\automag,rmsh",
+      "shader": "objects/weapons/pistol/automag/shaders/automag.shader",
+      "shader_sha256": "eb8ffcd773a5e98c480d2e8bcd7c19df43923e624de17e0e673af871ede0f1b0",
+      "bitmap": "objects/weapons/pistol/automag/bitmaps/automag.bitmap",
+      "bitmap_sha256": "4eafae65e857f38b30b0c4f107f8049384c64b172a44e19254aa20036db8d07c",
+      "image": "out/reload-kits/surfaces/H3EK/4eafae65e857f38b30b0c4f107f8049384c64b172a44e19254aa20036db8d07c-automag_00_00.tga",
+      "image_sha256": "f9a657f18e56e40f66ba873ffee1799ad91318c8cff80fc05eecafbdabe30ec9",
+      "parameter": "base_map",
+      "crop": [
+        4,
+        366,
+        285,
+        510
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        248
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/smg/fp_smg/fp_smg.render_model",
+      "material": "objects\\weapons\\rifle\\smg\\shaders\\smg_metal,rmsh",
+      "shader": "objects/weapons/rifle/smg/shaders/smg_metal.shader",
+      "shader_sha256": "aca6ee769e2e64efd1e8839a0e0a2a0c7bbe5433b9b17a53f668576f9963b4d1",
+      "bitmap": "objects/weapons/rifle/smg/bitmaps/smg.bitmap",
+      "bitmap_sha256": "89ec01f7765df00f8c43c11a07c573ae9f07ac7279b92cae4c4920c1f5f60f2a",
+      "image": "out/reload-kits/surfaces/H3EK/89ec01f7765df00f8c43c11a07c573ae9f07ac7279b92cae4c4920c1f5f60f2a-smg_00_00.tga",
+      "image_sha256": "4a8c550d938c825c690fb622c2abe5398eeec79a35df821f67a50ff8dbc374f1",
+      "parameter": "base_map",
+      "crop": [
+        187,
+        450,
+        507,
+        506
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        176,
+        0
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/assault_rifle/fp_assault_rifle/fp_assault_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\assault_rifle\\shaders\\assault_rifle,rmsh",
+      "shader": "objects/weapons/rifle/assault_rifle/shaders/assault_rifle.shader",
+      "shader_sha256": "2077bca7be4f285f1890510ed903f882aaf4c1410924b5e10b42d704108f0469",
+      "bitmap": "objects/weapons/rifle/assault_rifle/bitmaps/assault_rifle.bitmap",
+      "bitmap_sha256": "87c92e3f79ef934a6b08d6db7b4697ac42701d725e23f556e2698f5896e7ffb8",
+      "image": "out/reload-kits/surfaces/H3EK/87c92e3f79ef934a6b08d6db7b4697ac42701d725e23f556e2698f5896e7ffb8-assault_rifle_00_00.tga",
+      "image_sha256": "455a70e2cef5568c7cfe7ebe0961777013f8670b6e38f57f0eb199afac31f3e2",
+      "parameter": "base_map",
+      "crop": [
+        32,
+        366,
+        118,
+        495
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        284,
+        248
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/assault_rifle/fp_assault_rifle/fp_assault_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\assault_rifle\\shaders\\assault_rifle_rubber,rmsh",
+      "shader": "objects/weapons/rifle/assault_rifle/shaders/assault_rifle_rubber.shader",
+      "shader_sha256": "3942c5197281b17f7658916a6982755e2137605e28db33f7631d85b06600fe85",
+      "bitmap": "objects/weapons/rifle/assault_rifle/bitmaps/assault_rifle.bitmap",
+      "bitmap_sha256": "87c92e3f79ef934a6b08d6db7b4697ac42701d725e23f556e2698f5896e7ffb8",
+      "image": "out/reload-kits/surfaces/H3EK/87c92e3f79ef934a6b08d6db7b4697ac42701d725e23f556e2698f5896e7ffb8-assault_rifle_00_00.tga",
+      "image_sha256": "455a70e2cef5568c7cfe7ebe0961777013f8670b6e38f57f0eb199afac31f3e2",
+      "parameter": "base_map",
+      "crop": [
+        1,
+        370,
+        314,
+        515
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        372,
+        248
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "material": "objects\\weapons\\pistol\\magnum\\shaders\\magnum,rmsh",
+      "shader": "objects/weapons/pistol/magnum/shaders/magnum.shader",
+      "shader_sha256": "be65d316e5601162d9effc03977bb736f88a67ad4eed6f98251a3d97f2c8e8ae",
+      "bitmap": "objects/weapons/pistol/magnum/bitmaps/magnum.bitmap",
+      "bitmap_sha256": "aabfb3dc8ffc3203976c3d4163d842e0ad71c014dc627dc46bb035169edfb6e9",
+      "image": "out/reload-kits/surfaces/H3EK/aabfb3dc8ffc3203976c3d4163d842e0ad71c014dc627dc46bb035169edfb6e9-magnum_00_00.tga",
+      "image_sha256": "af2c5e30a2c9ce0e999e8e6c5d0701af97922a84f4f9fe89d7df09708b0b9319",
+      "parameter": "base_map",
+      "crop": [
+        4,
+        366,
+        285,
+        510
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        688,
+        248
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_dull,rmsh",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_dull.shader",
+      "shader_sha256": "088271b19c15696ebc5f99b779a6b865c4d31c0e84528f40fde41e61d6825966",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine.bitmap",
+      "bitmap_sha256": "fcb79e810ca3d3544a229534011ed64d117e01f5cb763a635408aba98ba91b78",
+      "image": "out/reload-kits/surfaces/H3EK/fcb79e810ca3d3544a229534011ed64d117e01f5cb763a635408aba98ba91b78-covenant_carbine_00_00.tga",
+      "image_sha256": "f95986e0e34af0adbf44d30a8a6b538127aba42c4a949ef511ae6f910152ca73",
+      "parameter": "base_map",
+      "crop": [
+        -3,
+        81,
+        252,
+        331
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        396
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_display,rmsh",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_display.shader",
+      "shader_sha256": "44923a7ff12eac4b502404aca83340ebc4129315fc403a4ed56ffdc99062ca4b",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine_display_illum.bitmap",
+      "bitmap_sha256": "a491efb54903ab9959c765a5eff128028a41f903b317947cc5dd814e9946af8d",
+      "image": "out/reload-kits/surfaces/H3EK/a491efb54903ab9959c765a5eff128028a41f903b317947cc5dd814e9946af8d-covenant_carbine_display_illum_00_00.tga",
+      "image_sha256": "b334e1000fe4aeca3d7d259fb2aac96b1cd6816a81f0d5dee27242d60106d6b1",
+      "parameter": "self_illum_map",
+      "crop": [
+        -2,
+        -4,
+        258,
+        37
+      ],
+      "scaled_image": [
+        256,
+        32
+      ],
+      "atlas_position": [
+        256,
+        396
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_switch,rmsh",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_switch.shader",
+      "shader_sha256": "7654356674358157d5e8bb85f0fd82e0764cb56e777901ff02f895b4fa9683b3",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine_switch_illum.bitmap",
+      "bitmap_sha256": "be9d3a2801c2675af3c7bffe56576c74dd85721c76d2db2809e92246e668d9d2",
+      "image": "out/reload-kits/surfaces/H3EK/be9d3a2801c2675af3c7bffe56576c74dd85721c76d2db2809e92246e668d9d2-covenant_carbine_switch_illum_00_00.tga",
+      "image_sha256": "ee268cb473b7a8aba6d541c4b8f2344034c0d383e40766881ef99aa2e139dd32",
+      "parameter": "self_illum_map",
+      "crop": [
+        1,
+        1,
+        63,
+        63
+      ],
+      "scaled_image": [
+        64,
+        64
+      ],
+      "atlas_position": [
+        516,
+        396
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/pistol/excavator/fp_excavator/fp_excavator.render_model",
+      "material": "objects\\weapons\\pistol\\excavator\\shaders\\excavator_metal,rmsh",
+      "shader": "objects/weapons/pistol/excavator/shaders/excavator_metal.shader",
+      "shader_sha256": "8ec94cc9f13c343d790862556f83fe978f46828a7db2af0f5349309d66ab8b71",
+      "bitmap": "objects/weapons/pistol/excavator/bitmaps/excavator.bitmap",
+      "bitmap_sha256": "8f5a0e6c93c5c92612bbf0e111f4d6f1b7f7d49b53416e48374c46a360c438ec",
+      "image": "out/reload-kits/surfaces/H3EK/8f5a0e6c93c5c92612bbf0e111f4d6f1b7f7d49b53416e48374c46a360c438ec-excavator_00_00.tga",
+      "image_sha256": "582698aa37318cb07e9a26ae10472aa4efc849498e21033f91bc63a192d4d995",
+      "parameter": "base_map",
+      "crop": [
+        4,
+        -3,
+        516,
+        512
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        648
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/pistol/excavator/fp_excavator/fp_excavator.render_model",
+      "material": "objects\\weapons\\pistol\\excavator\\shaders\\excavator,rmsh",
+      "shader": "objects/weapons/pistol/excavator/shaders/excavator.shader",
+      "shader_sha256": "cf8bce06b1f088f6ca9e3272b59253190f7d6a6122d2f5c911c94f6704de5216",
+      "bitmap": "objects/weapons/pistol/excavator/bitmaps/excavator.bitmap",
+      "bitmap_sha256": "8f5a0e6c93c5c92612bbf0e111f4d6f1b7f7d49b53416e48374c46a360c438ec",
+      "image": "out/reload-kits/surfaces/H3EK/8f5a0e6c93c5c92612bbf0e111f4d6f1b7f7d49b53416e48374c46a360c438ec-excavator_00_00.tga",
+      "image_sha256": "582698aa37318cb07e9a26ae10472aa4efc849498e21033f91bc63a192d4d995",
+      "parameter": "base_map",
+      "crop": [
+        168,
+        452,
+        255,
+        464
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        512,
+        648
+      ]
+    },
+    {
+      "title": "H3EK",
+      "model": "objects/weapons/rifle/spike_rifle/fp_spike_rifle/fp_spike_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\spike_rifle\\shaders\\bolt_thrower,rmsh",
+      "shader": "objects/weapons/rifle/spike_rifle/shaders/bolt_thrower.shader",
+      "shader_sha256": "c35b73734374fd0952b94aefa5cfee811026f04b2b7daa88f638fcfa686c4924",
+      "bitmap": "objects/weapons/rifle/spike_rifle/bitmaps/brute_bolter.bitmap",
+      "bitmap_sha256": "a0e82aa24488c845e7a7ac0568858f8f7d8f56e16cfc4c6e165b97fc82b0ad85",
+      "image": "out/reload-kits/surfaces/H3EK/a0e82aa24488c845e7a7ac0568858f8f7d8f56e16cfc4c6e165b97fc82b0ad85-brute_bolter_00_00.tga",
+      "image_sha256": "e9e1fd421325986ae01c42f6b9d51dba27c03bb3278809668cf4214e206c1cfe",
+      "parameter": "base_map",
+      "crop": [
+        408,
+        248,
+        515,
+        340
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        600,
+        648
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\battle_rifle\\shaders\\battle_rifle_metal,rmsh",
+      "shader": "objects/weapons/rifle/battle_rifle/shaders/battle_rifle_metal.shader",
+      "shader_sha256": "2ed09a9dc4ef55fa2076faa00af413b46763029dd76362d7508cd7317183ce47",
+      "bitmap": "objects/weapons/rifle/battle_rifle/bitmaps/battle_rifle.bitmap",
+      "bitmap_sha256": "ca734fda36c0e999fe5803032e68540cf0b6267274312e3a740982127d84a777",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/ca734fda36c0e999fe5803032e68540cf0b6267274312e3a740982127d84a777-battle_rifle_00_00.tga",
+      "image_sha256": "8e0e02cc9b42c052897ec8f7f0ef75a47b53038287f33e8329e9b421d21f3b7d",
+      "parameter": "base_map",
+      "crop": [
+        -4,
+        388,
+        156,
+        515
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        16,
+        0
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model",
+      "material": "objects\\weapons\\rifle\\smg_silenced\\shaders\\smg_metal,rmsh",
+      "shader": "objects/weapons/rifle/smg_silenced/shaders/smg_metal.shader",
+      "shader_sha256": "b296ecd57c4137da293c1fa5fa73644e7715ba4dd56d893f53c17680d6df7ee6",
+      "bitmap": "objects/weapons/rifle/smg/bitmaps/smg.bitmap",
+      "bitmap_sha256": "2c7779b576188aa057fb65cb5a952f0a87e17aaae68994fc4d7135e8d79a2789",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/2c7779b576188aa057fb65cb5a952f0a87e17aaae68994fc4d7135e8d79a2789-smg_00_00.tga",
+      "image_sha256": "2bc1e45d6c5fa072248151ee066be274242ad72d4ad69d1bfc394b37a6c68fae",
+      "parameter": "base_map",
+      "crop": [
+        187,
+        450,
+        507,
+        506
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        1164
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\sniper_rifle\\shaders\\sniper_rifle_metal,rmsh",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_rifle_metal.shader",
+      "shader_sha256": "0615795a05656b7cb6d9d916faa817461e245604c7afb6bbc0083493aed87ca5",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle.bitmap",
+      "bitmap_sha256": "b1555d7fbc15d75401a1e8174a18489e5c5598f159bdcfa759a4348fffad107f",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/b1555d7fbc15d75401a1e8174a18489e5c5598f159bdcfa759a4348fffad107f-sniper_rifle_00_00.tga",
+      "image_sha256": "c3cf018590cd8c776d048939a6381659cb54bb436d2b3d4cbafbb1235ee5f583",
+      "parameter": "base_map",
+      "crop": [
+        298,
+        108,
+        423,
+        356
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        496,
+        0
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\sniper_rifle\\shaders\\sniper_rifle_plastic,rmsh",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_rifle_plastic.shader",
+      "shader_sha256": "a66157795c85cd6d57cb49034fc816cf3a62aac7cdd503ab312a8289f515cd39",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle.bitmap",
+      "bitmap_sha256": "b1555d7fbc15d75401a1e8174a18489e5c5598f159bdcfa759a4348fffad107f",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/b1555d7fbc15d75401a1e8174a18489e5c5598f159bdcfa759a4348fffad107f-sniper_rifle_00_00.tga",
+      "image_sha256": "c3cf018590cd8c776d048939a6381659cb54bb436d2b3d4cbafbb1235ee5f583",
+      "parameter": "base_map",
+      "crop": [
+        281,
+        350,
+        425,
+        414
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        624,
+        0
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/pistol/automag/fp_automag/fp_automag.render_model",
+      "material": "objects\\weapons\\pistol\\automag\\shaders\\automag,rmsh",
+      "shader": "objects/weapons/pistol/automag/shaders/automag.shader",
+      "shader_sha256": "eb8ffcd773a5e98c480d2e8bcd7c19df43923e624de17e0e673af871ede0f1b0",
+      "bitmap": "objects/weapons/pistol/automag/bitmaps/automag.bitmap",
+      "bitmap_sha256": "ee0869b0ebb3abb84120ae5db02694b1956555516970f1102638d0d3fcb855ba",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/ee0869b0ebb3abb84120ae5db02694b1956555516970f1102638d0d3fcb855ba-automag_00_00.tga",
+      "image_sha256": "f9a657f18e56e40f66ba873ffee1799ad91318c8cff80fc05eecafbdabe30ec9",
+      "parameter": "base_map",
+      "crop": [
+        4,
+        366,
+        285,
+        510
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        248
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/smg/fp_smg/fp_smg.render_model",
+      "material": "objects\\weapons\\rifle\\smg\\shaders\\smg_metal,rmsh",
+      "shader": "objects/weapons/rifle/smg/shaders/smg_metal.shader",
+      "shader_sha256": "aca6ee769e2e64efd1e8839a0e0a2a0c7bbe5433b9b17a53f668576f9963b4d1",
+      "bitmap": "objects/weapons/rifle/smg/bitmaps/smg.bitmap",
+      "bitmap_sha256": "2c7779b576188aa057fb65cb5a952f0a87e17aaae68994fc4d7135e8d79a2789",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/2c7779b576188aa057fb65cb5a952f0a87e17aaae68994fc4d7135e8d79a2789-smg_00_00.tga",
+      "image_sha256": "2bc1e45d6c5fa072248151ee066be274242ad72d4ad69d1bfc394b37a6c68fae",
+      "parameter": "base_map",
+      "crop": [
+        187,
+        450,
+        507,
+        506
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        1164
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/assault_rifle/fp_assault_rifle/fp_assault_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\assault_rifle\\shaders\\assault_rifle,rmsh",
+      "shader": "objects/weapons/rifle/assault_rifle/shaders/assault_rifle.shader",
+      "shader_sha256": "2077bca7be4f285f1890510ed903f882aaf4c1410924b5e10b42d704108f0469",
+      "bitmap": "objects/weapons/rifle/assault_rifle/bitmaps/assault_rifle.bitmap",
+      "bitmap_sha256": "20d7b6019322d01b1ecd51510a85cff1f810fae62a7bf07ec3a53618906dd19e",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/20d7b6019322d01b1ecd51510a85cff1f810fae62a7bf07ec3a53618906dd19e-assault_rifle_00_00.tga",
+      "image_sha256": "455a70e2cef5568c7cfe7ebe0961777013f8670b6e38f57f0eb199afac31f3e2",
+      "parameter": "base_map",
+      "crop": [
+        32,
+        366,
+        118,
+        495
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        284,
+        248
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/assault_rifle/fp_assault_rifle/fp_assault_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\assault_rifle\\shaders\\assault_rifle_rubber,rmsh",
+      "shader": "objects/weapons/rifle/assault_rifle/shaders/assault_rifle_rubber.shader",
+      "shader_sha256": "3942c5197281b17f7658916a6982755e2137605e28db33f7631d85b06600fe85",
+      "bitmap": "objects/weapons/rifle/assault_rifle/bitmaps/assault_rifle.bitmap",
+      "bitmap_sha256": "20d7b6019322d01b1ecd51510a85cff1f810fae62a7bf07ec3a53618906dd19e",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/20d7b6019322d01b1ecd51510a85cff1f810fae62a7bf07ec3a53618906dd19e-assault_rifle_00_00.tga",
+      "image_sha256": "455a70e2cef5568c7cfe7ebe0961777013f8670b6e38f57f0eb199afac31f3e2",
+      "parameter": "base_map",
+      "crop": [
+        1,
+        370,
+        314,
+        515
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        372,
+        248
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "material": "objects\\weapons\\pistol\\magnum\\shaders\\magnum,rmsh",
+      "shader": "objects/weapons/pistol/magnum/shaders/magnum.shader",
+      "shader_sha256": "be65d316e5601162d9effc03977bb736f88a67ad4eed6f98251a3d97f2c8e8ae",
+      "bitmap": "objects/weapons/pistol/magnum/bitmaps/magnum.bitmap",
+      "bitmap_sha256": "fe99f32caeeee55eabf123b6ca0780517edabf8ab7c263b148cfd66171ba985a",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/fe99f32caeeee55eabf123b6ca0780517edabf8ab7c263b148cfd66171ba985a-magnum_00_00.tga",
+      "image_sha256": "af2c5e30a2c9ce0e999e8e6c5d0701af97922a84f4f9fe89d7df09708b0b9319",
+      "parameter": "base_map",
+      "crop": [
+        4,
+        366,
+        285,
+        510
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        688,
+        248
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_dull,rmsh",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_dull.shader",
+      "shader_sha256": "088271b19c15696ebc5f99b779a6b865c4d31c0e84528f40fde41e61d6825966",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine.bitmap",
+      "bitmap_sha256": "ea7e7655422b44b26bb88fab1d8d39f7a5378b4508f9d2a7e55bd9373d62f74f",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/ea7e7655422b44b26bb88fab1d8d39f7a5378b4508f9d2a7e55bd9373d62f74f-covenant_carbine_00_00.tga",
+      "image_sha256": "f95986e0e34af0adbf44d30a8a6b538127aba42c4a949ef511ae6f910152ca73",
+      "parameter": "base_map",
+      "crop": [
+        -3,
+        81,
+        252,
+        331
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        396
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_display,rmsh",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_display.shader",
+      "shader_sha256": "44923a7ff12eac4b502404aca83340ebc4129315fc403a4ed56ffdc99062ca4b",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine_display_illum.bitmap",
+      "bitmap_sha256": "475c5e73eda4f15a604db0b5a673d4e542a8ba9014bfe34bbd10ab13c6aa6dc3",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/475c5e73eda4f15a604db0b5a673d4e542a8ba9014bfe34bbd10ab13c6aa6dc3-covenant_carbine_display_illum_00_00.tga",
+      "image_sha256": "b334e1000fe4aeca3d7d259fb2aac96b1cd6816a81f0d5dee27242d60106d6b1",
+      "parameter": "self_illum_map",
+      "crop": [
+        -2,
+        -4,
+        258,
+        37
+      ],
+      "scaled_image": [
+        256,
+        32
+      ],
+      "atlas_position": [
+        256,
+        396
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_switch,rmsh",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_switch.shader",
+      "shader_sha256": "7654356674358157d5e8bb85f0fd82e0764cb56e777901ff02f895b4fa9683b3",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine_switch_illum.bitmap",
+      "bitmap_sha256": "992a8873dee0822b5d740f9a8d96c3a6072b779cb9ea99845c7f4282954bab86",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/992a8873dee0822b5d740f9a8d96c3a6072b779cb9ea99845c7f4282954bab86-covenant_carbine_switch_illum_00_00.tga",
+      "image_sha256": "ee268cb473b7a8aba6d541c4b8f2344034c0d383e40766881ef99aa2e139dd32",
+      "parameter": "self_illum_map",
+      "crop": [
+        1,
+        1,
+        63,
+        63
+      ],
+      "scaled_image": [
+        64,
+        64
+      ],
+      "atlas_position": [
+        516,
+        396
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/pistol/excavator/fp_excavator/fp_excavator.render_model",
+      "material": "objects\\weapons\\pistol\\excavator\\shaders\\excavator_metal,rmsh",
+      "shader": "objects/weapons/pistol/excavator/shaders/excavator_metal.shader",
+      "shader_sha256": "8ec94cc9f13c343d790862556f83fe978f46828a7db2af0f5349309d66ab8b71",
+      "bitmap": "objects/weapons/pistol/excavator/bitmaps/excavator.bitmap",
+      "bitmap_sha256": "3b956b2aea1fe84b469ce1f0a5727e6b4b4497fcb7f6184dcb74e2e45bf6ecd7",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/3b956b2aea1fe84b469ce1f0a5727e6b4b4497fcb7f6184dcb74e2e45bf6ecd7-excavator_00_00.tga",
+      "image_sha256": "582698aa37318cb07e9a26ae10472aa4efc849498e21033f91bc63a192d4d995",
+      "parameter": "base_map",
+      "crop": [
+        4,
+        -3,
+        516,
+        512
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        648
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/pistol/excavator/fp_excavator/fp_excavator.render_model",
+      "material": "objects\\weapons\\pistol\\excavator\\shaders\\excavator,rmsh",
+      "shader": "objects/weapons/pistol/excavator/shaders/excavator.shader",
+      "shader_sha256": "cf8bce06b1f088f6ca9e3272b59253190f7d6a6122d2f5c911c94f6704de5216",
+      "bitmap": "objects/weapons/pistol/excavator/bitmaps/excavator.bitmap",
+      "bitmap_sha256": "3b956b2aea1fe84b469ce1f0a5727e6b4b4497fcb7f6184dcb74e2e45bf6ecd7",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/3b956b2aea1fe84b469ce1f0a5727e6b4b4497fcb7f6184dcb74e2e45bf6ecd7-excavator_00_00.tga",
+      "image_sha256": "582698aa37318cb07e9a26ae10472aa4efc849498e21033f91bc63a192d4d995",
+      "parameter": "base_map",
+      "crop": [
+        168,
+        452,
+        255,
+        464
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        512,
+        648
+      ]
+    },
+    {
+      "title": "H3ODSTEK",
+      "model": "objects/weapons/rifle/spike_rifle/fp_spike_rifle/fp_spike_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\spike_rifle\\shaders\\bolt_thrower,rmsh",
+      "shader": "objects/weapons/rifle/spike_rifle/shaders/bolt_thrower.shader",
+      "shader_sha256": "c35b73734374fd0952b94aefa5cfee811026f04b2b7daa88f638fcfa686c4924",
+      "bitmap": "objects/weapons/rifle/spike_rifle/bitmaps/brute_bolter.bitmap",
+      "bitmap_sha256": "c799382b83ab710f7e5b12fb57a935e4a932458679af413c3c301ed87f325a65",
+      "image": "out/reload-kits/surfaces/H3ODSTEK/c799382b83ab710f7e5b12fb57a935e4a932458679af413c3c301ed87f325a65-brute_bolter_00_00.tga",
+      "image_sha256": "e9e1fd421325986ae01c42f6b9d51dba27c03bb3278809668cf4214e206c1cfe",
+      "parameter": "base_map",
+      "crop": [
+        408,
+        248,
+        515,
+        340
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        600,
+        648
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/pistol/magnum/magnum.render_model",
+      "material": "magnum_composite",
+      "shader": "objects/weapons/pistol/magnum/shaders/magnum_composite.shader",
+      "shader_sha256": "a1eecd55b1a88e15847ad78e956a98f2ca1df3d3e5299de95d4fca07d30c94cb",
+      "bitmap": "objects/weapons/pistol/magnum/bitmaps/magnum_diffuse.bitmap",
+      "bitmap_sha256": "79edac17a138e26145c6300ac69452f4bab0ff75771b6650989322b6bfda6b39",
+      "image": "out/reload-kits/surfaces/HREK/79edac17a138e26145c6300ac69452f4bab0ff75771b6650989322b6bfda6b39-magnum_diffuse_00_00.tga",
+      "image_sha256": "6323f4d5d2917e5c9cd8e622fe98af50d0a7101106e0bfacd5062d49ef5b7a80",
+      "parameter": "base_map",
+      "crop": [
+        249,
+        407,
+        469,
+        468
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        320,
+        1164
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/pistol/magnum/magnum.render_model",
+      "material": "magnum_metal_shiny",
+      "shader": "objects/weapons/pistol/magnum/shaders/magnum_metal_shiny.shader",
+      "shader_sha256": "bdea28fda9b11b1440908d10c3ce4eb336cce51cc2271c3e37b35753f85d1a07",
+      "bitmap": "objects/weapons/pistol/magnum/bitmaps/magnum_diffuse.bitmap",
+      "bitmap_sha256": "79edac17a138e26145c6300ac69452f4bab0ff75771b6650989322b6bfda6b39",
+      "image": "out/reload-kits/surfaces/HREK/79edac17a138e26145c6300ac69452f4bab0ff75771b6650989322b6bfda6b39-magnum_diffuse_00_00.tga",
+      "image_sha256": "6323f4d5d2917e5c9cd8e622fe98af50d0a7101106e0bfacd5062d49ef5b7a80",
+      "parameter": "base_map",
+      "crop": [
+        444,
+        63,
+        516,
+        287
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        540,
+        1164
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/dmr/dmr.render_model",
+      "material": "dmr_composite",
+      "shader": "objects/weapons/rifle/dmr/shaders/dmr_composite.shader",
+      "shader_sha256": "1d4d0c08b023299461bf1e9dc1c91816a570388de9503068241e4421ab0e9780",
+      "bitmap": "objects/weapons/rifle/dmr/bitmaps/dmr_diffuse.bitmap",
+      "bitmap_sha256": "dc2a8391be88f2afec2a068903813fefdab8098f5c7845b9276cf62892053d45",
+      "image": "out/reload-kits/surfaces/HREK/dc2a8391be88f2afec2a068903813fefdab8098f5c7845b9276cf62892053d45-dmr_diffuse_00_00.tga",
+      "image_sha256": "bbf6173a6c06c4443b4ad701684716ec06ff4845e9e35301f30826dcffba614c",
+      "parameter": "base_map",
+      "crop": [
+        415,
+        392,
+        477,
+        514
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        612,
+        1164
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/dmr/dmr.render_model",
+      "material": "dmr_metal",
+      "shader": "objects/weapons/rifle/dmr/shaders/dmr_metal.shader",
+      "shader_sha256": "34991f6b1e44ad05eaaf335e957439bd09b769e10c0556c0153e7959438359d4",
+      "bitmap": "objects/weapons/rifle/dmr/bitmaps/dmr_diffuse.bitmap",
+      "bitmap_sha256": "dc2a8391be88f2afec2a068903813fefdab8098f5c7845b9276cf62892053d45",
+      "image": "out/reload-kits/surfaces/HREK/dc2a8391be88f2afec2a068903813fefdab8098f5c7845b9276cf62892053d45-dmr_diffuse_00_00.tga",
+      "image_sha256": "bbf6173a6c06c4443b4ad701684716ec06ff4845e9e35301f30826dcffba614c",
+      "parameter": "base_map",
+      "crop": [
+        420,
+        404,
+        501,
+        500
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        676,
+        1164
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/spike_rifle/spike_rifle.render_model",
+      "material": "spike_rifle_metal",
+      "shader": "objects/weapons/rifle/spike_rifle/shaders/spike_rifle_metal.shader",
+      "shader_sha256": "92b929f8a28b719f11b14787e1eaefba13471cd5f4514fd616731e079c95f4c5",
+      "bitmap": "objects/weapons/rifle/spike_rifle/bitmaps/spike_rifle_diffuse.bitmap",
+      "bitmap_sha256": "5d79e48c15bda7cc712e3c07cd399958be923e1f2461935b32e1f566355100c9",
+      "image": "out/reload-kits/surfaces/HREK/5d79e48c15bda7cc712e3c07cd399958be923e1f2461935b32e1f566355100c9-spike_rifle_diffuse_00_00.tga",
+      "image_sha256": "02d0cbbeb6696ecfd7fc352191002a0ca110c822e40579cade70199ae0c0af8c",
+      "parameter": "base_map",
+      "crop": [
+        75,
+        -3,
+        468,
+        244
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        1388
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/assault_rifle/assault_rifle.render_model",
+      "material": "assault_rifle_composite",
+      "shader": "objects/weapons/rifle/assault_rifle/shaders/assault_rifle_composite.shader",
+      "shader_sha256": "c84fad10739726c711cf809c55a8f1c6e4448c3d48fffc4564f041520d438ba4",
+      "bitmap": "objects/weapons/rifle/assault_rifle/bitmaps/assault_rifle_diffuse.bitmap",
+      "bitmap_sha256": "f4d57db3cf93a42895d8679fd08d1e723a17d4a7f472806221d19d87381bc17a",
+      "image": "out/reload-kits/surfaces/HREK/f4d57db3cf93a42895d8679fd08d1e723a17d4a7f472806221d19d87381bc17a-assault_rifle_diffuse_00_00.tga",
+      "image_sha256": "39b9d8fffb1103471df9b01c71c550ae9b8cdf58acc182b30cde3baa8e947470",
+      "parameter": "base_map",
+      "crop": [
+        185,
+        392,
+        515,
+        515
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        396,
+        1388
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/sniper_rifle/sniper_rifle.render_model",
+      "material": "sniper_metal",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_metal.shader",
+      "shader_sha256": "8beeb159590d240bec3404de5b7f6febe260c9898cdc59004b6e2eb3295c37fd",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle_diffuse.bitmap",
+      "bitmap_sha256": "df5845dd612327767cc867e592d9e43096f92c7916983b58efe9d979758182db",
+      "image": "out/reload-kits/surfaces/HREK/df5845dd612327767cc867e592d9e43096f92c7916983b58efe9d979758182db-sniper_rifle_diffuse_00_00.tga",
+      "image_sha256": "40ea22ef3270c41eb1a1cb3496db04a198c8ee3330aa3b5922fd1460552880f5",
+      "parameter": "base_map",
+      "crop": [
+        191,
+        236,
+        295,
+        512
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        728,
+        1388
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/sniper_rifle/sniper_rifle.render_model",
+      "material": "sniper_rubber",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_rubber.shader",
+      "shader_sha256": "7a1b4d6da9e006159c19dbbed96771dab9459ac41d0a53c51c691603f8132bcc",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle_diffuse.bitmap",
+      "bitmap_sha256": "df5845dd612327767cc867e592d9e43096f92c7916983b58efe9d979758182db",
+      "image": "out/reload-kits/surfaces/HREK/df5845dd612327767cc867e592d9e43096f92c7916983b58efe9d979758182db-sniper_rifle_diffuse_00_00.tga",
+      "image_sha256": "40ea22ef3270c41eb1a1cb3496db04a198c8ee3330aa3b5922fd1460552880f5",
+      "parameter": "base_map",
+      "crop": [
+        100,
+        381,
+        278,
+        477
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        832,
+        1388
+      ]
+    },
+    {
+      "title": "HREK",
+      "model": "objects/weapons/rifle/sniper_rifle/sniper_rifle.render_model",
+      "material": "unsc_decals_fp",
+      "shader": "objects/bitmaps/decals/shaders/unsc_decals_fp.shader",
+      "shader_sha256": "b836a46266983b43e03dcbd1491a5b64a57fa6bc6b487b53b7500a1bfb686787",
+      "bitmap": "objects/bitmaps/decals/bitmaps/unsc_decals_diffuse.bitmap",
+      "bitmap_sha256": "cca1c5dfd6ba05c682f12fcb384c65882b178e578b3e21cb6bf278b3feafc906",
+      "image": "out/reload-kits/surfaces/HREK/cca1c5dfd6ba05c682f12fcb384c65882b178e578b3e21cb6bf278b3feafc906-unsc_decals_diffuse_00_00.tga",
+      "image_sha256": "4be125f8460b420840153b36b76cd575e4e716c04d27bd09e77136c9a97ace99",
+      "parameter": "base_map",
+      "crop": [
+        349,
+        424,
+        386,
+        449
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\storm_covenant_carbine\\shaders\\storm_covenant_carbine_default\\base_gradient,mat ",
+      "shader": "objects/weapons/rifle/storm_covenant_carbine/shaders/storm_covenant_carbine_default/base_gradient.material",
+      "shader_sha256": "b0eacd723b1e6f7851e25d8d705932eb550c12ee2960670123ce8edf2d2abebe",
+      "bitmap": "objects/weapons/rifle/storm_covenant_carbine/bitmaps/storm_covenant_carbine_default/base_gradient.bitmap",
+      "bitmap_sha256": "a4e907355a2a95b9d163536f73bb6acdaae6571845ef3c67346cba44ed7d1c60",
+      "image": "out/reload-kits/surfaces/H4EK/a4e907355a2a95b9d163536f73bb6acdaae6571845ef3c67346cba44ed7d1c60-base_gradient_00_00.tga",
+      "image_sha256": "9fd7ef218f0501f0e8a8d88ac0b0c1b499d54ae640e327b920547bc9ef2c6284",
+      "parameter": "color_map",
+      "tint": [
+        0.341176,
+        1.0,
+        0.0
+      ],
+      "crop": [
+        -2,
+        -1,
+        132,
+        130
+      ],
+      "scaled_image": [
+        128,
+        128
+      ],
+      "atlas_position": [
+        40,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\storm_covenant_carbine\\shaders\\storm_covenant_carbine_default\\storm_assault_carbine_default_covglyph_ones,mat ",
+      "shader": "objects/weapons/rifle/storm_covenant_carbine/shaders/storm_covenant_carbine_default/storm_assault_carbine_default_covglyph_ones.material",
+      "shader_sha256": "3b5e8dfa279db12aa09d53f366e2bbaabb0f30d9da47ade0c5f13745ef0ee535",
+      "bitmap": "objects/weapons/rifle/storm_assault_carbine/bitmaps/storm_assault_carbine_default/covglyph.bitmap",
+      "bitmap_sha256": "1d97270b81bf3e3f034609ca1c061b837bc831a4ae83af0b0443a32109afb8c6",
+      "image": "out/reload-kits/surfaces/H4EK/1d97270b81bf3e3f034609ca1c061b837bc831a4ae83af0b0443a32109afb8c6-covglyph_00_00.tga",
+      "image_sha256": "22c114f30c1d1fac0a81e0f139b17ceff875c52278fec50f2e556729ebc52a79",
+      "parameter": "color_map",
+      "tint": [
+        0.580392,
+        1.0,
+        0.411765
+      ],
+      "crop": [
+        -4,
+        -4,
+        68,
+        68
+      ],
+      "scaled_image": [
+        64,
+        64
+      ],
+      "atlas_position": [
+        176,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\storm_covenant_carbine\\shaders\\storm_covenant_carbine_default\\storm_assault_carbine_default_covglyph_tens,mat ",
+      "shader": "objects/weapons/rifle/storm_covenant_carbine/shaders/storm_covenant_carbine_default/storm_assault_carbine_default_covglyph_tens.material",
+      "shader_sha256": "afbb7945a773da61bf9ee2d424473d82679af51d397ee687d53d9446bddbaa44",
+      "bitmap": "objects/weapons/rifle/storm_assault_carbine/bitmaps/storm_assault_carbine_default/covglyph.bitmap",
+      "bitmap_sha256": "1d97270b81bf3e3f034609ca1c061b837bc831a4ae83af0b0443a32109afb8c6",
+      "image": "out/reload-kits/surfaces/H4EK/1d97270b81bf3e3f034609ca1c061b837bc831a4ae83af0b0443a32109afb8c6-covglyph_00_00.tga",
+      "image_sha256": "22c114f30c1d1fac0a81e0f139b17ceff875c52278fec50f2e556729ebc52a79",
+      "parameter": "color_map",
+      "tint": [
+        0.588235,
+        1.0,
+        0.415686
+      ],
+      "crop": [
+        -4,
+        -4,
+        68,
+        68
+      ],
+      "scaled_image": [
+        64,
+        64
+      ],
+      "atlas_position": [
+        248,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\storm_covenant_carbine\\shaders\\storm_covenant_carbine_default\\storm_covenant_carbine_metal_new,mat ",
+      "shader": "objects/weapons/rifle/storm_covenant_carbine/shaders/storm_covenant_carbine_default/storm_covenant_carbine_metal_new.material",
+      "shader_sha256": "9db4cb6981ebdd80858ca2898da2602ca233991b6556ca625a8ad8517419e604",
+      "bitmap": "objects/weapons/rifle/storm_covenant_carbine/bitmaps/storm_covenant_carbine_default/storm_covenant_carbine_diff.bitmap",
+      "bitmap_sha256": "c7ac8dec3dac5bc0a2654c5f19a076ead4767064da74cbb7d2d2e10738e98963",
+      "image": "out/reload-kits/surfaces/H4EK/c7ac8dec3dac5bc0a2654c5f19a076ead4767064da74cbb7d2d2e10738e98963-storm_covenant_carbine_diff_00_00.tga",
+      "image_sha256": "0d8a921a8dfa68c958a87c1271a764f08bd96842aa50e7c3ed4ebec04572ffff",
+      "parameter": "color_map",
+      "tint": [
+        0.780392,
+        0.780392,
+        0.780392
+      ],
+      "crop": [
+        25,
+        25,
+        293,
+        97
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        320,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\storm_covenant_carbine\\shaders\\storm_covenant_carbine_default\\wire_shape,mat ",
+      "shader": "objects/weapons/rifle/storm_covenant_carbine/shaders/storm_covenant_carbine_default/wire_shape.material",
+      "shader_sha256": "135fa88c5d7c3613b8d4248c2dc68c40b496e011b437a93b3086c030593f9eaa",
+      "bitmap": "objects/weapons/rifle/storm_covenant_carbine/bitmaps/storm_covenant_carbine_default/wire_shape.bitmap",
+      "bitmap_sha256": "351582719c9fc102c41eff6ff4aa6e70e55225ca763a8966dc34b8435d4c2cee",
+      "image": "out/reload-kits/surfaces/H4EK/351582719c9fc102c41eff6ff4aa6e70e55225ca763a8966dc34b8435d4c2cee-wire_shape_00_00.tga",
+      "image_sha256": "3c44d0b0766fe187f58b5b986e5650bc5da9a1ae39daa8fb44d877b660ee936f",
+      "parameter": "color_map",
+      "tint": [
+        0.305882,
+        0.909804,
+        0.396078
+      ],
+      "crop": [
+        -4,
+        -4,
+        132,
+        132
+      ],
+      "scaled_image": [
+        128,
+        128
+      ],
+      "atlas_position": [
+        588,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\storm_covenant_carbine\\shaders\\storm_covenant_carbine_default\\wire_shape2,mat ",
+      "shader": "objects/weapons/rifle/storm_covenant_carbine/shaders/storm_covenant_carbine_default/wire_shape2.material",
+      "shader_sha256": "87182ed30d2187f2113148c41412f6add586f7b06d0f3a1cbabf1f70b43bdc5e",
+      "bitmap": "objects/weapons/rifle/storm_covenant_carbine/bitmaps/storm_covenant_carbine_default/wire_shape.bitmap",
+      "bitmap_sha256": "351582719c9fc102c41eff6ff4aa6e70e55225ca763a8966dc34b8435d4c2cee",
+      "image": "out/reload-kits/surfaces/H4EK/351582719c9fc102c41eff6ff4aa6e70e55225ca763a8966dc34b8435d4c2cee-wire_shape_00_00.tga",
+      "image_sha256": "3c44d0b0766fe187f58b5b986e5650bc5da9a1ae39daa8fb44d877b660ee936f",
+      "parameter": "color_map",
+      "tint": [
+        0.482353,
+        1.0,
+        0.560784
+      ],
+      "crop": [
+        -4,
+        -4,
+        132,
+        132
+      ],
+      "scaled_image": [
+        128,
+        128
+      ],
+      "atlas_position": [
+        724,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_dmr/storm_dmr.render_model",
+      "material": "objects\\weapons\\rifle\\storm_dmr\\materials\\storm_dmr_default\\storm_dmr_default,mat ",
+      "shader": "objects/weapons/rifle/storm_dmr/materials/storm_dmr_default/storm_dmr_default.material",
+      "shader_sha256": "873c7d520d7a99c60e1a7de5593c7d211f0c13eb044e11720f0c58be7923a47e",
+      "bitmap": "objects/weapons/rifle/storm_dmr/bitmaps/storm_dmr_default/storm_dmr_diff.bitmap",
+      "bitmap_sha256": "453577a7dd451a993798288c99b4f0b097f87c8b9da568d2159482306b15b00a",
+      "image": "out/reload-kits/surfaces/H4EK/453577a7dd451a993798288c99b4f0b097f87c8b9da568d2159482306b15b00a-storm_dmr_diff_00_00.tga",
+      "image_sha256": "be297c754377d85b3036fbc8c7e8dfd8ccb50df6133ff6597619f77a2e675e82",
+      "parameter": "color_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        424,
+        -3,
+        516,
+        77
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        860,
+        1664
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_lmg/storm_lmg.render_model",
+      "material": "objects\\weapons\\rifle\\storm_lmg\\materials\\storm_lmg_default\\storm_lmg_default,mat ",
+      "shader": "objects/weapons/rifle/storm_lmg/materials/storm_lmg_default/storm_lmg_default.material",
+      "shader_sha256": "a5051b438fc33b32b01048d465a5ed014f94d14d02c837b6d8fba0027982da00",
+      "bitmap": "objects/weapons/rifle/storm_lmg/bitmaps/storm_lmg_default/storm_lmg_diff.bitmap",
+      "bitmap_sha256": "e05d8b31839235759544721ae8cebd8708d3679b243329b43cdd898768b93cd9",
+      "image": "out/reload-kits/surfaces/H4EK/e05d8b31839235759544721ae8cebd8708d3679b243329b43cdd898768b93cd9-storm_lmg_diff_00_00.tga",
+      "image_sha256": "f2d692095ef951af0d521e1afabeed91b5bb475c6190079c0094f04cfabd7be6",
+      "parameter": "color_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        -4,
+        77,
+        191,
+        260
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        0,
+        1800
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/pistol/storm_magnum/storm_magnum.render_model",
+      "material": "objects\\weapons\\pistol\\storm_magnum\\materials\\storm_magnum_default\\storm_magnum_default,mat ",
+      "shader": "objects/weapons/pistol/storm_magnum/materials/storm_magnum_default/storm_magnum_default.material",
+      "shader_sha256": "e7ff490d65db3c1e0946e6f44f738cc8ce74d034b599aed443482f4ceac48dd5",
+      "bitmap": "objects/weapons/pistol/storm_magnum/bitmaps/storm_magnum_default/storm_magnum_diff.bitmap",
+      "bitmap_sha256": "548739798729354f8f661816cb4cd8cbfb86c745e6847051e1a85799afe8834e",
+      "image": "out/reload-kits/surfaces/H4EK/548739798729354f8f661816cb4cd8cbfb86c745e6847051e1a85799afe8834e-storm_magnum_diff_00_00.tga",
+      "image_sha256": "20f85c3ad547c2fddcf728e8bf7b955163b06f51c7a630395713ea4fe46b1c7b",
+      "parameter": "color_map",
+      "tint": [
+        0.854902,
+        0.854902,
+        0.854902
+      ],
+      "crop": [
+        141,
+        168,
+        419,
+        260
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        196,
+        1800
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_sniper_rifle/storm_sniper_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\storm_sniper_rifle\\materials\\storm_sniper_rifle_default\\storm_sniper_rifle_default,mat ",
+      "shader": "objects/weapons/rifle/storm_sniper_rifle/materials/storm_sniper_rifle_default/storm_sniper_rifle_default.material",
+      "shader_sha256": "c8104d2e12cea60075665b2572a69d5e47e71c727880ee45c5cd90eb58ae8623",
+      "bitmap": "objects/weapons/rifle/storm_sniper_rifle/bitmaps/storm_sniper_rifle_default/storm_sniper_rifle_diff.bitmap",
+      "bitmap_sha256": "ffa9c77f68cdf5f43f2097936ce0161dea4c16d1585e8750676c4600ac873920",
+      "image": "out/reload-kits/surfaces/H4EK/ffa9c77f68cdf5f43f2097936ce0161dea4c16d1585e8750676c4600ac873920-storm_sniper_rifle_diff_00_00.tga",
+      "image_sha256": "5131d87acc3b25b428d20cdc69ca55add2bb6b34dbb2e8c04a6b3e6774b20fd2",
+      "parameter": "color_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        194,
+        194,
+        315,
+        260
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        476,
+        1800
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_assault_rifle/storm_assault_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\storm_assault_rifle\\materials\\storm_assault_rifle_default\\storm_assault_rifle_default_metal,mat ",
+      "shader": "objects/weapons/rifle/storm_assault_rifle/materials/storm_assault_rifle_default/storm_assault_rifle_default_metal.material",
+      "shader_sha256": "605ec359172bd42b2f7f9ff81c7a6996b525860a8427e588b9f3114029088428",
+      "bitmap": "objects/weapons/rifle/storm_assault_rifle/bitmaps/storm_assault_rifle_default/storm_assault_rifle_default_diff.bitmap",
+      "bitmap_sha256": "6913dacab074ba1c61412b6151df163966d33fa22a0497b97d5399e247674347",
+      "image": "out/reload-kits/surfaces/H4EK/6913dacab074ba1c61412b6151df163966d33fa22a0497b97d5399e247674347-storm_assault_rifle_default_diff_00_00.tga",
+      "image_sha256": "830e6c5311703b905ab6a36a0b27243697e1bab232397be2482649a487daee2a",
+      "parameter": "color_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        384,
+        -3,
+        462,
+        259
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        600,
+        1800
+      ]
+    },
+    {
+      "title": "H4EK",
+      "model": "objects/weapons/rifle/storm_br/storm_br.render_model",
+      "material": "objects\\weapons\\rifle\\storm_br\\materials\\storm_br_default\\storm_br_default,mat ",
+      "shader": "objects/weapons/rifle/storm_br/materials/storm_br_default/storm_br_default.material",
+      "shader_sha256": "8cfcd19eb3b6a07d997e0d656c9d67a54c0d6c5e4eafdec70dcdd239ad74a1f8",
+      "bitmap": "objects/weapons/rifle/storm_br/bitmaps/storm_br_default/storm_br_diff.bitmap",
+      "bitmap_sha256": "f4f970ac82887d43ebfc311cffb78b22de1d8ecabb96dd58c62a2a7f847fb710",
+      "image": "out/reload-kits/surfaces/H4EK/f4f970ac82887d43ebfc311cffb78b22de1d8ecabb96dd58c62a2a7f847fb710-storm_br_diff_00_00.tga",
+      "image_sha256": "36be98377f4baf4f9881c954ca626fb1c66fedf2e19d93ea704be69363f5569d",
+      "parameter": "color_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        58,
+        201,
+        183,
+        260
+      ],
+      "scaled_image": [
+        512,
+        256
+      ],
+      "atlas_position": [
+        680,
+        1800
+      ]
+    },
+    {
+      "title": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.gbxmodel",
+      "material": "weapons\\pistol\\fp\\shaders\\silver",
+      "shader": "weapons/pistol/fp/shaders/silver.shader_model",
+      "shader_sha256": "3e4936980830b8736cdf2362851dd87d4a441055f87f32079bdcc07bf77f46bf",
+      "bitmap": "weapons/pistol/fp/bitmaps/pistol.bitmap",
+      "bitmap_sha256": "8d86ece82a1b8f82b98677ad9424e945cf6e7170fa4d0a01bb6326f2a5988de1",
+      "image": "out/reload-kits/surfaces/HCEEK/8d86ece82a1b8f82b98677ad9424e945cf6e7170fa4d0a01bb6326f2a5988de1-native.tga",
+      "image_sha256": "f1f5e3e1dfe0d53953ff6e5ca259f5000b38bc818ae3bd87a5785c755a708186",
+      "parameter": "base map",
+      "crop": [
+        220,
+        172,
+        462,
+        369
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        2064
+      ]
+    },
+    {
+      "title": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.gbxmodel",
+      "material": "weapons\\pistol\\fp\\shaders\\black",
+      "shader": "weapons/pistol/fp/shaders/black.shader_model",
+      "shader_sha256": "065fe80f01948dace5524a2f62c3ec36200a61c8c1069c407163e691ed5e43dd",
+      "bitmap": "weapons/pistol/fp/bitmaps/pistol.bitmap",
+      "bitmap_sha256": "8d86ece82a1b8f82b98677ad9424e945cf6e7170fa4d0a01bb6326f2a5988de1",
+      "image": "out/reload-kits/surfaces/HCEEK/8d86ece82a1b8f82b98677ad9424e945cf6e7170fa4d0a01bb6326f2a5988de1-native.tga",
+      "image_sha256": "f1f5e3e1dfe0d53953ff6e5ca259f5000b38bc818ae3bd87a5785c755a708186",
+      "parameter": "base map",
+      "crop": [
+        -1,
+        185,
+        430,
+        511
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        244,
+        2064
+      ]
+    },
+    {
+      "title": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.gbxmodel",
+      "material": "weapons\\assault rifle\\fp\\shaders\\grip",
+      "shader": "weapons/assault rifle/fp/shaders/grip.shader_model",
+      "shader_sha256": "fe4fb6026c769c12fb99c7338f13ef3cca6c21aeb6aa2883a4e2750bf4dc2798",
+      "bitmap": "weapons/assault rifle/fp/bitmaps/assault rifle_fp.bitmap",
+      "bitmap_sha256": "9c869733af4efbf5dca4b62ba70bdbcd4657a3a41c9bdb265cf66d4dc23d73b7",
+      "image": "out/reload-kits/surfaces/HCEEK/9c869733af4efbf5dca4b62ba70bdbcd4657a3a41c9bdb265cf66d4dc23d73b7-native.tga",
+      "image_sha256": "7817eca9aa350e95d3a81c08f99e38cf4c248ff6986d65d0cd07b30e21446860",
+      "parameter": "base map",
+      "crop": [
+        3,
+        253,
+        160,
+        441
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        676,
+        2064
+      ]
+    },
+    {
+      "title": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.gbxmodel",
+      "material": "weapons\\assault rifle\\fp\\shaders\\gun",
+      "shader": "weapons/assault rifle/fp/shaders/gun.shader_model",
+      "shader_sha256": "08b1b4cea52bf10cf2b8848fe8a9182e09e8122238444747b2b1b8e3b8259baa",
+      "bitmap": "weapons/assault rifle/fp/bitmaps/assault rifle_fp.bitmap",
+      "bitmap_sha256": "9c869733af4efbf5dca4b62ba70bdbcd4657a3a41c9bdb265cf66d4dc23d73b7",
+      "image": "out/reload-kits/surfaces/HCEEK/9c869733af4efbf5dca4b62ba70bdbcd4657a3a41c9bdb265cf66d4dc23d73b7-native.tga",
+      "image_sha256": "7817eca9aa350e95d3a81c08f99e38cf4c248ff6986d65d0cd07b30e21446860",
+      "parameter": "base map",
+      "crop": [
+        135,
+        270,
+        511,
+        492
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        2392
+      ]
+    },
+    {
+      "title": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.gbxmodel",
+      "material": "weapons\\sniper rifle\\shaders\\sniper rifle metal",
+      "shader": "weapons/sniper rifle/shaders/sniper rifle metal.shader_model",
+      "shader_sha256": "c04211e5e069c37724562918d1473b17ae22adf6c72c23e28bdc17d8eafe0c4f",
+      "bitmap": "weapons/sniper rifle/bitmaps/sniper rifle.bitmap",
+      "bitmap_sha256": "8e9571da45e3ae39526c4efb1850d01c9efc65d2ff370883843f1dd3d2069a2c",
+      "image": "out/reload-kits/surfaces/HCEEK/8e9571da45e3ae39526c4efb1850d01c9efc65d2ff370883843f1dd3d2069a2c-native.tga",
+      "image_sha256": "04576165c7301578de27b9cb93a07305e84ac5ac09c9fdacca62b3b1284b0c37",
+      "parameter": "base map",
+      "crop": [
+        156,
+        96,
+        513,
+        256
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        376,
+        2392
+      ]
+    },
+    {
+      "title": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.gbxmodel",
+      "material": "weapons\\sniper rifle\\shaders\\sniper rifle grip",
+      "shader": "weapons/sniper rifle/shaders/sniper rifle grip.shader_model",
+      "shader_sha256": "b139d553a7f72e929f6107bc09824c75612aeda00ba3d45a640bf35fae344924",
+      "bitmap": "weapons/sniper rifle/bitmaps/sniper rifle.bitmap",
+      "bitmap_sha256": "8e9571da45e3ae39526c4efb1850d01c9efc65d2ff370883843f1dd3d2069a2c",
+      "image": "out/reload-kits/surfaces/HCEEK/8e9571da45e3ae39526c4efb1850d01c9efc65d2ff370883843f1dd3d2069a2c-native.tga",
+      "image_sha256": "04576165c7301578de27b9cb93a07305e84ac5ac09c9fdacca62b3b1284b0c37",
+      "parameter": "base map",
+      "crop": [
+        51,
+        96,
+        513,
+        173
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        2616
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\battle_rifle\\shaders\\battle_rifle_metal",
+      "shader": "objects/weapons/rifle/battle_rifle/shaders/battle_rifle_metal.shader",
+      "shader_sha256": "3eabefac9b056bcc9458b3cd50baf9c8d962963d8d7ebb4b55cbd072ec61cd53",
+      "bitmap": "objects/weapons/rifle/battle_rifle/bitmaps/battle_rifle.bitmap",
+      "bitmap_sha256": "fabb64c21a346862bf295aae869c4451b2c0ca0e9ef52f6b6bcbcecc001fde72",
+      "image": "out/reload-kits/surfaces/H2EK/fabb64c21a346862bf295aae869c4451b2c0ca0e9ef52f6b6bcbcecc001fde72-battle_rifle_00_00.tga",
+      "image_sha256": "2bbfbf96bd8afe43d323efdce1c363b060463ae752c1300144eaa49251462f4e",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        394,
+        218,
+        513,
+        287
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        464,
+        2616
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\battle_rifle\\shaders\\battle_rifle_plastic",
+      "shader": "objects/weapons/rifle/battle_rifle/shaders/battle_rifle_plastic.shader",
+      "shader_sha256": "968ed5a0d85f42b7338183047c42cfcf5fb56bc3ed393fbd8d94d9d8fd974e40",
+      "bitmap": "objects/weapons/rifle/battle_rifle/bitmaps/battle_rifle.bitmap",
+      "bitmap_sha256": "fabb64c21a346862bf295aae869c4451b2c0ca0e9ef52f6b6bcbcecc001fde72",
+      "image": "out/reload-kits/surfaces/H2EK/fabb64c21a346862bf295aae869c4451b2c0ca0e9ef52f6b6bcbcecc001fde72-battle_rifle_00_00.tga",
+      "image_sha256": "2bbfbf96bd8afe43d323efdce1c363b060463ae752c1300144eaa49251462f4e",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        328,
+        144,
+        490,
+        323
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        584,
+        2616
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/gpmg/fp_gpmg/fp_gpmg.render_model",
+      "material": "objects\\weapons\\rifle\\gpmg\\shaders\\gpmg_gun",
+      "shader": "objects/weapons/rifle/gpmg/shaders/gpmg_gun.shader",
+      "shader_sha256": "48f68e133d9640c35c0fd63cde1a42c253d0b24d3cf9745c0449afeba3dbca3b",
+      "bitmap": "objects/weapons/fixed/h_turret_mp/bitmaps/h_turret_mp_gun.bitmap",
+      "bitmap_sha256": "651ea9d05b5918979cf2c70e077eb94edbced10871d94105af9a1ca63e10a399",
+      "image": "out/reload-kits/surfaces/H2EK/651ea9d05b5918979cf2c70e077eb94edbced10871d94105af9a1ca63e10a399-h_turret_mp_gun_00_00.tga",
+      "image_sha256": "0362fb73098169634c20caf2a441472368c3c9619835e9937e7b1ea1cdb43795",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        238,
+        146,
+        514,
+        334
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        748,
+        2616
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model",
+      "material": "objects\\weapons\\rifle\\smg_silenced\\shaders\\smg_painted_metal",
+      "shader": "objects/weapons/rifle/smg_silenced/shaders/smg_painted_metal.shader",
+      "shader_sha256": "bd320c9377d3e680c7d18829769d8dc97619b1d5f49ca3ccd106bef79f087f27",
+      "bitmap": "objects/weapons/rifle/smg/bitmaps/smg.bitmap",
+      "bitmap_sha256": "e3dbd4fa9ea7ddafbca037603735cd3bcc5122d61599e2319415f6dfded6c7d8",
+      "image": "out/reload-kits/surfaces/H2EK/e3dbd4fa9ea7ddafbca037603735cd3bcc5122d61599e2319415f6dfded6c7d8-smg_00_00.tga",
+      "image_sha256": "36961d1226968920216224ecc53b14f0057b4d3055b80294a8a5eddb60f59853",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        1,
+        167,
+        512,
+        512
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        2804
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "material": "objects\\weapons\\rifle\\sniper_rifle\\shaders\\sniper_rifle_metal",
+      "shader": "objects/weapons/rifle/sniper_rifle/shaders/sniper_rifle_metal.shader",
+      "shader_sha256": "22dc8fb0a8ffea148cfa5890c9a96ee708fc8ea074cdae42633cf1bd73527b99",
+      "bitmap": "objects/weapons/rifle/sniper_rifle/bitmaps/sniper_rifle.bitmap",
+      "bitmap_sha256": "275e408590e421ec6c4b77a0ace9773443a22bd6aebedb096724882dd4997931",
+      "image": "out/reload-kits/surfaces/H2EK/275e408590e421ec6c4b77a0ace9773443a22bd6aebedb096724882dd4997931-sniper_rifle_00_00.tga",
+      "image_sha256": "328dc87e2f1985384c63291a121b81335130abe8411e9f0befb22795f7cd89e0",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        0,
+        53,
+        513,
+        302
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        3152
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/smg/fp_smg/fp_smg.render_model",
+      "material": "objects\\weapons\\rifle\\smg\\shaders\\smg_painted_metal",
+      "shader": "objects/weapons/rifle/smg/shaders/smg_painted_metal.shader",
+      "shader_sha256": "22599916854665e35f35db53931b7effd81a15f4f6764175b1850f8553db911e",
+      "bitmap": "objects/weapons/rifle/smg/bitmaps/smg.bitmap",
+      "bitmap_sha256": "e3dbd4fa9ea7ddafbca037603735cd3bcc5122d61599e2319415f6dfded6c7d8",
+      "image": "out/reload-kits/surfaces/H2EK/e3dbd4fa9ea7ddafbca037603735cd3bcc5122d61599e2319415f6dfded6c7d8-smg_00_00.tga",
+      "image_sha256": "36961d1226968920216224ecc53b14f0057b4d3055b80294a8a5eddb60f59853",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        1,
+        167,
+        512,
+        512
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        0,
+        2804
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "material": "objects\\weapons\\pistol\\magnum\\shaders\\magnum_metal",
+      "shader": "objects/weapons/pistol/magnum/shaders/magnum_metal.shader",
+      "shader_sha256": "6f1a62616d301cea2dc29eec642bd10b669b857f13f7b7efe618c0d6954d815c",
+      "bitmap": "objects/weapons/pistol/magnum/bitmaps/magnum.bitmap",
+      "bitmap_sha256": "ebaac928e81738450d7e586684c32663115ad538d0259dec98d581186c3b249b",
+      "image": "out/reload-kits/surfaces/H2EK/ebaac928e81738450d7e586684c32663115ad538d0259dec98d581186c3b249b-magnum_00_00.tga",
+      "image_sha256": "b0a55c9cb23439c41ca7a0b0614a3e67f8216cd52b427d241b5ec8d1e6f99bc6",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        146,
+        326,
+        281,
+        430
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        516,
+        3152
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "material": "objects\\weapons\\pistol\\magnum\\shaders\\magnum_coated",
+      "shader": "objects/weapons/pistol/magnum/shaders/magnum_coated.shader",
+      "shader_sha256": "503b17c3bacf62319ccd499b63bb9e1cbdb8cf43ab3baaa621820ee3a14a8b36",
+      "bitmap": "objects/weapons/pistol/magnum/bitmaps/magnum.bitmap",
+      "bitmap_sha256": "ebaac928e81738450d7e586684c32663115ad538d0259dec98d581186c3b249b",
+      "image": "out/reload-kits/surfaces/H2EK/ebaac928e81738450d7e586684c32663115ad538d0259dec98d581186c3b249b-magnum_00_00.tga",
+      "image_sha256": "b0a55c9cb23439c41ca7a0b0614a3e67f8216cd52b427d241b5ec8d1e6f99bc6",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        -2,
+        337,
+        148,
+        511
+      ],
+      "scaled_image": [
+        512,
+        512
+      ],
+      "atlas_position": [
+        652,
+        3152
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_display",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_display.shader",
+      "shader_sha256": "24ff77f3005a8ac5c7667b04940af58f8f4715b6d2a94fa6be13f527cd1a7b9b",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine_display_illum.bitmap",
+      "bitmap_sha256": "ceadd38a618ad08d9900e824f4c86419330ef4252a8e8e01eedce3a538ece565",
+      "image": "out/reload-kits/surfaces/H2EK/ceadd38a618ad08d9900e824f4c86419330ef4252a8e8e01eedce3a538ece565-covenant_carbine_display_illum_00_00.tga",
+      "image_sha256": "8fc40c8f5f233c47f1ee6f52a258229d086a6127f6afa8b84ceafe76b52d767e",
+      "parameter": "meter_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        -2,
+        -4,
+        258,
+        37
+      ],
+      "scaled_image": [
+        256,
+        32
+      ],
+      "atlas_position": [
+        0,
+        3404
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_dull",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_dull.shader",
+      "shader_sha256": "82a9fa063ee2cb34df0a512433fc27b86257f299cfee40aadf6d87303ffadc87",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine.bitmap",
+      "bitmap_sha256": "51cd5781bebbde1f27266bec8c2567882c9186a2fac88c3e77cef369cdb15741",
+      "image": "out/reload-kits/surfaces/H2EK/51cd5781bebbde1f27266bec8c2567882c9186a2fac88c3e77cef369cdb15741-covenant_carbine_00_00.tga",
+      "image_sha256": "ff935acd79447b0a4754f9dc78a9c72858614122c1a9bf1ae2b738b7da170041",
+      "parameter": "base_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        -12,
+        105,
+        119,
+        172
+      ],
+      "scaled_image": [
+        256,
+        256
+      ],
+      "atlas_position": [
+        260,
+        3404
+      ]
+    },
+    {
+      "title": "H2EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "material": "objects\\weapons\\rifle\\covenant_carbine\\shaders\\carbine_switch",
+      "shader": "objects/weapons/rifle/covenant_carbine/shaders/carbine_switch.shader",
+      "shader_sha256": "8fae2d233328e18a363691c6f1c7666f4f9d843bd6b9a66fbff19973caf3e10c",
+      "bitmap": "objects/weapons/rifle/covenant_carbine/bitmaps/covenant_carbine_switch_illum.bitmap",
+      "bitmap_sha256": "f35684a56fbb1fff0f3a71176acd9cfb7bd1d586946fe4c038072faaef60c751",
+      "image": "out/reload-kits/surfaces/H2EK/f35684a56fbb1fff0f3a71176acd9cfb7bd1d586946fe4c038072faaef60c751-covenant_carbine_switch_illum_00_00.tga",
+      "image_sha256": "fab2ac3ee8e2d784c9394f6302ebe4e925a515d87762adc94de035f201aed6ae",
+      "parameter": "self_illum_map",
+      "tint": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "crop": [
+        1,
+        1,
+        63,
+        63
+      ],
+      "scaled_image": [
+        64,
+        64
+      ],
+      "atlas_position": [
+        392,
+        3404
+      ]
+    }
+  ]
+}

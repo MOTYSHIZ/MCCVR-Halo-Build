@@ -15,6 +15,8 @@
 #include "../common/halo2_render_logic.h"
 #include "../common/input_logic.h"
 #include "../common/exclusive_input.h"
+#include "../common/flashlight_input.h"
+#include "../common/weapon_interaction_logic.h"
 #include "../common/odst_bringup_logic.h"
 #include "../common/scope_logic.h"
 
@@ -155,9 +157,8 @@ namespace
         // into Halo enters native zoom state, which hides the normal VR gun and
         // body even if we restore the eye FOV. Disabled/non-gameplay input still
         // passes through unchanged.
-        const bool scopeAvailable = sharedGameplayInput &&
-            g_config.scope_enabled && Game_IsHeadTracking() &&
-            !Game_IsCameraOnlyBringup();
+        const bool scopeAvailable = g_config.scope_enabled && Game_IsHeadTracking() &&
+            Game_HasScopeRenderer();
         const ScopeToggleUpdate scope = g_scopeToggle.Update(
             scopeAvailable, pad.clickR, chord.consumeClicks || Menu_IsOpen());
         if (scope.changed && scopeAvailable)
@@ -496,6 +497,22 @@ namespace
     {
         if (user != 0 || !state)
             return r;
+        // Scope exit covers both tracked-controller and physical-pad-only
+        // branches, after all gesture pulses and pad merging have completed.
+        struct FlashlightFilterScope
+        {
+            XINPUT_STATE* state;
+            ~FlashlightFilterScope() noexcept {
+                static thread_local flashlight_input::Filter filter;
+                const auto title=TitleAdapter_GetActiveTitle();
+                const int index=weapon_interaction::TitleIndex(title);
+                const bool gameplay=index>=0&&Game_AllowsSharedGameplayFeatures()&&
+                    !Menu_IsOpen()&&!VR_IsPausePresentation()&&!VR_IsPausePresentationTarget()&&
+                    !VR_IsCutsceneTheaterActive();
+                filter.Apply(state->Gamepad,g_config.disable_flashlight_input,gameplay,
+                    static_cast<uint32_t>(title),index>=0?g_config.flashlight_button[index]:-1);
+            }
+        } flashlightFilter{state};
         // Connection presence is INDEPENDENT of the shared-input gate. With no
         // physical gamepad the mod owns slot 0 and must always present it
         // connected and idle -- even while shared input is gated off (e.g. the

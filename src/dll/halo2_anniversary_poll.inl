@@ -3,6 +3,10 @@ bool Halo2AnniversaryStereo_Poll(
     bool activeAndRange, bool levelRunning, bool coldPassed,
     bool remasteredRendererLive, uintptr_t observerResultArray) noexcept
 {
+    static uint32_t reportedScopeFaults=0;
+    const auto scopeFaults=g_zoomFaults.load();
+    if(scopeFaults!=reportedScopeFaults)
+    { reportedScopeFaults=scopeFaults;LOG("Halo 2 Anniversary zoom stock fallback: optional scope faults=%u generation=%u; stereo core retained",scopeFaults,g_zoomFaultGeneration.load()); }
     uint32_t vrFailure = g_vrFailureGeneration.load(std::memory_order_acquire);
     if (vrFailure && generation && generation != vrFailure)
     {

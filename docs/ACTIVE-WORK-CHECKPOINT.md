@@ -1,3 +1,628 @@
+## September 18 delivery preparation - circular zoom and optional CE flares
+
+Latest user requires graphical adjustment to be a toggle, then matching ZIPs
+and completed/unfinished/not-started report. Implemented default-off F1 > Picture >
+Disable CE Anniversary lens flares. Both eyes freeze the choice; native world
+lighting and Classic remain unchanged. Root cause/workaround effectiveness are
+unconfirmed. See ZOOM-AND-CE-FLARES-2026-09-18.md and current RELEASE-NOTES.
+
+Circular1024 zoom implemented H2both/H3/ODST/Reach/H4. CE separate lens unfinished:
+pinned native third-view test proves left-depth overwrite; full-frame replay
+also consumes worker completion. No unsafe CE adapter enabled. Fixture checks:
+H2both226/H43478/Reach899/ODST257. Release build-delivery-final.log passes.
+58-suite run passed before cleanup-fixture rebuild; packaging repeats all tests.
+Reach gate,384 native flare cases and all3 actual scope HLSL entry compiles pass.
+
+Next: commit cumulative work, package WITHOUT -Install, verify archive/source/
+manifest hashes, deliver both ZIPs with current notes. No install, launch,
+publication or accepted-pointer update. Descends from accepted1a9766c. All prior
+scope preserved; ordinary dual aim remains H2/H3 only. Candidate unaccepted.
+
+### Previous checkpoint follows
+
+## September 18 LATEST USER OVERRIDE - zoom, CE:A lighting, then package
+
+Newest instruction: finish all-title circular/clear/consistent-refresh zoom,
+THEN investigate and try to fix the reported CE Anniversary lens-flare/lighting
+issues, THEN package matching build/source ZIPs. Report completed, unfinished
+and not-started work separately, distinguishing local validation from headset
+acceptance. No earlier all-refinements-before-ZIP hold applies to this delivery.
+No install, launch or publication. Current code has unfinished Reach/H4 scope
+adapters plus circular shared optics; these need tests and title-specific audit.
+
+### Previous delivery instruction
+
+## September 18 LATEST USER OVERRIDE - finish all-title zoom, then package
+
+User explicitly changes delivery order: finish zoom in all games; if possible
+make the lens circular, improve clarity and frame-rate consistency. THEN package
+the build ZIP and matching source ZIP and report every unfinished standing item.
+This supersedes the previous hold requiring ALL other refinements before ZIP.
+No installation, game launch, accepted-pointer update or publication authorized.
+Preserve all cumulative work. Reach zoom currently has partial unbuilt edits:
+scope cull-union helper, cache copy API, frame fields and scope-only HUD/FP branches.
+Finish those plus remaining title zoom adapters before final build/tests/package.
+
+### Previous checkpoint
+
+## September 18 CURRENT - ODST scope validated locally; Reach scope in progress
+
+User says continue until ALL standing refinements are handled, then matching
+build/source ZIPs. Do not end the turn after a status answer. No install/launch.
+ODST's H3-style separate gun-side scope is implemented in odst_scope.inl using
+its own eight camera blocks and verified rebuild/upload functions. Optional
+failure restores cameras/palette receipts and retains the core. Release, all55
+CTest suites, Reach gate pass; production fixture257 checks. Logs under
+out/refinement-20260918/*odst-scope*.log. No headset claim or ZIP.
+Shared scope cache creation moved to frame preparation, with title/generation
+image invalidation and left-handed lateral placement. Other title adapters are
+still pending. Reach research confirms main_render_view MUST NOT be double-called
+(frame-once work); next implementation stays inside the admitted inner scope,
+with a conservative head/scope visibility union and native final-target copy.
+Recovery was already implemented for all six titles September15; audit the actual
+code/docs before treating the historical H3-only checklist as current.
+All earlier remaining vehicle/visibility/flare/contact scope stays required.
+
+### Previous validated checkpoint
+
+## September 18 CURRENT - stop non-native dual-wield expansion
+
+Latest user challenges unnecessary secondary-aim work in titles without normal
+dual wield. Corrected scope: H2 Classic/Anniversary and H3 only. Ordinary ODST/
+Reach/H4 dual acquisition/presentation/independent aim is removed from pending
+work; do not resume it from historical checklist entries. See top of standing
+CONTINUATION list. All-six-title authored barrel aiming remains independent.
+Unshipped ODST independent-controller extension was locally built/tested (9892
+fixture checks, all54 CTests and Reach gate) but is now disabled explicitly by
+kEnableOdstIndependentAim=false and its admitted-frame publisher call removed.
+No acquisition hooks or config options were added. Research stays preserved.
+Scope correction passes final Release and all54 CTests (build-dual-scope-
+correction-final.log and tests-dual-scope-correction.log in out/refinement-20260918).
+F1's independent-dual hint now explicitly names Halo 2 and Halo 3.
+Continue CE flare and remaining standing fixes (zoom/FP vehicles/visibility/
+contact/recovery). Initial re-read of CE flare code/video did not yet prove the
+visible streak's cause; no additional flare behavior has been changed.
+Latest hand checks/vehicle smooth-turn remain complete locally. No ZIP, install,
+launch, headset acceptance or accepted-pointer change. All other scope retained.
+
+### Previous validated checkpoint
+
+## September 18 CURRENT - all six barrel adapters locally validated
+
+CE adapter now integrated via haloce_muzzle_{state,shots,lifecycle}.inl and the
+existing haloce_first_person.cpp aim/query/palette paths. HCEEK-derived four
+optional hooks: outer fire, marker, full query and direct query; native16-byte
+target lease and6C marker. All6 title barrel adapters now implemented locally;
+default-off F1 Crosshair toggle "Aim from the visible gun barrel" is exposed.
+Release/all54 CTests/Reach gate/CE pinned manifest verifier pass. CE fixture3277
+shot/palette checks and364 lifecycle checks. See BARREL-MUZZLE-EVIDENCE latest CE
+section. Three existing CE aim hooks now use explicit SEH callback cleanup.
+No headset/native projectile acceptance, install, launch, ZIP or accepted update.
+Latest requested hand checks and automatic vehicle smooth-turn are complete
+locally and retained. ALL other standing scope remains before packaging.
+Next: ordinary ODST/Reach/H4 dual acquisition/presentation/independent aim,
+CE flare and full older standing-list pass (zoom/FP vehicles/visibility/contact/
+recovery). Prior own dual-kit research exists under out/dual-*-acquire-kit*.c
+and out/dual-*-capability-kit*.c; inspect code rather than trusting old narratives.
+No commands remain running. Latest logs build-ce-muzzle-final.log,
+build-ce-muzzle-lifecycle-final.log, tests-ce-muzzle.log, gate-ce-muzzle.log and
+ce-muzzle-evidence.json in out/refinement-20260918. Two fixture pointer-size
+warnings corrected and the lifecycle target rebuilt before final54-test run.
+
+### Previous validated checkpoint
+
+## September 18 CURRENT - H4 barrel adapter locally validated
+
+Latest hand-slider verification and vehicle smooth-turn request is complete
+locally (details below). Continued full standing scope: H4 barrel adapter now
+integrated in game.cpp through halo4_muzzle_{ownership,publication,shots,lifecycle}.inl.
+Own H4EK-derived seven-argument marker, nine-argument adjustment and six-argument
+view/query bindings; final held palette uses actual weapon objectIndex, FP slot
+and tag. Full Release/all53 CTests/Reach gate/pinned verifier pass. Production
+fixture6005 checks. See BARREL-MUZZLE-EVIDENCE-2026-09-18.md, H4 section.
+No headset result or accepted-pointer change. No launch/install/ZIP.
+Next: CE barrel adapter (existing native ray hooks are in haloce_first_person.cpp),
+ordinary ODST/Reach/H4 dual acquisition, CE flare and ALL older standing scope.
+Barrel F1 remains held until CE complete. No commands running at this checkpoint.
+Logs build-h4-muzzle-final.log, tests-h4-muzzle.log, gate-h4-muzzle.log in
+out/refinement-20260918. First H4 compile caught generated HaloHalo4 enum typo;
+fixed before final build. Native H4 view's third argument is UNUSED uintptr_t,
+not a vector dependency. Hook retirement precedes camera/seat-reader retirement.
+
+### Previous validated checkpoint
+
+## September 18 CURRENT - hand sliders and vehicle smooth-turn locally validated
+
+Latest user explicitly orders finishing hand-slider zero-offset, handedness and
+hidden-anchor checks, then adding optional automatic smooth turn in vehicles.
+Full vehicle toggle scope is at top of CONTINUATION-REFINEMENT-LIST.md. Preserve
+normal saved snap preference and return to it on exit. All earlier scope remains.
+
+Hand sliders now have six neutral-zero per-title config/F1 controls and runtime
+adapters for H3/ODST body-only final palettes, Reach exact body remap, H4 own80-node
+body role classification, H2 both final packets, CE final hand-only graph masks.
+Offsets apply after contact/collision/reload calculations, excluding gun nodes.
+New common visual_hand_offset.h/config helper, runtime inls and51st CTest fixture.
+Final Release build, all51 CTests and Reach consistency gate pass. Actual
+production/config fixture passes190 checks, including zero byte equality,
+handedness and hidden anchors. See VISUAL-HAND-OFFSETS-2026-09-18.md.
+Automatic vehicle smooth-turn is now implemented: global default-off
+vehicle_smooth_turn, F1 toggle and existing speed control; saved turn_smooth stays
+unchanged. H3/ODST/Reach shared path, H4 own seat reader, CE actual native turn
+phase; H2 already uses continuous native controls while seated. Production
+functions extracted into shared_vr_turn.inl/halo4_vr_turn.inl for actual tests.
+New52nd fixture passes55 checks; CE runtime tests also cover held exit/return.
+Release/all52 CTests/Reach gate pass. See VEHICLE-SMOOTH-TURN-2026-09-18.md.
+First build hit MSVC config-parser nesting limit; new key moved to existing flat
+early parser and final full build passed. No headset result. No commands running.
+Next: H4/CE barrel adapters, ordinary ODST/Reach/H4 dual acquisition, CE flare,
+and FULL older standing-list review including first-person vehicles/zoom/visibility.
+No native hooks added for hand sliders. No game launch/install/ZIP/accepted change.
+
+### Previous validated checkpoint
+
+## September 18 CURRENT - Reach barrel locally validated; visual-hand sliders next
+
+Reach barrel adapter is integrated and passes Release/all50 CTests/Reach gate
+and tools/verify-reach-muzzle-bindings.py. Production fixture: 5,384 checks;
+native services stubbed. Four optional hooks share the existing ten-argument
+unit-adjust core hook and retire before it. Own marker return is int16_t.
+Actual final committed primary weapon palette publishes authored muzzle data;
+Reach's existing renderer still admits primary slot only. No new Reach dual
+rendering claim. Default-off gun_barrel_aim F1 control still awaits H4/CE.
+
+Next: latest requested visual-only left/right hand position sliders (tracing
+final mesh-only transforms, after contact/collision publication); then H4/CE
+barrel adapters, ordinary ODST/Reach/H4 dual acquisition, CE flare and full-list
+review. ALL scope still required before ZIPs. No install/launch/accepted change.
+No commands running. Logs build-reach-muzzle-final.log, tests-reach-muzzle.log,
+gate-reach-muzzle.log under out/refinement-20260918. No headset acceptance.
+
+### Prior WIP checkpoint (superseded)
+
+## September 18 CURRENT - Reach barrel WIP; new visual-hand sliders queued
+
+Latest user addition is separate left/right visible-hand position sliders in the
+VR menu, independent of gun offsets. Full wording/scope is preserved at the top
+of CONTINUATION-REFINEMENT-LIST.md. Finish current firing work, then this addition
+and all earlier refinements before packaging. No install/launch/acceptance change.
+
+Reach HREK-first firing/acquisition research now has pinned retail matches and
+four new reach_muzzle_*.inl files (ownership/publication/shots/lifecycle). These
+are NOT YET integrated in game.cpp or compiled/tested. The pinned verifier passes
+14 unique witnesses/eight call edges. Continue integration and production fixture.
+Research artifacts are out/reload-policy/reach-{query,acquisition,assist,owner}*
+plus reach-muzzle-*. HREK view 4E3EE0 -> retail10FA74 (six args); ordinary query
+4E2330 ->10E970; fire DE4290 ->4C2710 (four args, void). Shared existing core
+unit adjust has ten args; fourth is OUTPUT velocity despite legacy name
+basisForward. No extra hook on that shared native helper. Retire optional hooks
+before core. Marker native return is short: correct new draft's uint64_t ABI.
+No commands were running at this interruption. Full suite last passed at49
+after roomscale; Reach draft has not yet changed the built runtime.
+
+### Previous validated checkpoint
+
+## September 18 CURRENT - roomscale drift correction locally validated
+
+The new physical-walking/body-sliding report is implemented locally. Two actual
+production-fixture regressions reproduced stopping-travel drift and thread-local
+history loss. Corrected stopping compensation, guarded shared history and
+measured-velocity braking pass Release/all49 CTests/Reach gate. Read
+ROOMSCALE-DRIFT-2026-09-18.md for precise scope, simulations and runtime limits.
+No target-title headset/H3 regression result or acceptance update. CE's older
+experimental roomscale path is still disabled; no new CE support claim.
+
+ODST barrel adapter is locally validated (6,087 production fixture checks),
+with its own object +8 / marker +4 target record. H2/H3 remain validated locally.
+Remaining barrel adapters: Reach (next, HREK-first), H4, CE. Then ordinary
+ODST/Reach/H4 dual acquisition standing scope, CE flare and full-list review.
+Default-off gun_barrel_aim F1 control remains held for full title implementation.
+No ZIP until ALL scope addressed; no install/launch/publication/accepted change.
+No background commands remain. Last full logs: {build,tests,gate}-roomscale-drift.log.
+
+### Prior checkpoint (superseded by current detail above)
+
+## September 18 CURRENT - ODST barrel adapter validated locally; roomscale next
+
+ODST now has its own optional six-hook barrel transaction, actual final-palette
+publisher, ownership checks, native query/assist and 0x28-byte nested target lease.
+Full Release/all49 CTests/Reach gate/pinned ODST verifier pass. Read the newest
+ODST section of BARREL-MUZZLE-EVIDENCE-2026-09-18.md. The target field discovered
+in the audit below is corrected: ODST object +8, marker +4, unlike H3.
+No headset/native projectile confirmation or acceptance change.
+
+Next: new roomscale sliding-body report (full request immediately below), then
+remaining Reach/H4/CE barrel adapters, ordinary ODST/Reach/H4 dual-acquisition
+standing scope, CE flare and final full-list review. Packaging remains held
+until ALL requested work is addressed. No install/launch/publication.
+
+### Prior checkpoint (superseded by current detail above)
+
+## September 18 latest addition: responsive roomscale without body drift
+
+User reports that with roomscale enabled, physically walking/moving can leave the
+player body sliding away or farther from the tracked player, requiring recentering.
+After the current firing-path checks, diagnose and correct body-following drift
+and responsiveness across supported titles. Keep the body aligned with physical
+movement through normal walking, turning and tracking updates; preserve native
+collision, controller locomotion and existing recenter behavior. Do not conceal
+the drift with repeated automatic recentering. This is additional standing scope,
+not a replacement for any earlier item. Finish ALL refinements before ZIPs.
+
+Current WIP: ODST barrel adapter compiles and its first fixture passed 5,956
+checks, but a final native-record audit found ODST target object +8 (marker +4),
+not H3's +4. Correct this and its fixture before reporting ODST validated. Own
+ODSTEK 41D850/41D860/41DB60/41DC40 decompiles are preserved in
+out/reload-policy/odst-target-record-kit.c. No background commands remained at
+the interruption. Full suite last passed at 48 before ODST's new 49th target.
+
+## September 18 CURRENT - H2 and H3 barrel integration locally validated
+
+H3 now publishes final committed gun-marker palettes with before/after full
+weapon ownership checks. Its own six-argument native marker resolver, obstruction
+preflight, native acquisition/assist and nested target lease are implemented.
+Both title adapters guard auxiliary collision queries against duplicate collision
+and melee processing. Default-off gun_barrel_aim is persisted; F1 awaits remaining
+adapters. Native exceptions propagate without replaying fire.
+
+Release/all 48 CTests/Reach gate pass. H2 production shot/lifecycle fixture:
+2,520 checks; H3: 3,057; common/H2 muzzle: 506; H3 publisher: 217. Native services
+are stubbed. Logs out/refinement-20260918/{build,tests,gate}-h2-h3-muzzle.log.
+Both titles' pinned dual and muzzle verifiers pass. No headset acceptance.
+
+Next: ODST/Reach/H4/CE barrel adapters; ordinary ODST/Reach/H4 dual acquisition
+standing scope; CE flare; final full-list review. ODST kit outer fire is B0FCB0
+(five arguments); earlier retail 3AE8A4 is a firing-data helper, NOT outer fire.
+Do not copy H3 ABI/layout without independent ODST proof. No ZIP until all scope
+handled. No install/launch/publication/accepted-pointer change.
+
+### Prior checkpoint (superseded by current detail above)
+
+## September 18 CURRENT ? H2 barrel integration locally validated
+
+H2 now publishes actual final committed gun markers (both renderers and weapon
+slots) and uses a separate optional native marker transaction with native
+obstruction preflight, per-shot native acquisition, later aim/camera consumers
+and nested target leases. Default-off gun_barrel_aim is persisted; F1 control
+awaits other title implementations. H2 independent aim remains separately usable.
+New halo2_muzzle_{publication,shots,lifecycle}.inl and production fixtures.
+Generator now preserves authored up/roll as well as forward. 123 marker records,
+32 omitted missing/ambiguous entries. Native marker count other than one stays
+stock for that shot. Read BARREL-MUZZLE-EVIDENCE-2026-09-18.md for exact bindings.
+
+Release/all 47 CTests/Reach gate pass. H2 shot+lifecycle fixture 2,375 checks;
+muzzle/publisher fixture 506. Both pinned H2 verifiers pass. Logs
+out/refinement-20260918/{build,tests,gate}-h2-muzzle.log. No headset/native runtime
+result or acceptance advance. All commands complete; no background jobs.
+
+Next: remaining five title barrel adapters (H3 next), ordinary ODST/Reach/H4
+dual acquisition/aim standing scope, CE flare and final full-list review. No ZIP
+until ALL scope handled. No install/launch/publication/accepted-pointer change.
+
+### Prior checkpoint (superseded by current detail above)
+
+## September 18 CURRENT — H2/H3 independent firing locally validated
+
+New H2 path is implemented behind the same default-off independent_dual_aim
+option. Existing early-only H2 detours/installer remain inert (Legacy). It reuses
+the accepted central acquisition trampoline and scoped view-direction hook,
+records successful ordinary queries in TLS, preserves the native observer/BSP
+location, and converges each native origin toward the selected hand ray. Own
+effective-unit target +1D4 and controlling-parent +260 verified from H2EK and
+pinned retail. Camera assist at 7597BD uses the same selected hand. Target leases
+check full owner/generation/storage/bytes; native exceptions never replay fire.
+New files halo2_independent_{query_context,shots}.inl, halo2_dual_lifecycle.inl.
+Five unique bindings and six native edges pass tools/verify-halo2-dual-bindings.py.
+Fixtures: H2 845 checks, H3 1,032 checks; native services stubbed. Include partial
+hook lifecycle failures, nested firing, exceptions, stale/replaced data and TLS.
+Release/all 46 CTests/Reach gate pass after these edits. Hand-role publications
+already swap physical controllers and invalidate the tracking epoch on changes;
+independent primary publications disable the two-hand blend. No headset result.
+
+Current barrel work: new tools/re/audit_weapon_muzzles.py and
+generate_weapon_muzzles.py audit all six official kits. 123 unambiguous authored
+marker records generated; 32 missing/ambiguous entries omitted. New common
+weapon_muzzle.h has transform/freshness utilities and 390 passing checks in new
+47th CTest target halomccvr_weapon_muzzle_tests. No production publisher/consumer
+or barrel toggle yet. Full suite last ran at 46 before this standalone addition.
+Read BARREL-MUZZLE-EVIDENCE-2026-09-18.md for exact data, native selectors and
+remaining work. CE native firing may restore marker origin AFTER the early helper;
+H3 marker evaluator may use world-object nodes. Do not claim visible FP muzzle
+authority from either. No background commands remain at this checkpoint.
+
+Next: true authored barrel origin/direction across titles; ordinary ODST/Reach/H4
+dual acquisition/aim standing scope; CE flare; final complete-list review. No
+ZIP until all scope is handled. Do not install/launch/advance accepted pointer.
+
+### Earlier H3 implementation detail (latest validation above)
+
+User repeatedly reaffirms: continue the entire refinement/fix list; no partial
+milestone delivery; build/source ZIPs only after ALL work is handled. Latest
+instruction: "now continue workng until all refinements/fixes are done as expected".
+H2 (Original/Anniversary) AND H3 normal dual wield are explicitly required.
+Earlier ordinary ODST/Reach/H4 acquisition remains recorded, not silently dropped.
+
+Current H3 prototype: halo3_independent_shots.inl, native_shot_target_lease.h,
+halo3_independent_shots_tests.cpp; existing halo3_dual_wield_runtime.inl has new
+query/camera bindings and expanded teardown. Captures ordinary native query
+parameters/actual camera owner in TLS, requires same native thread/fresh owned
+pair, reruns native acquisition using selected hand, leases effective-unit +218
+targeting for native direct homing consumers, restores only same generation,
+full owner and storage with unchanged written bytes. Query and later assist
+camera calls are narrowly scoped; old failed early-only hooks remain inert.
+The game.cpp worker now installs the optional new path. The option remains
+default-off; old early-helper-only detours remain inert.
+
+Production fixture passed 1,024 checks after an isolated noinline fault marker was
+used; the optimized fixture's original handler-only atomic store did not persist
+in the exception test (cause not established). Native query/fire failures, nested
+shots, lifetime changes, off-scope forwarding tested with native services stubbed.
+Full Release, all 45 CTests, Reach gate and pinned H3 bindings passed after
+lifecycle/field-witness, menu-toggle, config-roundtrip and activation edits.
+New default-off independent_dual_aim config/F1 toggle is present. No H2 update
+yet. Pinned H3 verifier now checks five unique entries and query/camera/assist
+edges plus target/parent consumers; it passes. Lifecycle fixture covers each
+creation/enable/disable/removal failure and retained callbacks. Native services
+are stubbed in that fixture; final projectile/headset behavior remains unverified.
+
+Evidence: DUAL-NATIVE-TARGETING-2026-09-18.md and h3-acquisition-*.c. H2 retail
+7596A0 also replaces direction using camera 6D4730; decompile in
+out/reload-policy/h2-dual-assist-retail.c. It has its own direct homing branches.
+Do not copy H3 fields into H2. Continue dual, barrel, CE flare and full standing
+list. No ZIP/install/launch/PR/acceptance-pointer change.
+
+## September 18 HUD draw coverage validated locally
+
+HUD suppression now covers all seven D3D11 draw entry points. Additional H2
+shader admission matches the existing context/availability guards. Production
+fixture: 86 checks, SDK slot/ABI forwarding, nested scopes, recovery, thread
+isolation and hook failure isolation. Release/all 44 CTests/Reach gate pass.
+See HUD-DRAW-COVERAGE-2026-09-18.md. Runtime visibility remains unverified.
+Continue unresolved dual/native acquisition, barrel origins, CE flare and full
+standing-list review. No partial ZIP, install, launch or acceptance update.
+
+## September 18 RESUMED — finish all scope before packaging
+
+User explicitly resumed: "continue as expected. forget nothing." The pause below
+is historical. HUD draw coverage validation is current work, then every remaining
+standing item. No partial ZIP, install, launch or acceptance-pointer update.
+
+## September 18 USER PAUSE — wait for explicit continuation
+
+Latest instruction: "pause here for now. i will tell you when to continue".
+Do not continue investigation, edits, builds or packaging until the user resumes.
+After resumption, complete ALL standing fixes/refinements before any ZIP.
+No install, game launch, PR, publication or accepted-pointer update.
+
+Exact stopping point: H2 observer cleanup is locally validated (Release/all 43
+CTest suites/Reach gate). Following that, HUD coverage edits were started in
+`src/dll/hud_extra_draws.inl` (new) and `src/dll/d3d11_hook.cpp` (modified).
+These add the five D3D11 instanced/auto/indirect draw variants to the existing
+HUD suppression path. THEY ARE NOT BUILT OR TESTED YET. Next review should
+match the extra H2 shader predicate to the existing null-context and
+g_halo2ShaderHooksAvailable admission, then add forwarding/scope/SDK-vtable
+verification and run the required validation. Do not present this WIP as done.
+
+Dual investigation is recorded in DUAL-SHOT-PIPELINE-2026-09-18.md; old H3 route
+remains disabled and independent acquisition/barrel origin remain unresolved.
+CE flare full-log summary now exists at
+`out/refinement-20260918/flare-log-summary.json`: Anniversary guard reaches
+42,160 visible/14 offscreen/0 near-clipped/0 unproven/0 exceptions; Original
+has only 41 completed pairs across the supplied two-hour log. No video/log
+synchronization or causal flare attribution. Latest native decompiles are
+`out/reload-policy/ce-indoor-flare-native.c` and `h3-dual-*.c`.
+All earlier scope remains active for the next authorized continuation.
+
+## September 18 H2 observer teardown correction validated locally
+
+H2 interpolation cleanup ignored disable/removal failures; other observer hooks
+checked counters without ingress. New production retirement retains failed hook
+pairs and dependencies until all exact detour/trampoline ranges drain. Old
+implementation remains inert. Release/all 43 CTests/Reach gate pass; 14,285
+cleanup assertions. See HALO2-OBSERVER-RETIREMENT-2026-09-18.md. No reproduced
+co-op crash or headset acceptance claim.
+
+Dual audit found H3 native assist after the early firing helper can overwrite
+its redirected direction from the unit camera/cached target. Old H3 experiment
+remains disabled. See DUAL-SHOT-PIPELINE-2026-09-18.md; independent native
+acquisition and barrel origins remain unresolved. All standing scope remains.
+No ZIP until ALL items handled; no install, launch or accepted-pointer update.
+
+## September 18 all-title vehicle input audit validated locally
+
+H3/Reach accepted steering/turret damping retained. ODST now bypasses walking
+rotation with its own native seat state. H4 now uses its independently verified
+player mapping/full-salt parent/seat reader to bypass walking rotation while
+seated; independent of melee hooks. No new H4 native hook or game-memory write.
+Release/all 42 CTests/Reach gate/pinned H4 bindings pass; see
+VEHICLE-INPUT-AUDIT-2026-09-18.md. CE/H2 corrections retained. No headset claim.
+Continuing remaining crash/flare/dual/barrel/HUD coverage and all standing scope.
+No ZIP until ALL requested fixes/refinements are handled. No install or launch.
+
+## September 18 CE vehicle view coordination validated locally
+
+Configured snap/smooth turning now also applies in verified CE following-camera
+seats. Vehicle View Follow optionally adds actual hull yaw delta, preserving
+independent HMD look and accepted native packet steering. Separate cold evidence
+checks and stock fallback; no new native hook. Release/all 41 CTests/Reach gate
+and pinned CE manifest pass. See CE-VEHICLE-VIEW-2026-09-18.md. No headset claim.
+All-title audit found ODST missing its own seated throttle bypass; source edit
+added, awaiting rebuild. H4 occupancy/control audit continues. ALL remaining
+standing items and the user's latest full-list-before-ZIP instruction remain.
+
+## September 18 flashlight input validation complete locally
+
+Default-off disable_flashlight_input and six per-title MCC button selections are
+implemented. Final merged input filtering preserves XR grips and menu input.
+Release/all 41 CTests/Reach gate pass; see FLASHLIGHT-INPUT-2026-09-18.md for
+configuration and limits. Continuing all-title vehicle audit/CE camera and ALL
+remaining scope. User reiterated full-list completion before any ZIP. No package.
+
+## September 18 H2 vehicle reference correction validated locally
+
+The observer now shares a coherent seated reference across view, hands, contact,
+reticle/firing carrier and steering, retaining native observer aim as feedback.
+Own H2 parent/seat layout verified uniquely; root orientation uses verified H2
+object basis. Vehicle Motion off stays manual. Seated throttle bypasses walking
+rotation. Release/all 41 CTests/Reach gate pass; convergence tests use real
+XInput floor mapping at 60-144 Hz in both directions/inversion. See
+HALO2-VEHICLE-REFERENCE-2026-09-18.md; no headset acceptance.
+Next: requested flashlight-input toggle, then all-title vehicle audit/CE camera
+and every remaining refinement. No partial ZIP; full-scope packaging hold stays.
+
+## September 18 latest addition: optional flashlight input disable
+
+After finishing the current vehicle work, add a separate persisted/F1 toggle to
+disable flashlight input, including grip-generated activation that conflicts with
+two-handing weapons. Preserve two-hand grip behavior and the existing flashlight
+input when the option is off. Then continue ALL earlier fixes/refinements.
+Packaging remains held until the full list is handled.
+
+## September 18 latest addition: vehicle controls across all titles
+
+Audit steering/aim sensitivity, smoothness and accuracy across all supported
+titles. Correct evidence-backed defects as needed; leave already-good controls
+alone. Preserve accepted title behavior and native seat/turn limits. This extends
+the active H2/CE vehicle work, does not replace any earlier scope, and does not
+relax the hold on ZIP packaging until ALL requested fixes/refinements are handled.
+
+## September 18 current work: vehicle/checkpoint lifecycle audit
+
+Fixed concrete ODST seat cleanup defect: saved flag pointer previously restored
+without generation/live tag storage validation. Production now re-resolves the
+same generation/base/table/definition/seat address and atomically restores only
+its exact written word. Fifty production fixture checks include replaced and
+inaccessible storage. Release/all 41 CTests/Reach gate pass. See
+VEHICLE-CHECKPOINT-LIFETIME-2026-09-18.md. Original crash attribution remains
+unproven; no stack was supplied. H2 vehicle camera/steering coordination is next.
+ALL other standing scope remains active and ZIP packaging remains held.
+
+## September 18 current work: CE continuous targeting verified locally
+
+Optional native acquisition hook now feeds controller direction into CE continuous
+player target search, before the existing firing-only ray hooks. Official kit and
+pinned retail callsites verified. Both graphics modes/handedness, ownership,
+fallback and retirement fixtures pass. Native cone executes 24 direction/range
+cases. Cumulative Release/all 40 CTests/Reach gate and CE manifest checks pass;
+this also rebuilds the final CE reload pointer bounds edit. See
+CE-CONTINUOUS-TARGETING-2026-09-18.md. No headset acceptance or brief-red-flash
+resolution claim. Remaining crashes, vehicles, flare and dual/barrel work remain
+active. Packaging is still held until ALL requested scope is handled.
+
+## September 18 latest user correction: separate reload animation toggles
+
+User reiterated after this correction: DO NOT package a ZIP until ALL requested
+fixes/refinements are handled. Packaging remains held; no partial candidate.
+
+Preserve the existing full reload/weapon-ready animation-disable toggle and its
+accepted behavior. The native insertion-to-chambering-tail work belongs to a NEW
+default-off "Shortened reload animation" toggle. Do not replace or redefine the
+old setting. Full disable takes precedence when both are enabled; show that in
+the menu and test independent persistence and all option combinations.
+The separate option and six-title native tail implementation are now local.
+Release and all 40 CTests passed, including 387,769 native reload checks;
+Reach consistency and unique tail signatures pass. A following CE tag-pointer
+bounds refinement still requires rebuild. Native-path review remains active;
+do not infer headset acceptance. See NATIVE-RELOAD-TAIL-2026-09-18.md.
+All earlier scope and final ZIP requirements remain active.
+
+## Latest steering and result: cross-title camera-admission audit
+
+User explicitly requests checking other titles for similar ODST startup failures
+before continuing. ODST's exact-zero observer-offset gate is now corrected and
+regression tested; Release/all 40 CTests pass. H3, Reach, H4, H2 (both renderers),
+and CE (both renderers) were inspected: no matching zero-offset gate found.
+See ODST-OBSERVER-OFFSET-2026-09-18.md for exact logs, native evidence and limits.
+Continue remaining full scope (especially native reload tail, targeting, crashes,
+vehicles, movement, flare, dual trajectories/barrel origins) and final matching
+ZIPs without install. No acceptance-pointer update; no partial delivery.
+
+## Current progress: foliage correction validated; ODST arming investigation
+
+Reach wind replay is implemented and passes Release, all 40 CTest suites and
+Reach consistency gate. See FOLIAGE-STEREO-EVIDENCE-2026-09-18.md. Other official
+kits show analogous potential wind accumulation; their retail bindings are not
+assumed and no foreign offsets are used. Headset appearance remains unverified.
+Latest logs: (20) is Halo 3; (21) is ODST. Both source 1a9766c, Steam,
+SteamVR/OpenXR Meta compatibility 2.17.10, Oculus-family at 120 Hz.
+ODST never installs/arms: its compact verticalOffset=0.17 fails an exact-zero
+readiness guard, while the rest of its logged camera shape is ordinary. Trace
+native consumption before changing the guard. All earlier scope remains due.
+
+## September 18 addition 21: ODST requires right-stick aiming
+
+After completing the current foliage task, compare the supplied ODST and Halo 3
+logs and fix the reported ODST controller-aim regression. Both logs identify
+accepted source 1a9766c and Steam; title/runtime details must be read from the logs.
+Preserved originals: out/test-runs/queued-odst-stick-aim-20260918/HaloMCCVR (20).log
+and HaloMCCVR (21).log. The tester says Halo 3 does not exhibit the problem.
+Keep all earlier scope and finish matching ZIPs; no partial delivery or install.
+
+## Latest steering: broaden foliage audit, then finish and package
+
+User asks to verify similar possible foliage-rendering issues, then continue all
+other fixes/refinements without stopping before the proper matching ZIPs are ready.
+Extend item 20 to related foliage, wind, LOD/decimation and per-eye state, including
+similar paths in other titles where evidence is available. Do not replace or drop
+any earlier scope. No speculative native bindings or runtime-fix claims.
+
+## September 18 latest local implementation checkpoint (not packaged)
+
+The renewed full-scope task remains active. Do not stop at a partial package.
+Texture item 4 and additions 17-19 now have local implementation/verification:
+- All 42 native magazine assemblies have authored surface textures and tints.
+- Grab and successful-release haptics already existed and route by hand role;
+  expanded tests reject haptics on pouch/away drops and repeated release frames.
+- Authored assembly centres follow each title's committed visible weapon palette
+  and are compared with the visible carried magazine centre in XR coordinates.
+  Native reload eligibility and configured insertion radius remain unchanged.
+  Stale/foreign targets are rejected; unavailable receivers retain logged fallback.
+- Optional per_gun_alignment persists all 19 existing weapon/hand alignment fields
+  by verified title/primary weapon identity. Title defaults and HUD remain
+  separate. H2 graphics modes remain separate. Unknown models use title settings.
+
+Full Release and all 40 CTest suites passed; 15,912 gesture checks, 459 native
+identity checks and the Reach consistency gate pass. A subsequent insertion
+counter logging edit still needs final rebuild. Headset/co-op acceptance remains
+pending. CURRENT-STATE stays at Alpha 0.4.2.
+
+Current work: HREK-first Reach grass stereo investigation (20), then remaining
+standing items 1/2/6/7/8/9/11/14/15 and cumulative validation. No install, game
+launch, PR, publication or partial delivery. Matching build/source ZIPs are due
+only after the full scoped work has been handled.
+
+# September 18 additional authorized refinements
+
+Finish the magazine texture task already underway, then implement these additions
+and continue ALL remaining standing items before packaging. User again explicitly
+forbids stopping at a partial candidate.
+
+17. Magazine insertion haptic: verify grab haptic and add a distinct pulse when
+    releasing the magazine successfully into the insertion zone. A drop outside
+    the zone must not claim insertion. Preserve native reload eligibility.
+18. Gun-specific insertion placement: align the required insertion location with
+    each held weapon's actual magazine/reload assembly, using verified authored
+    geometry/transforms. Respect handedness and weapon alignment settings.
+19. Optional per-gun alignment: changes to gun offsets can be saved for the
+    specifically equipped weapon, with a per-gun alignment toggle and preserved
+    global settings when disabled. Persist stable title/weapon identity and keep
+    unfamiliar/ambiguous identities safe. Cover all existing alignment controls.
+20. Reach grass stereo report: grass reportedly renders differently in each eye.
+    Investigate after current texture work and magazine/alignment additions.
+    User explicitly allows an inconclusive diagnosis for this item. Check native
+    per-eye camera/culling/LOD and shared draw state using HREK-first evidence;
+    do not apply a speculative change or claim reproduction without evidence.
+
+
+# September 18 renewed instruction: finish EVERYTHING before final delivery
+
+User rejected the partial 507e302 package and explicitly reaffirmed completion
+of everything mentioned. Do not repeat that partial delivery. Continue the full
+standing scope below, with Windows launcher warnings still excluded. Preserve
+the tested local changes in 507e302 as unaccepted work, not an accepted baseline.
+No install, MCC launch or accepted-pointer update is authorized. Work through
+implementation and validation, then package matching build/source archives.
+
 # September 18 audit candidate status: full refinement scope remains open
 
 The build/source package prepared from this work is unaccepted and INCOMPLETE

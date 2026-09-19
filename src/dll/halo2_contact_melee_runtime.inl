@@ -326,7 +326,7 @@ bool RemoveHalo2ContactMelee()
     {
         if(!targets[i]) continue;
         present=true;
-        const auto status=MH_DisableHook(targets[i]);
+        const auto status=MCCVR_DisableHookForRetirement(targets[i]);
         if((status!=MH_OK && status!=MH_ERROR_DISABLED) || !trampolines[i])
         { LOG("Halo 2 contact cleanup: disable/range verification failed; retained hooks"); return false; }
     }

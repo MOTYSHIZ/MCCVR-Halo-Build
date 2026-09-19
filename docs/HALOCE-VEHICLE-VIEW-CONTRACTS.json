@@ -1,0 +1,26 @@
+[
+  {
+    "name": "vehicle_orientation_basis",
+    "rva": "0xb45178",
+    "signature": "48 8B C4 48 89 50 10 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00",
+    "function_entry": true,
+    "evidence": "E-CE-VEHICLE-VIEW-2",
+    "runtime_group": "vehicle_view",
+    "instruction_witnesses": [
+      {
+        "rva": "0xb45498",
+        "signature": "4C 8D 46 3C 48 8D 56 30 48 8D 4D 98 E8 43 D0 05 00",
+        "meaning": "HCEEK vehicle physics 8E1B60 / matrix builder 7B2A20 matched: actual object forward +30 and up +3c build current orientation, independently of desired facing +204"
+      }
+    ],
+    "relative_operands": [
+      {
+        "instruction_rva": "0xb454a4",
+        "target_rva": "0xba24ec",
+        "instruction_bytes": 5,
+        "displacement_offset": 1,
+        "instruction_signature": "E8 43 D0 05 00"
+      }
+    ]
+  }
+]

@@ -1,3 +1,4 @@
+#include "../src/common/reach_wind_replay.h"
 int RunRoomscaleInputTests();
 #include "../src/common/roomscale_logic.h"
 #include "../src/common/vr_interaction_refinement_logic.h"
@@ -6,6 +7,7 @@ int RunRoomscaleInputTests();
 #include "../src/common/halo4_runtime_weapon_bounds.h"
 #include "../src/common/legacy_runtime_weapon_bounds.h"
 #include "../src/common/halo2_snap_turn_logic.h"
+#include "../src/common/halo2_vehicle_view.h"
 #include "../src/common/halo2_datum_logic.h"
 #include "../src/common/halo3_melee_selection_logic.h"
 #include "../src/common/contact_melee_motion.h"
@@ -26,6 +28,7 @@ int RunRoomscaleInputTests();
 
 #include "aim_servo_logic.h"
 #include "config.h"
+#include "weapon_model_catalog.h"
 #include "coop_probe_logic.h"
 #include "cutscene_theater_logic.h"
 #include "halo3_cinematic_facing.h"
@@ -201,6 +204,130 @@ namespace
 int main()
 {
     {
+        const float identity[]{0.f,0.f,0.f,1.f},zero[3]{};
+        auto basis=[](float yaw) {Halo2CameraBasis b{};b.forward[0]=std::cos(yaw);
+            b.forward[1]=std::sin(yaw);b.up[2]=1;return b;};
+        Halo2VehicleViewKey key{7,0x12340002,0x56780003,0x56780003,0,9};
+        // Exercise the view and controller construction while the native
+        // actuator itself turns. A moving reference would never converge.
+        for(int hz:{60,90,120,144}) for(float mapping:{-1.f,1.f}) for(float hand:{-.5f,.5f}) {
+            Halo2VehicleViewState viewState;Halo4PitchServo servo;
+            float engine=0,firstTarget=0;bool parked=false;
+            const float q[]{0.f,std::sin(hand*.5f),0.f,std::cos(hand*.5f)};
+            for(int frame=0;frame<hz*5;++frame) {
+                auto native=basis(engine);native.position[0]=frame*.1f;
+                Halo2CameraBasis reference{},view{},gun{};
+                Check(viewState.Build(key,native,basis(0),false,1000+frame*1000/hz,reference),
+                    "H2 occupied view reference follows translation without native aim feedback");
+                Halo2TrackedHeadInput head{};head.worldScale=1;
+                Check(Halo2BuildTrackedCenterCamera(reference,head,view)&&
+                    Halo2BuildStableControllerCarrier(reference,identity,zero,q,zero,1,0,gun),
+                    "H2 seated view and gun use the same reference");
+                const float target=std::atan2(gun.forward[1],gun.forward[0]);
+                if(!frame) firstTarget=target;
+                Check(std::fabs(target-firstTarget)<1e-5f&&std::fabs(view.forward[1])<1e-5f&&
+                    std::fabs(reference.position[0]-native.position[0])<1e-5f,
+                    "H2 controller target does not chase the turning native camera");
+                const float command=Halo4PitchServoStep(servo,engine,target,kHalo4PitchServoGain);
+                if(command==0&&servo.axis.resting) {parked=std::fabs(target-engine)<.04f;break;}
+                const float raw=command==0?0:std::copysign(
+                    (9000.f+std::fabs(command)*(32767.f-9000.f))/32767.f,command);
+                engine+=mapping*raw*3.14159265f/hz;
+            }
+            Check(parked,"H2 held controller converges across frame rates, both turn directions and inverted controls");
+        }
+        Halo2VehicleViewState state;Halo2CameraBasis reference{};
+        Check(state.Build(key,basis(.3f),basis(3.1f),true,1000,reference),"H2 hull-follow entry");
+        Check(state.Build(key,basis(2.f),basis(-3.1f),true,1010,reference)&&
+            std::fabs(std::atan2(reference.forward[1],reference.forward[0])-.3831853f)<1e-5f,
+            "H2 hull follow crosses yaw seam without using cannon heading");
+        const auto before=reference;
+        Check(state.Build(key,basis(2.f),basis(-2.f),false,1020,reference)&&
+            std::fabs(reference.forward[0]-before.forward[0])<1e-5f,
+            "H2 follow toggle preserves current view");
+        for(unsigned change=0;change<6;++change) {
+            auto other=key;
+            if(change==0) ++other.generation;
+            if(change==1) other.unit+=0x10000;
+            if(change==2) other.parent+=0x10000;
+            if(change==3) ++other.seat;
+            if(change==4) ++other.space;
+            if(change==5) other.root+=0x10000;
+            Check(state.Build(other,basis(.8f),basis(0),false,1030+change,reference)&&
+                std::fabs(std::atan2(reference.forward[1],reference.forward[0])-.8f)<1e-5f,
+                "H2 occupation/tracking changes discard old vehicle heading");
+        }
+        Check(state.Build(key,basis(.6f),basis(0),false,2000,reference)&&
+            std::fabs(std::atan2(reference.forward[1],reference.forward[0])-.6f)<1e-5f,
+            "H2 stale observer gap reseeds the vehicle reference");
+        const auto saved=reference;auto bad=basis(0);bad.forward[0]=NAN;
+        Check(!state.Build(key,bad,basis(0),false,2010,reference)&&!state.active&&
+            std::memcmp(&saved,&reference,sizeof(saved))==0,"H2 invalid camera leaves output unchanged");
+        Halo2ObserverPosePublication publication{};publication.stock=basis(.5f);
+        publication.vehicleReference=basis(1.f);
+        Check(&Halo2ControllerReference(publication)==&publication.stock,"H2 on-foot reference unchanged");
+        publication.vehicleReferenceValid=true;
+        Check(&Halo2ControllerReference(publication)==&publication.vehicleReference,"H2 seated publication supplies shared reference");
+    }
+    {
+        for (float offset : {0.0f,0.17f,-0.17f,1.0f,-1.0f})
+            Check(OdstPlainPerspectiveScalars(0,1.641310f,1.345714f,
+                offset,0.0078125f,10240.0f),
+                "ODST report's ordinary camera admits authored observer offsets");
+        const float nan=std::numeric_limits<float>::quiet_NaN();
+        const float inf=std::numeric_limits<float>::infinity();
+        Check(!OdstPlainPerspectiveScalars(0,1.6f,1.3f,nan,.01f,100.f) &&
+            !OdstPlainPerspectiveScalars(0,1.6f,1.3f,inf,.01f,100.f) &&
+            !OdstPlainPerspectiveScalars(1,1.6f,1.3f,.17f,.01f,100.f) &&
+            !OdstPlainPerspectiveScalars(0,0.f,1.3f,.17f,.01f,100.f) &&
+            !OdstPlainPerspectiveScalars(0,1.6f,inf,.17f,.01f,100.f) &&
+            !OdstPlainPerspectiveScalars(0,1.6f,1.3f,.17f,0.f,100.f) &&
+            !OdstPlainPerspectiveScalars(0,1.6f,1.3f,.17f,100.f,10.f),
+            "ODST offset compatibility retains mode, finite, FOV and clip guards");
+    }
+
+    {
+        const auto copy=[](void* d,const void* s,size_t n) {
+            std::memcpy(d,s,n); return true;
+        };
+        for (bool rightFirst : {false,true})
+        {
+            for (bool abortSecond : {false,true})
+            {
+                uint32_t state[12]{};
+                for (unsigned i=0;i<12;++i) state[i]=100+i;
+                ReachWindReplay pair{};
+                Check(pair.Begin(state,copy), "Reach wind initial capture");
+                for (unsigned i=0;i<12;++i) state[i]+=7+i;
+                uint32_t firstEye[12]; std::memcpy(firstEye,state,sizeof(state));
+                Check(pair.Replay(state,copy), "Reach wind second eye rewind");
+                for (unsigned i=0;i<12;++i) state[i]+=7+i;
+                Check(std::memcmp(firstEye,state,sizeof(state))==0,
+                    rightFirst ? "Wind right-first eyes agree" : "Wind left-first eyes agree");
+                if (abortSecond) state[0]=0; // failed native second render
+                Check(pair.Finish(state,copy) &&
+                    std::memcmp(firstEye,state,sizeof(state))==0,
+                    "Wind retains exactly one native update after success or abort");
+                Check(pair.Finish(state,copy), "Wind cleanup is idempotent");
+            }
+        }
+        uint32_t state[12]{};
+        ReachWindReplay failed{};
+        const auto reject=[](void*,const void*,size_t) { return false; };
+        Check(!failed.Begin(state,reject) && !failed.Replay(state,copy) &&
+            failed.Finish(state,copy), "Wind read failure leaves native state alone");
+        ReachWindReplay partial{};
+        partial.Begin(state,copy); state[0]=42;
+        int calls=0;
+        auto partialWrite=[&](void* d,const void* s,size_t n) {
+            if (++calls==2) { std::memcpy(d,s,4); return false; }
+            return copy(d,s,n);
+        };
+        Check(!partial.Replay(state,partialWrite) && partial.Finish(state,copy) &&
+            state[0]==42, "Wind failed rewind restores the completed native state");
+    }
+
+    {
         std::array<uint8_t,0x500> memory{};
         auto put=[&](size_t at,auto value) { std::memcpy(memory.data()+at,&value,sizeof(value)); };
         put(0x20,uint32_t(2));put(0x24,uint32_t(0x224));put(0x48,uintptr_t(0x80));
@@ -304,6 +431,16 @@ int main()
             mapping &= prepare(1,frame);
             Halo4ControllerWorldPose visible{};
             mapping &= Halo4BuildControllerWorldPose(input,visible);
+            TrackingToWorld reloadTransform{};
+            mapping &= Halo4BuildReloadTrackingTransform(input,reloadTransform);
+            const Point raw{input.controllerPosition[0],input.controllerPosition[1],input.controllerPosition[2]};
+            const auto reloadWorld=reloadTransform.World(raw);
+            const auto restored=reloadTransform.Tracking(reloadWorld);
+            mapping &= std::abs(reloadWorld.x-visible.position[0])<.00002f&&
+                std::abs(reloadWorld.y-visible.position[1])<.00002f&&
+                std::abs(reloadWorld.z-visible.position[2])<.00002f&&
+                std::abs(restored.x-raw.x)<.0001f&&std::abs(restored.y-raw.y)<.0001f&&
+                std::abs(restored.z-raw.z)<.0001f;
             auto world=frame.transform.World(frame.controllerPose.origin);
             mapping &= std::abs(world.x-visible.position[0])<0.00001f &&
                 std::abs(world.y-visible.position[1])<0.00001f &&
@@ -13209,6 +13346,26 @@ int main()
     Check(g_config.dpad_head_radius == 0.30f && !g_config.quest_thumbrest_dpad,
         "Legacy configs retain the existing D-pad gesture radius and keep the new thumb-rest mode off");
     const std::string organizedConfig = ReadTextFile(primary);
+    Check(!g_config.independent_dual_aim && CountText(organizedConfig,
+        "\nindependent_dual_aim = 0")==1,"independent dual aim defaults off in legacy configurations");
+    g_config.independent_dual_aim=true;ConfigSave();g_config.independent_dual_aim=false;
+    ConfigLoad(primary.c_str());
+    Check(g_config.independent_dual_aim,"independent dual aim persists through a config round trip");
+    g_config.independent_dual_aim=false;ConfigSave();
+    Check(!g_config.gun_barrel_aim && CountText(organizedConfig,"\ngun_barrel_aim = 0")==1,
+        "barrel trajectory is separate and defaults off in legacy configurations");
+    g_config.gun_barrel_aim=true;ConfigSave();g_config.gun_barrel_aim=false;
+    ConfigLoad(primary.c_str());
+    Check(g_config.gun_barrel_aim&&!g_config.independent_dual_aim,
+        "barrel trajectory persists independently of dual trajectories");
+    g_config.gun_barrel_aim=false;ConfigSave();
+    Check(!Config{}.ce_anniversary_disable_lens_flares,"CE flare suppression is opt-in");
+    g_config.ce_anniversary_disable_lens_flares=true;ConfigSave();
+    g_config.ce_anniversary_disable_lens_flares=false;ConfigLoad(primary.c_str());
+    Check(g_config.ce_anniversary_disable_lens_flares,"CE flare toggle persists enabled");
+    g_config.ce_anniversary_disable_lens_flares=false;ConfigSave();
+    g_config.ce_anniversary_disable_lens_flares=true;ConfigLoad(primary.c_str());
+    Check(!g_config.ce_anniversary_disable_lens_flares,"CE flare toggle persists disabled");
     const size_t openXrSection = organizedConfig.find("#  OPENXR & COMFORT");
     const size_t controlsSection = organizedConfig.find("#  CONTROLS & TURNING");
     const size_t aimingSection = organizedConfig.find("#  RETICLE & AIMING");
@@ -13298,13 +13455,66 @@ int main()
         Check(g_config.gun_pitch_deg == sharedPitch,
             "Leaving every title restores the shared defaults");
     }
+    {
+        // Real save/load, swap, disable and graphics-mode transitions. A gun
+        // overlay must never leak into the defaults or carry HUD edits with it.
+        constexpr GameTitle titles[]{GameTitle::Halo3,GameTitle::Halo3ODST,
+            GameTitle::HaloReach,GameTitle::Halo4,GameTitle::Halo2,GameTitle::Halo2,GameTitle::HaloCE};
+        for(int title=0;title<kTitleProfileCount;++title)
+        {
+            uint64_t guns[2]{};int count=0;
+            for(const auto& model:weapon_model::kModels)
+                if(model.title==titles[title]&&count<2) guns[count++]=model.identity;
+            Check(count==2,"each title has independently identified alignment fixtures");
+            Config_ApplyTitleProfile(title);
+            g_config.per_gun_alignment=false;Config_ApplyWeaponProfile(guns[0]);
+            g_config.gun_forward_m=-.123f;g_config.barrel_roll_deg=3.f;
+            g_config.halo2_classic_gun_pitch_deg=-9.5f;
+            g_config.muzzle_height_m=.03f;Config_StoreLiveTunables();
+            g_config.per_gun_alignment=true;Config_RefreshWeaponProfile();
+            Check(Config_ActiveWeaponProfileName()!=nullptr&&g_config.gun_forward_m==-.123f,
+                "first gun inherits title calibration when enabled");
+            g_config.gun_forward_m=.231234f;g_config.barrel_roll_deg=37.f;
+            g_config.halo2_classic_gun_pitch_deg=12.f;g_config.muzzle_height_m=.12f;
+            g_config.hud_size=.71f;
+            ConfigSave();
+            Check(g_config.title_profiles[title].gun_forward_m==-.123f&&
+                g_config.title_profiles[title].hud_size==.71f,
+                "saving gun alignment isolates title defaults while preserving HUD edits");
+            Config_ApplyWeaponProfile(guns[1]);
+            Check(g_config.gun_forward_m==-.123f&&g_config.barrel_roll_deg==3.f&&
+                g_config.halo2_classic_gun_pitch_deg==-9.5f&&g_config.muzzle_height_m==.03f,
+                "second gun starts from fallback including Classic and muzzle trims");
+            g_config.gun_forward_m=-.211f;
+            Config_ApplyWeaponProfile(guns[0]);
+            Check(std::abs(g_config.gun_forward_m-.231234f)<1e-6f&&
+                g_config.barrel_roll_deg==37.f&&g_config.halo2_classic_gun_pitch_deg==12.f,
+                "switching back restores the first gun exactly");
+            ConfigSave();ConfigLoad(primary.c_str());Config_ApplyWeaponProfile(guns[0]);
+            Check(g_config.per_gun_alignment&&std::abs(g_config.gun_forward_m-.231234f)<1e-6f&&
+                g_config.halo2_classic_gun_pitch_deg==12.f&&g_config.muzzle_height_m==.12f,
+                "stable title and weapon identity survives a full config round trip");
+            Config_ApplyWeaponProfile(guns[1]);
+            Check(std::abs(g_config.gun_forward_m+.211f)<1e-6f,"second gun survives the same round trip");
+            Config_ApplyWeaponProfile(0x8000000000000042ull);
+            Check(!Config_ActiveWeaponProfileName()&&g_config.gun_forward_m==-.123f,
+                "unfamiliar or transient native handles never acquire another gun's profile");
+            Config_ApplyWeaponProfile(guns[0]);g_config.per_gun_alignment=false;
+            Config_RefreshWeaponProfile();
+            Check(!Config_ActiveWeaponProfileName()&&g_config.gun_forward_m==-.123f&&
+                g_config.halo2_classic_gun_pitch_deg==-9.5f&&g_config.muzzle_height_m==.03f,
+                "disabling restores all fallback alignment fields without losing gun overrides");
+        }
+        Config_ApplyTitleProfile(-1);ConfigLoad(primary.c_str());
+        g_config.per_gun_alignment=false;Config_RefreshWeaponProfile();
+    }
     constexpr const char* universalKeys[] = {
         "config_version", "haptic_intensity", "headset_smoothing",
         "aim_stabilization", "screen_width_m", "screen_distance_m",
         "cutscene_theater_enabled", "cutscene_theater_depth",
         "cutscene_theater_flip_depth", "cutscene_theater_width_m",
         "cutscene_theater_distance_m",
-        "turn_smooth", "turn_snap_deg", "turn_smooth_deg_s", "y_b_start_chord", "dpad_hand",
+        "turn_smooth", "vehicle_smooth_turn", "turn_snap_deg", "turn_smooth_deg_s", "y_b_start_chord", "dpad_hand",
         "dpad_head_radius", "quest_thumbrest_dpad",
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
         "vehicle_cam_right_m",
@@ -13430,15 +13640,22 @@ int main()
             file << "manual_reload = 1\nweapon_holsters = 1\nweapon_pouch_down_m = 0.625\n"
                 "weapon_body_zone_radius_m = 0.225\nweapon_holster_location = 1\n"
                 "weapon_reload_button_ce = 1\nweapon_switch_button_halo2 = 2\n"
+                "disable_flashlight_input = 1\nflashlight_button_halo3 = 2\nflashlight_button_odst = 1\n"
+                "flashlight_button_reach = 13\nflashlight_button_halo4 = 14\nflashlight_button_ce = 0\nflashlight_button_halo2 = 6\n"
                 "weapon_reload_button_reach = invalid\nweapon_switch_button_odst = 999\n";
         }
         ConfigLoad(primary.c_str());
+        Check(g_config.disable_flashlight_input&&g_config.flashlight_button[0]==2&&g_config.flashlight_button[1]==1&&
+            g_config.flashlight_button[2]==13&&g_config.flashlight_button[3]==14&&g_config.flashlight_button[4]==0&&
+            g_config.flashlight_button[5]==6,"flashlight layouts and toggle load independently for all six titles");
         Check(g_config.manual_reload&&g_config.weapon_holsters&&g_config.weapon_pouch_down_m==0.625f&&
             g_config.weapon_body_zone_radius_m==0.225f&&g_config.weapon_holster_location==1&&
             g_config.weapon_reload_button[4]==1&&g_config.weapon_switch_button[5]==2&&
             g_config.weapon_reload_button[2]==0&&g_config.weapon_switch_button[1]==4,
             "weapon gestures load independently with per-title layouts and reject malformed buttons");
         ConfigSave();g_config=Config{};ConfigLoad(primary.c_str());
+        Check(g_config.disable_flashlight_input&&g_config.flashlight_button[2]==13&&g_config.flashlight_button[5]==6,
+            "flashlight input control persists independently of weapon gesture mappings");
         Check(g_config.manual_reload&&g_config.weapon_holsters&&g_config.weapon_reload_button[4]==1&&
             g_config.weapon_switch_button[5]==2&&g_config.weapon_pouch_down_m==0.625f,
             "weapon gesture toggles, ergonomics and distinct title layouts survive save/load");
@@ -14268,8 +14485,8 @@ int main()
           std::fabs(quad.position[2] - 2.70f) < 1e-5f,
         "Scope offsets follow the gun's local right/up/forward axes");
     Check(std::fabs(quad.width - 0.10f) < 1e-5f &&
-          std::fabs(quad.height - 0.075f) < 1e-5f,
-        "Scope is fixed-size 4:3 geometry independent of headset distance");
+          std::fabs(quad.height - 0.10f) < 1e-5f,
+        "Circular scope has equal physical width/height independent of headset distance");
 
     const float gameBasis[9] = {
         1, 0, 0,  // forward
@@ -14295,10 +14512,10 @@ int main()
         ComputeScopeProjectionTangents(2.5f, 16.0f / 9.0f);
     Check(std::fabs(scopeLens.horizontal / scopeLens.vertical - 16.0f / 9.0f) < 1e-5f,
         "Scope render projection matches its source surface before cropping");
-    const float croppedHorizontal = scopeLens.horizontal * (4.0f / 3.0f) / (16.0f / 9.0f);
-    Check(std::fabs(croppedHorizontal / scopeLens.vertical - 4.0f / 3.0f) < 1e-5f &&
+    const float croppedHorizontal = scopeLens.horizontal / (16.0f / 9.0f);
+    Check(std::fabs(croppedHorizontal / scopeLens.vertical - 1.f) < 1e-5f &&
           std::fabs(croppedHorizontal - 0.70020754f / 2.5f) < 1e-5f,
-        "Center-cropped scope image is an undistorted 4:3 2.5x lens");
+        "Center-cropped scope image is an undistorted square 2.5x lens");
 
     ScopeRefreshScheduler refresh;
     Check(!refresh.Advance(true, 2) && refresh.Advance(true, 2),

@@ -34,7 +34,7 @@ inline Presentation Build(const weapon_interaction::Sample& sample,
     if(output.holdingMagazine)
     {
         pose.orientation=supportRotation;
-        pose.position=sample.support+Rotate(supportRotation,{0,-0.015f,-0.035f});
+        pose.position=HeldMagazineCenter(sample,supportRotation);
     }
     else
     {
@@ -72,7 +72,7 @@ inline bool Projection(const Presentation& p,const Pose& eye,
     const auto q=p.pose.orientation;const auto e=eye.orientation;
     out={{q.x,q.y,q.z,q.w},{p.pose.position.x,p.pose.position.y,p.pose.position.z,0},
         {-e.x,-e.y,-e.z,e.w},{eye.position.x,eye.position.y,eye.position.z,0},{l,r,d,u},
-        {0.24f,0.28f,0.31f,1}};
+        {1,1,1,1}};
     if(p.model==&weapon_model::kGenericReloadModel)
     { out.color[0]=.12f;out.color[1]=.45f;out.color[2]=.65f; }
     if(p.model==&weapon_model::kPrometheanReloadModel)

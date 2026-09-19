@@ -6,7 +6,7 @@
 #include <cstring>
 #include <limits>
 
-struct {bool manual_reload=true;} g_config;
+struct {bool manual_reload=true;bool per_gun_alignment=false;bool gun_barrel_aim=false;} g_config;
 struct BoneMatrix {float unused;};
 struct Context {const BoneMatrix* source{};uint32_t generation{};bool valid{};} g_fpInterpolationContexts[2];
 uint32_t observedGeneration{},observations{},fixtureChecksum{};
@@ -43,7 +43,12 @@ int main()
                 readTitle==model.title&&observedGeneration==7,"production observer selects each title's own exact catalogue identity");
             g_config.manual_reload=false;observations=0;
             LegacyObserveReloadModel(model.title,123,7,&primary,&remap);
-            Check(!observations,"disabled reload cannot observe or modify native behavior");g_config.manual_reload=true;
+            Check(!observations,"disabled optional consumers do not observe native models");
+            g_config.per_gun_alignment=true;
+            LegacyObserveReloadModel(model.title,123,7,&primary,&remap);
+            Check(observations==1&&observedIdentity==model.identity,
+                "per-gun alignment observes primary identity with manual reload disabled");
+            g_config.per_gun_alignment=false;g_config.manual_reload=true;
             observations=0;LegacyObserveReloadModel(model.title,123,7,nullptr,&remap);
             Check(!observations,"null native source refused");
             if(model.title!=GameTitle::HaloReach)
@@ -79,6 +84,14 @@ int main()
             "production H2 observer reads verified +14/+18 compression header");
         if(model.vertexCount||model.needles) Check(observedIdentity==model.identity,
             "production H2 observer exactly identifies every drawable magazine and Needler");
+        const auto primaryIdentity=observedIdentity;observations=0;
+        const auto secondaryIdentity=Halo2ObserveReloadModel(123,model.nodeCount,false);
+        Check(!observations&&secondaryIdentity==primaryIdentity&&observedIdentity==primaryIdentity,
+            "secondary muzzle model lookup cannot replace primary alignment/reload identity");
+        g_config.manual_reload=false;g_config.gun_barrel_aim=true;
+        Check(Halo2ObserveReloadModel(123,model.nodeCount,false)==primaryIdentity,
+            "muzzle model lookup works independently of manual reload");
+        g_config.manual_reload=true;g_config.gun_barrel_aim=false;
     }
     float custom[]{-.1f,.3f,-.05f,.1f,-.06f,.2f};std::memcpy(tagData+offset,custom,sizeof(custom));
     Halo2ObserveReloadModel(123,8);const uint64_t first=observedIdentity;

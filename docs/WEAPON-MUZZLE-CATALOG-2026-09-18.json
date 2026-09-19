@@ -1,0 +1,3307 @@
+{
+  "source": "Official per-title kit tags and selector code; runtime activation still pending",
+  "audit_sha256": "b6fb6cc95dc69de05501687a50799d46288ed766971f87c2aff2cc5d23d81aab",
+  "records": [
+    {
+      "title": "Halo2",
+      "identity": "A2DBA1A2B3208E57",
+      "node_count": 6,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.056321,
+        0.0,
+        0.024507
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "sha256": "baf108087783b6464469cf9434d709af62730c2c3e964dad6f6cac99bf5baa44"
+    },
+    {
+      "title": "Halo2",
+      "identity": "2660EE8E49A33739",
+      "node_count": 17,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.103716,
+        0.0,
+        -0.0
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/needler/fp_needler/fp_needler.render_model",
+      "sha256": "50a61c512662a7ebcca22ae6905fc91188a8f92856d341f8c55adffec897e792"
+    },
+    {
+      "title": "Halo2",
+      "identity": "6D99DEAEE0C79FD5",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.060463,
+        -0.0,
+        -0.0005
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/fp_plasma_pistol/fp_plasma_pistol.render_model",
+      "sha256": "19511881619e17b63973838bdfc1a1f6ae07e1f5663f9b777c8361103158c8e7"
+    },
+    {
+      "title": "Halo2",
+      "identity": "6D99DEAEE0C79FD5",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.05056,
+        -0.0,
+        -0.015748
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/fp_plasma_pistol/fp_plasma_pistol.render_model",
+      "sha256": "19511881619e17b63973838bdfc1a1f6ae07e1f5663f9b777c8361103158c8e7"
+    },
+    {
+      "title": "Halo2",
+      "identity": "1295A15AB1C5709C",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.191922,
+        0.0,
+        0.045854
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "sha256": "8318a9a2d7b0da7fbc66254b844c45d0587ee9d9beb5103a796bb8f2127e2dfb"
+    },
+    {
+      "title": "Halo2",
+      "identity": "1A1819E65BD37DE1",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.456232,
+        0.0,
+        2.4e-05
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/beam_rifle/fp_beam_rifle/fp_beam_rifle.render_model",
+      "sha256": "0e338bed03b9e4f3150bef8722c51d1861970118ab21039609706d3581393c82"
+    },
+    {
+      "title": "Halo2",
+      "identity": "ED4D20677ED1FEE9",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.105911,
+        0.00016,
+        0.020737
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/brute_plasma_rifle/fp_brute_plasma_rifle/fp_brute_plasma_rifle.render_model",
+      "sha256": "4c418b637b42e3349d12fe228b3fa86d2e63fd48adacc7d2ccb3ed382a54dd55"
+    },
+    {
+      "title": "Halo2",
+      "identity": "AD39609A503F4362",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.288103,
+        0.0,
+        -0.015745
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "sha256": "7fcb388b6134cc681f082c6d89befc3db4fc5f1d5727f35e4843e58cf471fb13"
+    },
+    {
+      "title": "Halo2",
+      "identity": "21CA1817B738C4CE",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.321042,
+        0.0,
+        0.000342
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/gpmg/fp_gpmg/fp_gpmg.render_model",
+      "sha256": "2670d5d8a8f38c6218aa3a8051109a17be1740172ec9e587188ef26c2a6f6e34"
+    },
+    {
+      "title": "Halo2",
+      "identity": "1B55D3C632C37F00",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.105911,
+        0.00016,
+        0.020737
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/plasma_rifle/fp_plasma_rifle/fp_plasma_rifle.render_model",
+      "sha256": "657b4f8d88de763ab47dcffea74743dca268957e22b94d412210666e7a08b5ed"
+    },
+    {
+      "title": "Halo2",
+      "identity": "BEA57366DD3981D5",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.169144,
+        0.0,
+        -0.003689
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model",
+      "sha256": "2b4cab8e1ef7757e1f013cf59c109650165c63c8c7a4090e855d74743e242909"
+    },
+    {
+      "title": "Halo2",
+      "identity": "67EC65EB1DE2A459",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.100726,
+        0.0,
+        0.026458
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/smg/fp_smg/fp_smg.render_model",
+      "sha256": "ab4e2f0a96d3559ad9101a7105a439ffb811f1590186d69e136b133071db749f"
+    },
+    {
+      "title": "Halo2",
+      "identity": "2240C96E4D8AADCC",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.150726,
+        0.0,
+        0.026458
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model",
+      "sha256": "04eec82b3f0e875fe7238b333ee4ca7fe50055303b04f7509d7a4c712e398341"
+    },
+    {
+      "title": "Halo2",
+      "identity": "3BC648707D77E7BB",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.39322,
+        0.0,
+        0.0058
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "sha256": "cc3fd44f484138ea03b97394ca69ad9b0b7cbb18674ae7b9d15bfd9978adba9c"
+    },
+    {
+      "title": "Halo2",
+      "identity": "5D47CFC4826B92CE",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.255353,
+        -2e-06,
+        0.007579
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/flak_cannon/flak_cannon.render_model",
+      "sha256": "9181149ba42a8b88cd6c47fceb869c1a3c00b3cd83f30ca4bd6b025e8535c9ba"
+    },
+    {
+      "title": "Halo2",
+      "identity": "08C446074E21D46A",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.282941,
+        -0.0134,
+        0.03611
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/rocket_launcher/fp_rocket_launcher/fp_rocket_launcher.render_model",
+      "sha256": "60a578b9f923238ae1be59b468787afe6405ac7925b7795d5c28e3071b6232a1"
+    },
+    {
+      "title": "Halo2",
+      "identity": "ACBAC7877B648512",
+      "node_count": 10,
+      "node": 1,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.245701,
+        1.6e-05,
+        0.023315
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        -0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_low/brute_shot/fp_brute_shot/fp_brute_shot.render_model",
+      "sha256": "f3401c58ae7741fb7d2de52391c4e3b074964ac46947f17e63b633126fd64823"
+    },
+    {
+      "title": "Halo3",
+      "identity": "000000001A100F1E",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.111875,
+        5.96e-10,
+        0.0265608
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/automag/fp_automag/fp_automag.render_model",
+      "sha256": "047ad0971e0b5e629028a9a95c03d9d5c92e31f687ab2249803f9bfd41adf1fa"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000170C0C09",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0779685,
+        1.94e-09,
+        0.0368369
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/excavator/fp_excavator/fp_excavator.render_model",
+      "sha256": "297206c65e6ef7851704997f01b94e4e51729a6b38cff95bdc2f753bcf20dc30"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000016060815",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0763451,
+        6.85e-10,
+        0.0245075
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "sha256": "e38f602712e1e517424c76133e9358f9ae4e2ac21e798239bd259bba1e79bec3"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000010190A19",
+      "node_count": 15,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.112862,
+        6e-12,
+        2.1e-10
+      ],
+      "forward": [
+        1.0,
+        -6.79999999712e-09,
+        -3.20000000612e-09
+      ],
+      "up": [
+        3.19999999388e-09,
+        -1.80000001088e-09,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/needler/fp_needler/fp_needler.render_model",
+      "sha256": "f29ab7cab3468e62c20926a1336d35f98e9d70c1c635565b2fd36f8c499b34ce"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000150A000C",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0636335,
+        -1.885e-09,
+        0.0107702
+      ],
+      "forward": [
+        0.9999999999999848,
+        1.474000001875989e-07,
+        9.37999997051993e-08
+      ],
+      "up": [
+        -9.380000029479929e-08,
+        3.99999308693997e-09,
+        0.9999999999999956
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/fp_plasma_pistol/fp_plasma_pistol.render_model",
+      "sha256": "d13bbe63f14ab42c99233a2ec8a76f766ad579a87035a16fef71debd264573d1"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000150A000C",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.0636335,
+        -1.885e-09,
+        0.0107702
+      ],
+      "forward": [
+        0.9999999999999848,
+        1.474000001875989e-07,
+        9.37999997051993e-08
+      ],
+      "up": [
+        -9.380000029479929e-08,
+        3.99999308693997e-09,
+        0.9999999999999956
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/fp_plasma_pistol/fp_plasma_pistol.render_model",
+      "sha256": "d13bbe63f14ab42c99233a2ec8a76f766ad579a87035a16fef71debd264573d1"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000013120D11",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.233428,
+        1.0871e-08,
+        0.0512855
+      ],
+      "forward": [
+        0.9999999999999843,
+        1.6000000372935835e-07,
+        7.579999212799924e-08
+      ],
+      "up": [
+        -7.580000787199923e-08,
+        9.839999393599898e-08,
+        0.9999999999999923
+      ],
+      "source": "objects/weapons/rifle/assault_rifle/fp_assault_rifle/fp_assault_rifle.render_model",
+      "sha256": "922ded5a6fdc4a3a71b9866f5e619c7a37a9f68946cadd07020d741b6b6457dd"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000012040E16",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.257977,
+        2.20532e-05,
+        0.0485461
+      ],
+      "forward": [
+        0.9999999999999846,
+        1.5860000372935835e-07,
+        7.579999219687923e-08
+      ],
+      "up": [
+        -7.580000780311924e-08,
+        9.8399993989059e-08,
+        0.9999999999999923
+      ],
+      "source": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "sha256": "9a9d0a60e1f9b6bc8e14005e8648ffa9c982b6620f6b21a49158ab9411f22e0e"
+    },
+    {
+      "title": "Halo3",
+      "identity": "000000001F0D1510",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.282077,
+        1.1544e-08,
+        -0.00656603
+      ],
+      "forward": [
+        0.9999999999999848,
+        1.5740000371951847e-07,
+        7.559999225591927e-08
+      ],
+      "up": [
+        -7.560000774407926e-08,
+        9.839999405027904e-08,
+        0.9999999999999923
+      ],
+      "source": "objects/weapons/rifle/beam_rifle/fp_beam_rifle/fp_beam_rifle.render_model",
+      "sha256": "fe860fd181d340ff62ae5fb1d294a5676f3f3995f3a1ec2eb184ed26074cd59e"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000013100C11",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.2533,
+        1.6882e-08,
+        0.00874924
+      ],
+      "forward": [
+        0.999999999999987,
+        1.4020000392629872e-07,
+        7.899999303205929e-08
+      ],
+      "up": [
+        -7.900000696793929e-08,
+        9.939999446209912e-08,
+        0.9999999999999919
+      ],
+      "source": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "sha256": "129b68496612a9678bafaee14dfe7ffa6eafef674d375330289a40d2e40a6613"
+    },
+    {
+      "title": "Halo3",
+      "identity": "000000001E1D0514",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.169144,
+        1.01e-09,
+        -0.00368904
+      ],
+      "forward": [
+        0.9999999999999836,
+        1.6500000060587868e-07,
+        7.479999866349938e-08
+      ],
+      "up": [
+        -7.480000133649939e-08,
+        1.6199993828999868e-08,
+        0.9999999999999971
+      ],
+      "source": "objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model",
+      "sha256": "477a20c9fab909e1407184364b93a329a45a4d6f392b75b7be96c132fc8a4b52"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000171C0B10",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0625675,
+        1.371e-09,
+        0.0257022
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/smg/fp_smg/fp_smg.render_model",
+      "sha256": "2529dff23e5a477c8dc3fefc4c670856a1ed38e36231f0e713f7ee608e2ff3c2"
+    },
+    {
+      "title": "Halo3",
+      "identity": "000000001E130811",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.145913,
+        1.371e-09,
+        0.0257022
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model",
+      "sha256": "cb304530a153a66c26677036666fe25e361fbc061dfbd8e3b0552a248d5d4958"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000012081802",
+      "node_count": 6,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.39322,
+        4.36e-10,
+        0.0058
+      ],
+      "forward": [
+        0.9999999999999841,
+        1.6300000357917834e-07,
+        7.259999196409926e-08
+      ],
+      "up": [
+        -7.260000803589926e-08,
+        9.859999408309899e-08,
+        0.9999999999999925
+      ],
+      "source": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "sha256": "e72194cc3cc00c654cdce46b75bc0a5c78f9a931293e27043318c7c7340bd66a"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000015130F16",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        -0.136682,
+        0.0116143,
+        2.1779e-08
+      ],
+      "forward": [
+        -0.9999999999999882,
+        0.0,
+        1.5103796172290667e-07
+      ],
+      "up": [
+        0.0,
+        0.9999999999999998,
+        2.220446049250313e-16
+      ],
+      "source": "objects/weapons/rifle/spike_rifle/fp_spike_rifle/fp_spike_rifle.render_model",
+      "sha256": "3ef9af67cf91fce6c9d5f25855a882e5610457ba580e281a703e6f61df4ae7a7"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000161A1915",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.255353,
+        -2.26473e-06,
+        0.00757933
+      ],
+      "forward": [
+        0.9999999999999841,
+        1.5460000129939878e-07,
+        8.899999774283928e-08
+      ],
+      "up": [
+        -8.900000225715929e-08,
+        2.919999312029977e-08,
+        0.9999999999999956
+      ],
+      "source": "objects/weapons/support_high/flak_cannon/flak_cannon.render_model",
+      "sha256": "8b0c5078f939249ef03cce53597e0d0e53dbb5abe082538d8f5413b46d4fa506"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000141B1915",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.255353,
+        -2.26473e-06,
+        0.00757933
+      ],
+      "forward": [
+        0.9999999999999815,
+        1.6960000130987841e-07,
+        9.159999757471915e-08
+      ],
+      "up": [
+        -9.160000242527916e-08,
+        2.8599992232319735e-08,
+        0.9999999999999954
+      ],
+      "source": "objects/weapons/support_high/flak_cannon/fp_flak_cannon/fp_flak_cannon.render_model",
+      "sha256": "94e317b3d6fcea11d7552fb6eb9e8f6518c4cd1d551b78da5e16fea3bd4c81c4"
+    },
+    {
+      "title": "Halo3",
+      "identity": "00000000151A0912",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.282941,
+        -0.0134,
+        0.03611
+      ],
+      "forward": [
+        0.9999999999999837,
+        1.6420000019447869e-07,
+        7.479999957307939e-08
+      ],
+      "up": [
+        -7.480000042691938e-08,
+        5.199993858919959e-09,
+        0.9999999999999972
+      ],
+      "source": "objects/weapons/support_high/rocket_launcher/fp_rocket_launcher/fp_rocket_launcher.render_model",
+      "sha256": "8fece117e7073ae6a062634bcfdc4975bd7019df7b96473daa12ac7e98ab2627"
+    },
+    {
+      "title": "Halo3",
+      "identity": "000000001F100F1F",
+      "node_count": 8,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.228817,
+        6.99e-10,
+        0.0349982
+      ],
+      "forward": [
+        0.9999999999999853,
+        1.5120000000801894e-07,
+        8.019999998487942e-08
+      ],
+      "up": [
+        -8.020000001511942e-08,
+        1.9999393687999862e-10,
+        0.9999999999999968
+      ],
+      "source": "objects/weapons/support_high/spartan_laser/fp_spartan_laser/fp_spartan_laser.render_model",
+      "sha256": "433deb6de3b1086fc46ad6dc29bb04214f0856d780351491e004daf9a87995c8"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000017141007",
+      "node_count": 11,
+      "node": 1,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.245701,
+        1.63056e-05,
+        0.0233146
+      ],
+      "forward": [
+        0.9999999999999832,
+        1.682000008615586e-07,
+        7.239999799841939e-08
+      ],
+      "up": [
+        -7.240000200157939e-08,
+        2.3799993911159802e-08,
+        0.9999999999999971
+      ],
+      "source": "objects/weapons/support_low/brute_shot/fp_brute_shot/fp_brute_shot.render_model",
+      "sha256": "021511c1e7070c290da34a48dbe91e6becb6697b4d8f15ed45841fde528de02e"
+    },
+    {
+      "title": "Halo3",
+      "identity": "0000000014131A0B",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0538701,
+        0.0,
+        0.0401468
+      ],
+      "forward": [
+        0.9999999999999827,
+        1.7140000015245858e-07,
+        7.25999996400594e-08
+      ],
+      "up": [
+        -7.260000035993939e-08,
+        4.199993778179966e-09,
+        0.9999999999999973
+      ],
+      "source": "objects/weapons/support_low/sentinel_gun/fp_sentinel_gun/fp_sentinel_gun.render_model",
+      "sha256": "38481c9f63159921020d91b6f278c05dd4986f87cf2b280a30b98518c0111a0d"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001A100F1E",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.111875,
+        5.96e-10,
+        0.0265608
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/automag/fp_automag/fp_automag.render_model",
+      "sha256": "047ad0971e0b5e629028a9a95c03d9d5c92e31f687ab2249803f9bfd41adf1fa"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "00000000170C0C09",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0779685,
+        1.94e-09,
+        0.0368369
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/excavator/fp_excavator/fp_excavator.render_model",
+      "sha256": "297206c65e6ef7851704997f01b94e4e51729a6b38cff95bdc2f753bcf20dc30"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000016060815",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0763451,
+        6.85e-10,
+        0.0245075
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/magnum/fp_magnum/fp_magnum.render_model",
+      "sha256": "9e031f3585a7d43b4267ca72901bc6ad6b9a685d7c179ca03d49a54ed5d3b9a8"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000010190A19",
+      "node_count": 15,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.112862,
+        6e-12,
+        2.1e-10
+      ],
+      "forward": [
+        1.0,
+        -6.79999999712e-09,
+        -3.20000000612e-09
+      ],
+      "up": [
+        3.19999999388e-09,
+        -1.80000001088e-09,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/needler/fp_needler/fp_needler.render_model",
+      "sha256": "e46499b00a3e443d71da300642689a9cb12878e4676cd47bfa27594704ba6030"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "00000000150A000C",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0636335,
+        -1.885e-09,
+        0.0107702
+      ],
+      "forward": [
+        0.9999999999999848,
+        1.474000001875989e-07,
+        9.37999997051993e-08
+      ],
+      "up": [
+        -9.380000029479929e-08,
+        3.99999308693997e-09,
+        0.9999999999999956
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/fp_plasma_pistol/fp_plasma_pistol.render_model",
+      "sha256": "b14cf5d06a07f9678621e4bdbd1261ee057913d26e80abb9a5db01d989616cb6"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "00000000150A000C",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.0636335,
+        -1.885e-09,
+        0.0107702
+      ],
+      "forward": [
+        0.9999999999999848,
+        1.474000001875989e-07,
+        9.37999997051993e-08
+      ],
+      "up": [
+        -9.380000029479929e-08,
+        3.99999308693997e-09,
+        0.9999999999999956
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/fp_plasma_pistol/fp_plasma_pistol.render_model",
+      "sha256": "b14cf5d06a07f9678621e4bdbd1261ee057913d26e80abb9a5db01d989616cb6"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000018070710",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.233428,
+        1.0871e-08,
+        0.0512855
+      ],
+      "forward": [
+        0.9999999999999843,
+        1.6000000372935835e-07,
+        7.579999212799924e-08
+      ],
+      "up": [
+        -7.580000787199923e-08,
+        9.839999393599898e-08,
+        0.9999999999999923
+      ],
+      "source": "objects/weapons/rifle/assault_rifle/fp_assault_rifle/fp_assault_rifle.render_model",
+      "sha256": "ff2dc0f045c9834f1b071798f6d5485a935b05a169c61175d9ec22272a30f3b1"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000012040E16",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.257977,
+        2.20532e-05,
+        0.0485461
+      ],
+      "forward": [
+        0.9999999999999846,
+        1.5860000372935835e-07,
+        7.579999219687923e-08
+      ],
+      "up": [
+        -7.580000780311924e-08,
+        9.8399993989059e-08,
+        0.9999999999999923
+      ],
+      "source": "objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model",
+      "sha256": "df2df36070758afe44ef490078ede968cbadfd068afb7b15d9efe030fdee9e12"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001F0D1510",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.282077,
+        1.1544e-08,
+        -0.00656603
+      ],
+      "forward": [
+        0.9999999999999848,
+        1.5740000371951847e-07,
+        7.559999225591927e-08
+      ],
+      "up": [
+        -7.560000774407926e-08,
+        9.839999405027904e-08,
+        0.9999999999999923
+      ],
+      "source": "objects/weapons/rifle/beam_rifle/fp_beam_rifle/fp_beam_rifle.render_model",
+      "sha256": "fe860fd181d340ff62ae5fb1d294a5676f3f3995f3a1ec2eb184ed26074cd59e"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000013100C11",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.2533,
+        1.6882e-08,
+        0.00874924
+      ],
+      "forward": [
+        0.999999999999987,
+        1.4020000392629872e-07,
+        7.899999303205929e-08
+      ],
+      "up": [
+        -7.900000696793929e-08,
+        9.939999446209912e-08,
+        0.9999999999999919
+      ],
+      "source": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "sha256": "5a73162a6ca74dd0c58deea1aec8e209a82094c5f4d1ce09c9fd6a6ebda9ed50"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001F000B10",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.169144,
+        1.01e-09,
+        -0.00368904
+      ],
+      "forward": [
+        0.9999999999999836,
+        1.6500000060587868e-07,
+        7.479999866349938e-08
+      ],
+      "up": [
+        -7.480000133649939e-08,
+        1.6199993828999868e-08,
+        0.9999999999999971
+      ],
+      "source": "objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model",
+      "sha256": "fef801862fbbc15882590ff781cf85054b99e470d58ad233747774201d9c71d6"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "00000000171C0B10",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0625675,
+        1.371e-09,
+        0.0257022
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/smg/fp_smg/fp_smg.render_model",
+      "sha256": "148d24d98c92195468fdae5432723ac9cecc917886a9f2afe7d1fd4ed842c536"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001E130811",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.145913,
+        1.371e-09,
+        0.0257022
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model",
+      "sha256": "cb304530a153a66c26677036666fe25e361fbc061dfbd8e3b0552a248d5d4958"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001B010D0C",
+      "node_count": 6,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.39322,
+        4.36e-10,
+        0.0058
+      ],
+      "forward": [
+        0.9999999999999841,
+        1.6300000357917834e-07,
+        7.259999196409926e-08
+      ],
+      "up": [
+        -7.260000803589926e-08,
+        9.859999408309899e-08,
+        0.9999999999999925
+      ],
+      "source": "objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model",
+      "sha256": "2e1fdb45d7fc735ef4e79ccf4fa3eb723b99b1f715eb2a9e7c94288e8c5bca70"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000011140D13",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        -0.136682,
+        0.0116143,
+        2.1779e-08
+      ],
+      "forward": [
+        -0.9999999999999882,
+        0.0,
+        1.5103796172290667e-07
+      ],
+      "up": [
+        0.0,
+        0.9999999999999998,
+        2.220446049250313e-16
+      ],
+      "source": "objects/weapons/rifle/spike_rifle/fp_spike_rifle/fp_spike_rifle.render_model",
+      "sha256": "84ed398023c75adbc65d3baa1e7fac78aab86e237fb2b4c98ce142a1b3f7cd38"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001B010110",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.255353,
+        -2.26473e-06,
+        0.00757933
+      ],
+      "forward": [
+        0.9999999999999841,
+        1.5460000129939878e-07,
+        8.899999774283928e-08
+      ],
+      "up": [
+        -8.900000225715929e-08,
+        2.919999312029977e-08,
+        0.9999999999999956
+      ],
+      "source": "objects/weapons/support_high/flak_cannon/flak_cannon.render_model",
+      "sha256": "8a577ff46e75151454861d61ac8e33bbed806ecafc4bd527f06979a3741394c4"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "00000000141B1915",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.255353,
+        -2.26473e-06,
+        0.00757933
+      ],
+      "forward": [
+        0.9999999999999815,
+        1.6960000130987841e-07,
+        9.159999757471915e-08
+      ],
+      "up": [
+        -9.160000242527916e-08,
+        2.8599992232319735e-08,
+        0.9999999999999954
+      ],
+      "source": "objects/weapons/support_high/flak_cannon/fp_flak_cannon/fp_flak_cannon.render_model",
+      "sha256": "23b06a23edb10c2cd376ac00f0ad0c4059c7cf369646781e97d01a8ac225c5fc"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001E010110",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.282941,
+        -0.0134,
+        0.03611
+      ],
+      "forward": [
+        0.9999999999999837,
+        1.6420000019447869e-07,
+        7.479999957307939e-08
+      ],
+      "up": [
+        -7.480000042691938e-08,
+        5.199993858919959e-09,
+        0.9999999999999972
+      ],
+      "source": "objects/weapons/support_high/rocket_launcher/fp_rocket_launcher/fp_rocket_launcher.render_model",
+      "sha256": "aa412494ce17814cff6a4e57b33052c3a28d0726025e032ac8667ea1fe4e572a"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "000000001C050612",
+      "node_count": 8,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.228817,
+        6.99e-10,
+        0.0349982
+      ],
+      "forward": [
+        0.9999999999999853,
+        1.5120000000801894e-07,
+        8.019999998487942e-08
+      ],
+      "up": [
+        -8.020000001511942e-08,
+        1.9999393687999862e-10,
+        0.9999999999999968
+      ],
+      "source": "objects/weapons/support_high/spartan_laser/fp_spartan_laser/fp_spartan_laser.render_model",
+      "sha256": "4ec7ce31b9ab4471185c03ca4b13d42e8ebf9fe38e26750392e5f8700691dea7"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000017141007",
+      "node_count": 11,
+      "node": 1,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.245701,
+        1.63056e-05,
+        0.0233146
+      ],
+      "forward": [
+        0.9999999999999832,
+        1.682000008615586e-07,
+        7.239999799841939e-08
+      ],
+      "up": [
+        -7.240000200157939e-08,
+        2.3799993911159802e-08,
+        0.9999999999999971
+      ],
+      "source": "objects/weapons/support_low/brute_shot/fp_brute_shot/fp_brute_shot.render_model",
+      "sha256": "021511c1e7070c290da34a48dbe91e6becb6697b4d8f15ed45841fde528de02e"
+    },
+    {
+      "title": "Halo3ODST",
+      "identity": "0000000014131A0B",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0538701,
+        0.0,
+        0.0401468
+      ],
+      "forward": [
+        0.9999999999999827,
+        1.7140000015245858e-07,
+        7.25999996400594e-08
+      ],
+      "up": [
+        -7.260000035993939e-08,
+        4.199993778179966e-09,
+        0.9999999999999973
+      ],
+      "source": "objects/weapons/support_low/sentinel_gun/fp_sentinel_gun/fp_sentinel_gun.render_model",
+      "sha256": "38481c9f63159921020d91b6f278c05dd4986f87cf2b280a30b98518c0111a0d"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "0000000015150C0C",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.07795,
+        -0.00073,
+        0.03551
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/magnum/magnum.render_model",
+      "sha256": "038ca8aad8717083ef4564ee665b1bdc329b641f11cf6c8a4a0d7b3c3fecaf57"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "0000000011091511",
+      "node_count": 15,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.11304,
+        0.00073781,
+        -0.000689883
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/needler/needler.render_model",
+      "sha256": "8a56c77935e063f022e8771513a43bc504efa1c88897bfcfbe9fd182b07aee2e"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000100B1711",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.101936,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/plasma_pistol.render_model",
+      "sha256": "8c46b9147238968b946fcea46e88aaafbbdcd8878e98c433656322a98da53d81"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000100B1711",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.101936,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/plasma_pistol.render_model",
+      "sha256": "8c46b9147238968b946fcea46e88aaafbbdcd8878e98c433656322a98da53d81"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000110B151E",
+      "node_count": 1,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.07795,
+        -0.00073,
+        0.03551
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/target_laser/target_laser.render_model",
+      "sha256": "1cea033cc179f5a17b8376e66e493676fd25ed3759fb668ab5c1463255b72564"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000150D1012",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.233427,
+        1.90735e-08,
+        0.0512855
+      ],
+      "forward": [
+        0.9999999999998863,
+        4.768379999999729e-07,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/assault_rifle/assault_rifle.render_model",
+      "sha256": "c8095316fd097dd92bd7678b5c5de209ae28d4f10917dd2eccae3917e7d325b2"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "0000000011150101",
+      "node_count": 11,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.233651,
+        0.00143609,
+        0.0344724
+      ],
+      "forward": [
+        0.9999999999999847,
+        1.7484539115013573e-07,
+        0.0
+      ],
+      "up": [
+        1.7484539115013573e-07,
+        -0.9999999999999847,
+        0.0
+      ],
+      "source": "objects/weapons/rifle/concussion_rifle/concussion_rifle.render_model",
+      "sha256": "b3dd6f5ee1eedf908ba607429589cc68a1f4841e41f9629bb8176920365efca6"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "0000000015011515",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.232144,
+        4.2014e-05,
+        0.0462235
+      ],
+      "forward": [
+        0.9999999999995453,
+        9.536739999997832e-07,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/dmr/dmr.render_model",
+      "sha256": "f5a67fbef56ddfdd1ef99e1ff3b4169f410066c605bcfa7b9680d1c0361097e6"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000110D171E",
+      "node_count": 14,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.371055,
+        0.0035495,
+        0.0388017
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/focus_rifle/focus_rifle.render_model",
+      "sha256": "39f1739d9892335f9c9b237596523b7d2e9920ca51865f0b2d95aedab63ea93e"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000120C1715",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.242669,
+        -0.00039482,
+        0.0565957
+      ],
+      "forward": [
+        1.0,
+        2.70006e-13,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/grenade_launcher/grenade_launcher.render_model",
+      "sha256": "2bcd033be649eb360b2cf23a10dc9650527855f76d603959c6aef50753b471a3"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "000000001615110E",
+      "node_count": 15,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.35243,
+        7.62939e-08,
+        0.0325413
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/needle_rifle/needle_rifle.render_model",
+      "sha256": "94b927b43ca7ad66d25384fc2d7e5357afadab5db4722097e867e35c6da80071"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000180C1511",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.30425,
+        0.0,
+        0.0394
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/shotgun/shotgun.render_model",
+      "sha256": "aed9ba6e21ba3a4d54651d0147a75cae0f2e06694525ae866d20ba5c4fcc2cfa"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000110B141E",
+      "node_count": 6,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.491465,
+        0.0,
+        0.0509798
+      ],
+      "forward": [
+        0.9999999999995453,
+        9.536739999997832e-07,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/sniper_rifle/sniper_rifle.render_model",
+      "sha256": "7e49ab4e81f0a0c95e53099c8c961046db3067e56ab5c03b4b925c96c9fdf380"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "0000000013140A0D",
+      "node_count": 7,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.195138,
+        0.0,
+        0.0380143
+      ],
+      "forward": [
+        1.0,
+        -1.1890399999222337e-42,
+        -6.60024e-15
+      ],
+      "up": [
+        6.60024e-15,
+        -2.11758e-22,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/spike_rifle/spike_rifle.render_model",
+      "sha256": "89c681429c99136017e224ffdbab5e8c07612f4ef46ce43c1d05cf302fa26690"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000160D101E",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.196933,
+        -2.25673e-06,
+        0.0588393
+      ],
+      "forward": [
+        0.9999999999998863,
+        -4.768379999999729e-07,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/flak_cannon/flak_cannon.render_model",
+      "sha256": "089d8b38234c7c7a6a139b72f9d4d8f75ef2ddffa769f75acb0f379ad9641b88"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "00000000100A141E",
+      "node_count": 18,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.160946,
+        6.75201e-06,
+        0.0608726
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -1.776356e-15
+      ],
+      "up": [
+        1.776356e-15,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/plasma_launcher/plasma_launcher.render_model",
+      "sha256": "598ad9e8a53175d8e941a3958743a27243d91dd1d5c0a9a385d5cfe1e20c4ffb"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "0000000019110C0C",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.170441,
+        -0.0134,
+        0.06361
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/rocket_launcher/rocket_launcher.render_model",
+      "sha256": "9cb8d414a44f9d50d44979ec26f51dabd72b749748d3d0be83ec123f15926ae2"
+    },
+    {
+      "title": "HaloReach",
+      "identity": "000000001606141E",
+      "node_count": 9,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.109511,
+        0.0,
+        0.0624982
+      ],
+      "forward": [
+        0.9999999999995453,
+        9.536739999997832e-07,
+        -7.784539999999479e-21
+      ],
+      "up": [
+        7.105432215458384e-15,
+        -7.450579999996612e-09,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/spartan_laser/spartan_laser.render_model",
+      "sha256": "f3a41cde3cb700232bb93a196f7bdfc905cf6e58aab56df67a7d8b7a33afa8c4"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000013081E16",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.101936,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/plasma_pistol.render_model",
+      "sha256": "b85856b1efdd740da2464b3fb4bcad403c7acd4aff79fc3d9c32dac2ff1ebd58"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000013081E16",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.101936,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/plasma_pistol/plasma_pistol.render_model",
+      "sha256": "b85856b1efdd740da2464b3fb4bcad403c7acd4aff79fc3d9c32dac2ff1ebd58"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000111B0A00",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.101936,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_bishop_beam/storm_bishop_beam.render_model",
+      "sha256": "ff7831c089ab9f85aab34e468e33f3e47ce02f7ccb601f664bb75d58cd13fac7"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000111B0A00",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.101936,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_bishop_beam/storm_bishop_beam.render_model",
+      "sha256": "ff7831c089ab9f85aab34e468e33f3e47ce02f7ccb601f664bb75d58cd13fac7"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000160F1B01",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.114992,
+        0.00223043,
+        0.0189018
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_burst_pistol/storm_burst_pistol.render_model",
+      "sha256": "ba4bc5bc7b14ea12a00b8092d3b7845de031b04d52a8b9bbcc08183b3e56518a"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000015111A1D",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0756144,
+        -0.00073,
+        0.0372638
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_magnum/storm_magnum.render_model",
+      "sha256": "264a0dcd4f15399cd8db8aca76b8ad164dfec1481f977ac824be4a64fe5e62df"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001314081C",
+      "node_count": 15,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.11304,
+        0.00073781,
+        0.00712377
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_needler/storm_needler.render_model",
+      "sha256": "f8f6c7eca1b166e80c182e2fa42b0b48af18926adbc3526766b22c94f4d00adc"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000012140501",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.105174,
+        0.00223043,
+        0.0181252
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_plasma_pistol/storm_plasma_pistol.render_model",
+      "sha256": "86ebbbd6a7b6d96df8f64f2f939c9a60a45dae1fcb9c4641f7f5d0d12c288c35"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000012140501",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.105727,
+        0.00223043,
+        0.0185515
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_plasma_pistol/storm_plasma_pistol.render_model",
+      "sha256": "86ebbbd6a7b6d96df8f64f2f939c9a60a45dae1fcb9c4641f7f5d0d12c288c35"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001305160B",
+      "node_count": 17,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.140222,
+        0.0,
+        0.011
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_stasis_pistol/storm_stasis_pistol.render_model",
+      "sha256": "f3c82081e341da3e18f995f0e5cb49364cc66a197d46cf787c7c12a34a120e3e"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001402121B",
+      "node_count": 3,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0447373,
+        -0.00073,
+        0.0367576
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_sticky_detonator/storm_sticky_detonator.render_model",
+      "sha256": "0dc11f3c153d586a8d5a14071931f437a43b2fae1b4666295d0b0093a587be07"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000016170807",
+      "node_count": 1,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0637174,
+        0.00300551,
+        0.0510572
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/storm_target_laser/storm_target_laser.render_model",
+      "sha256": "ce75de3a1c5b5ef164d94a43ad11f4699c0c860c348efaf409a1f552f3ac5f7c"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000015091B16",
+      "node_count": 1,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.0637174,
+        0.00300551,
+        0.0510572
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/pistol/target_laser/target_laser.render_model",
+      "sha256": "24cbcf3bd1c50afc2c7d11ecc3758796d974f521de2fe869615b7342e2050dbf"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000017161F1C",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.300763,
+        9.69931e-17,
+        0.0267904
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_assault_carbine/storm_assault_carbine.render_model",
+      "sha256": "2e06000c5895512f55108ca788c6940f330783996a3551965826e48767661143"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001814181C",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.235741,
+        5.76905e-11,
+        0.0518221
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_assault_rifle/storm_assault_rifle.render_model",
+      "sha256": "7fda1ab0b5f153c60ced40697b4ed706103e8d20a92ad6d25906ee2d9c4a67da"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000160E0512",
+      "node_count": 20,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.347848,
+        -7.30237e-12,
+        0.043213
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_attach_beam/storm_attach_beam.render_model",
+      "sha256": "30fa6b28da94eddc0ebd82c99365258abf2741c2b0e61d5bf7b401817e30d1ec"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000110F0115",
+      "node_count": 14,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.495207,
+        -5.75986e-05,
+        0.00882774
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_beam_rifle/storm_beam_rifle.render_model",
+      "sha256": "260b7e621a16d080b416defe0bea97ec8b1944600c5bff807a6f98fc5feab648"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000011120517",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.232144,
+        4.2014e-05,
+        0.0462235
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_br/storm_br.render_model",
+      "sha256": "02913cfab5981bab488b2062d00662503ef485f5b3aef70f28fb360be3380f2c"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001B080715",
+      "node_count": 11,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.228987,
+        0.00143634,
+        0.0344724
+      ],
+      "forward": [
+        0.9999999999999847,
+        1.7484539115013573e-07,
+        0.0
+      ],
+      "up": [
+        1.7484539115013573e-07,
+        -0.9999999999999847,
+        0.0
+      ],
+      "source": "objects/weapons/rifle/storm_concussion_rifle/storm_concussion_rifle.render_model",
+      "sha256": "cf9b012fc80982a826f0fc22e3f59594152f0904424ce53d0f5f704a44d40718"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000151C1A1B",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.330597,
+        0.0,
+        0.0297042
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_covenant_carbine/storm_covenant_carbine.render_model",
+      "sha256": "39e5df6b35b826871b382b1ba4fc12b6d415e0f8f61bde5dba787f5721e5548e"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000111B0416",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.267144,
+        4.2014e-05,
+        0.0462235
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_dmr/storm_dmr.render_model",
+      "sha256": "ec76e7ae7dde76b546cd58ceeb1baa81107bc35bf0790bf28b415bcd180e29cc"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000014031004",
+      "node_count": 8,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.316072,
+        0.0,
+        0.0259034
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_forerunner_rifle/storm_forerunner_rifle.render_model",
+      "sha256": "5fafae90db4a013d70dda23756ffc308bd9b42e6b93db6dc6a202414b190b90b"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000014031004",
+      "node_count": 8,
+      "node": 0,
+      "barrel": 1,
+      "marker": "primary_trigger",
+      "position": [
+        0.316072,
+        0.0,
+        0.0259034
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_forerunner_rifle/storm_forerunner_rifle.render_model",
+      "sha256": "5fafae90db4a013d70dda23756ffc308bd9b42e6b93db6dc6a202414b190b90b"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000017180016",
+      "node_count": 13,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.187436,
+        0.0,
+        0.0203904
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_forerunner_smg/storm_forerunner_smg.render_model",
+      "sha256": "99639288be8eb43ad95401e0474536b8117c17dbd4126da949516b9feed64144"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001402141C",
+      "node_count": 19,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.470419,
+        -7.30237e-12,
+        0.0517118
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_forerunner_sniper_rifle/storm_forerunner_sniper_rifle.render_model",
+      "sha256": "edd3f7224614f2a6f7de6f155d026f55ef099a791718b90f31e9d124f3db50fd"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000013020014",
+      "node_count": 2,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.323454,
+        1.90735e-08,
+        0.0460665
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_lmg/storm_lmg.render_model",
+      "sha256": "19c02c2f92ac60046754fc763184d52a34cf0016c63a87b6fbcb0c9aa5ea693f"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000010030014",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.24547,
+        5.76905e-11,
+        0.0508719
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_rail_gun/storm_rail_gun.render_model",
+      "sha256": "0b2946f1287e37362160a62fd99f1e88954c49ecf7d566bf4b257be1fc7bcb68"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000010030014",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 1,
+      "marker": "secondary_trigger",
+      "position": [
+        0.24547,
+        5.76905e-11,
+        0.0508719
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_rail_gun/storm_rail_gun.render_model",
+      "sha256": "0b2946f1287e37362160a62fd99f1e88954c49ecf7d566bf4b257be1fc7bcb68"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000171C0B05",
+      "node_count": 4,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.284527,
+        -7.30241e-12,
+        0.0394
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_shotgun/storm_shotgun.render_model",
+      "sha256": "77f02a328e39f75858820e71960a7dc5cb47723125dfadd781b42ed6648dc04e"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001A0D0314",
+      "node_count": 6,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.448468,
+        -7.30237e-12,
+        0.0509798
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_sniper_rifle/storm_sniper_rifle.render_model",
+      "sha256": "6081b0ebd564376ff77770edf438aef3794b74efd4d973055d96bf389dfc5d74"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001108171F",
+      "node_count": 11,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.257612,
+        -7.30241e-12,
+        0.0394
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/rifle/storm_spread_gun/storm_spread_gun.render_model",
+      "sha256": "12f70e7c5939e8626bd3b9018a1ea89d455033a629b7a72567b65225d8ff37f2"
+    },
+    {
+      "title": "Halo4",
+      "identity": "00000000111D0D05",
+      "node_count": 15,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.170441,
+        0.0,
+        0.066988
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/storm_forerunner_incineration_launcher/storm_forerunner_incineration_launcher.render_model",
+      "sha256": "de174d04ecd49411b3a9665d930dbfef0265829a734cd091f8b6c3a3cc9f984a"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000017141708",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.196933,
+        -2.25673e-06,
+        0.0588393
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/storm_fuel_rod_cannon/storm_fuel_rod_cannon.render_model",
+      "sha256": "a8c8a6ff53ee9dfd687585e13d6e525e30732398b72c8ed7bf23de25a356094d"
+    },
+    {
+      "title": "Halo4",
+      "identity": "0000000011080014",
+      "node_count": 5,
+      "node": 0,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        0.164319,
+        -0.0109058,
+        0.0685002
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "objects/weapons/support_high/storm_rocket_launcher/storm_rocket_launcher.render_model",
+      "sha256": "a6ba1e0053c869b9a30c02519872271b1abf8447fc6a747b3750aee235879333"
+    },
+    {
+      "title": "Halo4",
+      "identity": "000000001A0B0214",
+      "node_count": 9,
+      "node": 6,
+      "barrel": 0,
+      "marker": "primary_trigger",
+      "position": [
+        -0.00108409,
+        0.0194137,
+        4.0619e-09
+      ],
+      "forward": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "up": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "source": "objects/weapons/support_high/storm_spartan_laser/storm_spartan_laser.render_model",
+      "sha256": "db541a671606adffaf049bb323ffb93a1ca122dd2a18d54054b969ef1f42c234"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "93663163761AA577",
+      "node_count": 42,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.2196674942970276,
+        9.99999993922529e-09,
+        0.05519995838403702
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.gbxmodel",
+      "sha256": "f49c1c60aa0fc37951c863d78e9a2b3b6245de2f88ff00889b41ac131473a967"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "55EA2D6F6C10C375",
+      "node_count": 54,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.1037219986319542,
+        0.0,
+        0.00023025000700727105
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/needler/fp/fp.gbxmodel",
+      "sha256": "26a77dd87eda1404a77a404e466392eb94db1051c775243e4f5e11bd7684f1c5"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "24585B0C2FBD0622",
+      "node_count": 44,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.06476879119873047,
+        0.0,
+        0.028183618560433388
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.gbxmodel",
+      "sha256": "83a3ed078dcc92b15976462f3e71619f92a242e932ce736fa01ef7ab44697cc0"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "7B974325274A536D",
+      "node_count": 41,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.056359998881816864,
+        -0.0,
+        -0.0004999999655410647
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/plasma pistol/fp/fp.gbxmodel",
+      "sha256": "0f1b31d72c0fe1e498877e00d9d8a0250b63771050bd257c5aa1e04058d9a4a4"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "7B974325274A536D",
+      "node_count": 41,
+      "node": 7,
+      "barrel": 1,
+      "marker": "secondary trigger",
+      "position": [
+        0.05056000128388405,
+        -0.0,
+        -0.0157481599599123
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/plasma pistol/fp/fp.gbxmodel",
+      "sha256": "0f1b31d72c0fe1e498877e00d9d8a0250b63771050bd257c5aa1e04058d9a4a4"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "75A4823A46E33E13",
+      "node_count": 42,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.10591059178113937,
+        0.00016000001050997525,
+        0.020737299695611
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/plasma rifle/fp/fp.gbxmodel",
+      "sha256": "2352c04f5a42ff9c467dd5dbf0def09bace1a621b205b3f0997d07fba3d90494"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "75A4823A46E33E13",
+      "node_count": 42,
+      "node": 7,
+      "barrel": 1,
+      "marker": "secondary trigger",
+      "position": [
+        0.08382631838321686,
+        0.0,
+        0.0008104799780994654
+      ],
+      "forward": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/plasma rifle/fp/fp.gbxmodel",
+      "sha256": "2352c04f5a42ff9c467dd5dbf0def09bace1a621b205b3f0997d07fba3d90494"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "B0BD3C18EDF619B4",
+      "node_count": 41,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.20814643800258636,
+        -0.00037245999556034803,
+        0.004731189925223589
+      ],
+      "forward": [
+        0.9999063187976016,
+        0.0008389385201416959,
+        0.013661984145378572
+      ],
+      "up": [
+        -0.013661361273983052,
+        -0.0007437476422440511,
+        0.9999064026435606
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/plasma_cannon/fp/fp.gbxmodel",
+      "sha256": "23e1268603f03cd5424e4aad691e36b854866ea2b0562355155a45d834ef6429"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "E155408F29C66938",
+      "node_count": 42,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.28294140100479126,
+        -0.013399999588727951,
+        0.03610999882221222
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/rocket launcher/fp/fp.gbxmodel",
+      "sha256": "1acfe812e5e770a4f855d18a300629d1000e426f94fe2ca05a02b9fec75a7009"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "1D306B5E75713D8B",
+      "node_count": 41,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.20709258317947388,
+        0.0,
+        -0.0036890399642288685
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/shotgun/fp/fp.gbxmodel",
+      "sha256": "935e0848767d1d89ed1c7e5231477f54f8d508228f2b64062c16051382eebbd4"
+    },
+    {
+      "title": "HaloCE",
+      "identity": "7560F22650441950",
+      "node_count": 41,
+      "node": 7,
+      "barrel": 0,
+      "marker": "primary trigger",
+      "position": [
+        0.3932199776172638,
+        0.0,
+        0.005799999926239252
+      ],
+      "forward": [
+        1.0,
+        0.0,
+        -0.0
+      ],
+      "up": [
+        0.0,
+        -0.0,
+        1.0
+      ],
+      "source": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.gbxmodel",
+      "sha256": "4aac243a95ef94ea4b6637122b883f02cb3cd392c1f8c5665c6892c0cc7ad06a"
+    }
+  ],
+  "refused": [
+    {
+      "kit": "H2EK",
+      "model": "objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H2EK",
+      "model": "objects/weapons/support_high/flak_cannon/flak_cannon.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H2EK",
+      "model": "objects/weapons/support_high/rocket_launcher/fp_rocket_launcher/fp_rocket_launcher.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H3EK",
+      "model": "objects/weapons/rifle/plasma_rifle/fp_plasma_rifle/fp_plasma_rifle.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "H3EK",
+      "model": "objects/weapons/rifle/plasma_rifle_red/fp_plasma_rifle_red/fp_plasma_rifle_red.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "H3EK",
+      "model": "objects/weapons/support_high/spartan_laser/fp_spartan_laser/fp_spartan_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H3ODSTEK",
+      "model": "objects/weapons/rifle/plasma_rifle/fp_plasma_rifle/fp_plasma_rifle.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "H3ODSTEK",
+      "model": "objects/weapons/rifle/plasma_rifle_red/fp_plasma_rifle_red/fp_plasma_rifle_red.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "H3ODSTEK",
+      "model": "objects/weapons/support_high/spartan_laser/fp_spartan_laser/fp_spartan_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HREK",
+      "model": "objects/weapons/pistol/target_laser/target_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HREK",
+      "model": "objects/weapons/rifle/plasma_repeater/plasma_repeater.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "HREK",
+      "model": "objects/weapons/rifle/plasma_rifle/plasma_rifle.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "HREK",
+      "model": "objects/weapons/rifle/sniper_rifle/sniper_rifle.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HREK",
+      "model": "objects/weapons/support_high/spartan_laser/spartan_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H4EK",
+      "model": "objects/weapons/pistol/storm_stasis_pistol/storm_stasis_pistol.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H4EK",
+      "model": "objects/weapons/pistol/storm_target_laser/storm_target_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H4EK",
+      "model": "objects/weapons/pistol/target_laser/target_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "H4EK",
+      "model": "objects/weapons/rifle/storm_stasis_rifle/storm_stasis_rifle.render_model",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 2
+    },
+    {
+      "kit": "H4EK",
+      "model": "objects/weapons/support_high/storm_spartan_laser/storm_spartan_laser.render_model",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/assault rifle/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/ball/fp/fp.gbxmodel",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/ball/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/flag/fp/fp.gbxmodel",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/flag/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/flamethrower/fp/fp.gbxmodel",
+      "barrel": 0,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/flamethrower/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/needler/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/pistol/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/plasma_cannon/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/rocket launcher/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/shotgun/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    },
+    {
+      "kit": "HCEEK",
+      "model": "out/ce-hands-hceek-tags/tags/weapons/sniper rifle/fp/fp.gbxmodel",
+      "barrel": 1,
+      "reason": "missing or distinct authored markers",
+      "count": 0
+    }
+  ]
+}

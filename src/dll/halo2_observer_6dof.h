@@ -80,6 +80,7 @@ void Halo2Observer6Dof_SetFirstPersonPassCameras(
 // published here, so the compensation targets a MEASURED camera instead of
 // a predicted one. Ignored when no core has named a pass.
 struct Halo2CameraBasis;
+bool Halo2Observer6Dof_BuildScopeCamera(Halo2CameraBasis& camera) noexcept;
 void Halo2Observer6Dof_SetMeasuredFirstPersonViewingCamera(
     const Halo2CameraBasis& viewing, bool admitCompensation) noexcept;
 

@@ -37,6 +37,11 @@ int main(int argc,char** argv)
         Check(model.firstVertex<=std::size(weapon_model::kVertices)&&
             model.vertexCount<=std::size(weapon_model::kVertices)-model.firstVertex&&
             model.vertexCount%3==0,"catalogue mesh range is bounded triangles");
+        for (unsigned v=0;v<model.vertexCount;++v) {
+            const auto& uv=weapon_model::kVertices[model.firstVertex+v].uv;
+            Check(std::isfinite(uv[0])&&std::isfinite(uv[1])&&uv[0]>0&&uv[0]<1&&uv[1]>0&&uv[1]<1,
+                "authored magazine UVs remain inside the padded surface atlas");
+        }
         visible[title]+=model.vertexCount?1:0;needles[title]+=model.needles?1:0;
         for(bool left:{false,true})
         {
@@ -138,6 +143,20 @@ int main(int argc,char** argv)
     const D3D11_VIEWPORT viewport{0,0,size,size,0,1},sentinel{3,5,31,27,.2f,.8f};
     auto* targetPtr=target.Get();context->OMSetRenderTargets(1,&targetPtr,nullptr);
     context->RSSetViewports(1,&sentinel);context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP);
+    ComPtr<ID3D11Texture2D> nativeTexture;ComPtr<ID3D11ShaderResourceView> nativeSurface;
+    ComPtr<ID3D11SamplerState> nativeSampler;
+    auto nativeDesc=desc;nativeDesc.Width=nativeDesc.Height=1;
+    nativeDesc.Usage=D3D11_USAGE_IMMUTABLE;nativeDesc.CPUAccessFlags=0;
+    nativeDesc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    const uint32_t nativePixel=0xffcc4488;D3D11_SUBRESOURCE_DATA nativeData{&nativePixel,4,0};
+    Check(SUCCEEDED(device->CreateTexture2D(&nativeDesc,&nativeData,&nativeTexture))&&
+        SUCCEEDED(device->CreateShaderResourceView(nativeTexture.Get(),nullptr,&nativeSurface)),"native surface sentinel");
+    D3D11_SAMPLER_DESC nativeSampling{};nativeSampling.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT;
+    nativeSampling.AddressU=nativeSampling.AddressV=nativeSampling.AddressW=D3D11_TEXTURE_ADDRESS_WRAP;
+    Check(SUCCEEDED(device->CreateSamplerState(&nativeSampling,&nativeSampler)),"native sampler sentinel");
+    auto* nativeSrv=nativeSurface.Get();auto* nativeSm=nativeSampler.Get();
+    context->PSSetShaderResources(0,1,&nativeSrv);context->PSSetSamplers(0,1,&nativeSm);
+    unsigned texturedColor[7]{};
     std::vector<unsigned char> montage;std::ofstream manifest;
     if(argc>1) manifest.open(std::string(argv[1])+".txt");
     unsigned picture=0;double leftCenter=0,rightCenter=0;
@@ -177,6 +196,10 @@ int main(int argc,char** argv)
             Check(after.Get()==target.Get()&&afterVp.TopLeftX==sentinel.TopLeftX&&afterVp.Width==sentinel.Width&&
                 afterVp.MinDepth==sentinel.MinDepth&&topology==D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP,
                 "accessory command list restores native target viewport depth-range and IA state");
+            ComPtr<ID3D11ShaderResourceView> afterSurface;ComPtr<ID3D11SamplerState> afterSampler;
+            context->PSGetShaderResources(0,1,&afterSurface);context->PSGetSamplers(0,1,&afterSampler);
+            Check(afterSurface.Get()==nativeSrv&&afterSampler.Get()==nativeSm,
+                "textured accessory restores native pixel surface and sampler bindings");
             context->CopyResource(readback.Get(),texture.Get());
             D3D11_MAPPED_SUBRESOURCE mapped{};hr=context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped);
             Check(SUCCEEDED(hr),"map executed GPU image");if(FAILED(hr)) return 1;
@@ -186,6 +209,9 @@ int main(int argc,char** argv)
             {
                 const auto* pixel=static_cast<const unsigned char*>(mapped.pData)+y*mapped.RowPitch+x*4;
                 if(pixel[0]||pixel[1]||pixel[2]) {++pixels;sum+=x;}
+                if(!weapon_model::UsesTokenGeometry(&model) &&
+                    (std::abs(int(pixel[0])-int(pixel[1]))>=3 || std::abs(int(pixel[1])-int(pixel[2]))>=3))
+                    ++texturedColor[static_cast<unsigned>(model.title)];
                 for(unsigned c=0;c<3;++c) rgb[(y*size+x)*3+c]=pixel[c];
             }
             context->Unmap(readback.Get(),0);
@@ -205,6 +231,8 @@ int main(int argc,char** argv)
         Check(!weapon_accessory::Projection(p,{},-.5f,.5f,-.5f,.5f,invalid),"nonfinite accessory pose rejected");
     }
     renderer.Reset();
+    for(unsigned title=1;title<=6;++title)
+        Check(texturedColor[title]>10,"every title samples authored weapon colors instead of a flat neutral material");
     std::printf("Weapon accessories: %u checks, %u failures\n",checks,failures);
     return failures?1:0;
 }

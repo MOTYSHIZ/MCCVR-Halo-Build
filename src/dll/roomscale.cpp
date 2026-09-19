@@ -64,9 +64,12 @@ void Roomscale_Camera(GameTitle title,bool allowed,const float body[3],
     if (title!=TitleAdapter_GetActiveTitle()) return;
     // Fail immediately on overlapping title callbacks; no locks or waits in a hook.
     if (publishing.test_and_set(std::memory_order_acquire)) return;
-    static thread_local RoomscaleFollow state;
-    static thread_local GameTitle prior=GameTitle::None;
-    static thread_local uint32_t priorInputEpoch=0;
+    // The published tracking reference belongs to the title, not one engine
+    // thread. The nonblocking publishing guard above protects this shared
+    // history when native camera callbacks migrate between threads.
+    static RoomscaleFollow state;
+    static GameTitle prior=GameTitle::None;
+    static uint32_t priorInputEpoch=0;
     const auto epoch=inputEpoch.load(std::memory_order_acquire);
     if (prior!=title || priorInputEpoch!=epoch)
     { state={}; prior=title; priorInputEpoch=epoch; }

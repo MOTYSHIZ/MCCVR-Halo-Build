@@ -3,6 +3,8 @@
 // H2 and ODST. See DUAL-WIELD-REFINEMENT-2026-09-09.md and offline verifier.
 using Halo3DualFireFn = uint64_t(__fastcall*)(uint32_t, int16_t, void*, int32_t, uint8_t);
 using Halo3DualAimFn = void(__fastcall*)(uint32_t, float*, float*, uint64_t, float*, uint8_t, uint8_t);
+using Halo3DualQueryFn = void(__fastcall*)(int32_t,uint8_t,float*,int16_t,float*,void*);
+using Halo3DualCameraFn = int32_t(__fastcall*)(uint32_t,float*,float*);
 struct Halo3DualRuntime
 {
     uintptr_t base = 0;
@@ -12,9 +14,14 @@ struct Halo3DualRuntime
     void* aimTarget = nullptr;
     Halo3DualFireFn fireOriginal = nullptr;
     Halo3DualAimFn aimOriginal = nullptr;
+    void* queryTarget=nullptr;
+    void* cameraTarget=nullptr;
+    Halo3DualQueryFn queryOriginal=nullptr;
+    Halo3DualCameraFn cameraOriginal=nullptr;
     std::atomic<bool> enabled{false}, faulted{false};
     std::atomic<uint32_t> callbacks{0};
     std::atomic<uint64_t> rays[2]{}, refused{0};
+    std::atomic<uint64_t> nativeQueries{0},targetRestoresRefused{0};
     DualWeaponAimPublication aim;
 } g_halo3Dual;
 thread_local uint32_t g_halo3FiringWeapon = UINT32_MAX;
@@ -22,14 +29,16 @@ thread_local uint32_t g_halo3FiringWeapon = UINT32_MAX;
 // Read-only, full-salt native inventory. H3EK A5DE20/A844A0 and retail
 // 35A9A4/3683A0/356388 prove role bytes +262/+263 and four handles +268.
 // The object entry and owner fields are independently H3-proven, not H2 copies.
-bool Halo3ReadOwnedDualWeapons(uint32_t owner, uint32_t weapons[2])
+bool Halo3ReadOwnedWeapons(uint32_t owner, uint32_t weapons[2],bool requireDual)
 {
     const auto* unit = Halo3MeleeSelectionObject(owner, 0);
     if (!unit) return false;
     const uint8_t roles[2]{unit[0x262], unit[0x263]};
-    if (roles[0] >= 4 || roles[1] >= 4 || roles[0] == roles[1]) return false;
+    if (roles[0] >= 4 || (roles[1] >= 4 && (requireDual || roles[1]!=0xFF)) ||
+        roles[0] == roles[1]) return false;
     for (int slot = 0; slot < 2; ++slot)
     {
+        if(roles[slot]==0xFF) {weapons[slot]=UINT32_MAX;continue;}
         weapons[slot] = *reinterpret_cast<const uint32_t*>(unit + 0x268 + roles[slot] * 4);
         const auto* weapon = Halo3MeleeSelectionObject(weapons[slot], 2);
         if (!weapon || !weapon[0x15D] ||
@@ -37,6 +46,10 @@ bool Halo3ReadOwnedDualWeapons(uint32_t owner, uint32_t weapons[2])
     }
     return weapons[0] != weapons[1];
 }
+bool Halo3ReadOwnedDualWeapons(uint32_t owner,uint32_t weapons[2])
+{return Halo3ReadOwnedWeapons(owner,weapons,true);}
+
+#include "halo3_muzzle_publication.inl"
 
 // Runs at the existing admitted stereo boundary. The native firing thread
 // receives one coherent pair of room-to-world rays and never takes a VR lock.
@@ -45,6 +58,7 @@ void PublishHalo3DualAimBody()
     auto& feature = g_halo3Dual;
     if (!feature.enabled.load(std::memory_order_acquire) ||
         feature.faulted.load(std::memory_order_acquire) || !g_vrAim.load() ||
+        !g_config.independent_dual_aim ||
         !g_enabled.load() || !g_baseCamValid.load() ||
         feature.generation != g_halo3RuntimeGeneration.load()) return;
     __try
@@ -179,93 +193,7 @@ __declspec(noinline) void __fastcall Halo3DualAimDetour(uint32_t unit,
     __finally { feature.callbacks.fetch_sub(1, std::memory_order_acq_rel); }
 }
 
-bool RemoveHalo3DualAim()
-{
-    auto& feature = g_halo3Dual;
-    feature.enabled.store(false, std::memory_order_release);
-    void** targets[]{&feature.fireTarget, &feature.aimTarget};
-    bool any = false;
-    for (auto target : targets)
-    {
-        if (!*target) continue;
-        any = true;
-        const auto status = MCCVR_DisableHookForRetirement(*target);
-        if (status != MH_OK && status != MH_ERROR_DISABLED)
-        { LOG("Halo 3 dual aim CleanupRequired: disable failed"); return false; }
-    }
-    if (!any) return true;
-    const void* functions[]{reinterpret_cast<const void*>(&Halo3DualFireDetour),
-        reinterpret_cast<const void*>(&Halo3DualAimDetour),
-        reinterpret_cast<const void*>(&PublishHalo3DualAim)};
-    const void* originals[]{reinterpret_cast<const void*>(feature.fireOriginal),
-        reinterpret_cast<const void*>(feature.aimOriginal), nullptr};
-    if (!WaitForNativeDetourQuiescence(functions, originals, 3, feature.callbacks))
-    { LOG("Halo 3 dual aim CleanupRequired: callbacks or ingress busy"); return false; }
-    for (auto target : targets)
-    {
-        if (!*target) continue;
-        if (MH_RemoveHook(*target) != MH_OK)
-        { LOG("Halo 3 dual aim CleanupRequired: removal failed"); return false; }
-        *target = nullptr;
-    }
-    feature.fireOriginal = nullptr;
-    feature.aimOriginal = nullptr;
-    return true;
-}
+#include "halo3_independent_shots.inl"
 
-bool InstallHalo3DualAim(uintptr_t base, size_t size, uint32_t generation)
-{
-    auto& feature = g_halo3Dual;
-    if (feature.fireTarget || feature.aimTarget || !generation || size <= 0x369FB9) return false;
-    struct Binding { uint32_t rva; const char* pattern; };
-    constexpr Binding bindings[]{
-        {0x3683A0, "48 8B C4 48 89 58 20 4C 89 40 18 66 89 50 10 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 D8 DD FF FF B8 F0 22 00"},
-        {0x3524B0, "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 56 41 57 48 8D 68 C1 48 81 EC C0 00 00 00 44 8B 15 C6 7A 6E 00 48 8B"}};
-    for (const auto& binding : bindings)
-    {
-        const uintptr_t hit = sig::Find(base, size, binding.pattern);
-        if (hit != base + binding.rva ||
-            sig::Find(hit + 1, base + size - hit - 1, binding.pattern))
-        { LOG("Halo 3 dual aim StockFallback: missing/ambiguous binding +0x%X", binding.rva); return false; }
-    }
-    const auto* call = reinterpret_cast<const uint8_t*>(base + 0x368B92);
-    if (call[0] != 0xE8 || base + 0x368B97 + *reinterpret_cast<const int32_t*>(call + 1) != base + 0x3524B0)
-    { LOG("Halo 3 dual aim StockFallback: native firing call mismatch"); return false; }
-    feature.base = base;
-    feature.generation = generation;
-    feature.installedAtMs = GetTickCount64();
-    feature.faulted.store(false);
-    if (MH_CreateHook(reinterpret_cast<void*>(base + 0x3524B0),
-            reinterpret_cast<void*>(&Halo3DualAimDetour),
-            reinterpret_cast<void**>(&feature.aimOriginal)) != MH_OK)
-    { LOG("Halo 3 dual aim StockFallback: helper creation failed"); return false; }
-    feature.aimTarget = reinterpret_cast<void*>(base + 0x3524B0);
-    if (MH_CreateHook(reinterpret_cast<void*>(base + 0x3683A0),
-            reinterpret_cast<void*>(&Halo3DualFireDetour),
-            reinterpret_cast<void**>(&feature.fireOriginal)) != MH_OK)
-    {
-        LOG("Halo 3 dual aim StockFallback: firing scope creation failed");
-        (void)RemoveHalo3DualAim();
-        return false;
-    }
-    feature.fireTarget = reinterpret_cast<void*>(base + 0x3683A0);
-    if (MH_EnableHook(feature.aimTarget) != MH_OK || MH_EnableHook(feature.fireTarget) != MH_OK)
-    {
-        LOG("Halo 3 dual aim StockFallback: hook enable failed");
-        (void)RemoveHalo3DualAim();
-        return false;
-    }
-    feature.enabled.store(true, std::memory_order_release);
-    LOG("Halo 3 dual aim Installed: both owned weapons use independent controller rays; single weapon, vehicles and remote units retain native aim");
-    return true;
-}
-
-void ReportHalo3DualAim()
-{
-    const auto& feature = g_halo3Dual;
-    if (!feature.fireTarget && !feature.aimTarget) return;
-    LOG("Halo 3 dual aim: enabled=%d isolatedFault=%d primary/secondary=%llu/%llu refused=%llu",
-        feature.enabled.load() ? 1 : 0, feature.faulted.load() ? 1 : 0,
-        g_halo3Dual.rays[0].exchange(0), g_halo3Dual.rays[1].exchange(0),
-        g_halo3Dual.refused.exchange(0));
-}
+#include "halo3_muzzle_lifecycle.inl"
+#include "halo3_dual_lifecycle.inl"

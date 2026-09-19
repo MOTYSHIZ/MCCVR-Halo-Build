@@ -1,5 +1,10 @@
 #include "haloce_first_person.h"
 #include "haloce_contact.h"
+#include "vr.h"
+#include "../common/haloce_contact_logic.h"
+#include "../common/weapon_model_catalog.h"
+#include "../common/weapon_muzzle.h"
+#include "../common/native_shot_target_lease.h"
 #include "haloce_stereo_core.h"
 #include "haloce_native_bindings.h"
 #include "hook_quiescence.h"
@@ -22,6 +27,7 @@ using TagGetFn=uintptr_t(__fastcall*)(uint32_t);
 using ModernRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,Vec3*,const Vec3*,bool,bool);
 using LegacyRayFn=void(__fastcall*)(uint32_t,Vec3*,Vec3*,float*,bool,bool);
 using PlayerRayFn=int16_t(__fastcall*)(uint32_t,Vec3*,Vec3*);
+using TargetQueryFn=uint8_t(__fastcall*)(const void*,const Vec3*,const Vec3*,uint32_t,uint16_t,void*);
 using SkinConvertFn=void(__fastcall*)(const NodeMatrix*,SaberBoneMatrix*);
 using ClassicLensFn=void(__fastcall*)(float,bool);
 using ParticleDrawFn=void(__fastcall*)(const SaberCamera*,uintptr_t,int,uintptr_t);
@@ -33,6 +39,11 @@ using GltConstantsFn=void(__fastcall*)(uintptr_t,float*,uintptr_t,const uint32_t
 struct Hook { void* target{};void* original{};bool enabled{}; };
 Hook prepareHook,paletteHook;
 Hook modernRayHook,legacyRayHook,assistRayHook;
+Hook targetQueryHook;
+std::atomic<bool> targetInstalled{};
+std::atomic<bool> targetRetiring{};
+uint32_t targetFailedGeneration{};
+std::atomic<uint64_t> targetObserved{},targetApplied{},targetRefused{};
 Hook skinConvertHook;
 Hook projectionHook,zfillProjectionHook,sfxProjectionHook;
 Hook classicLensHook;
@@ -78,6 +89,7 @@ struct Scope
     RenderContext context{};
     NodeMatrix* output{};
     bool valid{};
+    uint32_t muzzleUnit=UINT32_MAX,muzzleWeapon=UINT32_MAX;
 };
 struct PaletteReceipt
 {
@@ -162,14 +174,22 @@ bool WriteDirection(Vec3* destination,const Vec3& value) noexcept
     __except(EXCEPTION_EXECUTE_HANDLER)
     { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
 }
-__declspec(noinline) void __fastcall ModernRayHook(uint32_t unit,Vec3* position,
-    Vec3* direction,Vec3* inheritedVelocity,const Vec3* offset,bool projectOrigin,bool useUnitAim)
+#include "haloce_muzzle_state.inl"
+#include "haloce_muzzle_shots.inl"
+void ModernRayBody(uint32_t unit,Vec3* position,Vec3* direction,Vec3* inheritedVelocity,const Vec3* offset,bool projectOrigin,bool useUnitAim,uintptr_t caller)
 {
-    Callback callback;
     const auto original=reinterpret_cast<ModernRayFn>(modernRayHook.original);
     if (!original) return;
+    if (caller==moduleBase+0xb7a796&&
+        MuzzleShotMatches(unit)&&position&&direction)
+    {
+        *position=muzzleShot.position;*direction=muzzleShot.direction;
+        original(unit,position,direction,inheritedVelocity,nullptr,false,false);
+        if(Finite(*position))muzzleShot.position=*position;
+        return;
+    }
     Vec3 controller{};
-    const bool callsite=reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0xb7a796;
+    const bool callsite=caller==moduleBase+0xb7a796;
     if (callsite&&AimCurrent()) aimObserved.fetch_add(1,std::memory_order_relaxed);
     if (!callsite||!ControllerShotDirection(unit,controller)||!direction)
     {
@@ -183,14 +203,25 @@ __declspec(noinline) void __fastcall ModernRayHook(uint32_t unit,Vec3* position,
     if (WriteDirection(direction,controller)) aimApplied.fetch_add(1,std::memory_order_relaxed);
     else aimRefused.fetch_add(1,std::memory_order_relaxed);
 }
-__declspec(noinline) void __fastcall LegacyRayHook(uint32_t unit,Vec3* position,
-    Vec3* direction,float* inheritedSpeed,bool projectOrigin,bool useUnitAim)
+__declspec(noinline) void __fastcall ModernRayHook(uint32_t unit,Vec3* position,Vec3* direction,Vec3* inheritedVelocity,const Vec3* offset,bool projectOrigin,bool useUnitAim)
 {
-    Callback callback;
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try{ModernRayBody(unit,position,direction,inheritedVelocity,offset,projectOrigin,useUnitAim,reinterpret_cast<uintptr_t>(_ReturnAddress()));}
+    __finally{callbacks.fetch_sub(1,std::memory_order_release);}
+}
+void LegacyRayBody(uint32_t unit,Vec3* position,Vec3* direction,float* inheritedSpeed,bool projectOrigin,bool useUnitAim,uintptr_t caller)
+{
     const auto original=reinterpret_cast<LegacyRayFn>(legacyRayHook.original);
     if (!original) return;
+    if (caller==moduleBase+0xb7a858&&
+        MuzzleShotMatches(unit)&&position&&direction)
+    {
+        *position=muzzleShot.position;*direction=muzzleShot.direction;
+        original(unit,position,direction,inheritedSpeed,false,false);
+        return;
+    }
     Vec3 controller{};
-    const bool callsite=reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0xb7a858;
+    const bool callsite=caller==moduleBase+0xb7a858;
     if (callsite&&AimCurrent()) aimObserved.fetch_add(1,std::memory_order_relaxed);
     if (!callsite||!ControllerShotDirection(unit,controller)||!direction)
     {
@@ -201,19 +232,81 @@ __declspec(noinline) void __fastcall LegacyRayHook(uint32_t unit,Vec3* position,
     if (WriteDirection(direction,controller)) aimApplied.fetch_add(1,std::memory_order_relaxed);
     else aimRefused.fetch_add(1,std::memory_order_relaxed);
 }
-__declspec(noinline) int16_t __fastcall AssistRayHook(uint32_t unit,Vec3* position,Vec3* direction)
+__declspec(noinline) void __fastcall LegacyRayHook(uint32_t unit,Vec3* position,Vec3* direction,float* inheritedSpeed,bool projectOrigin,bool useUnitAim)
 {
-    Callback callback;
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try{LegacyRayBody(unit,position,direction,inheritedSpeed,projectOrigin,useUnitAim,reinterpret_cast<uintptr_t>(_ReturnAddress()));}
+    __finally{callbacks.fetch_sub(1,std::memory_order_release);}
+}
+int16_t AssistRayBody(uint32_t unit,Vec3* position,Vec3* direction,uintptr_t caller)
+{
     const auto original=reinterpret_cast<PlayerRayFn>(assistRayHook.original);
     if (!original) return -1;
     const int16_t perspective=original(unit,position,direction);
+    if(caller==moduleBase+0xb67be4&&
+        MuzzleShotMatches(unit)&&position&&direction)
+    {
+        *position=muzzleShot.position;*direction=muzzleShot.direction;return perspective;
+    }
     Vec3 controller{};
     // This is the downstream PLAYER aim-assist ray, after shot adjustment.
     // Other uses of the director ray (camera, AI, scopes) remain untouched.
-    if (reinterpret_cast<uintptr_t>(_ReturnAddress())==moduleBase+0xb67be4&&
+    if (caller==moduleBase+0xb67be4&&
         ControllerShotDirection(unit,controller)&&WriteDirection(direction,controller))
         assistApplied.fetch_add(1,std::memory_order_relaxed);
     return perspective;
+}
+__declspec(noinline) int16_t __fastcall AssistRayHook(uint32_t unit,Vec3* position,Vec3* direction)
+{
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    int16_t result=-1;
+    __try{result=AssistRayBody(unit,position,direction,reinterpret_cast<uintptr_t>(_ReturnAddress()));}
+    __finally{callbacks.fetch_sub(1,std::memory_order_release);}
+    return result;
+}
+uint8_t TargetQueryBody(const void* parameters,const Vec3* origin,const Vec3* direction,
+    uint32_t unit,uint16_t team,void* result,uintptr_t caller)
+{
+    const auto original=reinterpret_cast<TargetQueryFn>(targetQueryHook.original);
+    if(!original) return 0;
+    const bool playerQuery=caller==moduleBase+0xb680fd || caller==moduleBase+0xb683a0;
+    Vec3 controller{};
+    const bool current=targetInstalled.load(std::memory_order_acquire)&&!targetRetiring&&AimCurrent();
+    if(playerQuery&&current) targetObserved.fetch_add(1,std::memory_order_relaxed);
+    if(playerQuery&&current&&origin&&direction&&result&&muzzleShot.query&&muzzleShot.unit==unit)
+    {
+        muzzleShot.queryApplied=true;
+        return original(parameters,&muzzleShot.position,&muzzleShot.direction,unit,team,result);
+    }
+    if(playerQuery&&current&&origin&&direction&&result)
+    {
+        HaloCELocalPlayerState state{};weapon_muzzle::Receipt muzzle{};
+        if(HaloCEControls_GetLocalPlayerState(state)&&state.unit==unit&&ReadMuzzle(unit,state.weapon,0,muzzle))
+        {
+            Vec3 point{},ray{};std::memcpy(&point,muzzle.ray.position,12);std::memcpy(&ray,muzzle.ray.direction,12);
+            targetApplied.fetch_add(1,std::memory_order_relaxed);
+            return original(parameters,&point,&ray,unit,team,result);
+        }
+    }
+    if(playerQuery&&current&&origin&&direction&&result&&ControllerShotDirection(unit,controller)) {
+        targetApplied.fetch_add(1,std::memory_order_relaxed);
+        // Continuous player acquisition precedes the firing helper. Give the
+        // native cone/visibility/team/range search the same controller direction
+        // as firing, without changing the camera or forging a target identity.
+        return original(parameters,origin,&controller,unit,team,result);
+    }
+    if(playerQuery&&current) targetRefused.fetch_add(1,std::memory_order_relaxed);
+    return original(parameters,origin,direction,unit,team,result);
+}
+__declspec(noinline) uint8_t __fastcall TargetQueryHook(const void* parameters,const Vec3* origin,
+    const Vec3* direction,uint32_t unit,uint16_t team,void* result)
+{
+    const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
+    callbacks.fetch_add(1,std::memory_order_acq_rel);
+    uint8_t found=0;
+    __try {found=TargetQueryBody(parameters,origin,direction,unit,team,result,caller);}
+    __finally {callbacks.fetch_sub(1,std::memory_order_release);}
+    return found;
 }
 bool ReadGraph(uint32_t graph,AnimationNode (&nodes)[kFirstPersonMaxNodes],uint32_t& count) noexcept
 {
@@ -497,6 +590,7 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexce
             context.reference,context.unitsPerMeter,context.positional,staged)) return false;
     HaloCEContactPublication contact{};
     HaloCEContact_ApplyPalette(context,binding,source.data(),staged.data(),contact);
+    (void)ApplyVisibleFirstPersonHandOffsets(binding,context.unitsPerMeter,context.tracking.controllers,staged.data());
     // Ownership is checked after staging as well: a title transition cannot
     // publish an old graph merely because its native builder completed.
     if (!Current()||generation.load()!=context.tracking.generation||
@@ -519,6 +613,23 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner) noexce
     // Receipt publication can still roll the native palette back. Contact
     // must enter the simulation queue only after that last rollback point.
     HaloCEContact_CommitPalette(context,contact);
+    PublishMuzzlePalette(owner,binding,staged.data(),now);
+    // Use the committed visible gun's carrier, including its current scale,
+    // handedness, alignment and collision correction. The authored assembly
+    // centre is bind-local to this exact graph's gun node.
+    const auto* model=weapon_model::Find(GameTitle::HaloCE,binding.nodeIdentity);
+    contact_melee::TrackingToWorld transform{};
+    if(model&&model->vertexCount&&binding.gun>=0&&binding.gun<count&&
+        BuildContactTransform(context,transform))
+    {
+        const auto& carrier=staged[binding.gun];
+        const float basis[]{carrier.forward.x,carrier.forward.y,carrier.forward.z,
+            carrier.left.x,carrier.left.y,carrier.left.z,carrier.up.x,carrier.up.y,carrier.up.z};
+        float point[3]{};
+        if(weapon_model::ReceiverPoint(model,carrier.scale,basis,&carrier.position.x,point))
+            VR_PublishReloadTarget(GameTitle::HaloCE,context.tracking.generation,binding.nodeIdentity,
+                context.tracking.serial,transform,point);
+    }
     return true;
 }
 __declspec(noinline) void __fastcall PaletteHook(uint32_t graph,NodeMatrix* matrices,
@@ -560,14 +671,20 @@ __declspec(noinline) void __fastcall PrepareHook(int16_t user)
     {
         local.output=reinterpret_cast<NodeMatrix*>(users+0x1088);
         local.valid=true;
+        HaloCELocalPlayerState state{};
+        if(local.context.tracking.controllers.gunBarrelAim&&
+            HaloCEControls_GetLocalPlayerState(state)&&LocalOnFootShooter(state.unit))
+        {local.muzzleUnit=state.unit;local.muzzleWeapon=state.weapon;}
     }
     RunPrepare(original,user,&local,previous);
 }
 #include "haloce_first_person_visibility.inl"
+#include "haloce_muzzle_lifecycle.inl"
 bool Remove() noexcept
 {
-    active=false;retiring=true;installed=false;aimInstalled=false;skinInstalled=false;projectionInstalled=false;classicLensInstalled=false;particleProjectionInstalled=false;visibilityInstalled=false;
-    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook,&particleDrawHook,&particleCommitHook,&visibilityPrepareHook,&visibilitySubmitHook})
+    if(!RemoveMuzzle())return false;
+    active=false;retiring=true;installed=false;aimInstalled=false;targetInstalled=false;skinInstalled=false;projectionInstalled=false;classicLensInstalled=false;particleProjectionInstalled=false;visibilityInstalled=false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook,&particleDrawHook,&particleCommitHook,&visibilityPrepareHook,&visibilitySubmitHook,&targetQueryHook})
     {
         if (!hook->target||!hook->enabled) continue;
         const auto result=MCCVR_DisableHookForRetirement(hook->target);
@@ -580,20 +697,20 @@ bool Remove() noexcept
         reinterpret_cast<const void*>(&ProjectionHook),reinterpret_cast<const void*>(&ZfillProjectionHook),
         reinterpret_cast<const void*>(&SfxProjectionHook),reinterpret_cast<const void*>(&ClassicLensHook),
         reinterpret_cast<const void*>(&ParticleDrawHook),reinterpret_cast<const void*>(&ParticleCommitHook),
-        reinterpret_cast<const void*>(&VisibilityPrepareHook),reinterpret_cast<const void*>(&VisibilitySubmitHook)};
-    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original,classicLensHook.original,particleDrawHook.original,particleCommitHook.original,visibilityPrepareHook.original,visibilitySubmitHook.original};
+        reinterpret_cast<const void*>(&VisibilityPrepareHook),reinterpret_cast<const void*>(&VisibilitySubmitHook),reinterpret_cast<const void*>(&TargetQueryHook)};
+    const void* trampolines[]={prepareHook.original,paletteHook.original,modernRayHook.original,legacyRayHook.original,assistRayHook.original,skinConvertHook.original,projectionHook.original,zfillProjectionHook.original,sfxProjectionHook.original,classicLensHook.original,particleDrawHook.original,particleCommitHook.original,visibilityPrepareHook.original,visibilitySubmitHook.original,targetQueryHook.original};
     // The shared native stack verifier admits at most eight detour ranges.
-    // All fourteen entries above are disabled before either batch is checked;
+    // All fifteen entries above are disabled before either batch is checked;
     // keep every trampoline/module alive until both batches are quiescent.
     if (!WaitForNativeDetourQuiescence(functions,trampolines,8,callbacks)||
-        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,6,callbacks)) return false;
-    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook,&particleDrawHook,&particleCommitHook,&visibilityPrepareHook,&visibilitySubmitHook})
+        !WaitForNativeDetourQuiescence(functions+8,trampolines+8,7,callbacks)) return false;
+    for (Hook* hook:{&prepareHook,&paletteHook,&modernRayHook,&legacyRayHook,&assistRayHook,&skinConvertHook,&projectionHook,&zfillProjectionHook,&sfxProjectionHook,&classicLensHook,&particleDrawHook,&particleCommitHook,&visibilityPrepareHook,&visibilitySubmitHook,&targetQueryHook})
     {
         if (hook->target&&MH_RemoveHook(hook->target)!=MH_OK) return false;
         *hook={};
     }
     if (retainedModule) { FreeLibrary(retainedModule);retainedModule=nullptr; }
-    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;skinRetiring=false;projectionRetiring=false;classicLensRetiring=false;particleProjectionRetiring=false;visibilityRetiring=false;
+    moduleBase=0;generation=0;lastApplied=0;retiring=false;aimRetiring=false;targetRetiring=false;skinRetiring=false;projectionRetiring=false;classicLensRetiring=false;particleProjectionRetiring=false;visibilityRetiring=false;
     return true;
 }
 bool RemoveSkin() noexcept
@@ -769,6 +886,44 @@ bool InstallClassicLens(uintptr_t base,size_t size,uint32_t gen) noexcept
     LOG("CE Original FP projection installed: tracked weapon/hands retain each eye's world lens; native depth range preserved");
     return true;
 }
+bool RemoveTargetQuery() noexcept
+{
+    targetInstalled=false;targetRetiring=true;
+    if(targetQueryHook.target&&targetQueryHook.enabled) {
+        const auto status=MCCVR_DisableHookForRetirement(targetQueryHook.target);
+        if(status!=MH_OK&&status!=MH_ERROR_DISABLED) return false;
+        targetQueryHook.enabled=false;
+    }
+    const void* functions[]{reinterpret_cast<const void*>(&TargetQueryHook)};
+    const void* originals[]{targetQueryHook.original};
+    if(!WaitForNativeDetourQuiescence(functions,originals,1,callbacks)) return false;
+    if(targetQueryHook.target&&MH_RemoveHook(targetQueryHook.target)!=MH_OK) return false;
+    targetQueryHook={};targetRetiring=false;return true;
+}
+bool InstallTargetQuery(uintptr_t base,size_t size,uint32_t gen) noexcept
+{
+    const char* failure{};
+    const NativeContractSet contracts{contract::continuous_target::entries,contract::continuous_target::witnesses,
+        contract::continuous_target::relatives,contract::continuous_target::pointers};
+    if(!VerifyNativeFeatureBindings(base,size,gen,contracts,failure)) {
+        LOG("CE continuous targeting stock fallback: %s; shot and camera paths retained",failure?failure:"binding verification");
+        return false;
+    }
+    void* target=reinterpret_cast<void*>(base+contract::continuous_target::continuous_target_query);
+    auto status=MH_CreateHook(target,reinterpret_cast<void*>(&TargetQueryHook),&targetQueryHook.original);
+    if(status!=MH_OK) {
+        LOG("CE continuous targeting stock fallback: create status %d; shot and camera paths retained",status);return false;
+    }
+    targetQueryHook.target=target;
+    status=MH_EnableHook(target);
+    if(status!=MH_OK) {
+        LOG("CE continuous targeting stock fallback: enable status %d; shot and camera paths retained",status);
+        (void)RemoveTargetQuery();return false;
+    }
+    targetQueryHook.enabled=true;targetInstalled=true;
+    LOG("CE continuous targeting installed: native player acquisition follows controller aim before firing; native target/range/team/visibility rules retained");
+    return true;
+}
 bool RemoveAim() noexcept
 {
     aimInstalled=false;aimRetiring=true;
@@ -871,6 +1026,13 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
     if (aimRetiring&&!RemoveAim()) return HaloCEFirstPerson_Armed();
     if (!aimInstalled.load()&&gen!=aimFailedGeneration&&!retiring.load())
         if (!InstallAim(base,size,gen)) aimFailedGeneration=gen;
+    if(targetRetiring.load()&&!RemoveTargetQuery()) return HaloCEFirstPerson_Armed();
+    if(aimInstalled.load()&&!targetInstalled.load()&&gen!=targetFailedGeneration&&!retiring.load())
+        if(!InstallTargetQuery(base,size,gen)) targetFailedGeneration=gen;
+    if(muzzleRetiring&&!RemoveMuzzle())return HaloCEFirstPerson_Armed();
+    if(installed.load()&&aimInstalled.load()&&targetInstalled.load()&&!muzzleInstalled.load()&&
+        gen!=muzzleFailedGeneration&&!retiring.load())
+        if(!InstallMuzzle(base,size,gen))muzzleFailedGeneration=gen;
     if (skinRetiring&&!RemoveSkin()) return HaloCEFirstPerson_Armed();
     if (installed.load()&&!skinInstalled.load()&&gen!=skinFailedGeneration&&!retiring.load())
         if (!InstallSkin(base,size,gen)) skinFailedGeneration=gen;
@@ -890,6 +1052,8 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
     if (now-lastReport>=2000)
     {
         lastReport=now;
+        LOG("CE barrel gen=%u installed=%d fault=%d applied=%llu stock=%llu restoreRefused=%llu",
+            gen,muzzleInstalled.load(),muzzleFaulted.load(),muzzleApplied.load(),muzzleRefused.load(),muzzleRestoreRefused.load());
         LOG("CE FP gen=%u installed=%d observed=%llu applied=%llu stock=%llu exceptions=%llu",
             gen,installed.load(),observed.load(),applied.load(),refused.load(),exceptions.load());
         if (alignmentKnownGraph.load() || alignmentUnknownGraph.load())
@@ -897,6 +1061,8 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
                 gen,alignmentKnownGraph.load(),alignmentUnknownGraph.load());
         LOG("CE aim gen=%u installed=%d observed=%llu applied=%llu stock=%llu assist=%llu",
             gen,aimInstalled.load(),aimObserved.load(),aimApplied.load(),aimRefused.load(),assistApplied.load());
+        LOG("CE continuous targeting gen=%u installed=%d observed=%llu controller=%llu stock=%llu",
+            gen,targetInstalled.load(),targetObserved.load(),targetApplied.load(),targetRefused.load());
         LOG("CE Anniversary hand scale gen=%u installed=%d applied=%llu stock=%llu",
             gen,skinInstalled.load(),skinApplied.load(),skinRefused.load());
         LOG("CE Anniversary FP projection gen=%u installed=%d applied=%llu stock=%llu policy=%llu selector=%llu changed=%llu",

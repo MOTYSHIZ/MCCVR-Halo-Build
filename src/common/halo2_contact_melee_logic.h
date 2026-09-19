@@ -9,7 +9,7 @@ inline bool Halo2BuildContactTrackingTransform(const Halo2ObserverPosePublicatio
     float worldScale,contact_melee::TrackingToWorld& output) noexcept
 {
     const float identity[]{0,0,0,1};
-    Halo2CameraBasis localStock=publication.stock;
+    Halo2CameraBasis localStock=Halo2ControllerReference(publication);
     for(float& position:localStock.position) position=0;
     Halo2CameraBasis samples[4]{};
     for(unsigned sample=0;sample<4;++sample)

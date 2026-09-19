@@ -4,6 +4,7 @@
 #include "../src/dll/haloce_first_person.cpp"
 #include <cstdio>
 #include <thread>
+#include <cstdlib>
 
 static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;
@@ -35,7 +36,16 @@ static unsigned visibilitySubmitRecords{},visibilitySubmitCalls{};
 static bool visibilitySubmitChecks=true,visibilitySubmitExpected=true;
 static unsigned contactStages{},contactCommits{};
 static bool contactReceiptCurrent=true,contactRejectOwnership{},contactRejectCopy{};
+static HaloCELocalPlayerState targetPlayer{};
+static bool targetPlayerValid{},targetFault{};
+static unsigned targetNativeCalls{};
+static const void* targetParameters{};
+static const halo_ce::Vec3* targetOrigin{};
+static halo_ce::Vec3 targetDirection{};
+static uint32_t targetUnit{};static uint16_t targetTeam{};static void* targetResult{};
 static halo_ce::NodeMatrix* contactNativePalette{};
+void VR_PublishReloadTarget(GameTitle,uint32_t,uint64_t,uint64_t,
+    const contact_melee::TrackingToWorld&,const float[3]) noexcept {}
 static uintptr_t contactGraphDefinition{};
 void HaloCEContact_ApplyPalette(const halo_ce::RenderContext& context,const halo_ce::FirstPersonBinding&,
     const halo_ce::NodeMatrix*,halo_ce::NodeMatrix*,HaloCEContactPublication& publication) noexcept
@@ -103,7 +113,23 @@ void HaloCE_RecordAnniversaryVisibilitySubmission(uintptr_t list,int32_t phase,u
     ++visibilitySubmitRecords;visibilitySubmittedList=list;
     visibilitySubmittedPhase=static_cast<uint8_t>(phase);visibilitySubmittedCaller=caller;
 }
-bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState&) noexcept { return false; }
+bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept
+{state=targetPlayer;return targetPlayerValid;}
+uint8_t __fastcall NativeTargetFixture(const void* parameters,const halo_ce::Vec3* origin,
+    const halo_ce::Vec3* direction,uint32_t unit,uint16_t team,void* result)
+{
+    ++targetNativeCalls;targetParameters=parameters;targetOrigin=origin;
+    targetDirection=direction?*direction:halo_ce::Vec3{};targetUnit=unit;targetTeam=team;targetResult=result;
+    if(targetFault) RaiseException(0xE000CE71,0,0,nullptr);
+    if(result) *static_cast<uint32_t*>(result)=0x76540009;
+    return 1;
+}
+bool InvokeTargetFaultFixture()
+{
+    __try {TargetQueryHook(nullptr,nullptr,nullptr,0,0,nullptr);}
+    __except(GetExceptionCode()==0xE000CE71?EXCEPTION_EXECUTE_HANDLER:EXCEPTION_CONTINUE_SEARCH) {return true;}
+    return false;
+}
 void Logf(const char*,...) {}
 bool WaitForNativeDetourQuiescence(const void* const* functions,const void* const* trampolines,size_t count,
     const std::atomic<uint32_t>& activeCallbacks)
@@ -260,6 +286,7 @@ static bool CheckContactPaletteCommit()
     VirtualFree(contactNativePalette,0,MEM_RELEASE);contactNativePalette=nullptr;testContext=previous;
     return checks;
 }
+#include "haloce_muzzle_runtime.inl"
 int main(int argc,char** argv)
 {
     using namespace halo_ce;
@@ -320,6 +347,50 @@ int main(int argc,char** argv)
         return 0;
     }
     CHECK(CheckContactPaletteCommit());CHECK(publish());
+    {
+        const auto saved=testContext;
+        testContext.camera.position={100,200,300};testContext.camera.forward={1,0,0};testContext.camera.up={0,0,1};
+        testContext.camera.viewport={0,0,800,1000};testContext.camera.window=testContext.camera.viewport;
+        testContext.camera.verticalFov=1;testContext.camera.nearPlane=.01f;testContext.camera.farPlane=1000;
+        testContext.reference.generation=testGeneration;testContext.reference.spaceEpoch=testContext.tracking.spaceEpoch;
+        testContext.unitsPerMeter=1;testContext.positional=true;
+        testContext.tracking.controllers.primaryAim={true,{.3f,1.2f,-.6f},{}};
+        targetPlayerValid=true;targetPlayer.unit=0x12340002;targetPlayer.weapon=0x56780003;
+        targetPlayer.hasControlledUnit=targetPlayer.onFoot=targetPlayer.nativePreparesFirstPerson=true;
+        targetPlayer.nativeInputBlocked=targetPlayer.nativeLookBlocked=false;
+        aimInstalled=true;targetInstalled=true;targetQueryHook.original=reinterpret_cast<void*>(&NativeTargetFixture);
+        const Vec3 origin{4,5,6},stock{0,1,0};uint32_t result{};const uint32_t parameters=0x9876;
+        auto invoke=[&](uintptr_t caller,uint32_t unit=0x12340002) {
+            const auto count=targetNativeCalls;
+            const auto found=TargetQueryBody(&parameters,&origin,&stock,unit,7,&result,caller);
+            return found==1&&targetNativeCalls==count+1&&targetParameters==&parameters&&targetOrigin==&origin&&
+                targetUnit==unit&&targetTeam==7&&targetResult==&result&&result==0x76540009;
+        };
+        for(int mode:{0,1}) for(bool left:{false,true}) {
+            renderer=mode;auto& rig=testContext.tracking.controllers;rig.leftHanded=left;
+            rig.primaryAim.orientation=left?Quat{0,.38268343f,0,.92387953f}:Quat{};
+            CHECK(publish());Vec3 expected{};CHECK(ControllerShotDirection(targetPlayer.unit,expected));
+            for(uintptr_t offset:{uintptr_t(0xb680fd),uintptr_t(0xb683a0)}) {
+                CHECK(invoke(moduleBase+offset));CHECK(Dot(targetDirection,expected)>.9999f);
+            }
+            CHECK(invoke(moduleBase+1));CHECK(Dot(targetDirection,stock)>.9999f);
+            CHECK(invoke(moduleBase+0xb680fd,0x43210002));CHECK(Dot(targetDirection,stock)>.9999f);
+        }
+        for(unsigned refusal=0;refusal<5;++refusal) {
+            targetPlayer.onFoot=refusal!=0;targetPlayer.nativePaused=refusal==1;
+            targetPlayer.nativeInputBlocked=refusal==2;targetPlayer.nativeCinematicFlag=refusal==3;
+            gameplayValid=refusal!=4;
+            CHECK(invoke(moduleBase+0xb683a0));CHECK(Dot(targetDirection,stock)>.9999f);
+        }
+        gameplayValid=true;targetPlayer={};targetPlayerValid=false;
+        targetFault=true;const auto before=targetNativeCalls;
+        CHECK(InvokeTargetFaultFixture());CHECK(callbacks.load()==0&&targetNativeCalls==before+1);targetFault=false;
+        blockedQuiescenceCount=1;
+        CHECK(!RemoveTargetQuery()&&targetRetiring&&aimInstalled&&installed);
+        CHECK(targetQueryHook.original);blockedQuiescenceCount=0;
+        CHECK(RemoveTargetQuery()&&!targetRetiring&&aimInstalled&&installed);
+        testContext=saved;CHECK(publish());renderer=0;
+    }
     float classicFov=.9671381116f;
     CHECK(ApplyClassicTrackedProjection(classicFov));CHECK(classicFov==-2);
     renderContextValid=false;classicFov=.9671381116f;
@@ -625,15 +696,16 @@ int main(int argc,char** argv)
     CHECK(visibilityPrepareHook.original&&visibilitySubmitHook.original);
     blockedQuiescenceCount=0;CHECK(RemoveVisibility()&&!visibilityRetiring&&installed.load());
     CHECK(!visibilityPrepareHook.original&&!visibilitySubmitHook.original);
+    RunCeMuzzleTests();
     quiescenceCalls=quiescenceRanges=0;
-    blockedQuiescenceCount=6;
+    blockedQuiescenceCount=7;
     CHECK(!Remove());CHECK(retiring.load()&&generation.load()==testGeneration);
     CHECK(prepareHook.original==reinterpret_cast<void*>(&NativePrepareFixture));
-    CHECK(quiescenceCalls==2&&quiescenceRanges==14);
+    CHECK(quiescenceCalls==2&&quiescenceRanges==15);
     blockedQuiescenceCount=0;quiescenceCalls=quiescenceRanges=0;
     CHECK(Remove());CHECK(!retiring.load()&&!generation.load()&&!prepareHook.original);
-    CHECK(quiescenceCalls==2&&quiescenceRanges==14);
+    CHECK(quiescenceCalls==2&&quiescenceRanges==15);
     CHECK(VirtualFree(native,0,MEM_RELEASE));
-    std::puts("PASS production CE first-person receipt: Classic/Anniversary scale/projection, isolated particle uploads, source-player visibility, pre-worker submission, recovery and fourteen-hook retirement");
+    std::puts("PASS production CE first-person receipt: Classic/Anniversary projection, continuous controller targeting, isolated particles, visibility, recovery and fifteen-hook retirement");
     return 0;
 }

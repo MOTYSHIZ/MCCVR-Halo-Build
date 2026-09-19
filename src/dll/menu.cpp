@@ -9,6 +9,7 @@
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
 #include "menu.h"
+#include "../common/flashlight_input.h"
 #include "native_menu_pointer.h"
 #include "menu_slider.h"
 #include "vr.h"
@@ -740,9 +741,11 @@ namespace
             g_config.turn_smooth = true;
             changed = true;
         }
-        if (g_config.turn_smooth)
+        changed |= ImGui::Checkbox("Automatically smooth turn in vehicles", &g_config.vehicle_smooth_turn);
+        ImGui::TextDisabled("Uses your smooth turn speed while seated. Exiting restores your normal turn mode.");
+        if (g_config.turn_smooth || g_config.vehicle_smooth_turn)
             changed |= vr_menu::SliderFloat("Turn speed (deg/s)", &g_config.turn_smooth_deg_s, 30.0f, 360.0f, "%.0f");
-        else
+        if (!g_config.turn_smooth)
             changed |= vr_menu::SliderFloat("Snap increment (deg)", &g_config.turn_snap_deg, 5.0f, 90.0f, "%.0f");
 
         ImGui::Spacing();
@@ -777,6 +780,20 @@ namespace
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Touch the physical left controller's thumb rest, then move the physical right stick.\n"
                               "These controls stay on the same physical hands in left-handed mode.");
+        changed |= ImGui::Checkbox("Disable flashlight input",&g_config.disable_flashlight_input);
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("Blocks the selected MCC flashlight button during gameplay.\nGrip tracking and two-handed aiming still work; menus remain usable.");
+        if(g_config.disable_flashlight_input) {
+            static int flashlightTitle=0;
+            static GameTitle previousFlashlightTitle=GameTitle::None;
+            const auto active=TitleAdapter_GetActiveTitle();
+            const int index=weapon_interaction::TitleIndex(active);
+            if(active!=previousFlashlightTitle&&index>=0) flashlightTitle=index;
+            previousFlashlightTitle=active;
+            ImGui::Combo("Flashlight layout for",&flashlightTitle,weapon_interaction::kTitleNames,6);
+            changed |= ImGui::Combo("MCC Flashlight button",&g_config.flashlight_button[flashlightTitle],flashlight_input::kButtons);
+            ImGui::TextDisabled("Match this to MCC's control layout for the selected game.");
+        }
         ImGui::Spacing();
         float hapticPercent = g_config.haptic_intensity * 100.0f;
         if (vr_menu::SliderFloat("Controller vibration", &hapticPercent,
@@ -1059,6 +1076,12 @@ namespace
                 "Native ammo and reserve limits still apply.");
             changed |= ImGui::Checkbox("Disable automatic reload", &g_config.manual_reload_disable_auto);
             changed |= ImGui::Checkbox("Skip reload and weapon-ready animations", &g_config.manual_reload_skip_animations);
+            changed |= ImGui::Checkbox("Shortened reload animation", &g_config.manual_reload_shortened_animation);
+            if(g_config.manual_reload_shortened_animation)
+                ImGui::TextDisabled(g_config.manual_reload_skip_animations ?
+                    "Full animation skip takes precedence while both are enabled." :
+                    "Skip to insertion, then play the weapon's chambering tail.\n"
+                    "Weapons without a usable insertion keyframe keep their full reload.");
             changed |= vr_menu::SliderFloat("Magazine grab radius (m)",
                 &g_config.weapon_body_zone_radius_m,0.08f,0.40f,"%.2f");
             changed |= vr_menu::SliderFloat("Magazine insertion radius (m)",
@@ -1122,6 +1145,16 @@ namespace
         }
         ImGui::Separator();
         ImGui::Text("Hand-held weapon");
+        if(ImGui::Checkbox("Per-gun alignment",&g_config.per_gun_alignment))
+        { Config_RefreshWeaponProfile();changed=true; }
+        if(g_config.per_gun_alignment)
+        {
+            if(const char* weapon=Config_ActiveWeaponProfileName())
+                ImGui::Text("Editing equipped weapon: %s",weapon);
+            else ImGui::TextDisabled("No recognized weapon: editing this game's defaults.");
+        }
+        ImGui::TextDisabled("Saves weapon size, offsets and calibration for the equipped gun.\n"
+                            "Switch off to use this game's shared alignment again.");
         changed |= vr_menu::SliderFloat("Weapon size", &g_config.gun_scale, 0.3f, 3.0f, "%.2fx");
         ImGui::TextDisabled("Uniform scale of RIGHT hand + weapon about your grip (Home/End in-game).");
         changed |= vr_menu::SliderFloat("Left hand size", &g_config.left_hand_scale,
@@ -1176,6 +1209,26 @@ namespace
 
         ImGui::Spacing();
         ImGui::Separator();
+        ImGui::Text("Visible hand positioning");
+        ImGui::TextDisabled("Offsets follow each hand's local axes. Guns and interactions keep their positions.");
+        changed |= vr_menu::SliderFloat("Left hand X (m)", &g_config.left_hand_mesh_x_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Left hand Y (m)", &g_config.left_hand_mesh_y_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Left hand Z (m)", &g_config.left_hand_mesh_z_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Right hand X (m)", &g_config.right_hand_mesh_x_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Right hand Y (m)", &g_config.right_hand_mesh_y_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Right hand Z (m)", &g_config.right_hand_mesh_z_m, -.20f, .20f, "%.3f");
+        if (ImGui::SmallButton("Reset visible hand positions"))
+        {
+            g_config.left_hand_mesh_x_m=0.0f;
+            g_config.left_hand_mesh_y_m=0.0f;
+            g_config.left_hand_mesh_z_m=0.0f;
+            g_config.right_hand_mesh_x_m=0.0f;
+            g_config.right_hand_mesh_y_m=0.0f;
+            g_config.right_hand_mesh_z_m=0.0f;
+            changed=true;
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Text("Two-handed aiming");
         changed |= ImGui::Checkbox("Two-handed aiming", &g_config.two_handed_aim);
         ImGui::SameLine();
@@ -1221,6 +1274,11 @@ namespace
         if (g_activeCategory == Cat_Crosshair)
         {
         ImGui::Text("Crosshair and bullet direction");
+        changed |= ImGui::Checkbox("Independent dual-wield trajectories", &g_config.independent_dual_aim);
+        ImGui::TextDisabled("Halo 2 and Halo 3: each gun follows its own controller when dual wielding.");
+        changed |= ImGui::Checkbox("Aim from the visible gun barrel", &g_config.gun_barrel_aim);
+        ImGui::TextDisabled("Uses the visible muzzle position and direction when available.\n"
+                            "Gun alignment determines shot direction while this is enabled.");
         changed |= vr_menu::SliderFloat("Crosshair vertical angle (deg)",
             &g_config.gun_pitch_deg, -180.0f, 180.0f, "%.1f");
         changed |= vr_menu::SliderFloat("Crosshair horizontal angle (deg)",
@@ -1280,8 +1338,9 @@ namespace
 
         if (g_activeCategory == Cat_Scope)
         {
-        ImGui::Text("Experimental gun-mounted zoom screen");
-        if (ImGui::Checkbox("Enable experimental R3 zoom screen", &g_config.scope_enabled))
+        ImGui::Text("Gun-mounted circular zoom lens");
+        ImGui::TextDisabled("Halo 2, Halo 3, ODST, Reach and Halo 4. CE uses native zoom.");
+        if (ImGui::Checkbox("Enable R3 zoom lens", &g_config.scope_enabled))
         {
             changed = true;
             if (!g_config.scope_enabled)
@@ -1289,14 +1348,14 @@ namespace
         }
         ImGui::SameLine();
         ImGui::TextDisabled(VR_IsScopeActive() ? "[R3: visible]" : "[R3: hidden]");
-        ImGui::TextDisabled("R3 toggles a fixed-magnification view while the main headset view\n"
-                            "stays wide. Placement and zoom are experimental per-user tuning.");
+        ImGui::TextDisabled("Release R3 to toggle the lens; right-stick up/down adjusts zoom.\n"
+                            "The main headset view stays wide.");
         if (g_config.scope_enabled)
         {
             ImGui::Indent();
             changed |= vr_menu::SliderFloat("Default scope zoom", &g_config.scope_zoom,
                                           6.0f, 24.0f, "%.2fx");
-            changed |= vr_menu::SliderFloat("Screen width (m)##scope",
+            changed |= vr_menu::SliderFloat("Lens diameter (m)##scope",
                                           &g_config.scope_screen_width_m,
                                           0.04f, 0.25f, "%.3f");
             changed |= vr_menu::SliderFloat("Screen right offset (m)",
@@ -1308,11 +1367,8 @@ namespace
             changed |= vr_menu::SliderFloat("Screen forward offset (m)",
                                           &g_config.scope_screen_forward_m,
                                           0.05f, 0.80f, "%.3f");
-            changed |= vr_menu::SliderInt("Image refresh divisor",
-                                        &g_config.scope_refresh_divisor, 1, 4);
             ImGui::TextDisabled("Offsets are direct gun-local meters with no hidden added distance.");
-            ImGui::TextDisabled("Higher refresh divisors render the zoom image less often; the screen\n"
-                                "still follows the gun every frame. Use 4 for the lowest GPU cost.");
+            ImGui::TextDisabled("The lens refreshes every frame for a consistent render workload.");
             ImGui::Unindent();
         }
         }
@@ -1500,6 +1556,10 @@ namespace
         changed |= ImGui::Checkbox("Motion blur", &g_config.motion_blur);
         ImGui::TextDisabled("Off is the VR standard. In stereo the game's blur is fed the wrong\n"
                             "previous frame and smears bright edges into repeating echoes.");
+        changed |= ImGui::Checkbox("Disable CE Anniversary lens flares",
+                                   &g_config.ce_anniversary_disable_lens_flares);
+        ImGui::TextDisabled("Optional workaround for bright flare streaks. Off by default.\n"
+                            "World lighting and CE Classic graphics stay unchanged.");
         changed |= vr_menu::SliderFloat("Draw distance", &g_config.draw_distance,
                                       kDrawDistanceMin, kDrawDistanceMax, "%.2f");
         ImGui::TextDisabled("1.00 = full stock draw distance. Lower brings the far plane in toward\n"

@@ -25,11 +25,13 @@ void* turnOriginal{};
 bool turnEnabled{};
 std::atomic<uint32_t> generation{},callbacks{};
 std::atomic<bool> active{},retiring{},stateReady{},turnReady{};
+std::atomic<bool> vehicleViewReady{};
 std::atomic<uint64_t> lastOwned{},observed{},applied{},refused{},exceptions{};
 uint32_t stateFailedGeneration{},turnFailedGeneration{};
 double qpcSeconds{};
 uint64_t lastReport{};
 thread_local ControlTurnState turnState;
+thread_local VehicleTurnFollow vehicleFollow;
 struct Callback
 {
     Callback() { callbacks.fetch_add(1,std::memory_order_acq_rel); }
@@ -141,6 +143,48 @@ bool AdmittedContext(HaloCELocalPlayerState& state,RenderContext& context) noexc
         context.tracking.controllers.controlsPresentationBlocked});
 }
 
+bool VehicleTurnFrame(const HaloCELocalPlayerState& state,const RenderContext& context,
+    int16_t& seat,float& hullYaw) noexcept
+{
+    if (!vehicleViewReady.load(std::memory_order_acquire)||!StateCurrent()||
+        !context.tracking.controllers.vehicleMotion||!context.tracking.controllers.padValid||
+        context.tracking.controllers.controlsPresentationBlocked||
+        state.generation!=context.tracking.generation||!state.hasControlledUnit||state.onFoot||
+        state.nativePerspective!=1||state.parent==UINT32_MAX||!(state.parent>>16)||
+        state.nativeInputBlocked||state.nativeLookBlocked||state.nativePaused||state.nativeCinematicFlag)
+        return false;
+    __try
+    {
+        const auto get=reinterpret_cast<ObjectGetFn>(moduleBase+contract::player_state::state_object_try_get);
+        const uintptr_t occupant=get(state.unit,1),parent=get(state.parent,2);
+        if (!occupant||!parent||*reinterpret_cast<const uint32_t*>(occupant+0xd8)!=state.parent||
+            *reinterpret_cast<const uint32_t*>(parent+0xd8)!=UINT32_MAX) return false;
+        // HCEEK vehicle physics 8E1B60 and retail B45178 pass these actual
+        // orientation vectors to their matrix builders. No desired aim read.
+        const Vec3 forward=*reinterpret_cast<const Vec3*>(parent+0x30);
+        const Vec3 up=*reinterpret_cast<const Vec3*>(parent+0x3c);
+        seat=*reinterpret_cast<const int16_t*>(occupant+0x2d0);
+        if (seat<0||!Finite(forward)||!Finite(up)||
+            std::fabs(Dot(forward,forward)-1)>0.05f||
+            std::fabs(Dot(up,up)-1)>0.05f||std::fabs(Dot(forward,up))>0.05f||
+            forward.x*forward.x+forward.y*forward.y<0.0001f) return false;
+        hullYaw=std::atan2(forward.y,forward.x);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER)
+    { exceptions.fetch_add(1,std::memory_order_relaxed);return false; }
+    return StateCurrent()&&state.generation==generation.load(std::memory_order_acquire)&&
+        HaloCE_RenderContextCurrent(context);
+}
+
+bool AdmittedTurnContext(HaloCELocalPlayerState& state,RenderContext& context,
+    bool& seated,int16_t& seat,float& hullYaw) noexcept
+{
+    seated=false;
+    if (AdmittedContext(state,context)) return true;
+    seated=VehicleTurnFrame(state,context,seat,hullYaw);
+    return seated;
+}
+
 void TurnBody(int32_t inputUser,float yawDelta,float pitchDelta,uintptr_t caller)
 {
     const auto original=reinterpret_cast<TurnFn>(turnOriginal);
@@ -151,20 +195,25 @@ void TurnBody(int32_t inputUser,float yawDelta,float pitchDelta,uintptr_t caller
     HaloCELocalPlayerState state{};RenderContext context{};
     LARGE_INTEGER counter{};QueryPerformanceCounter(&counter);
     const double nowSeconds=static_cast<double>(counter.QuadPart)*qpcSeconds;
-    const bool admitted=AdmittedContext(state,context);
+    bool seated=false;int16_t seat=-1;float hullYaw{};
+    const bool admitted=AdmittedTurnContext(state,context,seated,seat,hullYaw);
     if (state.inputUser>=0&&inputUser!=state.inputUser)
     { original(inputUser,yawDelta,pitchDelta);return; }
     if (!admitted)
     {
         (void)turnState.Step(context,false,nowSeconds);
+        vehicleFollow={};
         lastOwned=0;refused.fetch_add(1,std::memory_order_relaxed);
         original(inputUser,yawDelta,pitchDelta);return;
     }
-    const float turn=turnState.Step(context,true,nowSeconds);
+    float turn=turnState.Step(context,true,nowSeconds,seated);
+    if (seated)
+        turn+=vehicleFollow.Step(context,state.unit,state.parent,seat,hullYaw,nowSeconds);
+    else vehicleFollow={};
     if (!TurnCurrent()||!HaloCE_RenderContextCurrent(context))
     { lastOwned=0;original(inputUser,yawDelta,pitchDelta);return; }
     // Let the native updater normalize yaw and apply its own angular clamps.
-    // On-foot HMD pitch is already part of the render pose; raw native pitch
+    // HMD pitch is already part of the render pose; raw native pitch
     // would create a second independently accumulated look rotation.
     original(inputUser,turn,0.0f);
     lastOwned.store(GetTickCount64(),std::memory_order_release);
@@ -202,7 +251,7 @@ __declspec(noinline) void __fastcall TurnHook(int32_t inputUser,float yawDelta,f
 
 bool Remove() noexcept
 {
-    active=false;retiring=true;stateReady=false;turnReady=false;lastOwned=0;
+    active=false;retiring=true;stateReady=false;turnReady=false;vehicleViewReady=false;lastOwned=0;
     if (turnTarget&&turnEnabled)
     {
         const auto result=MCCVR_DisableHookForRetirement(turnTarget);
@@ -247,6 +296,14 @@ bool InstallTurn(uintptr_t base,size_t size,uint32_t gen) noexcept
         contract::controls::witnesses,contract::controls::relatives,contract::controls::pointers};
     if (!VerifyNativeFeatureBindings(base,size,gen,contracts,failure))
     { LOG("CE VR turn stock fallback: %s",failure?failure:"binding failure");return false; }
+    const NativeContractSet vehicleContracts{contract::vehicle::entries,contract::vehicle::witnesses,
+        contract::vehicle::relatives,contract::vehicle::pointers};
+    const NativeContractSet viewContracts{contract::vehicle_view::entries,contract::vehicle_view::witnesses,
+        contract::vehicle_view::relatives,contract::vehicle_view::pointers};
+    vehicleViewReady=VerifyNativeFeatureBindings(base,size,gen,vehicleContracts,failure)&&
+        VerifyNativeFeatureBindings(base,size,gen,viewContracts,failure);
+    if (!vehicleViewReady.load())
+        LOG("CE vehicle view stock fallback: %s; on-foot turn and accepted steering retained",failure?failure:"binding failure");
     void* target=reinterpret_cast<void*>(base+contract::controls::input_angle_delta);
     auto result=MH_CreateHook(target,reinterpret_cast<void*>(&TurnHook),&turnOriginal);
     if (result!=MH_OK)
@@ -261,7 +318,7 @@ bool InstallTurn(uintptr_t base,size_t size,uint32_t gen) noexcept
         return false;
     }
     turnEnabled=true;turnReady=true;
-    LOG("CE VR turn installed: exact native input delta phase, shared snap latch/smooth rate, on-foot only");
+    LOG("CE VR turn installed: exact native input delta phase, shared snap latch/smooth rate; vehicle view=%d (optional actual hull yaw follow)",vehicleViewReady.load()?1:0);
     return true;
 }
 }
@@ -294,7 +351,8 @@ bool HaloCEControls_OwnsLookStick() noexcept
     Callback callback;
     const uint64_t stamp=lastOwned.load(std::memory_order_acquire),now=GetTickCount64();
     HaloCELocalPlayerState state{};RenderContext context{};
-    return TurnCurrent()&&stamp&&now>=stamp&&now-stamp<150&&AdmittedContext(state,context)&&
+    bool seated=false;int16_t seat=-1;float hullYaw{};
+    return TurnCurrent()&&stamp&&now>=stamp&&now-stamp<150&&AdmittedTurnContext(state,context,seated,seat,hullYaw)&&
         HaloCE_RenderContextCurrent(context);
 }
 bool HaloCEControls_MapMoveStick(float x,float y,float& outputX,float& outputY) noexcept

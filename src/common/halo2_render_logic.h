@@ -1690,10 +1690,22 @@ struct Halo2ObserverPosePublication
     uint64_t index = 0;
     Halo2CameraBasis stock{};
     Halo2CameraBasis tracked{};
+    // Native stock remains exact aim feedback. A seated controller and the
+    // view share this separate reference when the vehicle adapter owns it.
+    bool vehicleReferenceValid=false;
+    uint32_t vehicleUnit=UINT32_MAX,vehicleParent=UINT32_MAX;
+    int16_t vehicleSeat=-1;
+    Halo2CameraBasis vehicleReference{};
     float referenceOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float referencePosition[3]{};
     Halo2ObserverPoseSnapshot snapshot{};
 };
+
+inline const Halo2CameraBasis& Halo2ControllerReference(
+    const Halo2ObserverPosePublication& publication) noexcept
+{
+    return publication.vehicleReferenceValid ? publication.vehicleReference : publication.stock;
+}
 
 inline bool Halo2ObserverControllerSnapshotUsable(
     const Halo2ObserverPosePublication& publication,

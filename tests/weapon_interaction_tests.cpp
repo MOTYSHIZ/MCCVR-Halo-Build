@@ -1,4 +1,5 @@
 #include "../src/common/weapon_interaction_logic.h"
+#include "../src/common/weapon_reload_target.h"
 #include <cstdio>
 #include <limits>
 #include <initializer_list>
@@ -36,6 +37,57 @@ struct Rig
 
 int main()
 {
+    for(const auto& model:weapon_model::kModels) if(model.vertexCount)
+        for(bool left:{false,true})
+    {
+        Rig r(model.title,left);r.s.weaponGraph=model.identity;r.c.insertRadius=.08f;
+        r.Step();r.GrabMagazine();
+        contact_melee::TrackingToWorld transform{},controller{};
+        transform.unitsPerMetre=.328084f;transform.origin={123,45,67};
+        transform.axis[0]={0,1,0};transform.axis[1]={0,0,1};transform.axis[2]={1,0,0};
+        const float q[]{0,0,0,1},p[]{r.s.primary.x,r.s.primary.y,r.s.primary.z};
+        Check(controller.SetPose(q,p),"receiver fixture has valid primary controller");
+        const auto native=transform.World({p[0]+.30f,p[1]-.04f,p[2]-.22f});
+        ReloadTarget target{};ReloadTargets targets;
+        Check(BuildReloadTarget(model.title,r.s.generation,model.identity,r.s.space,r.s.now,
+            left,native,transform,controller,target)&&targets.Publish(target),
+            "each authored reload model admits a finite native receiver transform");
+        Check(targets.Read(r.s,left)&&Near(r.s.receiver,{p[0]+.30f,p[1]-.04f,p[2]-.22f},.0001f),
+            "native rotated/scaled world coordinates reconstruct the actual XR receiver");
+        const Vec first=r.s.receiver;
+        r.s.primary=r.s.primary+Vec{.05f,.03f,-.02f};
+        r.s.primaryRotation={0,.70710678f,0,.70710678f};
+        Check(targets.Read(r.s,left)&&!Near(first,r.s.receiver,.10f),
+            "receiver follows new controller translation and rotation between palette samples");
+        r.s.supportRotation={0,0,.70710678f,.70710678f};
+        r.s.support=r.s.receiver-Rotate(r.s.supportRotation,{0,-.015f,-.035f});
+        r.Step(80);r.Step(80);r.s.supportGrip=0;
+        const auto inserted=r.Step();
+        Check(inserted.reloadRequested&&inserted.supportHaptic>.20f,
+            "releasing the visible magazine centre into its authored receiver inserts with feedback");
+        for(int invalid=0;invalid<6;++invalid)
+        {
+            auto bad=r.s;bad.now=target.at;
+            switch(invalid) {
+                case 0:++bad.generation;break;
+                case 1:++bad.space;break;
+                case 2:++bad.weaponGraph;break;
+                case 3:bad.now=target.at+101;break;
+                case 4:bad.now=target.at-1;break;
+                case 5:bad.primaryRotation.w=2;break;
+            }
+            Check(!targets.Read(bad,left)&&!bad.receiverValid,
+                "stale or foreign receiver cannot leak into another gun or tracking epoch");
+        }
+        auto wrongHand=r.s;wrongHand.now=target.at;
+        Check(!targets.Read(wrongHand,!left),"handedness change invalidates previous receiver");
+        Rig miss(model.title,left);miss.s.weaponGraph=model.identity;miss.c.insertRadius=.08f;
+        miss.Step();miss.GrabMagazine();miss.s.receiverValid=true;
+        miss.s.receiver=miss.s.primary+Vec{.4f,0,0};
+        const auto dropped=miss.InsertMagazine();
+        Check(!dropped.reloadRequested&&!dropped.primaryHaptic&&!dropped.supportHaptic,
+            "old generic grip location cannot insert a magazine when a different authored receiver is available");
+    }
     for(int title=1;title<=6;++title)for(bool left:{false,true})for(int location:{0,1})
         for(bool slide:{false,true})for(bool click:{false,true})
     {
@@ -187,8 +239,12 @@ int main()
         o=r.InsertMagazine();
         Check(o.reloadRequested&&!o.swapRequested&&o.buttons==0x4000&&o.pulseUntil==r.s.now+120,
             "pouch-to-weapon release produces one reload request with finite lifetime");
-        Check(o.primaryHaptic>0&&o.supportHaptic>0,"reload completion acknowledges both hands");
-        for(int n=0;n<5;++n) Check(!r.Step().reloadRequested,"held completed state never repeats reload edge");
+        Check(o.primaryHaptic>0&&o.supportHaptic>.20f,"insertion acknowledges both hands with a stronger support pulse than grabbing");
+        for(int n=0;n<5;++n) {
+            const auto follow=r.Step();
+            Check(!follow.reloadRequested&&!follow.primaryHaptic&&!follow.supportHaptic,
+                "completed insertion never repeats reload or haptic edges");
+        }
         Check(!r.Step(20).buttons,"reload pulse ends at exact deadline");
         r.Step(100);r.Step(100);r.Step(100);r.Step(100);
         o=r.GrabHolster();
@@ -220,13 +276,16 @@ int main()
         Check(!r.Step().pickedMagazine,"entering pouch with already held ordinary grip does not claim it");
         r.s.supportGrip=0;r.Step();Check(r.GrabMagazine().pickedMagazine,"fresh grip after release can acquire pouch");
         r.s.supportGrip=0;auto o=r.Step(160);
-        Check(!o.buttons&&!o.reloadRequested,"dropping magazine at pouch cannot reload");
+        Check(!o.buttons&&!o.reloadRequested&&!o.primaryHaptic&&!o.supportHaptic,
+            "dropping magazine at pouch cannot reload or acknowledge insertion");
     }
     {
         Rig h;h.GrabHolster();h.s.primaryGrip=0;
         Check(!h.Step(160).buttons,"letting go before draw cancels swap");
         Rig r;r.GrabMagazine();r.s.support={0,0,0};r.s.supportGrip=0;
-        Check(!r.Step(160).buttons,"release away from weapon discards gesture without native input");
+        const auto drop=r.Step(160);
+        Check(!drop.buttons&&!drop.primaryHaptic&&!drop.supportHaptic,
+            "release away from weapon discards gesture without native input or insertion haptics");
     }
     // Each unavailable state cancels both partial interactions and blocks the
     // held grip on recovery. These correspond to shipping adapter admission.

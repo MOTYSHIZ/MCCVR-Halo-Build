@@ -882,6 +882,22 @@ inline constexpr uint32_t contact_resolver=0xb93c8c;
 inline constexpr uint32_t contact_player_melee=0xb0c388;
 inline constexpr uint32_t contact_damage=0xb9ea28;
 }
+namespace continuous_target {
+inline constexpr std::array<Entry,1> entries={{
+    {"continuous_target_query",0xb683ec,"40 53 55 56 57 41 54 41 55 41 56 41 57 B8 68 14 00 00 E8 5D EA A9 00 48 2B E0 48 8B 05 03 CC 00 01 48 33 C4 48 89 84 24 50 14 00 00 48 8B BC 24 D8 14 00 00 48 8B F1 48 8B CA 44 89 4C 24 40 45",true},
+}};
+inline constexpr std::array<Witness,2> witnesses={{
+    {0xb680f8,"E8 EF 02 00 00"},
+    {0xb6839b,"E8 4C 00 00 00"},
+}};
+inline constexpr std::array<Relative,2> relatives={{
+    {0xb680f8,5,1,0xb683ec},
+    {0xb6839b,5,1,0xb683ec},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t continuous_target_query=0xb683ec;
+}
 namespace controls {
 inline constexpr std::array<Entry,1> entries={{
     {"input_angle_delta",0xa99c1c,"48 8B C4 48 89 58 10 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 B0 48 81 EC 50 01 00 00 48 8B 3D 2C 62 2F 02",true},
@@ -1353,6 +1369,46 @@ inline constexpr uint32_t hud_target_conflicts=0x2059b0;
 inline constexpr uint32_t hud_target_alias_check=0x22b700;
 inline constexpr uint32_t hud_target_release=0x22b0a0;
 }
+namespace muzzle {
+inline constexpr std::array<Entry,6> entries={{
+    {"muzzle_fire",0xb7a374,"48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 C0 E1 FF FF B8 40 1F 00 00 E8 CA CA A8 00 48 2B E0 0F 29 B4 24 30 1F 00 00 0F 29 BC 24 20 1F 00 00 44 0F 29 84 24 10 1F 00 00 44 0F",true},
+    {"muzzle_markers",0xb3701c,"48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 50 4C 8B 35 BD 5D 26 02 45 33 FF 44 0F B7 D1 49 83 C6 34 41 0F B7 D9 8B E9 49 8B F8 48 8B F2 4F 8D 1C 52 4C 8B 15 EB B1 10",true},
+    {"muzzle_query",0xb67fa8,"48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 20 01 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88 44 0F 29 90 78 FF FF FF 48 8B 05 2A D0 00 01 48 33",true},
+    {"muzzle_direct_query",0xb68284,"48 89 5C 24 10 55 56 57 41 56 41 57 48 81 EC A0 00 00 00 48 8B 05 72 CD 00 01 48 33 C4 48 89 84 24 98 00 00 00 48 63 F9 49 8B D8 0F B7 CF 0F B7 F2 E8 EA CB FA FF 83 23 00 41 83 CF FF 44 89 7B",true},
+    {"muzzle_target_validate",0xb698d0,"48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 8B 79 0C 48 8B F2 83 CA FF 8B CF 33 DB E8 B3 F0 FC FF 48 85 C0 74 04 89 3E B3 01 48 8B 74 24 38 8A C3 48 8B 5C 24 30 48 83 C4 20 5F C3 48 8B C4 48",true},
+    {"muzzle_marker_owner",0xb777b0,"44 8B C1 41 BA 10 00 00 00 0F B7 C9 48 8D 14 49 48 8B 0D 81 AA 0C 01 48 63 41 34 48 03 C8 4C 63 4C 91 08 48 8B 15 1E 56 22 02 49 8B C9 48 8D 42 44 49 03 C1 41 83 F9 FF 49 0F 44 C2 F6 00 01 74",false},
+}};
+inline constexpr std::array<Witness,9> witnesses={{
+    {0xb7a56f,"E8 A8 CA FB FF"},
+    {0xb7a791,"E8 EA 60 F8 FF"},
+    {0xb7a853,"E8 E8 5E F8 FF"},
+    {0xb7a8b0,"E8 4B D2 FE FF"},
+    {0xb67bdf,"E8 30 D3 FA FF"},
+    {0xb680f8,"E8 EF 02 00 00"},
+    {0xb6839b,"E8 4C 00 00 00"},
+    {0xa98617,"E8 8C F9 0C 00"},
+    {0xa98923,"E8 5C F9 0C 00"},
+}};
+inline constexpr std::array<Relative,9> relatives={{
+    {0xb7a56f,5,1,0xb3701c},
+    {0xb7a791,5,1,0xb00880},
+    {0xb7a853,5,1,0xb00740},
+    {0xb7a8b0,5,1,0xb67b00},
+    {0xb67bdf,5,1,0xb14f14},
+    {0xb680f8,5,1,0xb683ec},
+    {0xb6839b,5,1,0xb683ec},
+    {0xa98617,5,1,0xb67fa8},
+    {0xa98923,5,1,0xb68284},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t muzzle_fire=0xb7a374;
+inline constexpr uint32_t muzzle_markers=0xb3701c;
+inline constexpr uint32_t muzzle_query=0xb67fa8;
+inline constexpr uint32_t muzzle_direct_query=0xb68284;
+inline constexpr uint32_t muzzle_target_validate=0xb698d0;
+inline constexpr uint32_t muzzle_marker_owner=0xb777b0;
+}
 namespace player_state {
 inline constexpr std::array<Entry,13> entries={{
     {"state_datum_get",0xbbb8d0,"45 33 C0 4C 8B D1 83 FA FF 74 3D 44 8B CA 41 C1 F9 10 66 85 D2 78 31 66 3B 51 20 7D 2B 0F B7 49 22 0F BF C2 0F AF C1 49 63 4A 34 48 98 49 03 C2 48 03 C8 66 44 39 01 74 0F 66 45 85 C9 74 06 66 44 39 09 75 03 4C 8B C1 49 8B C0 C3",false},
@@ -1572,5 +1628,20 @@ inline constexpr std::array<Pointer,0> pointers={{
 inline constexpr uint32_t vehicle_native_control_update=0xafbe54;
 inline constexpr uint32_t vehicle_seat_camera_info=0xb04ee4;
 inline constexpr uint32_t vehicle_following_camera=0xc52ca4;
+}
+namespace vehicle_view {
+inline constexpr std::array<Entry,1> entries={{
+    {"vehicle_orientation_basis",0xb45178,"48 8B C4 48 89 50 10 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00",true},
+}};
+inline constexpr std::array<Witness,2> witnesses={{
+    {0xb45498,"4C 8D 46 3C 48 8D 56 30 48 8D 4D 98 E8 43 D0 05 00"},
+    {0xb454a4,"E8 43 D0 05 00"},
+}};
+inline constexpr std::array<Relative,1> relatives={{
+    {0xb454a4,5,1,0xba24ec},
+}};
+inline constexpr std::array<Pointer,0> pointers={{
+}};
+inline constexpr uint32_t vehicle_orientation_basis=0xb45178;
 }
 }

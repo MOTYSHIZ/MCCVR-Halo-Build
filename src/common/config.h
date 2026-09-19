@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 // Every supported MCC title shares one halomccvr.cfg next to the DLL, as plain
 // "key = value" text. These are portable user preferences; title-specific
@@ -324,6 +325,14 @@ struct TitleTunables
 {
     float gun_scale = 0.96f;
     float left_hand_scale = 0.96f;
+    // Visible hand meshes only, in each hand's local frame (metres).
+    float left_hand_mesh_x_m = 0.0f;
+    float left_hand_mesh_y_m = 0.0f;
+    float left_hand_mesh_z_m = 0.0f;
+    float right_hand_mesh_x_m = 0.0f;
+    float right_hand_mesh_y_m = 0.0f;
+    float right_hand_mesh_z_m = 0.0f;
+
     float gun_pitch_deg = -3.0f;
     float gun_yaw_deg = 0.0f;
     float gun_roll_deg = 0.0f;
@@ -414,6 +423,7 @@ struct Config
     // M3 VR controller turning (right Sense stick).
     bool roomscale_movement = false; // physical horizontal steps drive native walking
     bool turn_smooth = true;           // false = snap turn, true = smooth turn
+    bool vehicle_smooth_turn = false; // temporary smooth VR turning while seated
     float turn_snap_deg = 30.0f;       // degrees per snap
     float turn_smooth_deg_s = 120.0f;  // smooth turn speed, degrees/second
 
@@ -435,6 +445,9 @@ struct Config
     // Quest 3 alternate D-pad: touch the physical left thumb rest, then use
     // the physical right stick. Handedness never swaps these controls.
     bool quest_thumbrest_dpad = false;
+    bool disable_flashlight_input = false;
+    // Match each campaign's MCC layout; same title order as gesture buttons.
+    int flashlight_button[6]{0,0,0,0,0,0};
 
     // Aim crosshair (stereo only): a small reticle floating where the weapon
     // actually shoots. Drawn as a compositor quad layer, so it costs no game
@@ -540,6 +553,11 @@ struct Config
     // while hiding only the helmet frame.
     bool halo4_helmet = true;
     bool hide_hud = false;
+    // Optional CE Anniversary flare workaround; scene lighting stays native.
+    bool ce_anniversary_disable_lens_flares = false;
+    // Optional per-controller firing for an owned native dual-wield pair.
+    bool independent_dual_aim = false;
+    bool gun_barrel_aim = false;
 
     // rendering. The game's own HUD reticle sits at head-center and is wrong
     // whenever hand aim is on; this one is the truth.
@@ -575,6 +593,14 @@ struct Config
     // used the RIGHT wrist's bone mask for both sides, so no left-hand scale
     // value ever reached a bone.
     float left_hand_scale = 0.96f;
+    // Visible hand meshes only, in each hand's local frame (metres).
+    float left_hand_mesh_x_m = 0.0f;
+    float left_hand_mesh_y_m = 0.0f;
+    float left_hand_mesh_z_m = 0.0f;
+    float right_hand_mesh_x_m = 0.0f;
+    float right_hand_mesh_y_m = 0.0f;
+    float right_hand_mesh_z_m = 0.0f;
+
 
     // (gun_length_scale removed 2026-07-19: a barrel-only squash is not
     // expressible in the engine's uniform-scale bone format; moving bone
@@ -649,7 +675,7 @@ struct Config
     float scope_screen_right_m = -0.058f;
     float scope_screen_up_m = 0.216f;
     float scope_screen_forward_m = 0.050f;
-    int scope_refresh_divisor = 3;
+    int scope_refresh_divisor = 1; // legacy key; lens now refreshes every frame
 
     // (show_hud / hud_ammo / hud_health / hud_motion / hud_grenades retired
     // 2026-07-19 evening: their chud+0x144..0x14A byte writes used a
@@ -795,6 +821,7 @@ struct Config
     bool manual_reload = false;
     bool manual_reload_disable_auto = false;
     bool manual_reload_skip_animations = false;
+    bool manual_reload_shortened_animation = false;
     bool weapon_holsters = false;
     float weapon_pouch_down_m = 0.50f;
     float weapon_body_zone_radius_m = 0.20f;
@@ -944,6 +971,7 @@ struct Config
     // halomccvr.cfg as halo3_/odst_/reach_/halo4_/halo2a_/halo2c_ keys.
     TitleTunables base_tunables{};
     TitleTunables title_profiles[kTitleProfileCount]{};
+    bool per_gun_alignment = false;
 };
 
 extern Config g_config;
@@ -957,6 +985,11 @@ const char* Config_TitleProfileName(int profile);
 int Config_ActiveTitleProfile();
 void Config_ApplyTitleProfile(int profile);
 void Config_StoreLiveTunables();
+// Cold config/UI path only. Identity comes from the admitted primary weapon
+// palette, never a native object/tag handle. Unknown models use title settings.
+void Config_ApplyWeaponProfile(uint64_t identity);
+void Config_RefreshWeaponProfile();
+const char* Config_ActiveWeaponProfileName();
 
 // The trim a given SEAT actually uses: its own override when one has been
 // set, the universal trim otherwise. `slot` comes from ConfigSeatTrimSlot;

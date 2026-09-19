@@ -2,9 +2,14 @@
 #include "../common/exclusive_input.h"
 #include "../common/halo2_datum_logic.h"
 #include "../common/weapon_model_catalog.h"
+#include "../common/weapon_muzzle.h"
+#include "../common/visual_hand_config.h"
+#include "../common/scope_logic.h"
 #include "../common/weapon_hand_logic.h"
+#include "../common/native_shot_target_lease.h"
 #include "../common/halo2_contact_melee_logic.h"
 #include "../common/halo2_snap_turn_logic.h"
+#include "../common/halo2_vehicle_view.h"
 #include "contact_melee_queue.h"
 #include "hook_quiescence.h"
 #include "../common/minhook_lifecycle.h"
@@ -365,6 +370,10 @@ namespace
         bool twoHandAimActive = false;
         bool handAlignment = false;
         contact_melee::Frame contactFrames[2]{};
+        uint32_t muzzleGeneration=0;
+        uint64_t muzzleSpace=0,muzzleSerial=0;
+        int64_t muzzleTimeNs=0;
+        bool muzzleLeftHanded=false;
         float rightScale = 1.0f;
         float leftScale = 1.0f;
         float worldScale = 1.0f;
@@ -558,6 +567,8 @@ namespace
     thread_local Halo2AimAssistControllerRayScope
         g_aimAssistControllerRayScope{};
 
+    #include "halo2_independent_query_context.inl"
+
     struct Halo2FinalPaletteContext
     {
         bool valid = false;
@@ -603,6 +614,10 @@ namespace
     // built from instead of whatever was published most recently.
     constexpr unsigned kPublicationRing = 8;
     Halo2SnapTurnState g_snapTurn{}; // observer thread only
+    Halo2VehicleViewState g_vehicleView{}; // observer thread only
+    std::atomic<bool> g_vehicleFrameVerified{false};
+    std::atomic<uint64_t> g_vehicleViewApplied{0},g_vehicleViewRefused{0};
+    bool ReadVehicleViewFrame(Halo2VehicleViewKey&,Halo2CameraBasis&) noexcept;
     std::atomic<uint64_t> g_snapTurns{0};
     std::atomic<uint64_t> g_snapSettled{0};
     std::atomic<uint32_t> g_ringVersion[kPublicationRing]{};
@@ -612,7 +627,9 @@ namespace
     void PublishPose(
         uint32_t generation, uint64_t serial, const Halo2CameraBasis& stock,
         const Halo2CameraBasis& tracked, const HeadReference& reference,
-        const Halo2SynchronousVrRenderSnapshot& sample) noexcept
+        const Halo2SynchronousVrRenderSnapshot& sample,
+        const Halo2CameraBasis* vehicleReference=nullptr,
+        const Halo2VehicleViewKey* vehicleKey=nullptr) noexcept
     {
         g_publicationVersion.fetch_add(1, std::memory_order_acq_rel);
         g_publication.generation = generation;
@@ -621,6 +638,11 @@ namespace
             g_publicationIndex.fetch_add(1, std::memory_order_relaxed) + 1;
         g_publication.stock = stock;
         g_publication.tracked = tracked;
+        g_publication.vehicleReferenceValid=vehicleReference&&vehicleKey;
+        g_publication.vehicleReference=vehicleReference?*vehicleReference:Halo2CameraBasis{};
+        g_publication.vehicleUnit=vehicleKey?vehicleKey->unit:UINT32_MAX;
+        g_publication.vehicleParent=vehicleKey?vehicleKey->parent:UINT32_MAX;
+        g_publication.vehicleSeat=vehicleKey?vehicleKey->seat:-1;
         g_publication.snapTurnPending = g_snapTurn.pending;
         g_publication.snapTurnTargetYaw = g_snapTurn.targetYaw;
         std::memcpy(g_publication.referenceOrientation, reference.orientation,
@@ -926,6 +948,7 @@ namespace
                 sizeof(g_reference.position));
             g_referenceValid.store(true, std::memory_order_release);
             g_snapTurn={};
+            g_vehicleView={};
             g_snapSettled.store(0,std::memory_order_release);
         }
 
@@ -973,8 +996,22 @@ namespace
         head.positional = Game_IsPositionalTracking();
         head.worldScale = Game_GetWorldScale();
 
+        Halo2CameraBasis viewBase=stock,hull{};
+        Halo2VehicleViewKey vehicleKey{};
+        bool ownsVehicleReference=false;
+        const bool vehicleRequested=vehicle&&g_config.vehicle_motion&&Game_IsHeadTracking()&&VR_IsStereoEnabled()&&
+            !Menu_IsOpen()&&!VR_IsPausePresentation()&&!VR_IsCutsceneTheaterActive();
+        if(vehicleRequested) {
+            vehicleKey.generation=g_generation.load(std::memory_order_acquire);
+            vehicleKey.space=snapshot.trackingSpaceEpoch;
+            ownsVehicleReference=ReadVehicleViewFrame(vehicleKey,hull)&&
+                g_vehicleView.Build(vehicleKey,stock,hull,g_config.vehicle_view_follow,
+                    GetTickCount64(),viewBase);
+            if(ownsVehicleReference) g_vehicleViewApplied.fetch_add(1,std::memory_order_relaxed);
+            else {g_vehicleView={};g_vehicleViewRefused.fetch_add(1,std::memory_order_relaxed);}
+        } else g_vehicleView={};
         Halo2CameraBasis tracked{};
-        if (!Halo2BuildTrackedCenterCamera(stock, head, tracked))
+        if (!Halo2BuildTrackedCenterCamera(viewBase, head, tracked))
         {
             g_rejectedSamples.fetch_add(1, std::memory_order_relaxed);
             return;
@@ -988,7 +1025,7 @@ namespace
             memcpy(head.referencePosition, g_reference.position, sizeof(head.referencePosition));
             memcpy(effectiveReference.position, g_reference.position, sizeof(effectiveReference.position));
             Halo2CameraBasis followed{};
-            if (Halo2BuildTrackedCenterCamera(stock, head, followed))
+            if (Halo2BuildTrackedCenterCamera(viewBase, head, followed))
                 tracked = followed;
             else
             {
@@ -1010,7 +1047,8 @@ namespace
         ApplyUpstreamVisibilityCover(result, snapshot);
         PublishPose(
             g_generation.load(std::memory_order_acquire),
-            snapshot.preparedSerial, stock, tracked, effectiveReference, snapshot);
+            snapshot.preparedSerial, stock, tracked, effectiveReference, snapshot,
+            ownsVehicleReference?&viewBase:nullptr,ownsVehicleReference?&vehicleKey:nullptr);
         g_appliedPoses.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -1235,7 +1273,7 @@ namespace
             return false;
         const float worldScale = Game_GetWorldScale();
         return Halo2BuildStableControllerCarrier(
-                   publication.stock, publication.referenceOrientation,
+                   Halo2ControllerReference(publication), publication.referenceOrientation,
                    publication.referencePosition,
                    independentPrimary ? tracking.independentRightAimOrientation : tracking.rightAimOrientation,
                    tracking.rightAimPosition, worldScale,
@@ -1244,7 +1282,7 @@ namespace
                    std::clamp(g_config.gun_up_m, -0.3f, 0.3f),
                    rightCarrier) &&
             Halo2BuildStableControllerCarrier(
-                   publication.stock, publication.referenceOrientation,
+                   Halo2ControllerReference(publication), publication.referenceOrientation,
                    publication.referencePosition, leftOrientation,
                    tracking.leftControllerPosition, worldScale,
                    std::clamp(
@@ -1509,9 +1547,9 @@ namespace
         }
     }
 
-    void Halo2ObserveReloadModel(uint32_t tag,uint32_t nodes) noexcept
+    uint64_t Halo2ObserveReloadModel(uint32_t tag,uint32_t nodes,bool observePrimary=true) noexcept
     {
-        if(!g_config.manual_reload||tag==UINT32_MAX||!nodes) return;
+        if((!g_config.manual_reload&&!g_config.per_gun_alignment&&!g_config.gun_barrel_aim)||tag==UINT32_MAX||!nodes) return 0;
         const auto get=reinterpret_cast<Halo2GraphDefinitionGetFn>(
             g_graphDefinitionGet.load(std::memory_order_acquire));
         const auto slot=reinterpret_cast<unsigned char**>(
@@ -1530,8 +1568,13 @@ namespace
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) { identity=0; }
-        VR_ObserveWeaponModel(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),identity);
+        if(observePrimary)
+            VR_ObserveWeaponModel(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),identity);
+        return identity;
     }
+
+#include "halo2_muzzle_publication.inl"
+#include "halo2_visual_hand_offset.inl"
 
     void Halo2PublishFinalPacketCollisionVolumes(
         const Halo2VisibleConsumerContext& context, float* handsMatrices,
@@ -1540,7 +1583,22 @@ namespace
         uint32_t secondaryRenderModelTag = UINT32_MAX) noexcept
     {
         if(context.valid&&handsMatrices&&gunMatrices)
-            Halo2ObserveReloadModel(gunRenderModelTag,context.gunCount);
+        {
+            const uint64_t identity=Halo2ObserveReloadModel(gunRenderModelTag,context.gunCount);
+            if(g_config.gun_barrel_aim)
+            {
+                Halo2PublishMuzzlePalette(context,0,identity,gunMatrices,context.gunCount);
+                const uint64_t secondaryIdentity=secondaryMatrices
+                    ? Halo2ObserveReloadModel(secondaryRenderModelTag,context.secondaryGunCount,false):0;
+                Halo2PublishMuzzlePalette(context,1,secondaryIdentity,secondaryMatrices,context.secondaryGunCount);
+            }
+            const auto* model=weapon_model::Find(GameTitle::Halo2,identity);
+            Halo2FirstPersonTransform root{};float point[3]{};
+            if(g_config.manual_reload&&Halo2ReadFirstPersonTransform(gunMatrices,root)&&
+                weapon_model::ReceiverPoint(model,root.scale,root.rotation,root.translation,point))
+                VR_PublishReloadTarget(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),
+                    identity,context.contactFrames[1].serial,context.contactFrames[1].transform,point);
+        }
         if ((!g_config.world_collision && !g_config.physical_melee) || !handsMatrices || !gunMatrices ||
             !context.valid || context.handsCount == 0 ||
             context.handsCount > kHalo2FirstPersonPaletteCapacity ||
@@ -1704,6 +1762,35 @@ namespace
             globals+kHalo2PlayerUserMappingOffset+kOwnedUser*sizeof(uint32_t));
         const auto* player=halo2_datum::Record(players,handle,kHalo2PlayerDatumStride,kHalo2MaximumPlayers);
         return player ? *reinterpret_cast<const uint32_t*>(player+kHalo2PlayerUnitIndexOffset) : UINT32_MAX;
+    }
+
+    bool ReadVehicleViewFrame(Halo2VehicleViewKey& key,Halo2CameraBasis& hull) noexcept
+    {
+        if(!g_vehicleFrameVerified.load(std::memory_order_acquire)) return false;
+        __try {
+            key.unit=Halo2OwnedUnit();
+            const auto* unit=static_cast<const uint8_t*>(Halo2ObjectFromIndex(key.unit));
+            if(!unit||unit[0xAA]!=0) return false;
+            key.seat=*reinterpret_cast<const int16_t*>(unit+kHalo2UnitParentSeatOffset);
+            key.parent=*reinterpret_cast<const uint32_t*>(unit+0x14);
+            if(key.seat<0||key.parent==UINT32_MAX) return false;
+            uint32_t object=key.parent,seen[8]{};
+            for(unsigned depth=0;depth<8;++depth) {
+                if(object==key.unit) return false;
+                for(unsigned i=0;i<depth;++i) if(seen[i]==object) return false;
+                seen[depth]=object;
+                const auto* data=static_cast<const uint8_t*>(Halo2ObjectFromIndex(object));
+                if(!data||data[0xAA]!=1) return false;
+                const auto parent=*reinterpret_cast<const uint32_t*>(data+0x14);
+                if(parent!=UINT32_MAX) {object=parent;continue;}
+                key.root=object;
+                hull={};
+                memcpy(hull.forward,data+0x70,sizeof(hull.forward));
+                memcpy(hull.up,data+0x7C,sizeof(hull.up));
+                return key.generation==g_generation.load(std::memory_order_acquire)&&Halo2ValidateCameraBasis(hull);
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {return false;}
+        return false;
     }
 
     void Halo2TryPushCollisionObject(
@@ -2093,6 +2180,26 @@ namespace
             reinterpret_cast<Halo2VisibleFirstPersonConsumerFn>(
                 g_visibleConsumerOriginal.load(std::memory_order_acquire));
         auto& context = g_visibleConsumerContext;
+        if(Game_IsScopeRendering()&&original)
+        {
+            // Three independent persistent banks: native packet submission can
+            // retain the hands and both weapons until the subsequent draw.
+            static thread_local float hidden[3][kHalo2FirstPersonPaletteCapacity*13];
+            const int bank=weaponSlot==-1?0:weaponSlot==0?1:weaponSlot==1?2:-1;
+            const uint32_t count=bank==0?context.handsCount:bank==1?context.gunCount:context.secondaryGunCount;
+            __try
+            {
+                if(bank>=0&&context.valid&&user==context.user&&matrices&&count>0&&count<=kHalo2FirstPersonPaletteCapacity)
+                {
+                    memcpy(hidden[bank],matrices,count*kHalo2FirstPersonNodeStride);
+                    for(uint32_t i=0;i<count;++i)hidden[bank][i*13]=.0001f;
+                    original(user,modelObject,ownerObject,weaponSlot,hidden[bank]);
+                }
+                else {VR_EndHalo2Scope(false);original(user,modelObject,ownerObject,weaponSlot,matrices);}
+            }
+            __finally {g_visibleConsumerActiveCallbacks.fetch_sub(1,std::memory_order_acq_rel);}
+            return;
+        }
         bool callCurrentOriginal = true;
         if (original && matrices && context.valid && user == context.user &&
             g_armed.load(std::memory_order_acquire) &&
@@ -2154,6 +2261,7 @@ namespace
                             context, context.handsMatrices, primaryMatrices,
                             primaryModel, dual ? matrices : nullptr,
                             dual ? modelObject : UINT32_MAX);
+                        Halo2ApplyVisualHandOffsets(context,context.handsMatrices,dual);
                         context.handsApplied = true;
                         context.gunApplied = true;
                         g_visibleConsumerHandsApplied.fetch_add(
@@ -2509,6 +2617,11 @@ namespace
                     context.leftScale =
                         std::clamp(g_config.left_hand_scale, 0.3f, 3.0f);
                     context.worldScale = Game_GetWorldScale();
+                    context.muzzleGeneration=publication.generation;
+                    context.muzzleSpace=publication.snapshot.trackingSpaceEpoch;
+                    context.muzzleSerial=publication.serial;
+                    context.muzzleTimeNs=publication.snapshot.predictedDisplayTimeNs;
+                    context.muzzleLeftHanded=g_config.left_handed;
                     Halo2PrepareContactFrames(publication,independentPrimary,context);
                     context.valid = true;
                     if (binding.rigKind ==
@@ -2706,6 +2819,7 @@ namespace
                         candidate, handsMatrices, gunMatrices,
                         gunRenderModelTag, dual ? secondaryMatrices : nullptr,
                         secondaryRenderModelTag);
+                    Halo2ApplyVisualHandOffsets(candidate,handsMatrices,dual);
                     auto& classic = g_classicPacketContext;
                     classic.hands = handsMatrices;
                     classic.gun = gunMatrices;
@@ -3293,6 +3407,7 @@ namespace
                     if (originalCompleted && controllerRayApplied)
                     {
                         completed = Halo2SuppressCameraAimAssist(control);
+                        if (completed) RecordHalo2IndependentQuery();
                         if (completed)
                         {
                             if (targeting->identifiers[0] != UINT32_MAX)
@@ -3426,7 +3541,7 @@ namespace
                         presentedAtMs) &&
                     presentedAtMs <= nowMs && nowMs - presentedAtMs <= 250 &&
                     Halo2BuildStableControllerCarrier(
-                        publication.stock, publication.referenceOrientation,
+                        Halo2ControllerReference(publication), publication.referenceOrientation,
                         publication.referencePosition, presentedOrientation,
                         presentedPosition, Game_GetWorldScale(), 0.0f,
                         carrier))
@@ -3854,15 +3969,13 @@ namespace
             g_halo2WorldCollision.generation = 0;
             return true;
         }
-        const MH_STATUS disabled = MH_DisableHook(target);
+        const MH_STATUS disabled = MCCVR_DisableHookForRetirement(target);
         if (disabled != MH_OK && disabled != MH_ERROR_NOT_CREATED &&
             disabled != MH_ERROR_DISABLED)
             return false;
-        for (int attempt = 0; attempt < 200 &&
-             g_halo2WorldCollision.callbacks.load(std::memory_order_acquire);
-             ++attempt)
-            Sleep(10);
-        if (g_halo2WorldCollision.callbacks.load(std::memory_order_acquire))
+        const void* functions[]{reinterpret_cast<const void*>(&Halo2CollisionVectorDetour)};
+        const void* originals[]{reinterpret_cast<const void*>(g_halo2WorldCollision.original)};
+        if (!WaitForNativeDetourQuiescence(functions,originals,1,g_halo2WorldCollision.callbacks))
             return false;
         const MH_STATUS removed = MH_RemoveHook(target);
         if (removed != MH_OK && removed != MH_ERROR_NOT_CREATED)
@@ -3967,7 +4080,10 @@ namespace
         return true;
     }
 
-    bool RemoveParticleGate() noexcept
+    #include "halo2_observer_cleanup.inl"
+
+    // Preserved old counter-only retirement for evidence; no callers.
+    bool RemoveParticleGateLegacy() noexcept
     {
         if (!g_particleTarget)
         {
@@ -4010,7 +4126,7 @@ namespace
         return true;
     }
 
-    bool RemoveCore(const char* reason) noexcept
+    bool RemoveCoreLegacy(const char* reason) noexcept
     {
         g_coreState = CoreState::CleanupRequired;
         g_armed.store(false, std::memory_order_release);
@@ -4255,6 +4371,7 @@ namespace
             g_nativeAimOriginal.store(0, std::memory_order_release);
             g_objectDatumAccessor.store(0, std::memory_order_release);
             g_vehicleSeatVerified.store(false, std::memory_order_release);
+            g_vehicleFrameVerified.store(false,std::memory_order_release);
             g_vehicleSeatSample.store(0, std::memory_order_release);
         }
         if (g_reanchorTarget)
@@ -5024,6 +5141,17 @@ namespace
             seatMatches == 1 && seatMatch == base + kHalo2UnitInVehicleRva;
         g_vehicleSeatSample.store(0, std::memory_order_release);
         g_vehicleSeatVerified.store(seatVerified, std::memory_order_release);
+        // H2EK sound_manager.cpp 0042CCB0 names parent_object_index and
+        // parent_seat_index. Retail 6E49B0 reads +14/+210 and resolves that
+        // parent with the same verified object accessor used above.
+        constexpr char parentPattern[]="44 8B 43 14 4C 8B F8 41 83 F8 FF 0F 84 81 01 00 00 "
+            "66 83 BB 10 02 00 00 FF 0F 84 73 01 00 00 66 85 FF 0F 84 6A 01 00 00";
+        uintptr_t parentMatch=0;uint32_t parentMatches=0;
+        const bool frameVerified=seatVerified&&CountPatternMatches(base,size,parentPattern,parentMatch,parentMatches)&&
+            parentMatches==1&&parentMatch==base+0x6e4ad2;
+        g_vehicleFrameVerified.store(frameVerified,std::memory_order_release);
+        LOG("Halo 2 vehicle view reference: %s (parent/seat matches=%u); native aim feedback retained separately",
+            frameVerified?"verified":"stock fallback",parentMatches);
         LOG("Halo 2 vehicle controller steering: %s (native seat predicate matches=%u); "
             "only fresh seated local-player samples admit the stick loop",
             seatVerified ? "available for test" : "stock fallback", seatMatches);
@@ -5248,6 +5376,12 @@ namespace
             g_halo2Dual.enabled.load()?1:0, g_halo2Dual.faulted.load()?1:0,
             g_halo2Dual.primaryRays.exchange(0),
             g_halo2Dual.secondaryRays.exchange(0), g_halo2Dual.refused.exchange(0));
+        LOG("Halo 2 dual native targeting: queries=%llu restoreRefused=%llu option=%d",
+            g_halo2Dual.nativeQueries.exchange(0),g_halo2Dual.targetRestoresRefused.exchange(0),
+            g_config.independent_dual_aim?1:0);
+        LOG("Halo 2 barrel trajectory: enabled=%d fault=%d applied=%llu refused=%llu option=%d",
+            g_halo2Muzzle.enabled.load()?1:0,g_halo2Muzzle.faulted.load()?1:0,
+            g_halo2Muzzle.applied.exchange(0),g_halo2Muzzle.refused.exchange(0),g_config.gun_barrel_aim?1:0);
         const uint64_t applied = g_appliedPoses.load(std::memory_order_relaxed);
         // Report even when nothing is being applied. A silent zero is exactly
         // the failure this telemetry exists to expose: it distinguishes "the
@@ -5568,6 +5702,9 @@ namespace
         float coverRadians[3]{};
         std::memcpy(coverRadians, coverBits, sizeof(coverRadians));
         constexpr float kDegrees = 57.29577951308232f;
+        LOG("Halo 2 vehicle reference: %llu applied, %llu refused; view/hands/controller use one occupation reference, native aim remains feedback",
+            static_cast<unsigned long long>(g_vehicleViewApplied.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_vehicleViewRefused.load(std::memory_order_relaxed)));
         LOG("Halo 2 C-H2-71 upstream visibility cover: %llu expanded, %llu "
             "already wide, %llu refused; last stock %.1f deg, headset %.1f "
             "deg, selected %.1f deg at observer_result+0x%X (pose/stereo stay "
@@ -5828,6 +5965,21 @@ void Halo2Observer6Dof_SetFirstPersonPassCameras(
 // hold at draw time, replacing whichever camera the core predicted. Only
 // the viewing term changes; the frame/correct cameras the owning core
 // named stand.
+bool Halo2Observer6Dof_BuildScopeCamera(Halo2CameraBasis& camera) noexcept
+{
+    Halo2ObserverPosePublication p{};Halo2CameraBasis primary{},secondary{};
+    const auto gen=g_generation.load(std::memory_order_acquire);
+    if(!Halo2Observer6Dof_ReadPublishedPose(p)||!Halo2ObserverControllerSnapshotUsable(p,gen)||
+        !BuildStableFirstPersonCarriers(p,gen,primary,secondary))return false;
+    float direction[3]{},basis[9]{};
+    if(!Halo2BuildControllerShotDirection(p.stock.position,primary,
+        std::clamp(g_config.crosshair_distance_m,2.f,50.f)*Game_GetWorldScale(),direction))return false;
+    memcpy(basis,primary.forward,12);memcpy(basis+6,primary.up,12);
+    ScopeCameraPose pose{};
+    if(!ComputeScopeCameraPose(basis,p.stock.position,direction,pose))return false;
+    camera=p.stock;memcpy(camera.position,pose.position,12);memcpy(camera.forward,pose.forward,12);
+    memcpy(camera.up,pose.up,12);return Halo2ValidateCameraBasis(camera);
+}
 bool Halo2Observer6Dof_ReadPacketBuildCamera(
     bool anniversary, Halo2CameraBasis& out) noexcept
 {
@@ -6039,6 +6191,7 @@ bool Halo2Observer6Dof_Armed() noexcept { return false; }
 void Halo2Observer6Dof_SnapTurnSettled(uint32_t, float) noexcept {}
 bool Halo2Observer6Dof_DirectWeaponAimArmed() noexcept { return false; }
 bool Halo2Observer6Dof_FinalPaletteArmed() noexcept { return false; }
+bool Halo2Observer6Dof_BuildScopeCamera(Halo2CameraBasis&) noexcept { return false; }
 bool Halo2Observer6Dof_OnFootFresh() noexcept { return false; }
 void* Halo2Observer6Dof_ReloadWeapon(uint32_t) noexcept { return nullptr; }
 bool Halo2Observer6Dof_WorldCollisionActive() noexcept { return false; }

@@ -1,4 +1,5 @@
 #pragma once
+#include "visual_hand_offset.h"
 
 #include "haloce_render_logic.h"
 #include "two_hand_ik_logic.h"
@@ -173,6 +174,26 @@ struct FirstPersonBinding
     uint64_t armMask[2]{};
     uint64_t nodeIdentity{}; // Complete ordered names/parents, never a title-wide bone guess.
 };
+inline bool ApplyVisibleFirstPersonHandOffsets(const FirstPersonBinding& binding,float units,
+    const ControllerRig& rig,NodeMatrix* palette) noexcept
+{
+    const auto* lo=rig.visualLeftHandOffset;const auto* ro=rig.visualRightHandOffset;
+    const visual_hand::Offset left{lo[0],lo[1],lo[2]},right{ro[0],ro[1],ro[2]};
+    if(!visual_hand::Active(left)&&!visual_hand::Active(right))return true;
+    if(!palette||!binding.count||binding.count>64||binding.leftWrist<0||binding.rightWrist<0||
+        binding.leftWrist>=binding.count||binding.rightWrist>=binding.count)return false;
+    const auto basis=[](const NodeMatrix& n,float b[9]){
+        b[0]=n.forward.x;b[1]=n.forward.y;b[2]=n.forward.z;b[3]=n.left.x;b[4]=n.left.y;b[5]=n.left.z;
+        b[6]=n.up.x;b[7]=n.up.y;b[8]=n.up.z;};
+    float lb[9]{},rb[9]{},ld[3]{},rd[3]{};basis(palette[binding.leftWrist],lb);basis(palette[binding.rightWrist],rb);
+    uint64_t lm=binding.leftMask,rm=binding.rightMask;
+    if(rig.floatingHands){lm|=binding.armMask[0];rm|=binding.armMask[1];}
+    // The CE binding independently identifies every held-gun descendant.
+    lm&=~binding.gunMask;rm&=~binding.gunMask;
+    if(!visual_hand::Deltas(lb,rb,units,left,right,rig.leftHanded,rig.handAlignment,ld,rd))return false;
+    return visual_hand::Apply(binding.count,lm,rm,ld,rd,[&](size_t node){return &palette[node].position.x;},
+        [&](size_t node,const float* v){palette[node].position={v[0],v[1],v[2]};});
+}
 inline const HandAlignmentPlane* FindHandAlignmentPlane(const FirstPersonBinding& binding) noexcept
 {
     if (!binding.nodeIdentity) return nullptr;

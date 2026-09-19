@@ -645,6 +645,13 @@ bool VR_BeginScopeRaster();
 void VR_CaptureScope();
 void VR_EndScopeRaster();
 bool VR_GetScopeRenderAspect(float& outAspect);
+void VR_InvalidateScopeImage();
+bool VR_BeginHalo2Scope(uint32_t generation,uint64_t serial);
+void VR_EndHalo2Scope(bool completed);
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+bool VR_ReachScopeReady(const ReachVrRenderAccess& access);
+bool VR_ReachCopyScope(ReachVrRenderAccess& access);
+#endif
 // Current non-persistent scope magnification. It resets to scope_zoom whenever
 // R3 opens the scope and is adjusted by right-stick Y while active.
 float VR_GetScopeZoom();
@@ -785,6 +792,10 @@ struct VrPadState
 void VR_GetPadState(VrPadState& out);
 // Cold worker only: optional gesture status/counters, never render-hook logs.
 void VR_ReportWeaponInteractions(uint64_t nowMs);
+void VR_UpdateWeaponAlignment(); // cold title worker, after title-profile selection
+namespace contact_melee { struct TrackingToWorld; }
+void VR_PublishReloadTarget(GameTitle title,uint32_t generation,uint64_t identity,uint64_t serial,
+    const contact_melee::TrackingToWorld& trackingToWorld,const float world[3]) noexcept;
 // Optional, read-only equipped-model observations. No inventory or animation writes.
 void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept;
 uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t space,uint64_t now) noexcept;
@@ -849,6 +860,8 @@ struct VrContactTrackingSnapshot
     bool leftHanded=false;
     bool primaryAimValid=false;
     float primaryAimOrientation[4]{0,0,0,1};
+    bool rawPrimaryValid=false;
+    float rawPrimaryOrientation[4]{0,0,0,1},rawPrimaryPosition[3]{};
 };
 bool VR_GetContactTrackingSnapshot(VrContactTrackingSnapshot& snapshot);
 

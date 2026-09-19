@@ -1,6 +1,7 @@
 #include "weapon_accessory_renderer.h"
 #include "../common/weapon_magazines.generated.h"
 #include "../common/weapon_generic_magazine.h"
+#include "../common/weapon_surfaces.generated.h"
 #include <d3dcompiler.h>
 #include <cstring>
 #include <iterator>
@@ -9,9 +10,11 @@ namespace
 {
 constexpr char shader[]=R"(
 cbuffer Transform : register(b0) { float4 objectQ,objectP,eyeQ,eyeP,tangents,color; };
+Texture2D surface : register(t0);
+SamplerState surfaceSampler : register(s0);
 float3 rotate(float4 q,float3 p) { return p+2*cross(q.xyz,cross(q.xyz,p)+q.w*p); }
-struct V { float3 p:POSITION; float3 n:NORMAL; };
-struct O { float4 p:SV_Position; float3 n:NORMAL; };
+struct V { float3 p:POSITION; float3 n:NORMAL; float2 uv:TEXCOORD; };
+struct O { float4 p:SV_Position; float3 n:NORMAL; float2 uv:TEXCOORD; };
 O vs_main(V v) {
     O o;
     float3 p=rotate(eyeQ,rotate(objectQ,v.p)+objectP.xyz-eyeP.xyz);
@@ -19,11 +22,11 @@ O vs_main(V v) {
     o.p=float4((2*p.x-(tangents.y+tangents.x)*z)/(tangents.y-tangents.x),
         (2*p.y-(tangents.w+tangents.z)*z)/(tangents.w-tangents.z),
         (20.0*z-0.02*20.0)/(20.0-0.02),z);
-    o.n=rotate(objectQ,v.n);return o;
+    o.n=rotate(objectQ,v.n);o.uv=v.uv;return o;
 }
 float4 ps_main(O i):SV_Target {
     float light=0.35+0.65*abs(dot(normalize(i.n),normalize(float3(-0.3,0.8,0.5))));
-    return float4(color.xyz*light,1);
+    return float4(surface.Sample(surfaceSampler,i.uv).rgb*color.xyz*light,1);
 }
 )";
 }
@@ -31,6 +34,7 @@ void WeaponAccessoryRenderer::Reset() noexcept
 {
     if(context_) context_->ClearState();
     depth_.Reset();depthState_.Reset();raster_.Reset();constants_.Reset();vertices_.Reset();genericVertices_.Reset();
+    surface_.Reset();sampler_.Reset();
     layout_.Reset();ps_.Reset();vs_.Reset();context_.Reset();device_.Reset();
     width_=height_=0;prepared_=S_FALSE;
 }
@@ -52,8 +56,22 @@ HRESULT WeaponAccessoryRenderer::Prepare(ID3D11Device* device,unsigned width,uns
         if(SUCCEEDED(hr)) hr=device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&ps_);
         const D3D11_INPUT_ELEMENT_DESC elements[]{
             {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0},
-            {"NORMAL",0,DXGI_FORMAT_R32G32B32_FLOAT,0,12,D3D11_INPUT_PER_VERTEX_DATA,0}};
-        if(SUCCEEDED(hr)) hr=device->CreateInputLayout(elements,2,vs->GetBufferPointer(),vs->GetBufferSize(),&layout_);
+            {"NORMAL",0,DXGI_FORMAT_R32G32B32_FLOAT,0,12,D3D11_INPUT_PER_VERTEX_DATA,0},
+            {"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,0,24,D3D11_INPUT_PER_VERTEX_DATA,0}};
+        if(SUCCEEDED(hr)) hr=device->CreateInputLayout(elements,3,vs->GetBufferPointer(),vs->GetBufferSize(),&layout_);
+        D3D11_TEXTURE2D_DESC surface{};
+        surface.Width=weapon_model::kSurfaceWidth;surface.Height=weapon_model::kSurfaceHeight;
+        surface.MipLevels=surface.ArraySize=1;surface.SampleDesc.Count=1;
+        surface.Format=DXGI_FORMAT_BC1_UNORM;surface.Usage=D3D11_USAGE_IMMUTABLE;
+        surface.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA pixels{weapon_model::kSurfaceBlocks,weapon_model::kSurfaceWidth*2,0};
+        Ptr<ID3D11Texture2D> surfaceTexture;
+        if(SUCCEEDED(hr)) hr=device->CreateTexture2D(&surface,&pixels,&surfaceTexture);
+        if(SUCCEEDED(hr)) hr=device->CreateShaderResourceView(surfaceTexture.Get(),nullptr,&surface_);
+        D3D11_SAMPLER_DESC sampler{};sampler.Filter=D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+        sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler.MaxLOD=D3D11_FLOAT32_MAX;sampler.ComparisonFunc=D3D11_COMPARISON_NEVER;
+        if(SUCCEEDED(hr)) hr=device->CreateSamplerState(&sampler,&sampler_);
         D3D11_BUFFER_DESC buffer{};buffer.ByteWidth=sizeof(weapon_model::kVertices);
         buffer.Usage=D3D11_USAGE_IMMUTABLE;buffer.BindFlags=D3D11_BIND_VERTEX_BUFFER;
         D3D11_SUBRESOURCE_DATA data{weapon_model::kVertices};
@@ -116,6 +134,8 @@ HRESULT WeaponAccessoryRenderer::Draw(ID3D11Device* device,ID3D11DeviceContext* 
     context_->IASetVertexBuffers(0,1,&vertex,&stride,&offset);
     context_->VSSetConstantBuffers(0,1,&cb);
     context_->PSSetConstantBuffers(0,1,&cb);
+    ID3D11ShaderResourceView* surface=surface_.Get();ID3D11SamplerState* sampler=sampler_.Get();
+    context_->PSSetShaderResources(0,1,&surface);context_->PSSetSamplers(0,1,&sampler);
     context_->VSSetShader(vs_.Get(),nullptr,0);context_->PSSetShader(ps_.Get(),nullptr,0);
     context_->Draw(model->vertexCount,model->firstVertex);
     Ptr<ID3D11CommandList> commands;

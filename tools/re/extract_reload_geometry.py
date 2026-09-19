@@ -8,8 +8,9 @@ import json
 import math
 from pathlib import Path
 import sys
+import subprocess
 
-from export_reload_sources import ROOT, OUT
+from export_reload_sources import ROOT, OUT, KITS
 from reload_tag_xml import read, block, value, values, descendant_blocks
 from verify_ce_weapon_mesh import read_weapon, derive
 
@@ -102,6 +103,9 @@ def xml_model(path, kit):
             mapping = block(maps[i], "node map") if i < len(maps) else []
             mesh_data.append((raw, meshes[i], mapping))
     parts = []
+    material_records=list(block(tree,"materials"))
+    material_names=[m.get("name",str(i)) for i,m in enumerate(material_records)]
+    shaders=[value(m,"shader" if kit=="H2EK" else "render method","") for m in material_records]
     for data, header, mapping in mesh_data:
         h2 = kit == "H2EK"
         vertices = []
@@ -140,11 +144,11 @@ def xml_model(path, kit):
         strip = h2 or "strip" in value(header, "index buffer type", "")
         materials=[]
         for part in block(data if h2 else header,"parts"):
-            materials.append(dict(start=int(value(part,"strip start" if h2 else "index start","0")),
+            materials.append(dict(start=int(value(part,"strip start index" if h2 else "index start","0")),
                 count=int(value(part,"strip length" if h2 else "index count","0")),
-                material=value(part,"material" if h2 else "render method index","-1")))
+                material=node_index(part,"material" if h2 else "render method index",material_names)))
         parts.append(dict(vertices=vertices, indices=indices, strip=strip,uvs=uvs,materials=materials))
-    return dict(names=names, parents=parents, checksum=checksum, bounds=bounds, parts=parts)
+    return dict(names=names, parents=parents, checksum=checksum, bounds=bounds, parts=parts, shaders=shaders)
 
 
 def isolate(model, wanted):
@@ -153,10 +157,13 @@ def isolate(model, wanted):
     for _ in names:
         owned.update(i for i, parent in enumerate(parents) if parent in owned)
     points, faces, seen = [], [], {}
+    face_uvs,face_materials=[],[]
     for part in model["parts"]:
         vertices = part["vertices"]
         selected = [bool(influences) and all(n in owned for n in influences) for _, influences in vertices]
-        for tri in triangles(part["indices"], part["strip"]):
+        ranges=part.get("materials",[dict(start=0,count=len(part["indices"]),material=-1)])
+        for surface in ranges:
+          for tri in triangles(part["indices"][surface["start"]:surface["start"]+surface["count"]], part["strip"]):
             assert min(tri) >= 0 and max(tri) < len(vertices)
             if not all(selected[index] for index in tri):
                 continue
@@ -169,19 +176,24 @@ def isolate(model, wanted):
                 face.append(seen[p])
             if len(set(face)) == 3:
                 faces.append(face)
+                face_uvs.append([part["uvs"][i] for i in tri] if "uvs" in part else [])
+                face_materials.append(surface["material"])
     # Different LOD/permutation strips may repeat triangles; select unique
     # geometry, retaining winding from the first occurrence.
     unique = {}
-    for face in faces:
-        unique.setdefault(tuple(sorted(face)), face)
-    faces = list(unique.values())
+    for face,uv,material in zip(faces,face_uvs,face_materials):
+        unique.setdefault(tuple(sorted(face)), (face,uv,material))
+    faces = [v[0] for v in unique.values()]
+    face_uvs = [v[1] for v in unique.values()]
+    face_materials = [v[2] for v in unique.values()]
     if points:
         minimum = [min(p[a] for p in points) for a in range(3)]
         maximum = [max(p[a] for p in points) for a in range(3)]
         assert all(math.isfinite(x) for p in points for x in p)
     else:
         minimum = maximum = [0, 0, 0]
-    return dict(vertices=points, triangles=faces, minimum=minimum, maximum=maximum)
+    return dict(vertices=points, triangles=faces, triangle_uvs=face_uvs,
+                triangle_materials=face_materials, shaders=model.get("shaders",[]),minimum=minimum, maximum=maximum)
 
 
 def main():
@@ -200,11 +212,32 @@ def main():
             raw_parts = []
             path = Path(record.pop("path"))
             data, names, parents, rest, vertices, count = read_weapon(path, raw_parts)
+            working=ROOT/"out/ce-hands-hceek-tags"
+            xml=OUT/"xml/HCEEK"/(hashlib.sha256(data).hexdigest()+".xml")
+            xml.parent.mkdir(parents=True,exist_ok=True)
+            if not xml.exists() or not xml.stat().st_size:
+                subprocess.run([str(KITS/"HCEEK/tool.exe"),"export-tag-to-xml",
+                    str(path.relative_to(working/"tags")),str(xml)],cwd=working,check=True,
+                    capture_output=True,creationflags=subprocess.CREATE_NO_WINDOW)
+            tree=read(xml)
+            authored_parts=[p for b in descendant_blocks(tree,"parts") for p in b]
+            assert len(authored_parts)==len(raw_parts)
+            for raw,authored in zip(raw_parts,authored_parts):
+                authored_vertices=block(authored,"uncompressed vertices")
+                assert len(authored_vertices)==len(raw["vertices"])
+                # Verify order against the existing exact binary geometry.
+                for binary,v in zip(raw["vertices"],authored_vertices):
+                    assert all(abs(a-b)<=.000001 for a,b in zip(binary[0],floats(value(v,"position"))))
+                raw["uvs"]=[floats(value(v,"texture coords")) for v in authored_vertices]
+                raw["materials"]=[dict(start=0,count=len(raw["indices"]),
+                    material=node_index(authored,"shader index",[]))]
             proof = derive(path)
             model = dict(names=names, parents=parents, checksum=int(proof["graph_identity"],16), bounds=None,
                          parts=[dict(vertices=[(p,[n for n,w in ((n0,w0),(n1,w1)) if n>=0 and w>0])
                                                for p,n0,n1,w0,w1 in part["vertices"]],
-                                     indices=part["indices"], strip=True) for part in raw_parts])
+                                     indices=part["indices"],strip=True,uvs=part["uvs"],
+                                     materials=part["materials"]) for part in raw_parts],
+                         shaders=[value(s,"shader") for s in block(tree,"shaders")])
             record.update(sha256=hashlib.sha256(data).hexdigest(), weapons=[path.parent.parent.name])
         else:
             model = xml_model(ROOT / record["xml"], kit)
@@ -232,7 +265,7 @@ def main():
         data = dict(**record, checksum=model["checksum"], nodes=model["names"], bounds=model["bounds"],
                     selected_nodes=wanted, **geometry)
         (target / (name + ".json")).write_text(json.dumps(data, separators=(",", ":")))
-        report.append({k:v for k,v in data.items() if k not in ("vertices", "triangles") } |
+        report.append({k:v for k,v in data.items() if k not in ("vertices", "triangles", "triangle_uvs", "triangle_materials") } |
                       dict(vertices=len(geometry["vertices"]), triangles=len(geometry["triangles"])))
     (OUT / (kit + "-reload-geometry.json")).write_text(json.dumps(report, indent=2)+"\n")
 

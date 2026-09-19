@@ -1,3 +1,169 @@
+## September 18 final graphical-adjustment instruction
+
+User requires graphical adjustment to be a toggle, then zoom/CE investigation/
+package/report delivery. Implemented default-off ce_anniversary_disable_lens_flares
+under F1 > Picture. Current delivery status is REFINEMENT-RELEASE-NOTES-2026-09-18.md.
+CE separate lens and broader lighting cause remain unfinished. Historical holds
+and stale implementation statuses below are superseded by current delivery notes.
+
+## September 18 newest delivery order: zoom, CE Anniversary lighting, ZIPs
+
+Finish zoom across all titles (circular lens, clarity, consistent refresh), then
+investigate and try fixing the reported CE:A lens-flare/lighting defects. Then
+package matching build/source ZIPs and report completed, unfinished and not-started
+work, including anything still unverified. This supersedes the zoom-only delivery
+order below. No install, game launch, publication or accepted-pointer update.
+
+## September 18 latest delivery override: all-title zoom then ZIPs
+
+Finish the zoom feature across all games, make it circular if possible and improve
+image clarity/refresh consistency. Then package build and matching source ZIPs and
+tell the user exactly what remains unfinished. Earlier all-refinements packaging
+holds are superseded; the remaining scope is preserved for the unfinished list.
+Package only: no install, launch, publication or accepted-pointer update.
+
+## September 18 latest correction: dual aim is Halo 2 and Halo 3 only
+
+The user challenges spending usage on secondary aim for games without normal
+dual wield. Scope is corrected to Halo 2 Classic/Anniversary and Halo 3.
+Do not resume the older ordinary-campaign dual-acquisition expansion for ODST,
+Reach or H4. It is removed from pending work, including secondary presentation
+and independent controller-aim adaptation for those titles. The unshipped ODST
+controller-aim experiment is disabled; no acquisition hooks were added.
+Separate authored-barrel aiming remains supported across all six titles.
+All other requested fixes, packaging hold and package-only delivery remain.
+This correction supersedes every historical statement below retaining that
+expansion, including the September 18 interpretation and September 9 item 3.
+
+## September 18 latest addition: automatic smooth turning in vehicles
+
+User explicitly orders: finish checking visual-hand zero-offset behavior,
+left-handed routing and hidden arm anchors first. Then add a separate persisted
+VR-menu toggle that uses smooth turn while occupying a vehicle, even when normal
+turning is snap. Exiting restores the player's normal turn preference without
+requiring manual toggles. Keep saved snap/smooth preference independent and
+preserve accepted vehicle steering/native turn limits across supported titles.
+This adds to all previous scope; no ZIP until the entire refinement list is done.
+
+## September 18 latest addition: independent visible-hand position sliders
+
+After the current firing-path work, add VR-menu position sliders for the left
+and right visible hand meshes, separate from gun positioning. User asks for
+visual hand placement only: keep weapons, authored muzzle/shot origins, physical
+tracking, reload insertion and gameplay interaction coordinates independent.
+Provide separate left/right controls with neutral defaults and persistence;
+cover supported title render paths using their verified hand-node ownership.
+Preserve handedness and existing anatomical/floating-hand behavior. This adds
+to the entire standing scope; no early ZIP or dropped earlier refinements.
+
+## September 18 latest addition: responsive roomscale without body drift
+
+User reports that with roomscale enabled, physically walking/moving can leave the
+player body sliding away or farther from the tracked player, requiring recentering.
+After the current firing-path checks, diagnose and correct body-following drift
+and responsiveness across supported titles. Keep the body aligned with physical
+movement through normal walking, turning and tracking updates; preserve native
+collision, controller locomotion and existing recenter behavior. Do not conceal
+the drift with repeated automatic recentering. This is additional standing scope,
+not a replacement for any earlier item. Finish ALL refinements before ZIPs.
+
+## September 18 latest clarification: every normal dual-wield title
+
+User: "keep in mind i want that feature implemented in all halo games that have
+dual wield. im pretty sure its only halo 2 and halo 3, but correct me if wrong".
+Independent trajectories must cover Halo 2 (Original/Anniversary campaign) and
+Halo 3, simultaneous fire and both handedness modes. These are the normal
+player-dual-wield campaign titles. Earlier ordinary-campaign dual acquisition
+work for ODST/Reach/H4 remains separately recorded; this clarification does not
+explicitly cancel it. No partial ZIP or other scope reduction is authorized.
+
+## September 18 latest addition: optional flashlight input disable
+
+After finishing the current vehicle work, add a separate persisted/F1 toggle to
+disable flashlight input, including grip-generated activation that conflicts with
+two-handing weapons. Preserve two-hand grip behavior and the existing flashlight
+input when the option is off. Then continue ALL earlier fixes/refinements.
+Packaging remains held until the full list is handled.
+
+## September 18 latest addition: vehicle controls across all titles
+
+Audit steering/aim sensitivity, smoothness and accuracy across all supported
+titles. Correct evidence-backed defects as needed; leave already-good controls
+alone. Preserve accepted title behavior and native seat/turn limits. This extends
+the active H2/CE vehicle work, does not replace any earlier scope, and does not
+relax the hold on ZIP packaging until ALL requested fixes/refinements are handled.
+
+## September 18 latest user correction: preserve full disable, add shortened reload
+
+Keep the existing full reload/weapon-ready animation-disable toggle unchanged.
+Implement the insertion-to-native-chambering-tail work behind a separate,
+default-off "Shortened reload animation" toggle. Full disable takes precedence
+if both options are enabled. Preserve independent config persistence and test
+all combinations. This adds no permission to drop any earlier scope.
+
+## Latest steering and result: cross-title camera-admission audit
+
+User explicitly requests checking other titles for similar ODST startup failures
+before continuing. ODST's exact-zero observer-offset gate is now corrected and
+regression tested; Release/all 40 CTests pass. H3, Reach, H4, H2 (both renderers),
+and CE (both renderers) were inspected: no matching zero-offset gate found.
+See ODST-OBSERVER-OFFSET-2026-09-18.md for exact logs, native evidence and limits.
+Continue remaining full scope (especially native reload tail, targeting, crashes,
+vehicles, movement, flare, dual trajectories/barrel origins) and final matching
+ZIPs without install. No acceptance-pointer update; no partial delivery.
+
+## Current progress: foliage correction validated; ODST arming investigation
+
+Reach wind replay is implemented and passes Release, all 40 CTest suites and
+Reach consistency gate. See FOLIAGE-STEREO-EVIDENCE-2026-09-18.md. Other official
+kits show analogous potential wind accumulation; their retail bindings are not
+assumed and no foreign offsets are used. Headset appearance remains unverified.
+Latest logs: (20) is Halo 3; (21) is ODST. Both source 1a9766c, Steam,
+SteamVR/OpenXR Meta compatibility 2.17.10, Oculus-family at 120 Hz.
+ODST never installs/arms: its compact verticalOffset=0.17 fails an exact-zero
+readiness guard, while the rest of its logged camera shape is ordinary. Trace
+native consumption before changing the guard. All earlier scope remains due.
+
+## September 18 addition 21: ODST requires right-stick aiming
+
+After completing the current foliage task, compare the supplied ODST and Halo 3
+logs and fix the reported ODST controller-aim regression. Both logs identify
+accepted source 1a9766c and Steam; title/runtime details must be read from the logs.
+Preserved originals: out/test-runs/queued-odst-stick-aim-20260918/HaloMCCVR (20).log
+and HaloMCCVR (21).log. The tester says Halo 3 does not exhibit the problem.
+Keep all earlier scope and finish matching ZIPs; no partial delivery or install.
+
+## Latest steering: broaden foliage audit, then finish and package
+
+User asks to verify similar possible foliage-rendering issues, then continue all
+other fixes/refinements without stopping before the proper matching ZIPs are ready.
+Extend item 20 to related foliage, wind, LOD/decimation and per-eye state, including
+similar paths in other titles where evidence is available. Do not replace or drop
+any earlier scope. No speculative native bindings or runtime-fix claims.
+
+# September 18 additional authorized refinements
+
+Finish the magazine texture task already underway, then implement these additions
+and continue ALL remaining standing items before packaging. User again explicitly
+forbids stopping at a partial candidate.
+
+17. Magazine insertion haptic: verify grab haptic and add a distinct pulse when
+    releasing the magazine successfully into the insertion zone. A drop outside
+    the zone must not claim insertion. Preserve native reload eligibility.
+18. Gun-specific insertion placement: align the required insertion location with
+    each held weapon's actual magazine/reload assembly, using verified authored
+    geometry/transforms. Respect handedness and weapon alignment settings.
+19. Optional per-gun alignment: changes to gun offsets can be saved for the
+    specifically equipped weapon, with a per-gun alignment toggle and preserved
+    global settings when disabled. Persist stable title/weapon identity and keep
+    unfamiliar/ambiguous identities safe. Cover all existing alignment controls.
+20. Reach grass stereo report: grass reportedly renders differently in each eye.
+    Investigate after current texture work and magazine/alignment additions.
+    User explicitly allows an inconclusive diagnosis for this item. Check native
+    per-eye camera/culling/LOD and shared draw state using HREK-first evidence;
+    do not apply a speculative change or claim reproduction without evidence.
+
+
 # September 18 audit candidate status: full refinement scope remains open
 
 The build/source package prepared from this work is unaccepted and INCOMPLETE

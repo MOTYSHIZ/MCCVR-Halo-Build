@@ -14,6 +14,7 @@ CoreState g_coreState = CoreState::Installed;
 std::atomic<bool> g_armed{}, g_teardown{}, g_installed{}, g_referenceValid{},
     g_recenterRequested{}, g_levelLive{}, g_remasteredLive{};
 std::atomic<uint32_t> g_activeCallbacks{}, g_generation{}, g_vrFailureGeneration{};
+std::atomic<uint32_t> g_zoomFaultGeneration{},g_zoomFaults{};
 std::atomic<uintptr_t> g_originalScene{}, g_originalRebuild{}, g_originalHostUi{},
     g_fpPatchRecord{}, g_rebuildMatrices{}, g_cameraCommit{}, g_cameraRefreshRect{},
     g_moduleBase{}, g_observerResult{};

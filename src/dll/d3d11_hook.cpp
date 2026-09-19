@@ -220,7 +220,7 @@ static Halo2HudDrawMutation BeginHalo2HudDraw(
     // old procedural VR marker transparent. Until this first real draw occurs,
     // the procedural controller marker remains visible as the fail-open
     // fallback.
-    if(g_config.hide_hud&&Game_IsHeadTracking()&&Game_MoveStickIsLocomotion()&&
+    if((Game_IsScopeRendering()||(g_config.hide_hud&&Game_IsHeadTracking()&&Game_MoveStickIsLocomotion()))&&
         (role==halo2_hud_shader::Role::Crosshair||role==halo2_hud_shader::Role::GameplayHud))
     { mutation.kind=Halo2HudDrawMutation::Kind::Hidden;return mutation; }
     if (role == halo2_hud_shader::Role::Crosshair)
@@ -334,6 +334,25 @@ static void STDMETHODCALLTYPE Halo2DrawCensusHook(
     EndHalo2HudDraw(context, mutation);
 }
 #endif
+
+static bool ShouldHideExtraHudDraw(ID3D11DeviceContext* context)
+{
+    if(hud_visibility::Hidden()) return true;
+#if HALOMCCVR_HALO2_STEREO6DOF
+    if(context&&g_halo2ShaderHooksAvailable.load(std::memory_order_acquire)&&
+        TitleAdapter_GetActiveTitle()==GameTitle::Halo2&&
+        (Game_IsScopeRendering()||(g_config.hide_hud&&Game_IsHeadTracking()&&Game_MoveStickIsLocomotion())))
+    {
+        ID3D11PixelShader* shader=nullptr;UINT count=0;
+        context->PSGetShader(&shader,nullptr,&count);
+        const auto role=LookupHalo2PixelShader(shader);
+        if(shader)shader->Release();
+        return role==halo2_hud_shader::Role::Crosshair||role==halo2_hud_shader::Role::GameplayHud;
+    }
+#endif
+    return false;
+}
+#include "hud_extra_draws.inl"
 
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
 typedef void(STDMETHODCALLTYPE* PixelShaderSetFn)(
@@ -1945,6 +1964,8 @@ bool InstallD3D11Hooks()
             static_cast<int>(halo4Draw));
     }
 #endif
+
+    InstallExtraHudDrawHooks(contextVtbl);
 
     IDXGISwapChain1* sc1 = nullptr;
     if (SUCCEEDED(sc->QueryInterface(__uuidof(IDXGISwapChain1), (void**)&sc1)))

@@ -14,6 +14,7 @@
 #include <intrin.h>
 
 #include "../common/config.h"
+#include "../common/scope_logic.h"
 #include "../common/halo2_hud_logic.h"
 #include "../common/halo2_render_logic.h"
 #include "../common/log.h"
@@ -622,6 +623,7 @@ namespace
     uint32_t g_remasteredNoticeGeneration = 0;
 
     thread_local StereoScope* g_stereoScope = nullptr;
+    std::atomic<uint32_t> g_zoomFaultGeneration{0},g_zoomFaults{0};
     thread_local uint32_t g_suppressedOuterDepth = 0;
     thread_local uint32_t g_innerDepth = 0;
     // E-H2-34: the eye camera the last render_view on this thread popped -
@@ -936,7 +938,7 @@ namespace
                 head.referencePosition, publication.referencePosition,
                 sizeof(head.referencePosition));
             return Halo2BuildTrackedCenterCamera(
-                publication.stock, head, center);
+                Halo2ControllerReference(publication), head, center);
         case Halo2PoseOwnerDecision::SelfTrack:
             g_telemetry.poseSelfTracked.fetch_add(1, std::memory_order_relaxed);
             std::memcpy(
@@ -2257,6 +2259,8 @@ namespace
                 g_telemetry.renderedEyes.fetch_add(
                     1, std::memory_order_relaxed);
             }
+#include "halo2_classic_scope_pass.inl"
+
         }
         __finally
         {
@@ -4095,6 +4099,10 @@ bool Halo2Stereo_Poll(
     bool activeAndRange, bool levelRunning, bool coldPassed,
     bool classicRenderTreeRuns) noexcept
 {
+    static uint32_t reportedScopeFaults=0;
+    const auto scopeFaults=g_zoomFaults.load();
+    if(scopeFaults!=reportedScopeFaults)
+    { reportedScopeFaults=scopeFaults;LOG("Halo 2 Classic zoom stock fallback: optional scope faults=%u generation=%u; stereo core retained",scopeFaults,g_zoomFaultGeneration.load()); }
     const uint32_t ownedGeneration =
         g_generation.load(std::memory_order_acquire);
     uint32_t vrFailureGeneration =
@@ -4263,6 +4271,9 @@ bool Halo2Stereo_Armed() noexcept
     return g_armed.load(std::memory_order_acquire);
 }
 
+bool Halo2Stereo_ScopeAvailable() noexcept
+{ return Halo2Stereo_Armed()&&g_generation.load()!=0&&g_zoomFaultGeneration.load()!=g_generation.load(); }
+
 uint32_t Halo2Stereo_Generation() noexcept
 {
     return g_generation.load(std::memory_order_acquire);
@@ -4325,6 +4336,7 @@ bool Halo2Stereo_Poll(
 
 bool Halo2Stereo_Installed() noexcept { return false; }
 bool Halo2Stereo_Armed() noexcept { return false; }
+bool Halo2Stereo_ScopeAvailable() noexcept { return false; }
 uint32_t Halo2Stereo_Generation() noexcept { return 0; }
 void Halo2Stereo_ShutdownForVrFailure() noexcept {}
 void Halo2Stereo_RequestRecovery(uint32_t) noexcept {}

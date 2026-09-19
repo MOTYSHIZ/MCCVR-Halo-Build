@@ -8,8 +8,12 @@
 #include <string>
 #include <algorithm>
 #include <atomic>
+#include <mutex>
+#include <vector>
+#include <charconv>
 #include "config.h"
 #include "weapon_interaction_logic.h"
+#include "flashlight_input.h"
 #include "log.h"
 
 Config g_config;
@@ -362,6 +366,13 @@ static void Clamp()
     g_config.reticle_b = std::clamp(g_config.reticle_b, 0.0f, 1.0f);
     g_config.gun_scale = std::clamp(g_config.gun_scale, 0.3f, 3.0f);
     g_config.left_hand_scale = std::clamp(g_config.left_hand_scale, 0.3f, 3.0f);
+    g_config.left_hand_mesh_x_m = std::isfinite(g_config.left_hand_mesh_x_m) ? std::clamp(g_config.left_hand_mesh_x_m, -.20f, .20f) : 0.0f;
+    g_config.left_hand_mesh_y_m = std::isfinite(g_config.left_hand_mesh_y_m) ? std::clamp(g_config.left_hand_mesh_y_m, -.20f, .20f) : 0.0f;
+    g_config.left_hand_mesh_z_m = std::isfinite(g_config.left_hand_mesh_z_m) ? std::clamp(g_config.left_hand_mesh_z_m, -.20f, .20f) : 0.0f;
+    g_config.right_hand_mesh_x_m = std::isfinite(g_config.right_hand_mesh_x_m) ? std::clamp(g_config.right_hand_mesh_x_m, -.20f, .20f) : 0.0f;
+    g_config.right_hand_mesh_y_m = std::isfinite(g_config.right_hand_mesh_y_m) ? std::clamp(g_config.right_hand_mesh_y_m, -.20f, .20f) : 0.0f;
+    g_config.right_hand_mesh_z_m = std::isfinite(g_config.right_hand_mesh_z_m) ? std::clamp(g_config.right_hand_mesh_z_m, -.20f, .20f) : 0.0f;
+
     g_config.game_brightness = std::clamp(g_config.game_brightness, 0.5f, 2.0f);
     // Free-form: a hand-typed 0.90 stays 0.90. (Until 2026-07-20 this snapped
     // to the six installer tiers, so any custom value was silently rounded.)
@@ -428,6 +439,13 @@ struct TunableField
 };
 
 const TunableField kTunableFields[] = {
+    {"left_hand_mesh_x_m", &TitleTunables::left_hand_mesh_x_m, &Config::left_hand_mesh_x_m, -.20f, .20f},
+    {"left_hand_mesh_y_m", &TitleTunables::left_hand_mesh_y_m, &Config::left_hand_mesh_y_m, -.20f, .20f},
+    {"left_hand_mesh_z_m", &TitleTunables::left_hand_mesh_z_m, &Config::left_hand_mesh_z_m, -.20f, .20f},
+    {"right_hand_mesh_x_m", &TitleTunables::right_hand_mesh_x_m, &Config::right_hand_mesh_x_m, -.20f, .20f},
+    {"right_hand_mesh_y_m", &TitleTunables::right_hand_mesh_y_m, &Config::right_hand_mesh_y_m, -.20f, .20f},
+    {"right_hand_mesh_z_m", &TitleTunables::right_hand_mesh_z_m, &Config::right_hand_mesh_z_m, -.20f, .20f},
+
     {"gun_scale", &TitleTunables::gun_scale, &Config::gun_scale, 0.30f, 3.00f},
     {"left_hand_scale", &TitleTunables::left_hand_scale,
      &Config::left_hand_scale, 0.30f, 3.00f},
@@ -470,6 +488,7 @@ const char* const kTitleProfileTitles[kTitleProfileCount] = {
 
 bool g_profileFieldSet[kTitleProfileCount][kTunableFieldCount]{};
 std::atomic<int> g_activeTitleProfile{-1};
+#include "weapon_alignment_config.inl"
 
 void ResetTitleProfileTracking()
 {
@@ -547,8 +566,14 @@ int Config_ActiveTitleProfile()
 
 void Config_ApplyTitleProfile(int profile)
 {
+    const std::lock_guard lock(g_profileMutex);
     if (profile < -1 || profile >= kTitleProfileCount)
         profile = -1;
+    if(g_activeTitleProfile.load(std::memory_order_acquire)!=profile)
+    {
+        RestoreWeaponFallback();
+        g_observedWeaponIdentity=0;
+    }
     const int previous =
         g_activeTitleProfile.exchange(profile, std::memory_order_acq_rel);
     if (previous == profile)
@@ -565,6 +590,8 @@ void Config_ApplyTitleProfile(int profile)
 
 void Config_StoreLiveTunables()
 {
+    const std::lock_guard lock(g_profileMutex);
+    StoreWeaponAlignment();
     const int active = g_activeTitleProfile.load(std::memory_order_acquire);
     TitleTunables& destination =
         active >= 0 && active < kTitleProfileCount
@@ -573,13 +600,56 @@ void Config_StoreLiveTunables()
     for (int field = 0; field < kTunableFieldCount; ++field)
     {
         const TunableField& descriptor = kTunableFields[field];
+        if(g_activeWeaponProfile>=0&&WeaponAlignmentFieldIndex(descriptor.live)>=0) continue;
         destination.*descriptor.member = std::clamp(
             g_config.*descriptor.live, descriptor.minimum, descriptor.maximum);
     }
 }
 
+const char* Config_ActiveWeaponProfileName()
+{ return g_activeWeaponName.load(std::memory_order_acquire); }
+
+void Config_RefreshWeaponProfile()
+{
+    const std::lock_guard lock(g_profileMutex);
+    Config_ApplyWeaponProfile(g_observedWeaponIdentity);
+}
+
+void Config_ApplyWeaponProfile(uint64_t identity)
+{
+    const std::lock_guard lock(g_profileMutex);
+    g_observedWeaponIdentity=identity;
+    const int title=Config_ActiveTitleProfile();
+    const auto* model=g_config.per_gun_alignment?AlignmentModel(title,identity):nullptr;
+    if(g_activeWeaponProfile>=0)
+    {
+        const auto& active=g_weaponProfiles[g_activeWeaponProfile];
+        if(model&&active.title==title&&active.identity==identity) return;
+    }
+    RestoreWeaponFallback();
+    if(!model) return;
+    // Preserve pending edits to the title fallback before the first gun overlay.
+    Config_StoreLiveTunables();
+    for(size_t i=0;i<kWeaponAlignmentFieldCount;++i)
+        g_weaponFallback[i]=g_config.*kWeaponAlignmentFields[i].live;
+    auto found=std::find_if(g_weaponProfiles.begin(),g_weaponProfiles.end(),
+        [&](const auto& p){return p.title==title&&p.identity==identity;});
+    if(found==g_weaponProfiles.end())
+    {
+        g_weaponProfiles.push_back({title,identity});
+        found=std::prev(g_weaponProfiles.end());
+    }
+    g_activeWeaponProfile=static_cast<int>(found-g_weaponProfiles.begin());
+    for(size_t i=0;i<kWeaponAlignmentFieldCount;++i)
+        if(found->set[i]) g_config.*kWeaponAlignmentFields[i].live=found->values[i];
+    g_activeWeaponName.store(model->name,std::memory_order_release);
+}
+
 void ConfigLoad(const wchar_t* path)
 {
+    const std::lock_guard lock(g_profileMutex);
+    g_weaponProfiles.clear();g_activeWeaponProfile=-1;g_observedWeaponIdentity=0;
+    g_activeWeaponName.store(nullptr,std::memory_order_release);
     ResetTitleProfileTracking();
     g_config = Config{};
     g_path = path;
@@ -614,29 +684,37 @@ void ConfigLoad(const wchar_t* path)
         const char* key = trim(line);
         const char* val = trim(eq + 1);
         // C-TITLE-1: per-title profile keys, handled by table.
-        if (ParseTitleProfileKey(key, val))
+        if (ParseWeaponAlignmentKey(key,val)||ParseTitleProfileKey(key, val))
             continue;
         // Keep new keys outside the already-at-limit legacy else-if chain.
         bool weaponButtonKey = false;
         for (unsigned i=0;i<weapon_interaction::kTitleCount;++i)
         {
-            char reloadKey[64]{},switchKey[64]{};
+            char reloadKey[64]{},switchKey[64]{},flashlightKey[64]{};
             sprintf_s(reloadKey,"weapon_reload_button_%s",weapon_interaction::kTitleKeys[i]);
             sprintf_s(switchKey,"weapon_switch_button_%s",weapon_interaction::kTitleKeys[i]);
+            sprintf_s(flashlightKey,"flashlight_button_%s",weapon_interaction::kTitleKeys[i]);
+            const bool flashlightKeyMatch=!strcmp(key,flashlightKey);
             int* setting=!strcmp(key,reloadKey)?&g_config.weapon_reload_button[i]:
-                !strcmp(key,switchKey)?&g_config.weapon_switch_button[i]:nullptr;
+                !strcmp(key,switchKey)?&g_config.weapon_switch_button[i]:
+                flashlightKeyMatch?&g_config.flashlight_button[i]:nullptr;
             if (!setting) continue;
             char* end=nullptr;
             const long value=strtol(val,&end,10);
-            if (end!=val&&end&&*end==0&&value>=0&&value<8) *setting=static_cast<int>(value);
-            else LOG("config: invalid weapon gesture button '%s' ignored",key);
+            if (end!=val&&end&&*end==0&&value>=0&&value<(flashlightKeyMatch?flashlight_input::kCount:8)) *setting=static_cast<int>(value);
+            else LOG("config: invalid mapped controller button '%s' ignored",key);
             weaponButtonKey=true;
             break;
         }
         if (weaponButtonKey) continue;
+        if (!strcmp(key,"vehicle_smooth_turn")) {g_config.vehicle_smooth_turn=atoi(val)!=0;continue;}
+        if (!strcmp(key,"ce_anniversary_disable_lens_flares")) {g_config.ce_anniversary_disable_lens_flares=atoi(val)!=0;continue;}
+        if (!strcmp(key,"disable_flashlight_input")) {g_config.disable_flashlight_input=atoi(val)!=0;continue;}
+        if (!strcmp(key,"per_gun_alignment")) { g_config.per_gun_alignment=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload")) { g_config.manual_reload=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_disable_auto")) { g_config.manual_reload_disable_auto=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_skip_animations")) { g_config.manual_reload_skip_animations=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_shortened_animation")) { g_config.manual_reload_shortened_animation=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
@@ -691,6 +769,8 @@ void ConfigLoad(const wchar_t* path)
             continue;
         }
         if (!strcmp(key, "hide_hud")) { g_config.hide_hud=atoi(val)!=0; continue; }
+        if (!strcmp(key, "independent_dual_aim")) { g_config.independent_dual_aim=atoi(val)!=0; continue; }
+        if (!strcmp(key, "gun_barrel_aim")) { g_config.gun_barrel_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -716,6 +796,13 @@ void ConfigLoad(const wchar_t* path)
         {
             struct FloatKey { const char* name; float* destination; };
             const FloatKey kFloatKeys[] = {
+                {"left_hand_mesh_x_m", &g_config.left_hand_mesh_x_m},
+                {"left_hand_mesh_y_m", &g_config.left_hand_mesh_y_m},
+                {"left_hand_mesh_z_m", &g_config.left_hand_mesh_z_m},
+                {"right_hand_mesh_x_m", &g_config.right_hand_mesh_x_m},
+                {"right_hand_mesh_y_m", &g_config.right_hand_mesh_y_m},
+                {"right_hand_mesh_z_m", &g_config.right_hand_mesh_z_m},
+
                 // Stage 3N / V5 compatibility. The current source writes the
                 // expanded `halo2_...` names below, but existing V5 configs
                 // used these two shorter keys for the same Classic-only
@@ -1148,8 +1235,10 @@ void ConfigLoadMigrating(const wchar_t* primaryPath, const wchar_t* legacyPath)
 
 void ConfigSave()
 {
+    const std::lock_guard lock(g_profileMutex);
     if (g_path.empty())
         return;
+    Config_ApplyWeaponProfile(g_observedWeaponIdentity);
     Clamp();
     // C-TITLE-1: whatever the player just tuned belongs to the active
     // title's profile (or the shared defaults when no game is active).
@@ -1291,6 +1380,9 @@ void ConfigSave()
     fprintf(f, "# VR turning with the right controller stick: 0 = snap, 1 = smooth.\n");
     fprintf(f, "# (default %d)\n", d.turn_smooth ? 1 : 0);
     fprintf(f, "turn_smooth = %d\n\n", g_config.turn_smooth ? 1 : 0);
+    fprintf(f, "# Temporarily use smooth VR turning in vehicles; keep the saved on-foot mode.\n");
+    fprintf(f, "# Default off. Native vehicle steering retains its own controls and limits.\n");
+    fprintf(f, "vehicle_smooth_turn = %d\n\n", g_config.vehicle_smooth_turn ? 1 : 0);
     fprintf(f, "# Physical horizontal movement drives native walking while on foot.\n");
     fprintf(f, "# Default off. Controller aiming is preserved; walking stays head-relative.\n");
     fprintf(f, "roomscale_movement = %d\n\n", g_config.roomscale_movement ? 1 : 0);
@@ -1327,6 +1419,12 @@ void ConfigSave()
     fprintf(f, "# and physical right stick, including in left-handed mode.\n");
     fprintf(f, "# (default %d)\n", d.quest_thumbrest_dpad ? 1 : 0);
     fprintf(f, "quest_thumbrest_dpad = %d\n\n", g_config.quest_thumbrest_dpad ? 1 : 0);
+    fprintf(f,"# Block the configured flashlight gamepad button during gameplay; XR grip/two-hand aim and menus stay available.\n");
+    fprintf(f,"disable_flashlight_input = %d\n",g_config.disable_flashlight_input?1:0);
+    fprintf(f,"# Match MCC's layout per title: 0=RB,1=LB,2=DUp,3=DDown,4=DLeft,5=DRight,6=X,7=Y,8=A,9=B,10=L3,11=R3,12=Back,13=LT,14=RT.\n");
+    for(unsigned i=0;i<weapon_interaction::kTitleCount;++i)
+        fprintf(f,"flashlight_button_%s = %d\n",weapon_interaction::kTitleKeys[i],g_config.flashlight_button[i]);
+    fprintf(f,"\n");
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  RETICLE & AIMING\n");
     fprintf(f, "#  Portable aiming preferences; title adapters supply engine offsets.\n");
@@ -1351,6 +1449,9 @@ void ConfigSave()
             d.halo4_helmet ? 1 : 0);
     fprintf(f, "halo4_helmet = %d\n\n", g_config.halo4_helmet ? 1 : 0);
     fprintf(f, "# Hide gameplay HUD and VR reticle; menus remain available.\nhide_hud = %d\n\n", g_config.hide_hud ? 1 : 0);
+    fprintf(f, "# Optional CE Anniversary lens-flare suppression. Does not alter world lighting.\nce_anniversary_disable_lens_flares = %d\n\n", g_config.ce_anniversary_disable_lens_flares ? 1 : 0);
+    fprintf(f, "# Each owned dual-wielded gun follows its own controller.\nindependent_dual_aim = %d\n\n", g_config.independent_dual_aim ? 1 : 0);
+    fprintf(f, "# Use verified visible weapon muzzle origin and orientation.\ngun_barrel_aim = %d\n\n", g_config.gun_barrel_aim ? 1 : 0);
     fprintf(f, "# Floating VR-crosshair smoothing only; bullets stay raw.\n");
     fprintf(f, "# (default %.2f, range 0 to 0.95)\n", d.aim_stabilization);
     fprintf(f, "aim_stabilization = %.2f\n\n", g_config.aim_stabilization);
@@ -1395,6 +1496,14 @@ void ConfigSave()
     fprintf(f, "# Set it to the same number as gun_scale for matching hands.\n");
     fprintf(f, "# (default %.2f, range 0.3 to 3)\n", d.left_hand_scale);
     fprintf(f, "left_hand_scale = %.2f\n\n", g_config.base_tunables.left_hand_scale);
+    fprintf(f, "# Visible-hand mesh offsets only (metres, -0.20 to 0.20; zero preserves placement).\n");
+    fprintf(f, "left_hand_mesh_x_m = %.3f\n", g_config.base_tunables.left_hand_mesh_x_m);
+    fprintf(f, "left_hand_mesh_y_m = %.3f\n", g_config.base_tunables.left_hand_mesh_y_m);
+    fprintf(f, "left_hand_mesh_z_m = %.3f\n", g_config.base_tunables.left_hand_mesh_z_m);
+    fprintf(f, "right_hand_mesh_x_m = %.3f\n", g_config.base_tunables.right_hand_mesh_x_m);
+    fprintf(f, "right_hand_mesh_y_m = %.3f\n", g_config.base_tunables.right_hand_mesh_y_m);
+    fprintf(f, "right_hand_mesh_z_m = %.3f\n", g_config.base_tunables.right_hand_mesh_z_m);
+
     fprintf(f, "# Controller aim calibration in degrees: rotates the aiming ray,\n");
     fprintf(f, "# crosshair and gun together. Use barrel_* for visual-only alignment.\n");
     fprintf(f, "# (defaults %.0f / %.0f / %.0f, range -180 to 180)\n",
@@ -1422,23 +1531,23 @@ void ConfigSave()
     fprintf(f, "# native reticle/shot ray never read any of these values.\n");
     fprintf(f, "# (pitch/yaw slider range -30 to +30 degrees; defaults 0)\n");
     fprintf(f, "halo2_classic_gun_pitch_deg = %.2f\n",
-            g_config.halo2_classic_gun_pitch_deg);
+            SharedAlignmentValue(&Config::halo2_classic_gun_pitch_deg));
     fprintf(f, "halo2_classic_gun_yaw_deg = %.2f\n",
-            g_config.halo2_classic_gun_yaw_deg);
+            SharedAlignmentValue(&Config::halo2_classic_gun_yaw_deg));
     fprintf(f, "halo2_classic_gun_roll_deg = %.2f\n",
-            g_config.halo2_classic_gun_roll_deg);
+            SharedAlignmentValue(&Config::halo2_classic_gun_roll_deg));
     fprintf(f, "halo2_classic_gun_forward_m = %.3f\n",
-            g_config.halo2_classic_gun_forward_m);
+            SharedAlignmentValue(&Config::halo2_classic_gun_forward_m));
     fprintf(f, "halo2_classic_gun_right_m = %.3f\n",
-            g_config.halo2_classic_gun_right_m);
+            SharedAlignmentValue(&Config::halo2_classic_gun_right_m));
     fprintf(f, "halo2_classic_gun_up_m = %.3f\n\n",
-            g_config.halo2_classic_gun_up_m);
+            SharedAlignmentValue(&Config::halo2_classic_gun_up_m));
     fprintf(f, "# Raise the muzzle flash / bullet spawn point along the gun's\n");
     fprintf(f, "# own up axis, in meters. Reach only. Does NOT change where\n");
     fprintf(f, "# rounds land - only where they appear to come from.\n");
     fprintf(f, "# (default %.2f, range -0.3 to 0.3; ~0.11 is about 4 inches)\n",
             d.muzzle_height_m);
-    fprintf(f, "muzzle_height_m = %.2f\n\n", g_config.muzzle_height_m);
+    fprintf(f, "muzzle_height_m = %.2f\n\n", SharedAlignmentValue(&Config::muzzle_height_m));
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  FIRST-PERSON VEHICLES\n");
     fprintf(f, "#  Sit in the seat instead of floating behind the vehicle.\n");
@@ -1789,6 +1898,8 @@ void ConfigSave()
     fprintf(f, "manual_reload = %d\nweapon_holsters = %d\n",g_config.manual_reload?1:0,g_config.weapon_holsters?1:0);
     fprintf(f, "manual_reload_disable_auto = %d\nmanual_reload_skip_animations = %d\n",
         g_config.manual_reload_disable_auto?1:0,g_config.manual_reload_skip_animations?1:0);
+    fprintf(f, "# Shortened reload retains the native chambering tail; full animation skip takes precedence.\n");
+    fprintf(f, "manual_reload_shortened_animation = %d\n",g_config.manual_reload_shortened_animation?1:0);
     fprintf(f, "weapon_pouch_down_m = %.3f\nweapon_body_zone_radius_m = %.3f\n",
         g_config.weapon_pouch_down_m,g_config.weapon_body_zone_radius_m);
     fprintf(f, "# Holster location: 0 = weapon-side shoulder, 1 = weapon-side hip.\n");
@@ -1923,6 +2034,18 @@ void ConfigSave()
                         kTunableFields[field].member));
         }
         fprintf(f, "\n");
+    }
+    fprintf(f,"# Optional per-gun alignment; unknown models retain title settings.\n");
+    fprintf(f,"per_gun_alignment = %d\n",g_config.per_gun_alignment?1:0);
+    for(const auto& profile:g_weaponProfiles)
+    {
+        const auto* model=AlignmentModel(profile.title,profile.identity);
+        if(!model) continue;
+        fprintf(f,"# %s: %s\n",Config_TitleProfileName(profile.title),model->name);
+        for(size_t i=0;i<kWeaponAlignmentFieldCount;++i)
+            if(profile.set[i]) fprintf(f,"weapon_alignment_%d_%016llX_%s = %.6f\n",
+                profile.title,static_cast<unsigned long long>(profile.identity),
+                kWeaponAlignmentFields[i].suffix,static_cast<double>(profile.values[i]));
     }
     fclose(f);
 }

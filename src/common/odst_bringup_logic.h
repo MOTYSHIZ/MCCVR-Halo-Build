@@ -24,6 +24,20 @@ constexpr uint64_t kOdstCameraFreshGapToleranceMs = 350;
 constexpr uint64_t kOdstPauseRearmStableMs = 250;
 constexpr float kOdstFirstPersonBlendMin = 0.95f;
 
+// ODST observer normalization consumes the authored vertical offset before
+// compact-camera copy. Its native viewport/projection/matrix builders do not
+// use compact +0x34 as a projection mode. The September 18 report has a valid
+// +0.17 offset; requiring zero prevented the entire VR core from installing.
+inline bool OdstPlainPerspectiveScalars(uint32_t mode, float fov,
+    float referenceFov, float observerOffset, float nearClip, float farClip)
+{
+    return mode == 0 && std::isfinite(fov) && fov > 0.0001f && fov < 3.1415f &&
+        std::isfinite(referenceFov) && referenceFov > 0.0001f &&
+        referenceFov < 3.1415f && std::isfinite(observerOffset) &&
+        std::isfinite(nearClip) && std::isfinite(farClip) &&
+        nearClip > 0.0f && farClip > nearClip;
+}
+
 struct OdstFpSkeletonLayout
 {
     int rightShoulder = 2;

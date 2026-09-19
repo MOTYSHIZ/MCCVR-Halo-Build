@@ -270,6 +270,29 @@ int main()
         "actual native sprite entry owns and releases its counter on exception");
     flareThrows=false;const auto recovery=flareDraws;Flare(10);
     Check(flareDraws==recovery+1,"visible light flares recover after native exceptions");
+    testTracking.disableAnniversaryLensFlares=true;
+    const auto suppressedStart=ce_flare::userSuppressed.load();
+    const auto enabledDraws=flareDraws;
+    for(flareIndex=0;flareIndex<2;++flareIndex)Flare(10);
+    Check(flareDraws==enabledDraws&&ce_flare::userSuppressed.load()==suppressedStart+2&&
+        !ce_flare::callbacks.load()&&!ce_flare::scope,
+        "optional setting suppresses both verified flare records and retires callbacks");
+    flareIndex=0;
+    for(unsigned reason=0;reason<8;++reason)
+    {
+        switch(reason){case 0:admitted=false;break;case 1:testTitle=GameTitle::Halo3;break;
+        case 2:ce_flare::retiring=true;break;case 3:ce_flare::installed=false;break;
+        case 4:testGeneration=6;break;case 5:testTracking.generation=6;break;
+        case 6:flareForeignRecord=true;break;case 7:flareNested=true;break;}
+        const auto before=flareDraws;Flare(10);
+        Check(flareDraws==before+1&&!ce_flare::callbacks.load()&&!ce_flare::scope,
+            "toggle never suppresses foreign, stale, unowned, nested or retired effects");
+        admitted=true;testTitle=GameTitle::HaloCE;ce_flare::retiring=false;ce_flare::installed=true;
+        testTracking.generation=testGeneration=5;flareForeignRecord=flareNested=false;
+    }
+    testTracking.disableAnniversaryLensFlares=false;
+    const auto disabledDraws=flareDraws;Flare(10);
+    Check(flareDraws==disabledDraws+1,"switching toggle off restores visible native flares immediately");
     ce_flare::callbacks=1;
     Check(!ce_flare::Remove()&&ce_flare::retiring.load()&&!ce_flare::active.load()&&
         !ce_flare::installed.load()&&ce_flare::projection.original&&ce_flare::draw.original,

@@ -10,6 +10,7 @@ uintptr_t base{};
 std::atomic<uint32_t> generation{},callbacks{};
 std::atomic<bool> installed{},active{},retiring{};
 std::atomic<uint64_t> clipped{},offscreen{},passed{},unproven{},exceptions{};
+std::atomic<uint64_t> userSuppressed{};
 uint32_t rejectedGeneration{};
 uint64_t lastReport{};
 bool cleanupReported{};
@@ -72,6 +73,11 @@ void DrawBody(uintptr_t effect,const float* point,uintptr_t record,uintptr_t cal
             HaloCE_GetAnniversaryEyeTracking(owned->camera,tracking)&&
             tracking.generation==owned->generation&&Current())
         {
+            // The setting is frozen with the owned stereo pair, so both eyes
+            // see the same choice even if F1 changes it during preparation.
+            // This is the proven native flare draw only, not world shading.
+            if(tracking.disableAnniversaryLensFlares)
+            { userSuppressed.fetch_add(1,std::memory_order_relaxed);return; }
             halo_ce::SaberCamera camera{};halo_ce::Vec3 light{};float screen[2]{};
             if (Read(reinterpret_cast<uintptr_t>(owned->camera),camera)&&
                 Read(record,light)&&Read(reinterpret_cast<uintptr_t>(point),screen))
@@ -180,8 +186,8 @@ void Poll(uintptr_t module,size_t size,uint32_t gen,bool isActive) noexcept
     if (now-lastReport>=2000)
     {
         lastReport=now;
-        LOG("CE flare guard gen=%u installed=%d clipped=%llu offscreen=%llu visible=%llu unproven=%llu exceptions=%llu",
-            gen,installed.load(),clipped.load(),offscreen.load(),passed.load(),unproven.load(),exceptions.load());
+        LOG("CE flare guard gen=%u installed=%d clipped=%llu offscreen=%llu visible=%llu unproven=%llu exceptions=%llu userSuppressed=%llu",
+            gen,installed.load(),clipped.load(),offscreen.load(),passed.load(),unproven.load(),exceptions.load(),userSuppressed.load());
     }
 }
 }

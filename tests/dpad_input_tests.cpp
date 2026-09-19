@@ -1,5 +1,6 @@
 #include "../src/common/input_logic.h"
 #include "../src/common/exclusive_input.h"
+#include "../src/common/flashlight_input.h"
 #include <windows.h>
 #include <Xinput.h>
 #include "../src/common/weapon_hand_logic.h"
@@ -30,6 +31,33 @@ void Sample(VrPadState& pad, bool enabled, bool touched, bool inputReady)
 
 int main()
 {
+    for(uint32_t title=1;title<=6;++title) for(int button=0;button<flashlight_input::kCount;++button) {
+        flashlight_input::Filter filter;
+        const uint32_t selected=flashlight_input::Mask(button);
+        auto full=[] {XINPUT_GAMEPAD p{};p.wButtons=0xffff;p.bLeftTrigger=p.bRightTrigger=255;
+            p.sThumbLX=12345;p.sThumbRY=-7654;return p;};
+        auto pad=full();filter.Apply(pad,false,true,title,button);
+        Check(pad.wButtons==0xffff&&pad.bLeftTrigger==255&&pad.bRightTrigger==255,
+            "flashlight option off preserves existing controls");
+        pad=full();filter.Apply(pad,true,true,title,button);
+        Check(pad.wButtons==uint16_t(0xffff&~selected)&&
+            pad.bLeftTrigger==((selected&(1u<<16))?0:255)&&
+            pad.bRightTrigger==((selected&(1u<<17))?0:255)&&
+            pad.sThumbLX==12345&&pad.sThumbRY==-7654,
+            "flashlight filter removes only configured final merged control for each title");
+        pad=full();filter.Apply(pad,false,true,title,button);
+        Check(pad.wButtons==uint16_t(0xffff&~selected)&&
+            pad.bLeftTrigger==((selected&(1u<<16))?0:255)&&pad.bRightTrigger==((selected&(1u<<17))?0:255),
+            "disabling flashlight filter cannot expose an already consumed hold");
+        pad={};filter.Apply(pad,false,true,title,button);
+        pad=full();filter.Apply(pad,false,true,title,button);
+        Check(pad.wButtons==0xffff&&pad.bLeftTrigger==255&&pad.bRightTrigger==255,
+            "released flashlight control works normally after option is disabled");
+        pad=full();filter.Apply(pad,true,false,title,button);
+        Check(pad.wButtons==0xffff&&pad.bLeftTrigger==255&&pad.bRightTrigger==255,
+            "flashlight filter keeps menus and F1 usable");
+    }
+    Check(!flashlight_input::Mask(-1)&&!flashlight_input::Mask(99),"invalid flashlight mapping cannot block arbitrary input");
     const float head[3]{}, diagonalInside[3]{0.2f, 0.2f, 0},
         diagonalOutside[3]{0.18f, 0.18f, 0.18f};
     const float nan = std::numeric_limits<float>::quiet_NaN();

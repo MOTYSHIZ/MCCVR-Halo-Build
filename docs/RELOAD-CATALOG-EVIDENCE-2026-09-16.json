@@ -14,7 +14,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -34,7 +39,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -52,7 +62,12 @@
       "magazine"
     ],
     "triangle_count": 100,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0761202255532,
+      -7.654639998244672e-09,
+      0.013066378545555
+    ]
   },
   {
     "title": "Halo3",
@@ -68,7 +83,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -87,7 +107,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -105,7 +130,12 @@
       "magazine"
     ],
     "triangle_count": 36,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0526932619555,
+      0.011181865681,
+      0.023039081391
+    ]
   },
   {
     "title": "Halo3",
@@ -132,7 +162,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -152,7 +187,12 @@
       "magazine"
     ],
     "triangle_count": 252,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.011559535221999998,
+      0.00020542670750000117,
+      -0.036428082234350005
+    ]
   },
   {
     "title": "Halo3",
@@ -165,7 +205,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -186,7 +231,12 @@
       "magazine"
     ],
     "triangle_count": 88,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.003955779537249999,
+      -4.336808689942018e-19,
+      -0.0204242032493
+    ]
   },
   {
     "title": "Halo3",
@@ -205,7 +255,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -222,7 +277,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -240,7 +300,12 @@
       "magazine"
     ],
     "triangle_count": 36,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.052692928263299986,
+      0.0111818556058,
+      0.023039080488000005
+    ]
   },
   {
     "title": "Halo3",
@@ -255,7 +320,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -274,7 +344,12 @@
       "magazine"
     ],
     "triangle_count": 72,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.053155346137230004,
+      1.90718000018058e-08,
+      0.014460661905599996
+    ]
   },
   {
     "title": "Halo3",
@@ -293,7 +368,12 @@
       "magazine"
     ],
     "triangle_count": 56,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0024806012132,
+      -4.336808689942018e-19,
+      -0.009494406480499998
+    ]
   },
   {
     "title": "Halo3",
@@ -306,7 +386,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -329,7 +414,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -347,8 +437,13 @@
     "selected": [
       "battery"
     ],
-    "triangle_count": 266,
-    "needles": false
+    "triangle_count": 264,
+    "needles": false,
+    "receiver_anchor": [
+      -0.01909378856799998,
+      6.115714999891852e-08,
+      0.0448029010098
+    ]
   },
   {
     "title": "Halo3",
@@ -366,7 +461,12 @@
       "drum"
     ],
     "triangle_count": 448,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.040727385970050003,
+      1.94e-09,
+      -0.006183746940949995
+    ]
   },
   {
     "title": "Halo3",
@@ -383,7 +483,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -397,7 +502,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -410,7 +520,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -431,7 +546,12 @@
       "ammo_drum"
     ],
     "triangle_count": 68,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.00794795254603169,
+      -0.00712329418458984,
+      3.2081480287347326e-09
+    ]
   },
   {
     "title": "Halo3",
@@ -445,7 +565,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3",
@@ -462,7 +587,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -479,7 +609,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -499,7 +634,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -517,7 +657,12 @@
       "magazine"
     ],
     "triangle_count": 100,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0761202255532,
+      -7.654639998244672e-09,
+      0.013066378545555
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -533,7 +678,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -552,7 +702,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -570,7 +725,12 @@
       "magazine"
     ],
     "triangle_count": 36,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0526932619555,
+      0.011181865681,
+      0.023039081391
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -597,7 +757,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -617,7 +782,12 @@
       "magazine"
     ],
     "triangle_count": 252,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.011559535221999998,
+      0.00020542670750000117,
+      -0.036428082234350005
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -630,7 +800,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -651,7 +826,12 @@
       "magazine"
     ],
     "triangle_count": 88,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.003955779537249999,
+      -4.336808689942018e-19,
+      -0.0204242032493
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -670,7 +850,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -687,7 +872,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -705,7 +895,12 @@
       "magazine"
     ],
     "triangle_count": 36,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.052692928263299986,
+      0.0111818556058,
+      0.023039080488000005
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -720,7 +915,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -739,7 +939,12 @@
       "magazine"
     ],
     "triangle_count": 72,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.053155346137230004,
+      1.90718000018058e-08,
+      0.014460661905599996
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -758,7 +963,12 @@
       "magazine"
     ],
     "triangle_count": 56,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0024806012132,
+      -4.336808689942018e-19,
+      -0.009494406480499998
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -771,7 +981,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -794,7 +1009,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -812,8 +1032,13 @@
     "selected": [
       "battery"
     ],
-    "triangle_count": 266,
-    "needles": false
+    "triangle_count": 264,
+    "needles": false,
+    "receiver_anchor": [
+      -0.01909378856799998,
+      6.115714999891852e-08,
+      0.0448029010098
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -831,7 +1056,12 @@
       "drum"
     ],
     "triangle_count": 448,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.040727385970050003,
+      1.94e-09,
+      -0.006183746940949995
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -848,7 +1078,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -862,7 +1097,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -875,7 +1115,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -896,7 +1141,12 @@
       "ammo_drum"
     ],
     "triangle_count": 68,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.00794795254603169,
+      -0.00712329418458984,
+      3.2081480287347326e-09
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -915,7 +1165,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -929,7 +1184,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo3ODST",
@@ -946,7 +1206,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -965,7 +1230,12 @@
       "b_magazine"
     ],
     "triangle_count": 188,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0067264027699999954,
+      7.170649999124756e-09,
+      0.0029527179330000007
+    ]
   },
   {
     "title": "HaloReach",
@@ -988,7 +1258,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1009,7 +1284,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1022,7 +1302,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1035,7 +1320,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1049,7 +1339,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1066,7 +1361,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1093,7 +1393,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1110,7 +1415,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1137,7 +1447,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1155,7 +1470,12 @@
       "b_magazine"
     ],
     "triangle_count": 160,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.07785091535645,
+      1.2522460000061533e-07,
+      0.013631944920910001
+    ]
   },
   {
     "title": "HaloReach",
@@ -1185,7 +1505,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1204,7 +1529,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1221,7 +1551,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1240,7 +1575,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1253,7 +1593,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1267,7 +1612,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1280,7 +1630,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1301,7 +1656,12 @@
       "b_ammo_drum"
     ],
     "triangle_count": 280,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.07510625729675001,
+      8.628514865000221e-05,
+      0.019833454484350005
+    ]
   },
   {
     "title": "HaloReach",
@@ -1320,7 +1680,12 @@
       "b_magazine"
     ],
     "triangle_count": 364,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.056008840822249994,
+      1.448839999970003e-08,
+      0.014967415761049999
+    ]
   },
   {
     "title": "HaloReach",
@@ -1346,7 +1711,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1363,7 +1733,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloReach",
@@ -1383,7 +1758,12 @@
       "b_magazine"
     ],
     "triangle_count": 1428,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.06675726971099998,
+      -0.0037355012560500046,
+      0.011292915445871004
+    ]
   },
   {
     "title": "HaloReach",
@@ -1398,7 +1778,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1417,7 +1802,12 @@
       "b_ammo"
     ],
     "triangle_count": 427,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.04880684727000001,
+      8.673617379884035e-19,
+      0.06915777874875001
+    ]
   },
   {
     "title": "Halo4",
@@ -1442,7 +1832,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1456,7 +1851,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1488,7 +1888,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1509,7 +1914,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1522,7 +1932,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1549,7 +1964,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1567,7 +1987,12 @@
       "b_magazine"
     ],
     "triangle_count": 106,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.05653931019,
+      6.023499999133208e-09,
+      0.019903986794900005
+    ]
   },
   {
     "title": "Halo4",
@@ -1594,7 +2019,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1621,7 +2051,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1652,7 +2087,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1671,7 +2111,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1694,7 +2139,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1714,7 +2164,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1731,7 +2186,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1747,7 +2207,12 @@
       "b_magazine"
     ],
     "triangle_count": 1608,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.059587941537200005,
+      0.0,
+      0.012852490964999993
+    ]
   },
   {
     "title": "Halo4",
@@ -1776,7 +2241,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1792,7 +2262,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1808,7 +2283,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1825,7 +2305,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1840,7 +2325,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1853,7 +2343,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1870,7 +2365,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1885,7 +2385,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1899,7 +2404,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1918,7 +2428,12 @@
       "b_magazine"
     ],
     "triangle_count": 358,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.006819598792499999,
+      0.0,
+      0.00538151226545
+    ]
   },
   {
     "title": "Halo4",
@@ -1931,7 +2446,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1954,7 +2474,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1969,7 +2494,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -1989,7 +2519,12 @@
       "b_magazine"
     ],
     "triangle_count": 54,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.0729501392642,
+      3.467839999361788e-08,
+      0.014249990067049996
+    ]
   },
   {
     "title": "Halo4",
@@ -2003,7 +2538,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -2017,7 +2557,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -2032,7 +2577,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -2045,7 +2595,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -2064,7 +2619,12 @@
       "b_magazine"
     ],
     "triangle_count": 214,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.05204942527872,
+      -5.478550000811988e-09,
+      0.021161287418129997
+    ]
   },
   {
     "title": "Halo4",
@@ -2093,7 +2653,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -2111,7 +2676,12 @@
       "b_magazine"
     ],
     "triangle_count": 205,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.06522499872000001,
+      3.738649998093202e-09,
+      0.022888979042480002
+    ]
   },
   {
     "title": "Halo4",
@@ -2137,7 +2707,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo4",
@@ -2152,7 +2727,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2173,7 +2753,12 @@
       "frame magazine"
     ],
     "triangle_count": 112,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.0034813995007425547,
+      -1.0244548320770264e-08,
+      -0.01601114426739514
+    ]
   },
   {
     "title": "HaloCE",
@@ -2202,7 +2787,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2217,7 +2807,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2234,7 +2829,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2253,7 +2853,12 @@
       "frame magazine"
     ],
     "triangle_count": 102,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.05385514162480831,
+      2.1648476069557887e-06,
+      0.013515908957848488
+    ]
   },
   {
     "title": "HaloCE",
@@ -2270,7 +2875,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2283,7 +2893,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2336,7 +2951,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2352,7 +2972,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2365,7 +2990,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "HaloCE",
@@ -2383,7 +3013,12 @@
       "frame magazine"
     ],
     "triangle_count": 302,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.0076140146702528,
+      4.6566128730773926e-09,
+      -0.028134699910879135
+    ]
   },
   {
     "title": "HaloCE",
@@ -2399,7 +3034,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2416,7 +3056,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2434,7 +3079,12 @@
       "magazine"
     ],
     "triangle_count": 112,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.061499,
+      0.0,
+      0.0263965
+    ]
   },
   {
     "title": "Halo2",
@@ -2450,7 +3100,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2467,7 +3122,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2482,7 +3142,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2500,7 +3165,12 @@
       "magazine"
     ],
     "triangle_count": 116,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.023167000000000007,
+      4.999999999996327e-07,
+      -0.038015
+    ]
   },
   {
     "title": "Halo2",
@@ -2518,7 +3188,12 @@
       "magazine"
     ],
     "triangle_count": 52,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.007569499999999997,
+      0.0101145,
+      0.0237965
+    ]
   },
   {
     "title": "Halo2",
@@ -2547,7 +3222,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": true
+    "needles": true,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2560,7 +3240,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2578,7 +3263,12 @@
       "magazine"
     ],
     "triangle_count": 290,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0.007613999999999996,
+      0.0,
+      -0.0281345
+    ]
   },
   {
     "title": "Halo2",
@@ -2591,7 +3281,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2608,7 +3303,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2626,7 +3326,12 @@
       "magazine"
     ],
     "triangle_count": 56,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.007569499999999997,
+      0.0101145,
+      0.0237965
+    ]
   },
   {
     "title": "Halo2",
@@ -2641,7 +3346,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2661,7 +3371,12 @@
       "magazine"
     ],
     "triangle_count": 104,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      -0.002875999999999999,
+      2.500000000000332e-06,
+      -0.009374999999999998
+    ]
   },
   {
     "title": "Halo2",
@@ -2674,7 +3389,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2696,7 +3416,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2714,8 +3439,13 @@
     "selected": [
       "battery"
     ],
-    "triangle_count": 232,
-    "needles": false
+    "triangle_count": 230,
+    "needles": false,
+    "receiver_anchor": [
+      0.04362099999999999,
+      0.0,
+      0.013520500000000005
+    ]
   },
   {
     "title": "Halo2",
@@ -2731,7 +3461,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2745,7 +3480,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2758,7 +3498,12 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   },
   {
     "title": "Halo2",
@@ -2775,6 +3520,11 @@
     ],
     "selected": [],
     "triangle_count": 0,
-    "needles": false
+    "needles": false,
+    "receiver_anchor": [
+      0,
+      0,
+      0
+    ]
   }
 ]

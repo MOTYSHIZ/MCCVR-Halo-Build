@@ -5806,6 +5806,167 @@
           "instruction_signature": "48 8D 15 ?? ?? ?? ??"
         }
       ]
+    },
+    {
+      "name": "continuous_target_query",
+      "rva": "0xb683ec",
+      "signature": "40 53 55 56 57 41 54 41 55 41 56 41 57 B8 68 14 00 00 E8 5D EA A9 00 48 2B E0 48 8B 05 03 CC 00 01 48 33 C4 48 89 84 24 50 14 00 00 48 8B BC 24 D8 14 00 00 48 8B F1 48 8B CA 44 89 4C 24 40 45",
+      "function_entry": true,
+      "evidence": "E-CE-TARGET-20260918",
+      "runtime_group": "continuous_target",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb680f8",
+          "target_rva": "0xb683ec",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 EF 02 00 00"
+        },
+        {
+          "instruction_rva": "0xb6839b",
+          "target_rva": "0xb683ec",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 4C 00 00 00"
+        }
+      ]
+    },
+    {
+      "name": "vehicle_orientation_basis",
+      "rva": "0xb45178",
+      "signature": "48 8B C4 48 89 50 10 55 53 56 57 41 54 41 56 41 57 48 8D 6C 24 90 48 81 EC 70 01 00 00",
+      "function_entry": true,
+      "evidence": "E-CE-VEHICLE-VIEW-2",
+      "runtime_group": "vehicle_view",
+      "instruction_witnesses": [
+        {
+          "rva": "0xb45498",
+          "signature": "4C 8D 46 3C 48 8D 56 30 48 8D 4D 98 E8 43 D0 05 00",
+          "meaning": "HCEEK vehicle physics 8E1B60 / matrix builder 7B2A20 matched: actual object forward +30 and up +3c build current orientation, independently of desired facing +204"
+        }
+      ],
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb454a4",
+          "target_rva": "0xba24ec",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 43 D0 05 00"
+        }
+      ]
+    },
+    {
+      "name": "muzzle_fire",
+      "rva": "0xb7a374",
+      "signature": "48 89 5C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 C0 E1 FF FF B8 40 1F 00 00 E8 CA CA A8 00 48 2B E0 0F 29 B4 24 30 1F 00 00 0F 29 BC 24 20 1F 00 00 44 0F 29 84 24 10 1F 00 00 44 0F",
+      "function_entry": true,
+      "evidence": "E-CE-MUZZLE-20260918",
+      "runtime_group": "muzzle",
+      "relative_operands": [
+        {
+          "instruction_rva": "0xb7a56f",
+          "target_rva": "0xb3701c",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 A8 CA FB FF"
+        },
+        {
+          "instruction_rva": "0xb7a791",
+          "target_rva": "0xb00880",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 EA 60 F8 FF"
+        },
+        {
+          "instruction_rva": "0xb7a853",
+          "target_rva": "0xb00740",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 E8 5E F8 FF"
+        },
+        {
+          "instruction_rva": "0xb7a8b0",
+          "target_rva": "0xb67b00",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 4B D2 FE FF"
+        },
+        {
+          "instruction_rva": "0xb67bdf",
+          "target_rva": "0xb14f14",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 30 D3 FA FF"
+        },
+        {
+          "instruction_rva": "0xb680f8",
+          "target_rva": "0xb683ec",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 EF 02 00 00"
+        },
+        {
+          "instruction_rva": "0xb6839b",
+          "target_rva": "0xb683ec",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 4C 00 00 00"
+        },
+        {
+          "instruction_rva": "0xa98617",
+          "target_rva": "0xb67fa8",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 8C F9 0C 00"
+        },
+        {
+          "instruction_rva": "0xa98923",
+          "target_rva": "0xb68284",
+          "instruction_bytes": 5,
+          "displacement_offset": 1,
+          "instruction_signature": "E8 5C F9 0C 00"
+        }
+      ]
+    },
+    {
+      "name": "muzzle_markers",
+      "rva": "0xb3701c",
+      "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 50 4C 8B 35 BD 5D 26 02 45 33 FF 44 0F B7 D1 49 83 C6 34 41 0F B7 D9 8B E9 49 8B F8 48 8B F2 4F 8D 1C 52 4C 8B 15 EB B1 10",
+      "function_entry": true,
+      "evidence": "E-CE-MUZZLE-20260918",
+      "runtime_group": "muzzle"
+    },
+    {
+      "name": "muzzle_query",
+      "rva": "0xb67fa8",
+      "signature": "48 8B C4 48 89 58 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 68 A8 48 81 EC 20 01 00 00 0F 29 70 B8 0F 29 78 A8 44 0F 29 40 98 44 0F 29 48 88 44 0F 29 90 78 FF FF FF 48 8B 05 2A D0 00 01 48 33",
+      "function_entry": true,
+      "evidence": "E-CE-MUZZLE-20260918",
+      "runtime_group": "muzzle"
+    },
+    {
+      "name": "muzzle_direct_query",
+      "rva": "0xb68284",
+      "signature": "48 89 5C 24 10 55 56 57 41 56 41 57 48 81 EC A0 00 00 00 48 8B 05 72 CD 00 01 48 33 C4 48 89 84 24 98 00 00 00 48 63 F9 49 8B D8 0F B7 CF 0F B7 F2 E8 EA CB FA FF 83 23 00 41 83 CF FF 44 89 7B",
+      "function_entry": true,
+      "evidence": "E-CE-MUZZLE-20260918",
+      "runtime_group": "muzzle"
+    },
+    {
+      "name": "muzzle_target_validate",
+      "rva": "0xb698d0",
+      "signature": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 8B 79 0C 48 8B F2 83 CA FF 8B CF 33 DB E8 B3 F0 FC FF 48 85 C0 74 04 89 3E B3 01 48 8B 74 24 38 8A C3 48 8B 5C 24 30 48 83 C4 20 5F C3 48 8B C4 48",
+      "function_entry": true,
+      "evidence": "E-CE-MUZZLE-20260918",
+      "runtime_group": "muzzle"
+    },
+    {
+      "name": "muzzle_marker_owner",
+      "rva": "0xb777b0",
+      "signature": "44 8B C1 41 BA 10 00 00 00 0F B7 C9 48 8D 14 49 48 8B 0D 81 AA 0C 01 48 63 41 34 48 03 C8 4C 63 4C 91 08 48 8B 15 1E 56 22 02 49 8B C9 48 8D 42 44 49 03 C1 41 83 F9 FF 49 0F 44 C2 F6 00 01 74",
+      "function_entry": false,
+      "evidence": "E-CE-MUZZLE-20260918",
+      "runtime_group": "muzzle"
     }
   ]
 }

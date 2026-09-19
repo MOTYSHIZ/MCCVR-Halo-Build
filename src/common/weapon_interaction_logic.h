@@ -72,7 +72,13 @@ struct Sample
     float primaryGrip{}, supportGrip{};
     bool otherAction{};
     uint64_t weaponGraph{};
+    bool receiverValid{};
+    Vec receiver{};
+    Quat supportRotation{};
 };
+
+inline Vec HeldMagazineCenter(const Sample& sample,Quat supportRotation) noexcept
+{ return sample.support+Rotate(supportRotation,{0,-.015f,-.035f}); }
 
 // Title-specific identities from the official kits: CE graph fingerprint,
 // H2 verified compression tuple, and H3/ODST/Reach/H4 model import checksum.
@@ -239,9 +245,12 @@ public:
             {
                 // Insert beside/under the firing-hand grip. Controller-local
                 // offset, not an invented per-title magazine marker.
-                const Vec receiver=s.primary+Rotate(s.primaryRotation,{0,-0.06f,-0.04f});
+                const Vec receiver=s.receiverValid?s.receiver:
+                    s.primary+Rotate(s.primaryRotation,{0,-0.06f,-0.04f});
+                const Vec magazine=s.receiverValid?HeldMagazineCenter(s,s.supportRotation):s.support;
                 if(!s.otherAction&&leftPouch_&&s.now-started_>=120&&
-                   Near(s.support,receiver,Setting(c.insertRadius,0.06f,0.30f,0.18f))&&
+                   (!s.receiverValid||(Finite(receiver)&&Normal(s.supportRotation)))&&
+                   Near(magazine,receiver,Setting(c.insertRadius,0.06f,0.30f,0.18f))&&
                    !Near(s.support,pouch,Setting(c.zoneRadius,0.08f,0.40f,0.20f)+0.04f)&&
                    !Near(s.support,grabbedAt_,0.20f))
                 {

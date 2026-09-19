@@ -9,7 +9,7 @@ p.add_argument('--output', type=Path, required=True)
 a = p.parse_args()
 definitions = [
     ('game.cpp', 'void LegacyObserveReloadModel(\n        GameTitle title, uint16_t renderModelTag, uint32_t generation,\n        const BoneMatrix* source, const int32_t* boneMap)'),
-    ('halo2_observer_6dof.cpp', 'void Halo2ObserveReloadModel(uint32_t tag,uint32_t nodes) noexcept'),
+    ('halo2_observer_6dof.cpp', 'uint64_t Halo2ObserveReloadModel(uint32_t tag,uint32_t nodes,bool observePrimary=true) noexcept'),
 ]
 output = ['// Extracted production bodies; never edit generated fixture.']
 for name, signature in definitions:

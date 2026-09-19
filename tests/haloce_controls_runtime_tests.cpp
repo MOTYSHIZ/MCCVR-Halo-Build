@@ -8,9 +8,11 @@
 namespace
 {
 constexpr uint32_t playerId=0x23450006,unitId=0x34560007,weaponId=0x45670008;
+constexpr uint32_t vehicleId=0x56780009;
 GameTitle testTitle=GameTitle::HaloCE;
 uint32_t testGeneration=3,weaponOwner=unitId;
 uintptr_t playerAddress{},unitAddress{},weaponAddress{},playersAddress{};
+uintptr_t vehicleAddress{};
 int16_t perspective{};
 bool gameplayAvailable=true,contextCurrent=true,raiseTurn{};
 halo_ce::RenderContext gameplay{};
@@ -25,7 +27,8 @@ template<class T> void Put(uintptr_t address,T value)
 uintptr_t __fastcall DatumService(uintptr_t table,uint32_t datum)
 { return table==playersAddress&&datum==playerId?playerAddress:0; }
 uintptr_t __fastcall ObjectService(uint32_t datum,uint32_t mask)
-{ return datum==unitId&&mask==3?unitAddress:datum==weaponId&&mask==4?weaponAddress:0; }
+{ return datum==unitId&&(mask==3||mask==1)?unitAddress:
+    datum==weaponId&&mask==4?weaponAddress:datum==vehicleId&&mask==2?vehicleAddress:0; }
 uint32_t __fastcall WeaponOwnerService(uint32_t datum)
 { return datum==weaponId?weaponOwner:0xffffffffu; }
 int16_t __fastcall PerspectiveService(int16_t outputUser)
@@ -111,6 +114,7 @@ int main()
         cinematic=arena+0x3000,users=arena+0x4000;
     playersAddress=arena+0x5000;playerAddress=arena+0x6000;
     unitAddress=arena+0x8000;weaponAddress=arena+0xa000;
+    vehicleAddress=arena+0xc000;
     Put(moduleBase+0x2ea2d90,mapping);Put(moduleBase+0x2d8fe70,control);
     Put(moduleBase+0x1c40480,playersAddress);Put(moduleBase+0x2e9fd68,clock);
     Put(moduleBase+0x2ea0208,cinematic);Put(moduleBase+0x2d9cd90,users);
@@ -230,6 +234,70 @@ int main()
     Check(Near(lastYaw,-.20943951f)&&lastPitch==0,
         "production native phase applies configured smooth rate with the 100 ms elapsed-time cap");
     rig.turnSmooth=false;
+    // Execute the actual native-turn transaction while seated. The private
+    // packet adapter remains separately covered by its existing runtime suite.
+    perspective=1;Put(unitAddress+0xd8,vehicleId);Put(unitAddress+0x2d0,int16_t(0));
+    Put(vehicleAddress+0xd8,UINT32_MAX);
+    Put(vehicleAddress+0x30,halo_ce::Vec3{1,0,0});Put(vehicleAddress+0x3c,halo_ce::Vec3{0,0,1});
+    vehicleViewReady=true;rig.vehicleMotion=true;rig.vehicleViewFollow=true;
+    rig.turnX=0;++gameplay.tracking.serial;vehicleFollow={};
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(lastYaw==0&&lastPitch==0&&HaloCEControls_OwnsLookStick(),
+        "vehicle entry seeds actual hull orientation without turning the view");
+    Put(vehicleAddress+0x30,halo_ce::Vec3{std::cos(.2f),std::sin(.2f),0});
+    ++gameplay.tracking.serial;TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(Near(lastYaw,.2f)&&lastPitch==0,"actual hull rotation follows immediately through native angle update");
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(lastYaw==0,"repeated seated input does not replay hull rotation");
+    rig.turnX=1;++gameplay.tracking.serial;
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(Near(lastYaw,-.785398163f),"seated camera uses configured snap rather than slow native stick deltas");
+    rig.vehicleSmoothTurn=true;++gameplay.tracking.serial;
+    QueryPerformanceCounter(&counter);
+    turnState.previousSeconds=double(counter.QuadPart)*qpcSeconds-.05;
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(lastYaw<-.10f&&lastYaw>-.12f&&!rig.turnSmooth,
+        "vehicle override uses smooth speed without overwriting saved snap preference");
+    perspective=0;Put(unitAddress+0xd8,UINT32_MAX);++gameplay.tracking.serial;
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(lastYaw==0,"leaving vehicle with held stick cannot cause an extra snap");
+    rig.turnX=0;++gameplay.tracking.serial;TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    rig.turnX=1;++gameplay.tracking.serial;TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(Near(lastYaw,-.785398163f),"next centred on-foot stick gesture restores saved snap turn");
+    perspective=1;Put(unitAddress+0xd8,vehicleId);rig.vehicleSmoothTurn=false;
+    rig.turnX=0;rig.vehicleViewFollow=false;
+    Put(vehicleAddress+0x30,halo_ce::Vec3{0,1,0});++gameplay.tracking.serial;
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(lastYaw==0,"disabled view-follow leaves independent view yaw unchanged");
+    rig.vehicleViewFollow=true;++gameplay.tracking.serial;
+    TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+    Check(lastYaw==0,"enabling view-follow cannot replay the off-period rotation");
+    for (int reject=0;reject<9;++reject)
+    {
+        switch(reject)
+        {
+        case 0:vehicleViewReady=false;break;
+        case 1:rig.vehicleMotion=false;break;
+        case 2:Put(unitAddress+0x2d0,int16_t(-1));break;
+        case 3:Put(vehicleAddress+0xd8,uint32_t(0x6789000a));break;
+        case 4:Put(vehicleAddress+0x30,halo_ce::Vec3{0,0,1});break;
+        case 5:Put(vehicleAddress+0x3c,halo_ce::Vec3{0,1,0});break;
+        case 6:Put(unitAddress+0xd8,vehicleId+0x10000);break;
+        case 7:vehicleAddress=1;break;
+        case 8:contextCurrent=false;break;
+        }
+        ++gameplay.tracking.serial;TurnDispatch(1,.25f,.5f,moduleBase+0xa99660);
+        Check(Near(lastYaw,.25f)&&Near(lastPitch,.5f)&&!HaloCEControls_OwnsLookStick(),
+            "unproven, disabled, nested, stale or unreadable vehicle view retains original native input");
+        vehicleViewReady=true;rig.vehicleMotion=true;vehicleAddress=arena+0xc000;
+        Put(unitAddress+0x2d0,int16_t(0));Put(unitAddress+0xd8,vehicleId);
+        Put(vehicleAddress+0xd8,UINT32_MAX);Put(vehicleAddress+0x30,halo_ce::Vec3{0,1,0});
+        Put(vehicleAddress+0x3c,halo_ce::Vec3{0,0,1});contextCurrent=true;
+    }
+    float seatedX=7,seatedY=8;
+    Check(!HaloCEControls_MapMoveStick(0,1,seatedX,seatedY)&&seatedX==7&&seatedY==8,
+        "seated camera turn cannot admit walking rotation of vehicle throttle");
+    perspective=0;Put(unitAddress+0xd8,UINT32_MAX);rig.turnX=0;
     TurnDispatch(0,.25f,.5f,moduleBase+0xa99660);
     Check(lastUser==0&&Near(lastYaw,.25f)&&Near(lastPitch,.5f),"another native input user retains both deltas");
     TurnDispatch(1,.25f,.5f,moduleBase+0xa99661);
