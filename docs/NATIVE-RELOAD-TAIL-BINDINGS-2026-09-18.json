@@ -16,7 +16,8 @@
       "0x2d9cd90",
       "0x2d9ce10",
       "0x2ea3410"
-    ]
+    ],
+    "length_function": "0x0"
   },
   {
     "module": "halo2.dll",
@@ -35,7 +36,8 @@
       "0x187c300",
       "0x0",
       "0x0"
-    ]
+    ],
+    "length_function": "0x0"
   },
   {
     "module": "halo3.dll",
@@ -54,7 +56,8 @@
       "0x0",
       "0x0",
       "0x0"
-    ]
+    ],
+    "length_function": "0x0"
   },
   {
     "module": "halo3odst.dll",
@@ -73,7 +76,8 @@
       "0x0",
       "0x0",
       "0x0"
-    ]
+    ],
+    "length_function": "0x0"
   },
   {
     "module": "haloreach.dll",
@@ -92,7 +96,8 @@
       "0x0",
       "0x0",
       "0x0"
-    ]
+    ],
+    "length_function": "0x210da8"
   },
   {
     "module": "halo4.dll",
@@ -111,6 +116,7 @@
       "0x0",
       "0x0",
       "0x0"
-    ]
+    ],
+    "length_function": "0x2f94a4"
   }
 ]

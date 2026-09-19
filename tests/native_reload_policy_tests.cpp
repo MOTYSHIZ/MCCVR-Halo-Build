@@ -61,8 +61,10 @@ static void __fastcall StockCeAction(uint32_t,uint32_t)
 {++initializations;PlayHook<0>(0,13,1,0);}
 static uint8_t tailUsersBytes[0x18000],tailDescriptor[0x100],ceWeaponTag[0x500],ceGraph[0x100];
 static std::vector<uint8_t> ceGlobals(0x110000);
-static int eventFrame=30,seekCalls;static bool clampSeek=false,duplicatePlay=false,foreignChannel=false;
+static int eventFrame=30,seekCalls,primaryTicks=30,animationLength=50,totalTicks=50;static bool clampSeek=false,duplicatePlay=false,foreignChannel=false;
 static uint8_t* __fastcall FakeUsers(unsigned) {return tailUsersBytes;}
+static float __fastcall FakeRemaining(void*) {return float(animationLength);}
+static int __fastcall FakeLength(void*) {return animationLength;}
 static uint8_t* __fastcall FakeAnimation(void*) {return tailDescriptor;}
 static int __fastcall FakeEvent(void*,uint16_t event)
 {Check(event==(selected>=native_reload::Reach?1:0),"own title insertion event number");return eventFrame;}
@@ -78,8 +80,8 @@ template<class T> static void Store(uint8_t* p,size_t at,T value) {std::memcpy(p
 template<unsigned I> static void __fastcall TailState(uint32_t weapon,int16_t magazine,int32_t state)
 {
     ++stockCalls;const auto& m=native_reload::layouts[I];const auto& l=kTailLayout[I];
-    Put(m.base+magazine*m.stride,int16_t(state));Put(m.base+magazine*m.stride+2,50);
-    if constexpr(I!=0) Put(m.base+magazine*m.stride+(I==1?12:16),30);
+    Put(m.base+magazine*m.stride,int16_t(state));Put(m.base+magazine*m.stride+2,int16_t(totalTicks));
+    if constexpr(I!=0) Put(m.base+magazine*m.stride+(I==1?12:16),int16_t(primaryTicks));
     Store(tailUsersBytes,4,uint32_t(42));Store(tailUsersBytes,l.weapon,foreignChannel?otherWeapon:weapon);
     auto* channel=tailUsersBytes+l.channel;
     if constexpr(I==0) {Store(channel,l.identity,int16_t(13));Store(channel,l.frame,int16_t(0));}
@@ -100,6 +102,8 @@ template<unsigned I> static void TailRun()
     r.tailUsers=&FakeUsers;r.tailFunctions[0]=I==0?reinterpret_cast<void*>(&FakeCeTag):reinterpret_cast<void*>(&FakeAnimation);
     r.tailFunctions[1]=reinterpret_cast<void*>(&FakeEvent);
     r.tailFunctions[2]=I==5?reinterpret_cast<void*>(&FakeH4Seek):reinterpret_cast<void*>(&FakeSeek);
+    r.tailFunctions[3]=I==4?reinterpret_cast<void*>(&FakeRemaining):reinterpret_cast<void*>(&FakeLength);
+    Store(tailDescriptor,0x10,int16_t(animationLength));Store(tailDescriptor,0x14,int16_t(animationLength));
     r.original[Auto]=reinterpret_cast<void*>(&TailCeStart);r.original[State]=reinterpret_cast<void*>(&TailState<I>);
     r.original[Action]=I==0?reinterpret_cast<void*>(&StockCeAction):reinterpret_cast<void*>(&StockAction<I>);
     r.original[Play]=I==0?reinterpret_cast<void*>(&StockCePlay):I==1?reinterpret_cast<void*>(&StockPlay):I==5?reinterpret_cast<void*>(&StockH4Check):reinterpret_cast<void*>(&StockBoolPlay);
@@ -128,12 +132,32 @@ template<unsigned I> static void TailRun()
     duplicatePlay=true;run();duplicatePlay=false;Check(Read(m.base+2)==50,"ambiguous first-person animation retains full reload");
     advanceGeneration=true;run();advanceGeneration=false;activeGeneration=3;Check(Read(m.base+2)==50,"generation change rejects pending seek");
     if constexpr(I!=0) {
-        eventFrame=-1;run();Check(Read(m.base+2)==50,"missing authored event retains full reload");
-        eventFrame=0;run();Check(Read(m.base+2)==50,"zero authored event retains full reload");
+        eventFrame=-1;run();Check(Read(m.base+2)==13,"missing authored event retains final quarter");
+        eventFrame=0;run();Check(Read(m.base+2)==13,"zero authored event retains final quarter");
+        eventFrame=50;run();Check(Read(m.base+2)==13,"endpoint marker retains a visible final section");
+        eventFrame=30;primaryTicks=50;run();Check(Read(m.base+2)==13,"native full-duration insertion fallback still shortens");primaryTicks=30;
         eventFrame=30;clampSeek=true;seekCalls=0;run();clampSeek=false;
         Check(seekCalls==2&&Read(m.base+2)==50&&TailRead<float>(tailUsersBytes+l.channel,l.frame)==0,"clamped event restores stock animation and timing");
     } else {
-        Store(tailDescriptor,0x34,int16_t(60));run();Check(Read(m.base+2)==50,"CE out-of-range event retains native reload");Store(tailDescriptor,0x34,int16_t(30));
+        Store(tailDescriptor,0x34,int16_t(60));run();Check(Read(m.base+2)==13,"CE absent interior event retains final quarter");Store(tailDescriptor,0x34,int16_t(30));
+    }
+    if constexpr(I==0) {
+        Store(tailDescriptor,0x34,int16_t(0));run();Check(Read(m.base+2)==13,"CE zero marker shortens the visible reload");
+        Store(tailDescriptor,0x34,int16_t(30));
+    }
+    // Engine ticks need not equal authored 30-Hz animation frames.
+    totalTicks=100;primaryTicks=100;eventFrame=-1;
+    if constexpr(I==0) Store(tailDescriptor,0x34,int16_t(0));
+    run();Check(Read(m.base+2)==26,"final section scales native ticks independently from frames");
+    Check((I==0?float(TailRead<int16_t>(tailUsersBytes+l.channel,l.frame)):TailRead<float>(tailUsersBytes+l.channel,l.frame))==37,"final-section visual seek uses animation frames");
+    totalTicks=50;primaryTicks=30;eventFrame=30;
+    if constexpr(I==0) Store(tailDescriptor,0x34,int16_t(30));
+    totalTicks=1;run();Check(Read(m.base+2)==1,"one-tick reload remains native");totalTicks=50;
+    if constexpr(I==0) {
+        const auto offset=kTailBindings[0].globals[2]-kTailBindings[0].globals[1];
+        Store(ceGlobals.data(),offset,intptr_t(-4096));Store(ceGraph,0x78,uint32_t(-4096));
+        run();Check(Read(m.base+2)==20,"CE signed virtual tag base resolves the same selected animation");
+        Store(ceGlobals.data(),offset,intptr_t(4096));Store(ceGraph,0x78,uint32_t(4096));
     }
     r.options=6;run();Check(Read(m.base+2)==0,"full skip retains precedence even for an unfiltered option mask");
     r.options=7;r.tailFaulted=true;Check(Current(I,1)&&Current(I,2)&&!Current(I,4),"tail fault preserves automatic/full-skip options");

@@ -13646,7 +13646,7 @@ int main()
         }
         ConfigLoad(primary.c_str());
         Check(g_config.disable_flashlight_input&&g_config.flashlight_button[0]==2&&g_config.flashlight_button[1]==1&&
-            g_config.flashlight_button[2]==13&&g_config.flashlight_button[3]==14&&g_config.flashlight_button[4]==0&&
+            g_config.flashlight_button[2]==13&&g_config.flashlight_button[3]==14&&g_config.flashlight_button[4]==15&&
             g_config.flashlight_button[5]==6,"flashlight layouts and toggle load independently for all six titles");
         Check(g_config.manual_reload&&g_config.weapon_holsters&&g_config.weapon_pouch_down_m==0.625f&&
             g_config.weapon_body_zone_radius_m==0.225f&&g_config.weapon_holster_location==1&&
@@ -13656,6 +13656,8 @@ int main()
         ConfigSave();g_config=Config{};ConfigLoad(primary.c_str());
         Check(g_config.disable_flashlight_input&&g_config.flashlight_button[2]==13&&g_config.flashlight_button[5]==6,
             "flashlight input control persists independently of weapon gesture mappings");
+        g_config.flashlight_button[4]=0;ConfigSave();g_config=Config{};ConfigLoad(primary.c_str());
+        Check(g_config.flashlight_button[4]==0,"versioned explicit right-grip selection is not migrated again");
         Check(g_config.manual_reload&&g_config.weapon_holsters&&g_config.weapon_reload_button[4]==1&&
             g_config.weapon_switch_button[5]==2&&g_config.weapon_pouch_down_m==0.625f,
             "weapon gesture toggles, ergonomics and distinct title layouts survive save/load");

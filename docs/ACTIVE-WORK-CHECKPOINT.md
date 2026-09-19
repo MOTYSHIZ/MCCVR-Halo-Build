@@ -1,12 +1,23 @@
-## Menu cursor A-button follow-up
+## Menu cursor, shortened reload and flashlight follow-up
 
-User requests ONLY preserving A selection while the menu-cursor toggle suppresses
-other inputs, then another ZIP. Implemented XR and physical-XInput A passage and
-final XInput merge. Existing D-pad/F1 exclusivity and exit-held-input draining
-stay intact. Updated regression fixture. Package matching build/source ZIPs
-without Install, then wait. No other refinement work requested in this follow-up.
-Previous candidate5ba2c6d was packaged/delivered; verification receipt is
-out/refinement-20260918/DELIVERY-VERIFIED.json. Accepted pointer unchanged.
+Latest user requests A-only menu confirmation plus a correction to shortened
+reload, checked across every title, and matching build/source ZIPs. No questions,
+installation, game launch or accepted-pointer update. Menu fix committed b6a99d0.
+User additionally requested broken flashlight toggle and Quest labels corrected.
+Default incorrectly blocked RB although support grip emits LB. Corrected default
+index15; migrate unversioned zero to15, preserve custom and versioned selections.
+Quest labels follow handedness and Reach swap. Tests cover filter and migration.
+Reload correction: absent/endpoint/full-duration insertion marker falls back to
+final quarter of actual selected animation, native timing scaled separately.
+New own-title length proofs Reach210da8 and H4 2f94a4; CE signed-bank correction.
+Additional user Halo2 BR/SMG disappearing-mag report: remove held-mag four-second
+expiry and unrelated-action cancellation; prevent thumbrest D-pad taking over
+claimed grip. Preserve identity/tracking/menu cancellation. Update gesture tests.
+Production fixtures cover all six titles; packaging still to run after commit.
+User log 5ba2c6d Steam/SteamVR shows CE3/Reach4 attempts all stock fallback;
+exact rejecting guard was not logged. Added rejection-stage mask for next test.
+See NATIVE-RELOAD-TAIL-2026-09-18.md and RELEASE-NOTES for limits and evidence.
+Previous cumulative scope preserved; accepted pointer unchanged.
 
 ## September 18 delivery preparation - circular zoom and optional CE flares
 

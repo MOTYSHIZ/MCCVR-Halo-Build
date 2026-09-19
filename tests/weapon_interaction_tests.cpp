@@ -317,13 +317,15 @@ int main()
     }
     {
         Rig r;r.GrabMagazine();r.s.otherAction=true;
-        Check(!r.InsertMagazine().buttons,"shooting/button chord cancels manual action");
+        Check(r.Step().holdingMagazine,"incidental trigger/button input cannot detach held magazine");
+        r.s.otherAction=false;
+        Check(r.InsertMagazine().reloadRequested,"held magazine still inserts after unrelated input releases");
         Rig h;h.GrabHolster();h.s.otherAction=true;
         Check(!h.DrawHolster().buttons,"shooting/button chord cancels holster action");
     }
     {
         Rig r;r.GrabMagazine();for(int i=0;i<42;++i)r.Step(100);
-        Check(!r.InsertMagazine().buttons,"unfinished interaction expires after four seconds");
+        Check(r.InsertMagazine().reloadRequested,"held magazine remains insertable beyond four seconds");
         Rig h;h.GrabHolster();for(int i=0;i<42;++i)h.Step(100);
         Check(!h.DrawHolster().buttons,"stale holster grab cannot become a delayed switch");
     }

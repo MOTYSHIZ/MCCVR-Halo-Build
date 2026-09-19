@@ -447,7 +447,7 @@ struct Config
     bool quest_thumbrest_dpad = false;
     bool disable_flashlight_input = false;
     // Match each campaign's MCC layout; same title order as gesture buttons.
-    int flashlight_button[6]{0,0,0,0,0,0};
+    int flashlight_button[6]{15,15,15,15,15,15};
 
     // Aim crosshair (stereo only): a small reticle floating where the weapon
     // actually shoots. Drawn as a compositor quad layer, so it costs no game

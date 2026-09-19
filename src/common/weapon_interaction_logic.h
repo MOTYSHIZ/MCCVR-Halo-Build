@@ -236,7 +236,10 @@ public:
         if(!ready||!poses||identity||gap||resumed) return out;
 
         const bool occupied=phase_!=0||ownedP_||ownedS_;
-        if(s.otherAction || (phase_&&s.now-started_>4000)) phase_=0;
+        // A magazine is held until grip release; incidental trigger/button
+        // input and taking time to align it must not silently drop the item.
+        // Holster/shake commands retain their cancellation and timeout rules.
+        if(phase_!=1&&(s.otherAction || (phase_&&s.now-started_>4000))) phase_=0;
         if(phase_==1)
         {
             out.consumeSupport=true;out.releaseTwoHand=true;

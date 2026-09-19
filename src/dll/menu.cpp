@@ -782,7 +782,7 @@ namespace
                               "These controls stay on the same physical hands in left-handed mode.");
         changed |= ImGui::Checkbox("Disable flashlight input",&g_config.disable_flashlight_input);
         if(ImGui::IsItemHovered())
-            ImGui::SetTooltip("Blocks the selected MCC flashlight button during gameplay.\nGrip tracking and two-handed aiming still work; menus remain usable.");
+            ImGui::SetTooltip("Blocks support-grip button output by default during gameplay.\nGrip tracking and two-handed aiming still work; menus remain usable.");
         if(g_config.disable_flashlight_input) {
             static int flashlightTitle=0;
             static GameTitle previousFlashlightTitle=GameTitle::None;
@@ -791,8 +791,13 @@ namespace
             if(active!=previousFlashlightTitle&&index>=0) flashlightTitle=index;
             previousFlashlightTitle=active;
             ImGui::Combo("Flashlight layout for",&flashlightTitle,weapon_interaction::kTitleNames,6);
-            changed |= ImGui::Combo("MCC Flashlight button",&g_config.flashlight_button[flashlightTitle],flashlight_input::kButtons);
-            ImGui::TextDisabled("Match this to MCC's control layout for the selected game.");
+            const bool reachSwap=flashlightTitle==weapon_interaction::TitleIndex(GameTitle::HaloReach)&&
+                !(active==GameTitle::HaloReach&&Game_ReachPlayerIsInVehicle());
+            const char* controls[flashlight_input::kCount]{};
+            for(int n=0;n<flashlight_input::kCount;++n)
+                controls[n]=flashlight_input::Label(n,g_config.left_handed,reachSwap);
+            changed |= ImGui::Combo("Flashlight control (Quest)",&g_config.flashlight_button[flashlightTitle],controls,flashlight_input::kCount);
+            ImGui::TextDisabled("Support grip fixes the usual grip conflict. Select another control for custom MCC layouts.");
         }
         ImGui::Spacing();
         float hapticPercent = g_config.haptic_intensity * 100.0f;

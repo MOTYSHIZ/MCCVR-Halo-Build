@@ -7723,7 +7723,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const DpadStickInput thumbrest = ConsumeThumbrestDpad(
             g_config.quest_thumbrest_dpad, ReadLeftThumbrestTouched(),
             pad.valid && valid && leftValid && g_sessionState == XR_SESSION_STATE_FOCUSED &&
-                !Menu_IsOpen(), pad.turnX, pad.turnY);
+                !Menu_IsOpen()&&!g_weaponInteraction.HasClaimedGrip(), pad.turnX, pad.turnY);
         pad.thumbrestDpad = thumbrest.active;
         pad.dpadX = thumbrest.x;
         pad.dpadY = thumbrest.y;

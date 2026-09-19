@@ -3,9 +3,32 @@
 
 namespace flashlight_input
 {
-inline constexpr const char* kButtons="Right bumper\0Left bumper\0D-pad up\0D-pad down\0D-pad left\0D-pad right\0X\0Y\0A\0B\0Left stick click\0Right stick click\0Back / View\0Left trigger\0Right trigger\0";
-inline constexpr uint32_t kMasks[]{0x200,0x100,1,2,4,8,0x4000,0x8000,0x1000,0x2000,0x40,0x80,0x20,1u<<16,1u<<17};
-inline constexpr int kCount=15;
+// Keep stored explicit-button indices stable; append the corrected default.
+inline constexpr int kGripDefault=15;
+inline constexpr uint32_t kMasks[]{0x200,0x100,1,2,4,8,0x4000,0x8000,0x1000,0x2000,0x40,0x80,0x20,1u<<16,1u<<17,0x100};
+inline constexpr int kCount=16;
+inline const char* Label(int index,bool leftHanded,bool reachSwap) noexcept
+{
+    switch(index) {
+    case 0:return leftHanded?"Left grip (RB)":"Right grip (RB)";
+    case 1:return leftHanded?"Right grip (LB)":"Left grip (LB)";
+    case 2:return "D-pad gesture: up";
+    case 3:return "D-pad gesture: down";
+    case 4:return "D-pad gesture: left";
+    case 5:return "D-pad gesture: right";
+    case 6:return reachSwap?(leftHanded?"Right trigger (X)":"Left trigger (X)"):"Left controller X";
+    case 7:return "Left controller Y";
+    case 8:return "Right controller A";
+    case 9:return "Right controller B";
+    case 10:return "Left stick click";
+    case 11:return "Right stick click";
+    case 12:return "Gamepad View (no default Quest button)";
+    case 13:return reachSwap?"Left controller X (LT)":(leftHanded?"Right trigger (LT)":"Left trigger (LT)");
+    case 14:return leftHanded?"Left trigger (RT)":"Right trigger (RT)";
+    case 15:return leftHanded?"Support grip: right (recommended)":"Support grip: left (recommended)";
+    default:return "Unknown";
+    }
+}
 inline constexpr uint32_t Mask(int index) noexcept
 {return index>=0&&index<kCount?kMasks[index]:0;}
 

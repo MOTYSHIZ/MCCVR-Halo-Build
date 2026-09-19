@@ -57,6 +57,11 @@ int main()
         Check(pad.wButtons==0xffff&&pad.bLeftTrigger==255&&pad.bRightTrigger==255,
             "flashlight filter keeps menus and F1 usable");
     }
+    Check(flashlight_input::Mask(flashlight_input::kGripDefault)==XINPUT_GAMEPAD_LEFT_SHOULDER,"default blocks actual support grip output, not right bumper");
+    Check(std::strcmp(flashlight_input::Label(15,false,false),"Support grip: left (recommended)")==0&&
+        std::strcmp(flashlight_input::Label(15,true,false),"Support grip: right (recommended)")==0,"Quest grip labels follow handedness");
+    Check(std::strcmp(flashlight_input::Label(6,false,true),"Left trigger (X)")==0&&
+        std::strcmp(flashlight_input::Label(13,false,true),"Left controller X (LT)")==0,"Reach Quest labels follow trigger-X swap");
     Check(!flashlight_input::Mask(-1)&&!flashlight_input::Mask(99),"invalid flashlight mapping cannot block arbitrary input");
     const float head[3]{}, diagonalInside[3]{0.2f, 0.2f, 0},
         diagonalOutside[3]{0.18f, 0.18f, 0.18f};

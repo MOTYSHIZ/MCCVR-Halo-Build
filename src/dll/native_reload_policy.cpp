@@ -23,7 +23,7 @@ struct BindingSet {
     Binding caller; uint32_t autoReturn;
 };
 #include "native_reload_bindings.generated.h"
-struct TailBindingSet { std::array<Binding,6> proofs; uint32_t globals[3]; };
+struct TailBindingSet { std::array<Binding,7> proofs; uint32_t globals[3]; };
 #include "native_reload_tail_bindings.generated.h"
 struct Runtime {
     HMODULE module{}; uintptr_t base{}; uint32_t generation{};
@@ -34,12 +34,13 @@ struct Runtime {
     void* target[RoleCount]{}; void* original[RoleCount]{};
     bool enabled[RoleCount]{},autoReady{},skipReady{},attempted{};
     uint64_t reportAt{};
-    void* tailFunctions[3]{};
+    void* tailFunctions[4]{};
     uint8_t* (*tailUsers)(unsigned){};
     uint32_t* tlsIndex{};
     bool tailReady{};
     std::atomic<bool> tailFaulted{};
     std::atomic<uint64_t> tails{},tailFallback{};
+    std::atomic<unsigned> tailFallbackMask{};
 };
 Runtime runtime[native_reload::Count];
 thread_local int animationScope=-1;
@@ -215,6 +216,7 @@ bool ProveTail(unsigned i,size_t size)
         r.tlsIndex=reinterpret_cast<uint32_t*>(tls->AddressOfIndex);
     }
     for(unsigned n=0;n<3;++n) r.tailFunctions[n]=b.proofs[n].rva?reinterpret_cast<void*>(r.base+b.proofs[n].rva):nullptr;
+    r.tailFunctions[3]=b.proofs[6].rva?reinterpret_cast<void*>(r.base+b.proofs[6].rva):nullptr;
     r.tailUsers=&NativeTailUsers;
     return true;
 }
@@ -296,7 +298,7 @@ void NativeReloadPolicy_Poll()
                 i,r.options.load(),r.suppressed.load(),r.shortened.load(),r.animations.load(),r.faults.load(),
                 r.stockOwner.load(),
                 r.faulted.load()?" SKIP STOCK FALLBACK (guarded access fault)":"");
-            LOG("Native reload tail title=%u retained=%llu stockFallback=%llu%s",i,r.tails.load(),r.tailFallback.load(),
+            LOG("Native reload tail title=%u retained=%llu stockFallback=%llu rejectedMask=0x%x (1=receipt 2=owner 4=channel 8=timing 16=tag 32=seek)%s",i,r.tails.load(),r.tailFallback.load(),r.tailFallbackMask.load(),
                 r.tailFaulted.load()?" SHORTENED STOCK FALLBACK (guarded access fault)":"");
         }
     }

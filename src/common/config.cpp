@@ -667,6 +667,7 @@ void ConfigLoad(const wchar_t* path)
     bool loadedLegacyCurvature = false;
     bool loadedScopeZoom = false;
     bool loadedHolsterRadius = false;
+    bool flashlightMappingV2 = false;
     while (fgets(line, sizeof(line), f))
     {
         if (char* hash = strchr(line, '#'))
@@ -709,6 +710,7 @@ void ConfigLoad(const wchar_t* path)
         if (weaponButtonKey) continue;
         if (!strcmp(key,"vehicle_smooth_turn")) {g_config.vehicle_smooth_turn=atoi(val)!=0;continue;}
         if (!strcmp(key,"ce_anniversary_disable_lens_flares")) {g_config.ce_anniversary_disable_lens_flares=atoi(val)!=0;continue;}
+        if (!strcmp(key,"flashlight_mapping_version")) {flashlightMappingV2=atoi(val)>=2;continue;}
         if (!strcmp(key,"disable_flashlight_input")) {g_config.disable_flashlight_input=atoi(val)!=0;continue;}
         if (!strcmp(key,"per_gun_alignment")) { g_config.per_gun_alignment=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload")) { g_config.manual_reload=atoi(val)!=0;continue; }
@@ -1174,6 +1176,10 @@ void ConfigLoad(const wchar_t* path)
             LOG("config: unknown key '%s' ignored", key);
     }
     fclose(f);
+    if(!flashlightMappingV2) {
+        for(auto& button:g_config.flashlight_button)
+            if(button==0) button=flashlight_input::kGripDefault;
+    }
     if (!loadedHolsterRadius) g_config.weapon_holster_radius_m=g_config.weapon_body_zone_radius_m;
     for (int i = 0; i < kReachVehicleTrimSlots; ++i)
     {
@@ -1420,6 +1426,7 @@ void ConfigSave()
     fprintf(f, "# (default %d)\n", d.quest_thumbrest_dpad ? 1 : 0);
     fprintf(f, "quest_thumbrest_dpad = %d\n\n", g_config.quest_thumbrest_dpad ? 1 : 0);
     fprintf(f,"# Block the configured flashlight gamepad button during gameplay; XR grip/two-hand aim and menus stay available.\n");
+    fprintf(f,"flashlight_mapping_version = 2\n");
     fprintf(f,"disable_flashlight_input = %d\n",g_config.disable_flashlight_input?1:0);
     fprintf(f,"# Match MCC's layout per title: 0=RB,1=LB,2=DUp,3=DDown,4=DLeft,5=DRight,6=X,7=Y,8=A,9=B,10=L3,11=R3,12=Back,13=LT,14=RT.\n");
     for(unsigned i=0;i<weapon_interaction::kTitleCount;++i)

@@ -1,14 +1,46 @@
 # September 18 cumulative refinement candidate
 
-## Menu cursor confirmation follow-up
+## Menu cursor, shortened reload flashlight and held-magazine follow-up
 
-Only follow-up change from candidate5ba2c6d: while the in-game menu cursor is
+Menu fix from candidate5ba2c6d: while the in-game menu cursor is
 active, A passes through from VR controllers and physical XInput to select the
 pointed item. Other inputs remain suppressed. Thumbrest D-pad/F1 exclusivity
 is unchanged. A held while leaving the menu drains until release so it cannot
 become a gameplay action. Existing pointer-trigger clicking is retained.
 Regression checks cover A-only passage and held-input draining; packaging reruns
-the full build/test/gate. No other standing refinement is advanced here.
+the full build/test/gate.
+
+Shortened reload now retains the final quarter of the selected native animation
+when its insertion marker is absent, at an endpoint, or its native insertion
+countdown covers the full reload. This correction covers CE, H2, H3, ODST, Reach
+and H4; usable interior markers still retain their authored tail. Animation
+frames and gameplay ticks are scaled separately. CE tag-bank resolution also
+accepts valid signed virtual bases. Full-disable remains separate and takes
+precedence. Native ammunition transfer and ownership guards remain in place.
+
+The supplied 5ba2c6d Steam/SteamVR log shows CE (3) and Reach (4) shortened-reload
+attempts all fell back, without access faults. It does not identify which guard
+rejected each attempt. The confirmed missing-marker rejection is corrected;
+new rejection-stage logging distinguishes any remaining cause. All-title native
+fixtures and unique binding checks verify this candidate locally. Actual final
+motion, including whether each weapon visibly cocks, still needs headset testing;
+the fallback selects a final section, not a guaranteed authored cocking marker.
+
+Flashlight fix: the previous default blocked RB, but support grip emits LB.
+The corrected default blocks that grip's button output without changing tracking
+or two-hand aiming. Unversioned default RB selections migrate to support grip;
+other custom selections are preserved. After saving, explicit RB selections also
+persist. Quest labels follow handedness and Reach's on-foot trigger/X swap.
+This uses the mod's known mapping; it does not auto-read custom MCC layouts.
+Menus remain usable and held blocked buttons still drain on release.
+
+Held-magazine fix: unrelated trigger/button input and the old four-second timeout
+no longer drop a magazine while grip remains held. An active claimed grip also
+prevents thumb-rest D-pad takeover. Release/insertion still respects native input
+and safety checks; actual weapon changes, tracking loss and menu transitions
+cancel as before. The second 5ba2c6d log shows Halo2 BR/SMG, five grabs and one
+reload request, but does not identify the precise cancellation cause. These
+verified cancellation paths are corrected; headset confirmation remains needed.
 
 One build supports Steam and Microsoft Store and all six Halo titles. Based on
 accepted Alpha 0.4.2 source `1a9766ca971a9e5f09b942d508abecd9753bdb35`.

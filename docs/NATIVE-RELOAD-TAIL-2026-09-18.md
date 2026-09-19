@@ -103,3 +103,35 @@ Retained RE output: `out/reload-policy/` files `h3-channel-seek`,
 `reach-tail-seek`, `reach-tail-native-seek`, `h4-kit-seek`, `h4-kit-apply`,
 `h4-tail-native-seek`, `h4-tail-context`, `ce-fp-play`, `ce-native-play`,
 `ce-start-match`, plus the previously retained native magazine state/update reads.
+
+## September 18 follow-up correction (supersedes marker-only fallback above)
+
+User supplied 5ba2c6d log: Steam, SteamVR/OpenXR 2.17.10, headset string
+SteamVR/OpenXR : oculus. CE retained0/fallback3; Reach retained0/fallback4;
+H4 had no captured reload attempts. No access faults. The old log cannot identify
+the rejecting guard, so these observations do not prove every runtime cause.
+
+Verified duration routines explain a definite rejection: H2 81c750 and Reach
+2b0dc4 mode3 use full frame count when the primary event is missing. Thus the
+magazine insertion timer equals total and TailTicks rejected it. CE also rejected
+zero/endpoint markers outright. Retain final quarter for those cases, using the
+actual selected animation length and proportional native countdown. Interior
+markers retain their original behavior. This is an explicit VR policy for a
+missing marker, not a claim that every final quarter is a cocking-only sequence.
+
+All six native paths audited: CE length+22; H2 descriptor+14 (79f310), H3/ODST
++10 (their own seek routines); Reach own remaining-frame getter210da8 at zero
+position, matched to HREK700740; H4 own channel-length getter2f94a4 matched to
+kit channel length/seek. Reach getter disassembly confirms initialized+1e,
+graph/index, own resource selection and length minus frame+24. Both new helper
+signatures are unique in pinned modules and included in generated proofs.
+CE bank translation matches existing ReadGraph and native signed-pointer
+subtraction; displacement range is checked before subtraction to avoid overflow.
+
+Fixtures execute production detours for each title, missing/zero/endpoint marker,
+full-duration primary countdown, differing frame/tick rates, native clamp and
+restore, stale ownership, duplicate receipts, one-tick durations, full-disable
+precedence and CE signed tag banks. New cold telemetry reports rejection-stage
+mask; hot paths only accumulate atomics. No runtime/headset acceptance claimed.
+
+Preserved user log SHA256: B6B8A2824FE44FC956FF299B05507CC42D89ABC7386DC675AFC18B473F4A4952.

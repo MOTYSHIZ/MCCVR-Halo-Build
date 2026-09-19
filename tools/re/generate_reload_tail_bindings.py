@@ -22,6 +22,7 @@ for module,functions,play,duration,globals_ in rows:
  path=Path('out/deps/re-tools/inputs')/module
  pe=pefile.PE(str(path));im=pe.get_memory_mapped_image();md=Cs(CS_ARCH_X86,CS_MODE_64);md.detail=True
  proofs=[]
+ length={'haloreach.dll':0x210da8,'halo4.dll':0x2f94a4}.get(module,0)
  for n,target in enumerate(globals_):
   if not target:proofs.append(0);continue
   start=play if n==0 else duration
@@ -35,8 +36,8 @@ for module,functions,play,duration,globals_ in rows:
    b=im[rva:rva+n]
    if im.count(b)==1:return '{0x%x,"%s"}'%(rva,b.hex(' ').upper())
   raise RuntimeError((module,rva,'not unique'))
- output.append('    {{{'+', '.join(binding(v) for v in functions+proofs)+'}}, {'+', '.join('0x%x'%v for v in globals_)+'}},')
- ledger.append(dict(module=module,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),functions=[hex(v) for v in functions],global_proofs=[hex(v) for v in proofs],globals=[hex(v) for v in globals_]))
+ output.append('    {{{'+', '.join(binding(v) for v in functions+proofs+[length])+'}}, {'+', '.join('0x%x'%v for v in globals_)+'}},')
+ ledger.append(dict(module=module,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),functions=[hex(v) for v in functions],global_proofs=[hex(v) for v in proofs],globals=[hex(v) for v in globals_],length_function=hex(length)))
 output.append('};')
 for path,content in [(Path('src/dll/native_reload_tail_bindings.generated.h'),'\n'.join(output)+'\n'),
                      (Path('docs/NATIVE-RELOAD-TAIL-BINDINGS-2026-09-18.json'),json.dumps(ledger,indent=2)+'\n')]:
