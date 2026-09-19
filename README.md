@@ -8,12 +8,20 @@ An independently maintained continuation of
 maintained here by **moistman42069**. Original contributor credit, history, and
 the MIT license are preserved.
 
-## Latest release: Alpha 0.4.2 — Quick Patch Update
+## Latest release: Alpha 0.5.0 — Experimental Refinement Update
 
-Alpha 0.4.2 refines optional experimental manual reload with automatic-reload
-suppression and reload/weapon-ready animation skipping. Weapon holsters and the
-controller menu pointer are retained. Every Halo: The Master Chief Collection campaign
-retains a playable VR path:
+Alpha 0.5.0 adds first-person vehicle cameras across the full campaign lineup,
+circular gun-side zoom in H2/H3/ODST/Reach/H4, independent H2/H3 dual-wield
+trajectories, all-title barrel-origin aiming, per-gun alignment, visual hand
+offsets, reload and magazine refinements, vehicle comfort controls, roomscale
+corrections, and several title-specific rendering and input fixes.
+
+> **Every new Alpha 0.5.0 feature is experimental.** Some additions may not
+> work as intended for every weapon, mission, vehicle, controller, headset or
+> runtime. They will be refined in future updates. Most are off by default and
+> fall back to the game's stock behavior when verification fails.
+
+Every Halo: The Master Chief Collection campaign retains a playable VR path:
 
 - Halo: Combat Evolved Anniversary — Original and Anniversary graphics
 - Halo 2: Anniversary — Classic and Anniversary graphics
@@ -26,7 +34,7 @@ The same build supports Steam and Microsoft Store / Xbox app. This remains an
 alpha: complete campaign coverage does not mean every feature,
 mission, transition, headset, or runtime combination is finished.
 
-Read the [complete Alpha 0.4.2 release notes](releases/0.4.2/RELEASE-NOTES.md)
+Read the [complete Alpha 0.5.0 release notes](releases/0.5.0/RELEASE-NOTES.md)
 for the detailed title-by-title breakdown, exact limits, planned work, and
 artifact hashes.
 
@@ -48,13 +56,13 @@ artifact hashes.
 
 ## Downloads
 
-- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.2/Halo-MCC-VR.zip)** — the mod for players.
-- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.2/Halo-MCC-VR-Source.zip) — complete source and build instructions for developers.
-- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.4.2) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.4.2/SHA256.txt)
+- **[Download Halo-MCC-VR.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.5.0/Halo-MCC-VR.zip)** — the mod for players.
+- [Halo-MCC-VR-Source.zip](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.5.0/Halo-MCC-VR-Source.zip) — exact matching source and build instructions for developers.
+- [Release page](https://github.com/moistman42069/MCCVR-Halo-Build/releases/tag/MCC_VR_ALPHA_0.5.0) · [SHA-256 checksums](https://github.com/moistman42069/MCCVR-Halo-Build/releases/download/MCC_VR_ALPHA_0.5.0/SHA256.txt)
 
 The player ZIP contains only the DLL, launcher, default config, and `README.txt`,
 all at the ZIP root. Existing users should **keep their own config**.
-The published runtime is the exact tested **1a9766c** build, without recompiling.
+The published runtime is the exact locally verified **d088171** build, without recompiling.
 The release tag and matching source ZIP point to that same runtime source.
 
 ## Quick controller reference
@@ -83,16 +91,30 @@ native aim can keep up with the controller reticle.
 
 ## Major features
 
-### New in Alpha 0.4.2 — manual reload refinements
+### New in Alpha 0.5.0 — experimental refinements
 
-Two independent options are now available under **F1 > Weapon & Aim > Manual Reload**, across CE, Halo 2, Halo 3, ODST, Reach and Halo 4, including both CE/H2 graphics modes:
+- **First-person vehicles:** the existing toggle now covers CE Original/
+  Anniversary, H2 Classic/Anniversary, H3, ODST, Reach and H4. New CE/H2/H4
+  views use verified native seated cameras and head markers.
+- **Circular zoom:** an optional 1024 × 1024 weapon-side lens in H2, H3, ODST,
+  Reach and H4, with per-frame refresh and handed placement. CE retains native
+  zoom while its separate-lens path remains unfinished.
+- **Dual and barrel aiming:** independent dual-wield trajectories in H2/H3 and
+  an optional verified muzzle-origin mode across all six games.
+- **Alignment:** optional per-gun saved offsets plus independent visual-only
+  left/right hand-position sliders.
+- **Reload refinements:** a separate shortened-animation option, stable held
+  magazines, model/pose-based insertion points, textured parts, Promethean
+  fallback tokens, and haptics on both grab and insertion/release.
+- **Input fixes:** menu-pointer A selection, support-grip-aware flashlight
+  suppression with Quest labels, and corrected ODST controller-aim admission.
+- **Comfort and vehicles:** improved roomscale stopping, audited vehicle input,
+  and optional automatic smooth turning while seated.
+- **Rendering:** an optional CE Anniversary flare suppressor and a Reach
+  second-eye foliage-wind correction.
 
-- **Disable automatic reload:** prevents the native empty-trigger automatic reload so you can use manual reload gestures. Normal reload buttons remain available.
-- **Skip reload and weapon-ready animations:** skips the identified first-person reload/equip playback and shortens native reload waits, allowing magazine insertion to complete promptly through the game's own ammo handling.
-
-Both options are **off by default** and require **Manual Reload** to be enabled. Enable either or both; keep your existing config when updating. Halo still owns ammo eligibility, reserves and inventory. Custom weapon delays can remain; this does not promise zero delay for every weapon. If an optional feature cannot be verified, that feature stays stock and logs the fallback while VR continues.
-
-All previous manual reload, Needler shake, holster, menu pointer, campaign and edition support is retained.
+These additions are off by default where practical and remain experimental.
+See the release notes for precise title coverage and unresolved limits.
 
 ### Retained from Alpha 0.4.1 (experimental)
 
@@ -150,7 +172,7 @@ The smaller interaction adjustments are available alongside these mappings:
 | Feature | Available controls |
 | --- | --- |
 | Manual reload | Independent enable toggle; **Magazine grab radius** 8–40 cm; **Magazine insertion radius** 6–30 cm |
-| Reload behavior | Independent **Disable automatic reload** and **Skip reload and weapon-ready animations** options; both default off and require Manual Reload |
+| Reload behavior | Independent **Disable automatic reload**, **Shortened reload animation**, and full **Disable reload animation** options; all default off and require Manual Reload |
 | Unfamiliar weapons | **Generic reload item for unknown weapons** toggle; uses a blue interaction item for valid unfamiliar models, without claiming a custom magazine mesh or ammo-type detection |
 | Needle weapons | **Shake to reload needle weapons** toggle and **Minimum shake stroke** 6–20 cm; one rapid gun-hand out-and-back, no grip required, then let the hand settle |
 | Holster placement | **Weapon-side shoulder** or **Weapon-side hip**, plus **Holster grab radius** 8–40 cm |
@@ -189,7 +211,8 @@ Reload/holster gestures mirror for left-handed play and give a short vibration o
   placement controls, scopes where currently supported, and F1 configuration.
 - Halo CE Original and Anniversary rendering, native HUD/reticles, muzzle
   effects, gameplay graphics switching, contact, and physical melee.
-- First-person vehicles in Halo 3, ODST, and Reach, with per-seat adjustment.
+- First-person vehicles in every campaign, with established per-seat adjustment
+  in Halo 3, ODST and Reach and universal trims in CE, Halo 2 and Halo 4.
 - Room-fixed 3D cutscene theater where supported.
 - Separate world-contact, true physical-melee, and gesture-melee controls.
 - Experimental roomscale body translation for H2, H3, ODST, Reach, and H4.
@@ -203,12 +226,12 @@ Reload/holster gestures mirror for left-handed play and give a short vibration o
 
 | Campaign | Current VR coverage | Notable limits |
 | --- | --- | --- |
-| Halo CE | Original/Anniversary stereo and 6DOF, hands, weapons, aim, native HUD/reticles, muzzle effects, gameplay graphics switching, both-controller haptics, contact/melee, controller-directed vehicle steering/aiming and seated crosshairs | New vehicle controls cover normal following-camera seats; broader seat/custom-vehicle coverage remains open; do not switch graphics during cinematics; body-following is deferred; exact custom/replacement mesh contact is not guaranteed |
-| Halo 2 | Classic/Anniversary stereo and 6DOF, hands/weapons, controller aim, native HUD/reticle handling, contact/melee, snap turn and handedness | HUD presentation/control parity and first-person vehicles remain unfinished; independent secondary-gun trajectory is unfinished |
-| Halo 3 | Mature stereo/6DOF path, articulated arms/hands, native HUD/reticle, scopes, cutscenes, vehicles, contact/melee and comfort controls | Independent dual-fire remains disabled; some visibility/calibration work remains |
+| Halo CE | Original/Anniversary stereo and 6DOF, hands, weapons, aim, native HUD/reticles, muzzle effects, graphics switching, haptics, contact/melee, controller-directed vehicles, seated crosshairs and experimental first-person vehicles | Separate circular lens and body-following remain unavailable; new vehicle views need broad seat/clipping tests; do not switch graphics during cinematics |
+| Halo 2 | Classic/Anniversary stereo and 6DOF, hands/weapons, controller aim, native HUD/reticle handling, circular zoom, optional independent dual aim, contact/melee, handedness and experimental first-person vehicles | HUD parity, unusual seats, lower-edge visibility and broad first-person vehicle testing remain open |
+| Halo 3 | Mature stereo/6DOF path, articulated arms/hands, native HUD/reticle, circular scopes, cutscenes, vehicles, optional independent dual aim, contact/melee and comfort controls | Some visibility, calibration and broad dual-weapon coverage remain open |
 | ODST | Stereo/6DOF, hands/weapons, HUD/reticle, cutscenes, vehicles, contact/melee and recovery | First captioned opening scene can be black; broader vehicle/co-op coverage is open |
 | Reach | Stereo/6DOF, hands/weapons, HUD/reticle, cutscenes, vehicles, contact/melee and native HUD height | HUD curvature is unavailable; passenger hands and some effects/clarity reports remain open |
-| Halo 4 | Stereo/6DOF, hands/weapons, HUD/reticle controls, cutscenes, contact/melee, handedness and comfort | Floating hands rather than full arm IK; first-person vehicles are unfinished; reported damage blackout is deferred |
+| Halo 4 | Stereo/6DOF, hands/weapons, HUD/reticle controls, circular zoom, cutscenes, contact/melee, handedness, comfort and experimental first-person vehicles | Floating hands rather than full arm IK; new vehicle views need broad testing; reported damage blackout is deferred |
 
 ## Fresh installation
 
@@ -268,16 +291,17 @@ lost OpenXR session.
 - Campaign-to-campaign switching can occasionally crash or require a full MCC
   restart before the destination enters VR.
 - Halo CE graphics switching is unavailable during cinematics.
-- Independent dual-wield bullet trajectories are unfinished; H3's failed
-  experimental dual-fire hooks remain disabled.
-- H2/H4 first-person vehicles, complete all-title weapon-side zoom windows, and
-  several scope/HUD parity items remain unfinished.
+- New Alpha 0.5.0 features remain experimental and may need weapon-, seat-,
+  title-, controller-, headset- or runtime-specific refinement.
+- CE's separate circular scope lens remains unfinished; CE retains native zoom.
+- Independent dual-wield trajectories are limited to H2 and H3.
+- CE/H2/H4 first-person vehicle views need broader seat, clipping and comfort
+  testing; per-seat preset banks remain H3/ODST/Reach only.
 - Sustained/sliding contact, arbitrary modded weapon geometry, fully unarmed
   damage, secondary-weapon damage selection, and some world-object targets need
   further work and testing.
-- Per-title/per-weapon automatic alignment profiles, gun-stock calibration,
-  independent native body-yaw following, and CE roomscale body translation are
-  planned refinements.
+- Gun-stock calibration, independent native body-yaw following, and CE
+  roomscale body translation remain planned refinements.
 - Microsoft Store can appear frozen for several seconds on first load. Wait
   before assuming it crashed.
 - If performance locks to half refresh, lower `resolution_scale` and disable
