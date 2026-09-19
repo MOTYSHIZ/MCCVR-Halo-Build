@@ -1278,6 +1278,13 @@ try {
             bindings = 'docs/NATIVE-RELOAD-BINDINGS-2026-09-16.json'
             headset_accepted = $false
         }
+        vehicle_first_person = [ordered]@{
+            evidence = 'docs/NATIVE-VEHICLE-FIRST-PERSON-2026-09-19.md'
+            added_titles = @('Halo CE Classic/Anniversary', 'Halo 2 Classic/Anniversary', 'Halo 4')
+            existing_toggle = 'vehicle_first_person'
+            anchor = 'verified local seated head marker with universal trims'
+            headset_accepted = $false
+        }
         refinement_audit = [ordered]@{ evidence = 'docs/REFINEMENT-WORK-2026-09-18.md'; full_requested_scope_complete = $false; headset_accepted = $false }
         circular_zoom = [ordered]@{
             implemented_titles = 'H2-Classic-Anniversary; H3; ODST; Reach; H4'

@@ -1,4 +1,22 @@
-# September 18 cumulative refinement candidate
+# September 19 cumulative vehicle-camera candidate
+
+## First-person vehicles follow-up
+
+Added CE (Classic/Anniversary), Halo 2 (Classic/Anniversary) and Halo 4 adapters
+to the existing **Sit in the seat (first person)** toggle. These select the
+native first-person camera and position it at the local seated character's
+verified head marker. Universal position sliders apply; per-seat preset banks
+remain H3/ODST/Reach only. Toggle-off returns native camera selection. Native
+entry/exit transitions and special cameras remain intact. Missing bindings or
+head markers leave this optional feature native, with worker diagnostics.
+
+CE steering and reticle guards now accept a first-person occupied seat. Existing
+Halo 3, ODST and Reach camera paths and all preceding fixes are preserved.
+The new views need headset testing, including body/weapon visibility, cockpit
+clipping and animated-head comfort. The new titles do not yet have separately
+ported authored anchors, body-hide or personal-weapon overrides. This is a
+camera implementation candidate, not confirmation that every vehicle is finished.
+See NATIVE-VEHICLE-FIRST-PERSON-2026-09-19.md in the matching source ZIP.
 
 ## Menu cursor, shortened reload flashlight and held-magazine follow-up
 

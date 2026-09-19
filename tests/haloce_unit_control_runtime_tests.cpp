@@ -336,6 +336,11 @@ int main()
     const auto reticleNativeCalls=nativeCalls;
     Check(HaloCEUnitControl_VehicleAimCurrent(localPlayer,gameplay)&&!callbacks.load()&&
         nativeCalls==reticleNativeCalls,"vehicle crosshair reads the steering owner without submitting another control packet");
+    Reset();Seated();localPlayer.nativePerspective=0;
+    Check(HaloCEUnitControl_VehicleAimCurrent(localPlayer,gameplay),"first-person seated camera retains vehicle reticle ownership");
+    UnitControlBody(localPlayer.unit,&packet,47,moduleBase+0xad0d5b);
+    Check(consumedPointer!=&packet&&Near(ReadUnitControl<Vec3>(consumed,0x28),{1,0,0}),
+        "first-person seated camera retains vehicle steering");
     for (unsigned reason=0;reason<32;++reason)
     {
         Reset();Seated();uint32_t unit=localPlayer.unit;uintptr_t caller=moduleBase+0xad0d5b;
@@ -348,7 +353,7 @@ int main()
         case 10:title=GameTitle::Halo3;break;case 11:localPlayer.onFoot=true;break;
         case 12:localPlayer.nativePaused=true;break;case 13:localPlayer.nativeCinematicFlag=true;break;
         case 14:localPlayer.nativeInputBlocked=true;break;case 15:localPlayer.nativeLookBlocked=true;break;
-        case 16:localPlayer.nativePerspective=0;break;case 17:mutateOwner=true;break;
+        case 16:localPlayer.nativePerspective=2;break;case 17:mutateOwner=true;break;
         case 18:mutateReference=true;break;case 19:mutateVehicleParent=true;break;
         case 20:mutateVehicleSeat=true;break;case 21:mutateVehicleMode=true;break;
         case 22:vehicleParentOkay=false;break;case 23:vehicleUnitOkay=false;break;

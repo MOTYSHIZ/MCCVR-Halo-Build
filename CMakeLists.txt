@@ -266,6 +266,7 @@ add_library(halo3xr SHARED
     src/dll/vr.cpp
     src/dll/weapon_accessory_renderer.cpp
     src/dll/native_reload_policy.cpp
+    src/dll/native_vehicle_first_person.cpp
     src/dll/menu.cpp
     src/dll/native_menu_pointer.cpp
     src/dll/sigscan.cpp
@@ -444,6 +445,10 @@ if(BUILD_TESTING)
     add_test(NAME halomccvr_dpad_input_tests COMMAND halomccvr_dpad_input_tests)
     add_executable(halomccvr_weapon_interaction_tests tests/weapon_interaction_tests.cpp)
     add_executable(halomccvr_native_reload_tests tests/native_reload_policy_tests.cpp src/common/config.cpp)
+    add_executable(halomccvr_native_vehicle_fp_tests tests/native_vehicle_first_person_tests.cpp src/common/config.cpp)
+    target_include_directories(halomccvr_native_vehicle_fp_tests PRIVATE "${minhook_SOURCE_DIR}/include")
+    target_compile_definitions(halomccvr_native_vehicle_fp_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_native_vehicle_fp_tests COMMAND halomccvr_native_vehicle_fp_tests)
     add_executable(halomccvr_odst_seat_lifetime_tests tests/odst_seat_lifetime_tests.cpp)
     target_compile_definitions(halomccvr_odst_seat_lifetime_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_odst_seat_lifetime_tests COMMAND halomccvr_odst_seat_lifetime_tests)

@@ -1,4 +1,5 @@
 #include "haloce_controls.h"
+#include "native_vehicle_first_person.h"
 #include "haloce_stereo_core.h"
 #include "haloce_native_bindings.h"
 #include "hook_quiescence.h"
@@ -150,7 +151,7 @@ bool VehicleTurnFrame(const HaloCELocalPlayerState& state,const RenderContext& c
         !context.tracking.controllers.vehicleMotion||!context.tracking.controllers.padValid||
         context.tracking.controllers.controlsPresentationBlocked||
         state.generation!=context.tracking.generation||!state.hasControlledUnit||state.onFoot||
-        state.nativePerspective!=1||state.parent==UINT32_MAX||!(state.parent>>16)||
+        (state.nativePerspective!=0&&state.nativePerspective!=1)||state.parent==UINT32_MAX||!(state.parent>>16)||
         state.nativeInputBlocked||state.nativeLookBlocked||state.nativePaused||state.nativeCinematicFlag)
         return false;
     __try
@@ -344,6 +345,24 @@ bool HaloCEControls_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) 
 }
 bool HaloCEControls_GetLocalPlayerState(HaloCELocalPlayerState& state) noexcept
 { Callback callback;return ReadLocalPlayerState(state); }
+static bool ReadVehicleCameraOwnerBody(NativeVehicleCameraOwner& owner) noexcept
+{
+    HaloCELocalPlayerState state{};
+    if (!vehicleViewReady.load(std::memory_order_acquire)||!ReadLocalPlayerState(state)||
+        !state.hasControlledUnit||state.onFoot||state.nativeInputBlocked||state.nativeLookBlocked||
+        state.nativePaused||state.nativeCinematicFlag||
+        (state.nativePerspective!=0&&state.nativePerspective!=1)) return false;
+    __try {
+        const auto get=reinterpret_cast<ObjectGetFn>(moduleBase+contract::player_state::state_object_try_get);
+        const uintptr_t unit=get(state.unit,1),parent=get(state.parent,2);
+        if (!unit||!parent||*reinterpret_cast<const uint32_t*>(unit+0xd8)!=state.parent) return false;
+        const auto seat=*reinterpret_cast<const int16_t*>(unit+0x2d0);
+        if (seat<0||!StateCurrent()||state.generation!=generation.load(std::memory_order_acquire)) return false;
+        owner={state.generation,state.unit,state.parent,seat,unit};return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+bool HaloCEControls_ReadVehicleCameraOwner(NativeVehicleCameraOwner& owner) noexcept
+{ Callback callback;return ReadVehicleCameraOwnerBody(owner); }
 bool HaloCEControls_GetNativePaused(bool& paused) noexcept
 { Callback callback;return ReadNativePaused(paused); }
 bool HaloCEControls_OwnsLookStick() noexcept

@@ -1,6 +1,7 @@
 #include "contact_melee_queue.h"
 #include "../common/reach_wind_replay.h"
 #include "native_reload_policy.h"
+#include "native_vehicle_first_person.h"
 #include "haloce_native_bindings.h"
 #include "../common/weapon_model_catalog.h"
 #include "../common/weapon_muzzle.h"
@@ -41247,6 +41248,7 @@ namespace
             RefreshGestureMeleeBinding(activeTitle,activeLevelRunning,pollNow);
             VR_ReportWeaponInteractions(pollNow);
             NativeReloadPolicy_Poll();
+            NativeVehicleFirstPerson_Poll();
             {
                 uintptr_t ceBase=0; size_t ceSize=0;
                 const bool ceActive=activeTitle&&activeTitle->title==GameTitle::HaloCE&&
@@ -45872,6 +45874,32 @@ bool WaitForNativeDetourQuiescence(const void* const* functions,
         Sleep(1);
     }
     return false;
+}
+
+bool Game_ReadVehicleCameraOwner(GameTitle title,NativeVehicleCameraOwner& owner) noexcept
+{
+    if (title!=TitleAdapter_GetActiveTitle()||!Game_IsHeadTracking()||!VR_IsStereoEnabled()||
+        Menu_IsOpen()||VR_IsPausePresentation()||VR_IsPausePresentationTarget()||
+        VR_IsCutsceneTheaterActive()||TitleAdapter_GetRuntimeMode()!=RuntimeMode::Gameplay) return false;
+    if (title==GameTitle::HaloCE) return HaloCEControls_ReadVehicleCameraOwner(owner);
+    if (title==GameTitle::Halo2) return Halo2Observer6Dof_ReadVehicleCameraOwner(owner);
+    if (title!=GameTitle::Halo4) return false;
+    __try {
+        Halo4VehicleInputState seat{};
+        if (!Halo4ReadVehicleInput(seat)||!seat.seated) return false;
+        const auto** slots=reinterpret_cast<const uint8_t**>(__readgsqword(0x58));
+        const auto* tls=slots?slots[*g_halo4EngineTlsIndex]:nullptr;
+        if (!tls) return false;
+        const auto* table=Halo4VehicleRead<const uint8_t*>(tls,0x18);
+        const auto* unit=Halo4VehicleObject(table,seat.unit,1);
+        const auto* parent=Halo4VehicleObject(table,seat.parent,2);
+        // H4's selector can also force chase for the unit+664 special state.
+        if (!unit||!parent||Halo4VehicleRead<int32_t>(unit,0x664)!=-1||
+            Halo4VehicleRead<uint32_t>(unit,0x24)!=seat.parent||
+            Halo4VehicleRead<int16_t>(unit,0x2c)!=seat.seat) return false;
+        owner={TitleAdapter_GetGeneration(title),seat.unit,seat.parent,seat.seat,
+            reinterpret_cast<uintptr_t>(unit)};return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 // Called on the title's native weapon/action thread (engine TLS is valid here).

@@ -822,6 +822,8 @@ namespace
         ImGui::Text("First-person vehicle camera");
         changed |= ImGui::Checkbox("Sit in the seat (first person)",
                                    &g_config.vehicle_first_person);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("All six games. CE, Halo 2 and Halo 4 use the seated character's head position.\n"
+                "Those three games use the universal position sliders; individual seat presets remain available in Halo 3, ODST and Reach.");
         ImGui::TextDisabled(
             "OFF restores the stock behind-the-vehicle view instantly.");
         ImGui::Spacing();

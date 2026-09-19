@@ -68,7 +68,7 @@ bool VehicleOwner(uint32_t unit,HaloCELocalPlayerState& state,RenderContext& con
         !HaloCEControls_GetLocalPlayerState(state)||!HaloCE_GetGameplayContext(context)||
         unit==0xffffffffu||unit!=state.unit||state.player==0xffffffffu||
         !state.hasControlledUnit||state.onFoot||state.parent==0xffffffffu||!(state.parent>>16)||
-        state.nativePerspective!=1||state.inputUser<0||state.inputUser>=4||
+        (state.nativePerspective!=0&&state.nativePerspective!=1)||state.inputUser<0||state.inputUser>=4||
         state.nativeInputBlocked||state.nativeLookBlocked||state.nativePaused||state.nativeCinematicFlag||
         !context.tracking.controllers.padValid||context.tracking.controllers.controlsPresentationBlocked||
         state.generation!=generation.load(std::memory_order_acquire)||
@@ -122,6 +122,7 @@ void UnitControlBody(uint32_t unit,const UnitControlPacket* source,int32_t clien
             VehicleOwner(unit,latest,latestContext,latestSeat)&&
             state.player==latest.player&&state.inputUser==latest.inputUser&&state.unit==latest.unit&&
             state.parent==latest.parent&&seat==latestSeat&&
+            state.nativePerspective==latest.nativePerspective&&
             context.referenceRevision==latestContext.referenceRevision&&
             context.rendererEpoch==latestContext.rendererEpoch&&
             context.tracking.spaceEpoch==latestContext.tracking.spaceEpoch&&
@@ -343,9 +344,11 @@ bool HaloCEUnitControl_VehicleAimCurrent(const HaloCELocalPlayerState& player,
             VehicleOwner(player.unit,latest,latestFrame,latestSeat)&&
             player.generation==current.generation&&player.player==current.player&&
             player.inputUser==current.inputUser&&player.parent==current.parent&&
-            !player.onFoot&&player.nativePerspective==1&&
+            !player.onFoot&&(player.nativePerspective==0||player.nativePerspective==1)&&
             current.player==latest.player&&current.inputUser==latest.inputUser&&
             current.parent==latest.parent&&seat==latestSeat&&
+            player.nativePerspective==current.nativePerspective&&
+            current.nativePerspective==latest.nativePerspective&&
             context.tracking.generation==frame.tracking.generation&&
             context.referenceRevision==frame.referenceRevision&&
             context.rendererEpoch==frame.rendererEpoch&&

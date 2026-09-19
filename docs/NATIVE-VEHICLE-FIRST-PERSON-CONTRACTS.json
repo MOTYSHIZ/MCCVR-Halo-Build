@@ -1,0 +1,74 @@
+[
+  {
+    "title": "HaloCE",
+    "module": "halo1.dll",
+    "marker_rva": "0xb37178",
+    "sha256": "0a12dc561780f449d3f4d0df10bb8d3bc7be7840a5beb2b236f672eb6cd42e6c",
+    "bindings": [
+      {
+        "rva": "0xb14f70",
+        "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 54 41 55 41 56 41 57 48 83 EC 20 45 33 E4 44"
+      },
+      {
+        "rva": "0xc523c4",
+        "signature": "48 8B C4 48 89 58 08 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D 68 A1 48 81 EC D0"
+      },
+      {
+        "rva": "0xb37178",
+        "signature": "40 53 55 56 57 41 54 41 56 41 57 48 81 EC 60 0D 00 00 48 8B 05 7F DE 03"
+      },
+      {
+        "rva": "0xb04d00",
+        "signature": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 81 EC A0 00 00 00 4C 8B 0D 26 D5"
+      }
+    ]
+  },
+  {
+    "title": "Halo2",
+    "module": "halo2.dll",
+    "marker_rva": "0x8d6570",
+    "sha256": "de65b4f4fdbf3f0a5eab7431fe530da17dd815599182dfd6ae9b7e21cf171946",
+    "bindings": [
+      {
+        "rva": "0x6d4c50",
+        "signature": "48 89 5C 24 18 55 56 57 41 55 41 56 48 83 EC 20 33 DB 44 8B F1 48 8B FA"
+      },
+      {
+        "rva": "0x77dc50",
+        "signature": "48 89 5C 24 18 48 89 6C 24 20 56 57 41 56 48 81 EC E0 00 00 00 33 DB 8B"
+      },
+      {
+        "rva": "0x8d657e",
+        "signature": "E8 1D AC FF FF 48 83 C4 38 C3 CC CC CC CC CC CC CC CC 40 53 48 83 EC 20"
+      },
+      {
+        "rva": "0x8d11a0",
+        "signature": "48 89 5C 24 10 66 44 89 4C 24 20 55 56 57 41 55 41 56 48 83 EC 60 33 F6"
+      }
+    ]
+  },
+  {
+    "title": "Halo4",
+    "module": "halo4.dll",
+    "marker_rva": "0x5d5b74",
+    "sha256": "7c53e7d5bc9848545a1b70e2768242479336fba1b7630d7ab955f7fd0c34fa84",
+    "bindings": [
+      {
+        "rva": "0x10d268",
+        "signature": "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 55 41 56 41 57 48 83 EC 20 33 DB 8B F1"
+      },
+      {
+        "rva": "0x125190",
+        "signature": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 C0 48 81 EC 40 01 00 00 48 8B 05 5D"
+      },
+      {
+        "rva": "0x5d5bb5",
+        "signature": "E8 D6 FD FF FF 8B D8 41 BD 01 00 00 00 83 FB FF 0F 84 AC 01 00 00 8B 15"
+      },
+      {
+        "rva": "0x5f8a1c",
+        "signature": "48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9 48 81 EC E0 00 00 00 44 8B 05 D9"
+      }
+    ]
+  }
+]

@@ -1,3 +1,24 @@
+## September 18 latest request: missing first-person vehicles, then ZIPs
+
+User requests first-person vehicles in every title lacking them, using existing
+vehicle_first_person toggle, then matching build/source ZIPs. Preserve H3/ODST/
+Reach existing paths. Source audit finds CE/H2/H4 missing seat-camera ownership;
+Implemented separate optional native selectors + final FP camera position
+adapters for CE/H2/H4 using each title's own verified head marker and the existing
+toggle. Universal trims supported; per-seat banks/body-hide/personal-weapon
+refinements not ported. See NATIVE-VEHICLE-FIRST-PERSON-2026-09-19.md. CE seated
+steering/reticle admission accepts FP and following with coherent perspective.
+Release build, all 59 CTest suites (516 new production-camera checks),
+24 pinned signature checks and Reach gate pass. Next: commit and package without
+-Install, verify both ZIPs and exact source tree, deliver for headset testing.
+No headset acceptance claimed.
+Previous 00a78ad combined menu/reload/flashlight/magazine candidate delivered;
+58 tests/gate passed and ZIP/source verification receipt is
+out/refinement-20260918/FOLLOWUP-DELIVERY-VERIFIED.json. CE circular zoom explicitly
+withdrawn by user; remains unfinished. No install, launch, PR or accepted pointer
+update. Target behavior: occupied-seat view, independent HMD, toggle-off stock
+chase, safe driver/passenger/gunner entry/exit and generation checks.
+
 ## Menu cursor, shortened reload and flashlight follow-up
 
 Latest user requests A-only menu confirmation plus a correction to shortened

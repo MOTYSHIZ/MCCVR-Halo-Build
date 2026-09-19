@@ -15,6 +15,7 @@
 #include "../common/minhook_lifecycle.h"
 #include "../common/manual_vr_recovery_logic.h"
 #include "halo2_observer_6dof.h"
+#include "native_vehicle_first_person.h"
 
 #include <windows.h>
 
@@ -5979,6 +5980,20 @@ bool Halo2Observer6Dof_BuildScopeCamera(Halo2CameraBasis& camera) noexcept
     if(!ComputeScopeCameraPose(basis,p.stock.position,direction,pose))return false;
     camera=p.stock;memcpy(camera.position,pose.position,12);memcpy(camera.forward,pose.forward,12);
     memcpy(camera.up,pose.up,12);return Halo2ValidateCameraBasis(camera);
+}
+
+bool Halo2Observer6Dof_ReadVehicleCameraOwner(NativeVehicleCameraOwner& owner) noexcept
+{
+    if (!Halo2Observer6Dof_Armed()) return false;
+    __try {
+        Halo2VehicleViewKey key{};Halo2CameraBasis hull{};
+        key.generation=g_generation.load(std::memory_order_acquire);
+        if (!ReadVehicleViewFrame(key,hull)) return false;
+        const auto* object=Halo2ObjectFromIndex(key.unit);
+        if (!object||Halo2OwnedUnit()!=key.unit||!Halo2Observer6Dof_Armed()) return false;
+        owner={key.generation,key.unit,key.parent,key.seat,reinterpret_cast<uintptr_t>(object)};
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 bool Halo2Observer6Dof_ReadPacketBuildCamera(
     bool anniversary, Halo2CameraBasis& out) noexcept
