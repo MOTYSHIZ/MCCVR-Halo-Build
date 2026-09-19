@@ -10,6 +10,7 @@
 #include "vr.h"
 #include "menu.h"
 #include "title_adapter.h"
+#include "reach_aim_provider.h"
 #include "../common/log.h"
 #include "../common/config.h"
 #include "../common/halo2_render_logic.h"
@@ -415,6 +416,11 @@ namespace
         // stick through (classic stick aiming, and it does nothing in menus).
         // While VR aim is active the turn stick is consumed by the snap/smooth
         // logic in game.cpp instead.
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+        // Experimental: run the per-game aim provider in OBSERVE mode (logs only; does not steer).
+        if (g_config.aim_provider && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+            ReachAimProvider_ObserveTick();
+#endif
         float rx = 0, ry = 0;
         if (Game_ComputeAimStick(rx, ry))
         {

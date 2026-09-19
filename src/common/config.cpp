@@ -773,6 +773,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "hide_hud")) { g_config.hide_hud=atoi(val)!=0; continue; }
         if (!strcmp(key, "independent_dual_aim")) { g_config.independent_dual_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "gun_barrel_aim")) { g_config.gun_barrel_aim=atoi(val)!=0; continue; }
+        if (!strcmp(key, "aim_provider")) { g_config.aim_provider=atoi(val); continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;

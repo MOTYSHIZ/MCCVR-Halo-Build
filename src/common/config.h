@@ -559,6 +559,11 @@ struct Config
     bool independent_dual_aim = false;
     bool gun_barrel_aim = false;
 
+    // EXPERIMENTAL (dev): route this title's aim through the game-agnostic aim-solve core + per-game
+    // provider (src/common/aim_solve_logic.h, aim_provider.h). 0 = off (shipped path untouched).
+    // Currently a Reach OBSERVE scaffold -- logs what the provider would drive; does not steer.
+    int aim_provider = 0;
+
     // rendering. The game's own HUD reticle sits at head-center and is wrong
     // whenever hand aim is on; this one is the truth.
     bool crosshair = true;
