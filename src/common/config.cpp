@@ -773,6 +773,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "hide_hud")) { g_config.hide_hud=atoi(val)!=0; continue; }
         if (!strcmp(key, "independent_dual_aim")) { g_config.independent_dual_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "gun_barrel_aim")) { g_config.gun_barrel_aim=atoi(val)!=0; continue; }
+        if (!strcmp(key, "honest_reticle_onfoot")) { g_config.honest_reticle_onfoot=atoi(val)!=0; continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -1020,8 +1021,6 @@ void ConfigLoad(const wchar_t* path)
             g_config.halo4_hands_mirrored = atoi(val) != 0;
         else if (!strcmp(key, "crosshair"))
             g_config.crosshair = atoi(val) != 0;
-        else if (!strcmp(key, "honest_reticle_onfoot"))
-            g_config.honest_reticle_onfoot = atoi(val) != 0;
         else if (!strcmp(key, "crosshair_distance_m"))
             g_config.crosshair_distance_m = (float)atof(val);
         else if (!strcmp(key, "crosshair_size_deg"))
