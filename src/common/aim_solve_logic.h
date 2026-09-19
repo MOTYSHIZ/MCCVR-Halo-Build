@@ -18,9 +18,10 @@
 // CONVERGENCE. A direction alone cannot express "hit that": a shot from origin C parallel to a
 // sightline from eye E is displaced by (E-C) at every range. Reconcile it, best-first: trace the
 // sightline to its impact and re-aim through it (origin cancels; below); relocate the shot origin
-// onto the sight ray at the firing site (engine hook, provider-owned); or re-aim through the reticle
-// at a fixed range (exact at one range only). The core owns the trace-and-reaim math and the
-// strategy choice; the provider owns the trace and the origin hook.
+// onto the sight ray at the firing site (engine hook, provider-owned); re-aim through the reticle at
+// a fixed range (exact at one range only); or write the direction and let native aim-assist converge.
+// The core owns the trace-and-reaim math and the strategy choice; the provider owns the trace and the
+// origin hook.
 //
 // Reference: the vr-game-conversion playbook (references/aim.md) and CampE's src/AimConverge.cpp,
 // from which the trace-and-reaim math below is ported.
@@ -40,37 +41,50 @@ struct AimCaps {
     // Convergence -- how the shot origin is reconciled with the sightline (best-first).
     bool has_sightline_trace   = false; // trace-and-reaim: range measured in the engine's own collision
     bool has_origin_relocation = false; // firing-site substitution: shot leaves the sight ray
+    bool has_fixed_range_reaim = false; // re-aim through the reticle at a fixed distance (one-range-exact)
+    // else the floor is DirectionOnly: write the direction, let the game's native aim-assist converge
 
     // Intent ray -- source of the aim direction.
     bool has_barrel_marker     = false; // aim from the authored muzzle bore, not the raw hand ray
 
-    // Consequence -- writing the aim moves the game camera, so view-keyed systems follow the HAND
-    // (audio, aim-culling, HUD projection, and arm IK). Flags that this title needs that handled.
+    // CONSEQUENCE, not a strategy input: writing the aim moves the game camera, so view-keyed systems
+    // (audio, aim-culling, HUD projection, arm IK) follow the HAND. The CORE DOES NOT CONSUME THIS --
+    // it is a note the provider/integration must act on; it is surfaced here so the fact travels with
+    // the caps rather than being rediscovered per title.
     bool camera_follows_aim    = false;
 };
 
-// The only two actuation FOUNDATIONS (rungs 3/4 -- synth input, mesh cosmetic -- are not foundations).
-enum class Actuation { WriteState, StickLoop };
-// Convergence strategies, best-first. FixedRange is the universal floor (any crosshair distance works).
-enum class Converge  { TraceReaim, OriginRelocation, FixedRange };
+// Actuation FOUNDATIONS. None = no writable state and no stick loop -> the caller must leave the
+// game's own aim alone (rungs 3/4, synth input / mesh cosmetic, are not foundations and not here).
+enum class Actuation { WriteState, StickLoop, None };
+// Convergence strategies, best-first. DirectionOnly is the universal floor (needs nothing but the
+// direction write plus the game's native aim-assist).
+enum class Converge  { TraceReaim, OriginRelocation, FixedRange, DirectionOnly };
 
 // Best-available with a guaranteed floor. The core branches on caps, never on the game.
 inline Actuation select_actuation(const AimCaps& c) {
-    return c.can_write_state ? Actuation::WriteState : Actuation::StickLoop;
+    if (c.can_write_state) return Actuation::WriteState;
+    if (c.has_stick_loop)  return Actuation::StickLoop;
+    return Actuation::None;
 }
 inline Converge select_converge(const AimCaps& c) {
     if (c.has_sightline_trace)   return Converge::TraceReaim;
     if (c.has_origin_relocation) return Converge::OriginRelocation;
-    return Converge::FixedRange;
+    if (c.has_fixed_range_reaim) return Converge::FixedRange;
+    return Converge::DirectionOnly;
 }
 
 // ---- pure geometry -------------------------------------------------------------------------------
 struct Vec3 { float x = 0.0f, y = 0.0f, z = 0.0f; };
 
-// Angle/vector convention (must match how the provider supplies `delta` and reads back yaw/pitch):
+// ANGLE/VECTOR CONVENTION -- a PRECONDITION, not a suggestion. The core works in the single basis:
 //   unit(yaw,pitch) = { cos(yaw)cos(pitch), sin(yaw)cos(pitch), sin(pitch) }   [yaw about +Z, x fwd]
-// The math is convention-agnostic as long as `delta` lives in this same basis; mapping the game's
-// own frame into it is the PROVIDER'S job, not the core's.
+// `delta` handed to converge_trace_reaim MUST live in this same basis, and the yaw/pitch read back
+// are in it. Mapping the game's own frame into and out of this basis is the PROVIDER'S job. A delta
+// supplied in a different frame produces a plausible-but-wrong correction that the magnitude rail
+// below cannot catch -- the classic frame error whose tell is a value near a right angle, not a bad
+// hand pose. Nothing pure can validate the caller's basis, so this contract is enforced by the
+// provider (and its unit test), not here.
 
 struct ConvergeRails {
     float min_divergence_cm  = 3.0f;   // below this eye-vs-origin offset: do NOTHING (leashed no-op)
@@ -92,11 +106,23 @@ inline float ema_alpha(float tau_ms, float dt_s) {
     return a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
 }
 
+// Recover (yaw,pitch) [degrees] from a direction in the core's basis. False on a degenerate vector.
+inline bool angles_from_dir(const Vec3& d, float& yaw_deg, float& pitch_deg) {
+    const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (!std::isfinite(len) || !(len > 1.0e-6f)) return false;
+    constexpr float R2D = 57.295779513082320f;
+    yaw_deg = std::atan2(d.y, d.x) * R2D;
+    float c = d.z / len;
+    if (c < -1.0f) c = -1.0f; else if (c > 1.0f) c = 1.0f;
+    pitch_deg = std::asin(c) * R2D;
+    return true;
+}
+
 // TRACE-AND-REAIM. Bend (yaw,pitch) [degrees] so a shot from the shot origin passes through the point
-// the sightline hits: aim = normalize(delta + range * sightline), delta = eye - shot_origin (cm, same
-// basis). The shot origin cancels, so nothing depends on two coordinate spaces agreeing. Returns
-// false and LEAVES THE ANGLES UNTOUCHED whenever the correction is not live or is implausible, so
-// every caller degrades to the uncorrected setpoint -- safe to apply unconditionally.
+// the sightline hits: aim = normalize(delta + range * sightline), delta = eye - shot_origin (cm, in
+// the basis above). The shot origin cancels, so nothing depends on two coordinate spaces agreeing.
+// Returns false and LEAVES THE ANGLES UNTOUCHED whenever the correction is not live or is implausible,
+// so every caller degrades to the uncorrected setpoint -- safe to apply unconditionally.
 inline bool converge_trace_reaim(float& yaw_deg, float& pitch_deg,
                                  const Vec3& delta, float range_cm, const ConvergeRails& r) {
     const float m2 = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
