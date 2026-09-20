@@ -97,6 +97,35 @@ on retail, **(3)** hook it and overwrite `desired_angles = {yaw,pitch}` from the
 host-follow to confirm replication. Offsets 0x94/0x98 transfer as-is. Method win: kit assert-string
 mining collapsed the multi-hop static writer trace into a direct by-name lookup.
 
+## UPDATE 2026-09-19 (late): retail mapping DONE (hook fn + player_control resolution)
+
+Mapped the HREK finding onto retail `haloreach.dll` (retail has asserts stripped, so anchored on the
+shared struct offsets + the build-invariant angle constants HREK uses -- 2pi `0x40C90FDB`, +-pi/2
+`0x3FC90FDB/BFC90FDB`, +-pi). Result:
+
+- **Retail control-update / hook function = `0x1E0834`** (in the retail player-control cluster
+  `0x1DE000-0x1E2000`, the analog of HREK's `0x1E7xxx`). It computes `desired_angles` from the input
+  context (arg1 = rcx) and writes them to the player_control (arg4 = r9): **`mov [r9+0x94], <yaw>` at
+  `0x1E0934`** and **`mov [r9+0x98], <pitch>` at `0x1E0C66`** (float bits via a GP `mov`, which is why
+  the movss-only scan missed it). 0 direct callers -> a registered top-level update (matches the name
+  `main_player_control_update`).
+- **player_control resolution is SOLVED by the hook itself: it arrives in `r9` (4th arg)** -- no need
+  to find `player_control_globals`. Retail confirms the shared layout: **player_control + 0x94 = desired
+  yaw, + 0x98 = desired pitch** (radians, world frame).
+- **Unique retail signature** (survives an RVA rot): `44 8b 51 08 41 83 cf ff 4d 8b f1 44 0f 28 c2 8b
+  da` -> matches once at fn+0x38 (`0x1E086C`); function start = match - 0x38. (The bare prologue is
+  NOT unique -- it collides with `0xC82A2`.)
+
+**Step 3 design (the build):** inline-hook `0x1E0834` (resolve via the AOB, guarded). In the detour,
+call the trampoline (native computes desired_angles from input), then when direct-drive is enabled +
+on foot + player_control valid, overwrite `[r9+0x94]=yaw`, `[r9+0x98]=pitch` with the VR aim. KEY
+simplification: `desired_angles` is stored as ANGLES, and `Game_ComputeAimStick` ALREADY computes the
+world `desiredYaw`/`desiredPitch` -- so we write those two scalars directly, with NO vector/frame
+convention to get wrong (unlike the failed unit-vector writes). This is upstream of both the aim-vector
+derivation AND replication, so it should drive aim and be multiplayer-correct. **Step 4:** co-op
+host-follow to confirm replication. Method note: kit angle-constants (build-invariant) are what mapped
+the kit function onto the stripped retail binary.
+
 ## What is already established (don't re-derive)
 
 - **Unit/player pointer path is fully resolved and guarded.** `playerUnitByOutputUser(0)` (native,
