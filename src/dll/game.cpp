@@ -24831,9 +24831,11 @@ namespace
         if (candOff <= 0x100 || candOff >= 0x2000) return;
         const float th = g_config.reach_dd_test_deg * 0.01745329f;
         const float ct = cosf(th), st = sinf(th);
+        static float s_lastWrite[3] = {0.0f, 0.0f, 0.0f};
+        static int s_haveLast = 0;
 
-        float cur[3]{}, des[3]{};
-        bool wrote = false;
+        float cur[3]{}, des[3]{}, back[3]{};
+        bool wrote = false, haveBack = false;
         int unit = -1;
         __try
         {
@@ -24848,6 +24850,11 @@ namespace
                     const float lc = sqrtf(cur[0]*cur[0] + cur[1]*cur[1] + cur[2]*cur[2]);
                     if (lc > 0.5f && lc < 1.5f)   // value-agreement: a real aim unit vector
                     {
+                        // Persistence readback: what does the write target hold NOW, i.e. after last
+                        // frame's game processing plus my last write? If it != my last write, the game
+                        // re-stamped it -> a derived output, not a write target.
+                        memcpy(back, d + static_cast<unsigned>(candOff), sizeof(back));
+                        haveBack = true;
                         if (mode == 1)
                         {
                             if (!s_active)
@@ -24876,28 +24883,35 @@ namespace
             return;
         }
 
+        // persistence: angle between what the field held at tick start and what I wrote last tick.
+        float persistErr = -1.0f;
+        if (haveBack && s_haveLast)
+        {
+            const float lb = sqrtf(back[0]*back[0] + back[1]*back[1] + back[2]*back[2]);
+            if (lb > 1e-3f)
+            {
+                float dp = (back[0]*s_lastWrite[0] + back[1]*s_lastWrite[1] + back[2]*s_lastWrite[2]) / lb;
+                dp = dp < -1.0f ? -1.0f : (dp > 1.0f ? 1.0f : dp);
+                persistErr = acosf(dp) * 57.29578f;
+            }
+        }
+        if (wrote) { s_lastWrite[0]=des[0]; s_lastWrite[1]=des[1]; s_lastWrite[2]=des[2]; s_haveLast=1; }
+
         const uint64_t now = GetTickCount64();
         if (now - s_logMs >= 1000)
         {
             s_logMs = now;
-            if (wrote && mode == 1)
+            if (wrote)
             {
-                const float dot = cur[0]*des[0] + cur[1]*des[1] + cur[2]*des[2];
-                const float c = dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot);
-                const float err = acosf(c) * 57.29578f;
-                LOG("REACHDIRECTDRIVE m1 off=0x%X swing=%ddeg tgt=(%.3f %.3f %.3f) cur0x214=(%.3f %.3f %.3f) err=%.2f %s",
-                    candOff, g_config.reach_dd_test_deg, des[0], des[1], des[2],
-                    cur[0], cur[1], cur[2], err,
-                    err < 5.0f ? "-> 0x214 converged (0x214 is what this write drives)"
-                               : "-> 0x214 did NOT converge (0x214 tracks the camera, not this write)");
+                const char* persistMsg =
+                    persistErr < 0.0f ? "persist=n/a" :
+                    persistErr < 5.0f ? "persist=HELD (my write survives -> writable; shot must read another field)"
+                                      : "persist=OVERWRITTEN (game re-stamps it each frame -> derived output, not a drive point)";
+                LOG("REACHDIRECTDRIVE m%d off=0x%X %ddeg wrote(%.3f %.3f %.3f) readback(%.3f %.3f %.3f) persistErr=%.2f cur0x214=(%.3f %.3f %.3f) %s",
+                    mode, candOff, g_config.reach_dd_test_deg, des[0], des[1], des[2],
+                    back[0], back[1], back[2], persistErr, cur[0], cur[1], cur[2], persistMsg);
             }
-            else if (wrote && mode == 2)
-            {
-                LOG("REACHDIRECTDRIVE m2 off=0x%X offset=%ddeg wrote(%.3f %.3f %.3f) from cur0x214=(%.3f %.3f %.3f) -- if 0x%X drives shots, bullets land %ddeg off your reticle",
-                    candOff, g_config.reach_dd_test_deg, des[0], des[1], des[2],
-                    cur[0], cur[1], cur[2], candOff, g_config.reach_dd_test_deg);
-            }
-            else if (!wrote)
+            else
             {
                 LOG("REACHDIRECTDRIVE off=0x%X: no write (no on-foot unit or aim not a unit vector)",
                     candOff);
