@@ -1491,6 +1491,12 @@ void ConfigSave()
     fprintf(f, "# motion-control reticle is ready. Set 0 for an emergency native fallback.\n");
     fprintf(f, "# (default %d)\n", d.kill_reticle ? 1 : 0);
     fprintf(f, "kill_reticle = %d\n\n", g_config.kill_reticle ? 1 : 0);
+    fprintf(f, "# EXPERIMENTAL / diagnostic, Halo Reach only. Routes aiming through the\n");
+    fprintf(f, "# game-agnostic aim-solve core instead of the built-in path. Right now\n");
+    fprintf(f, "# this is an OBSERVE scaffold: it only writes to the log what it WOULD\n");
+    fprintf(f, "# drive and does not change your aim. Leave it at 0. (default %d)\n",
+            d.aim_provider);
+    fprintf(f, "aim_provider = %d\n\n", g_config.aim_provider);
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  WEAPON CALIBRATION\n");
     fprintf(f, "#  Personal trims applied over the active title's verified base pose.\n");
