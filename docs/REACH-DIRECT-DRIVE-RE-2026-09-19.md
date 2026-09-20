@@ -45,6 +45,58 @@ replicates (a client write that the host/other clients see) or is only a local m
 re-stamps -- in which case the CE-style control-packet hook is the next RE. `can_write_state` stays
 false until that test passes.
 
+## UPDATE 2026-09-19 (evening): the unit aim vectors are DERIVED -- 0x208 write DISPROVEN
+
+Built a guarded write test (`reach_direct_drive`, default 0) and ran it in-headset. Result:
+**writing `unit+0x208` does NOT drive aim or the shot.** A per-tick persistence readback settled the
+mechanism: the field reads back each frame equal to the current aim (`unit+0x214`), NOT the value I
+wrote the previous tick -- `persistErr ~= 44-47deg` every frame (the exact 45deg offset I wrote is gone
+by the next tick). **The game re-stamps `0x208` to match `0x214` every frame; it is a derived OUTPUT,
+not a write target.** (An earlier swing-and-hold test with the stick SUPPRESSED made the shot look
+pinned, but that was the suppressed stick freezing aim -- a confound the no-suppression "live offset"
+test ruled out: no shot offset ever appeared.)
+
+By strong inference the whole aim-vector family (`0x1e4/0x1f0`, `0x208/0x214`, `0x22c/0x238`, all set
+together by the init broadcast at retail `0x47D900`) is derived and re-stamped from the control input
+each frame. `unit+0x214` is itself "the derived aim vector" per `REACH-VEHICLE-EVIDENCE.md`, so writing
+it from this hook would be re-stamped too; the integrator `0x480280` (reads 0x208 -> writes 0x214) is
+therefore NOT the governing on-foot path.
+
+**Conclusion: no unit-aim-vector write can drive aim.** The drive point is UPSTREAM -- the
+player-control / desired-angle record the game integrates into the aim (also the field that
+replicates, which is what direct drive wants anyway). That is candidate #1 below (HREK
+`0x1E770F/0x1E7934`). Next RE: disassemble what WRITES `unit+0x214` on foot and trace its source back
+to that control record -- and mind the thread, the write must land where the sim reads it, not from
+the render hook. The mechanism test stays behind `reach_direct_drive` (default 0) as a diagnostic.
+
+## UPDATE 2026-09-19 (night): HREK kit-mining FOUND the drive point (player_control desired_angles)
+
+Installed the Halo Reach Mod Tools (`N:\...\HREK\reach_tag_test.exe`, 35 MB, SHA-256 `CBDD8448...` --
+note: differs from the older recon's HREK build, so old HREK RVAs are NOT trusted; anchored on strings
+instead). No PDB, but the kit binary carries near-symbolic assert/source strings, which named the
+drive point directly (this is why CE was fast and the blind Reach path was slow):
+
+- Source: `c:\mcc\qfe1\reach\shared\engine\source\omaha\game\player_control.cpp`.
+- **The replicated control input is `player_control->state.desired_angles` -- stored as ANGLES
+  {yaw, pitch}, not a vector.** Offsets read straight from the desired-angles validator (retail-shared,
+  since struct layouts match HREK): **yaw @ player_control + 0x94, pitch @ player_control + 0x98**
+  (yaw is wrapped/clamped at the validator top; pitch @ +0x98 is the field formatted into the
+  `player_control->state.desired_angles.pitch` assert). Adjacent state fields: `throttle`,
+  `primary_trigger`, `action_context`. Per-player base is `rdi+rbx` in the validators (a
+  `player_control_globals` array element).
+- The `boost ... clamping to avoid crashing networking` assert confirms `player_control->state` is the
+  **networked** control state -- so writing `desired_angles` is upstream of replication AND of the
+  unit aim-vector derivation. That is exactly what direct drive wants, and it explains why writing the
+  derived unit vectors (0x208/0x214) did nothing.
+- Update function name: **`main_player_control_update`** -- the CE-style hook point (overwrite
+  `desired_angles` in the control state, call native, like `haloce_unit_control` does with the packet).
+
+**NEXT (retail): (1)** resolve the per-player `player_control` base on retail `haloreach.dll` (find
+`player_control_globals` / how the update fn gets it), **(2)** signature-match `main_player_control_update`
+on retail, **(3)** hook it and overwrite `desired_angles = {yaw,pitch}` from the VR aim, **(4)** co-op
+host-follow to confirm replication. Offsets 0x94/0x98 transfer as-is. Method win: kit assert-string
+mining collapsed the multi-hop static writer trace into a direct by-name lookup.
+
 ## What is already established (don't re-derive)
 
 - **Unit/player pointer path is fully resolved and guarded.** `playerUnitByOutputUser(0)` (native,
