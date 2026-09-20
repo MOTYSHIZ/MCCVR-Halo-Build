@@ -584,8 +584,12 @@ struct Config
     //       degrees about world-up, then write that FIXED target into unit+reach_desired_aim_offset
     //       every tick. If the field drives aim, the current aim (unit+0x214) converges on the target
     //       -- the view swings by that angle and holds, and the log's err falls to ~0. If it is only a
-    //       copy, nothing moves and err stays at the swing angle. Toggle off then on to re-arm. Co-op
-    //       host-follow (does the write REPLICATE?) is a SEPARATE later step.
+    //       copy, nothing moves and err stays at the swing angle. Toggle off then on to re-arm.
+    //   2 = LIVE OFFSET (no stick suppression): each tick, write the current look (unit+0x214) rotated
+    //       reach_dd_test_deg degrees about world-up into the desired-aim field, while you aim
+    //       normally. If that field drives the SHOT, bullets land reach_dd_test_deg off your reticle
+    //       (proof with no suppression confound); if not, shots go to the reticle as usual.
+    // Co-op host-follow (does the write REPLICATE?) is a SEPARATE later step for both modes.
     int reach_direct_drive = 0;
     // Swing angle in degrees for the reach_direct_drive=1 test (about world-up). (default 45)
     int reach_dd_test_deg = 45;

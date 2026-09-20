@@ -24821,15 +24821,18 @@ namespace
     // for Reach while this is on (input.cpp), so the write is the only aim influence.
     void ReachDirectDrive_OnEngineTick()
     {
+        const int mode = g_config.reach_direct_drive;
         static int s_active = 0;
         static float s_tgt[3] = {0.0f, 0.0f, 0.0f};
         static uint64_t s_logMs = 0;
-        if (g_config.reach_direct_drive != 1) { s_active = 0; return; }
+        if (mode != 1 && mode != 2) { s_active = 0; return; }
         if (!g_reachCamera.base || !g_reachCamera.playerUnitByOutputUser) return;
         const int candOff = g_config.reach_desired_aim_offset;
         if (candOff <= 0x100 || candOff >= 0x2000) return;
+        const float th = g_config.reach_dd_test_deg * 0.01745329f;
+        const float ct = cosf(th), st = sinf(th);
 
-        float cur[3]{};
+        float cur[3]{}, des[3]{};
         bool wrote = false;
         int unit = -1;
         __try
@@ -24841,20 +24844,28 @@ namespace
                 unsigned char* d = ReachVehicleObjectData(unit, kind);
                 if (d && kind != kReachObjectKindVehicle)
                 {
-                    memcpy(cur, d + kReachUnitAimingVectorOffset, sizeof(cur));
+                    memcpy(cur, d + kReachUnitAimingVectorOffset, sizeof(cur)); // 0x214: look/camera ref
                     const float lc = sqrtf(cur[0]*cur[0] + cur[1]*cur[1] + cur[2]*cur[2]);
-                    if (lc > 0.5f && lc < 1.5f)   // value-agreement: a real current-aim unit vector
+                    if (lc > 0.5f && lc < 1.5f)   // value-agreement: a real aim unit vector
                     {
-                        if (!s_active)
+                        if (mode == 1)
                         {
-                            const float th = g_config.reach_dd_test_deg * 0.01745329f;
-                            const float ct = cosf(th), st = sinf(th);
-                            s_tgt[0] = cur[0]*ct - cur[1]*st;   // swing about world-up (z)
-                            s_tgt[1] = cur[0]*st + cur[1]*ct;
-                            s_tgt[2] = cur[2];
-                            s_active = 1;
+                            if (!s_active)
+                            {
+                                s_tgt[0] = cur[0]*ct - cur[1]*st;   // swing about world-up (z), held
+                                s_tgt[1] = cur[0]*st + cur[1]*ct;
+                                s_tgt[2] = cur[2];
+                                s_active = 1;
+                            }
+                            des[0] = s_tgt[0]; des[1] = s_tgt[1]; des[2] = s_tgt[2];
                         }
-                        memcpy(d + static_cast<unsigned>(candOff), s_tgt, sizeof(s_tgt));
+                        else   // mode 2: live offset from the current look, recomputed each tick
+                        {
+                            des[0] = cur[0]*ct - cur[1]*st;
+                            des[1] = cur[0]*st + cur[1]*ct;
+                            des[2] = cur[2];
+                        }
+                        memcpy(d + static_cast<unsigned>(candOff), des, sizeof(des));
                         wrote = true;
                     }
                 }
@@ -24869,20 +24880,26 @@ namespace
         if (now - s_logMs >= 1000)
         {
             s_logMs = now;
-            if (wrote)
+            if (wrote && mode == 1)
             {
-                const float dot = cur[0]*s_tgt[0] + cur[1]*s_tgt[1] + cur[2]*s_tgt[2];
+                const float dot = cur[0]*des[0] + cur[1]*des[1] + cur[2]*des[2];
                 const float c = dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot);
-                const float err = acosf(c) * 57.29578f;   // -> 0 as current converges on the target
-                LOG("REACHDIRECTDRIVE off=0x%X swing=%ddeg tgt=(%.3f %.3f %.3f) cur=(%.3f %.3f %.3f) err=%.2f %s",
-                    candOff, g_config.reach_dd_test_deg, s_tgt[0], s_tgt[1], s_tgt[2],
+                const float err = acosf(c) * 57.29578f;
+                LOG("REACHDIRECTDRIVE m1 off=0x%X swing=%ddeg tgt=(%.3f %.3f %.3f) cur0x214=(%.3f %.3f %.3f) err=%.2f %s",
+                    candOff, g_config.reach_dd_test_deg, des[0], des[1], des[2],
                     cur[0], cur[1], cur[2], err,
-                    err < 5.0f ? "-> current CONVERGED on target: field DRIVES aim"
-                               : "-> current not converged: field may be a copy (or still moving)");
+                    err < 5.0f ? "-> 0x214 converged (0x214 is what this write drives)"
+                               : "-> 0x214 did NOT converge (0x214 tracks the camera, not this write)");
             }
-            else
+            else if (wrote && mode == 2)
             {
-                LOG("REACHDIRECTDRIVE off=0x%X: no write (no on-foot unit or current aim not a unit vector)",
+                LOG("REACHDIRECTDRIVE m2 off=0x%X offset=%ddeg wrote(%.3f %.3f %.3f) from cur0x214=(%.3f %.3f %.3f) -- if 0x%X drives shots, bullets land %ddeg off your reticle",
+                    candOff, g_config.reach_dd_test_deg, des[0], des[1], des[2],
+                    cur[0], cur[1], cur[2], candOff, g_config.reach_dd_test_deg);
+            }
+            else if (!wrote)
+            {
+                LOG("REACHDIRECTDRIVE off=0x%X: no write (no on-foot unit or aim not a unit vector)",
                     candOff);
             }
         }

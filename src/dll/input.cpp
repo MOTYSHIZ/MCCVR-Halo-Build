@@ -419,10 +419,11 @@ namespace
         float rx = 0, ry = 0;
         bool haveStick;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
-        if (g_config.reach_direct_drive && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+        if (g_config.reach_direct_drive == 1 && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
         {
-            // Direct-drive test owns aim via the engine-thread state write; keep the stick neutral so
-            // the two do not fight -- the write is then the only aim influence.
+            // Mode 1 (swing-and-hold) owns aim via the engine-thread state write; keep the stick
+            // neutral so the two do not fight. Mode 2 (live offset) deliberately does NOT suppress --
+            // you aim normally and we watch for shots landing off the reticle.
             rx = 0; ry = 0; haveStick = true;
         }
         // Experimental: when the per-game aim provider is enabled on Reach, route the aim stick

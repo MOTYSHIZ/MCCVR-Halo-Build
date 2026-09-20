@@ -1512,10 +1512,10 @@ void ConfigSave()
     fprintf(f, "reach_desired_aim_offset = 0x%X\n\n", g_config.reach_desired_aim_offset);
     fprintf(f, "# EXPERIMENTAL / diagnostic, Halo Reach only. Direct-drive MECHANISM TEST: writes the\n");
     fprintf(f, "# desired-aim field to learn whether it STEERS aim (the read-only probe cannot tell on\n");
-    fprintf(f, "# foot). 1 = swing your aim reach_dd_test_deg degrees and hold it there via the write;\n");
-    fprintf(f, "# if the field drives aim your view swings and holds (log err falls to ~0), if it is\n");
-    fprintf(f, "# only a copy nothing moves. Suppresses the aim stick while on. Toggle off/on to re-arm.\n");
-    fprintf(f, "# Leave at 0 unless testing. (default %d)\n", d.reach_direct_drive);
+    fprintf(f, "# foot). 1 = swing your aim reach_dd_test_deg degrees and hold it there (suppresses the\n");
+    fprintf(f, "# stick). 2 = LIVE OFFSET (no suppression): aim normally and it offsets the desired-aim\n");
+    fprintf(f, "# field by reach_dd_test_deg each tick; if that field drives the SHOT, bullets land that\n");
+    fprintf(f, "# many degrees off your reticle. Leave at 0 unless testing. (default %d)\n", d.reach_direct_drive);
     fprintf(f, "reach_direct_drive = %d\n\n", g_config.reach_direct_drive);
     fprintf(f, "# Swing angle in degrees for the reach_direct_drive=1 test. (default %d)\n", d.reach_dd_test_deg);
     fprintf(f, "reach_dd_test_deg = %d\n\n", g_config.reach_dd_test_deg);
