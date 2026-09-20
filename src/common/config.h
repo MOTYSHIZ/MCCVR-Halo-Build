@@ -589,7 +589,12 @@ struct Config
     //       reach_dd_test_deg degrees about world-up into the desired-aim field, while you aim
     //       normally. If that field drives the SHOT, bullets land reach_dd_test_deg off your reticle
     //       (proof with no suppression confound); if not, shots go to the reticle as usual.
-    // Co-op host-follow (does the write REPLICATE?) is a SEPARATE later step for both modes.
+    //   3 = ACTIVE DIRECT DRIVE (the real thing): hooks main_player_control_update and writes the VR
+    //       aim into player_control->state.desired_angles (yaw/pitch) -- upstream of the derived aim
+    //       vector AND of replication, so aim is crisp and multiplayer-correct. Requires a relaunch to
+    //       install the hook; the aim stick is neutralized while it runs. Verify replication with a
+    //       co-op host-follow test. (reach_dd_test_deg is ignored in mode 3.)
+    // Co-op host-follow (does the write REPLICATE?) is a SEPARATE later step for modes 1/2.
     int reach_direct_drive = 0;
     // Swing angle in degrees for the reach_direct_drive=1 test (about world-up). (default 45)
     int reach_dd_test_deg = 45;

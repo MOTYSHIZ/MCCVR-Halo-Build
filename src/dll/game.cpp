@@ -68,6 +68,21 @@
 #include "reach_render_candidate.h"
 #include "../common/reach_observer_logic.h"
 #endif
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+// Reach direct-drive (reach_direct_drive==3): hook main_player_control_update and write the VR aim into
+// player_control->state.desired_angles (yaw+0x94 / pitch+0x98) -- upstream of the derived aim vector AND
+// of replication. Declared here so the bring-up install sees them; the detour is in
+// reach_player_control_hook.asm and the definitions are next to Game_ComputeAimStick.
+extern "C" void ReachPlayerControlHook();                          // naked MinHook detour (asm)
+extern "C" { void* g_reachPcOrig = nullptr; unsigned char g_reachPcDriveArmed = 0; }
+static std::atomic<float>              g_reachDriveYaw{0.0f};
+static std::atomic<float>              g_reachDrivePitch{0.0f};
+static std::atomic<unsigned long long> g_reachDriveMs{0};
+static std::atomic<bool>               g_reachDriveValid{false};
+static void* g_reachPcTarget = nullptr;
+static void ReachPublishDriveAim(float worldYaw, float worldPitch);
+extern "C" void ReachPcApplyDesiredAngles(void* pc);
+#endif
 #include "../common/aim_servo_logic.h"
 #include "../common/log.h"
 #include "../common/config.h"
@@ -30089,6 +30104,34 @@ namespace
             }
         }
 
+        // Reach DIRECT DRIVE (reach_direct_drive==3, opt-in): hook main_player_control_update and, after
+        // native runs, overwrite player_control->state.desired_angles (yaw+0x94/pitch+0x98) with the VR
+        // aim -- upstream of the derived aim vector AND of replication (multiplayer-correct). RVA
+        // 0x1E0834 pinned, verified by a unique AOB at +0x38; player_control arrives in r9, captured by
+        // the naked detour. Installed once; the write self-gates on fresh on-foot VR aim.
+        if (g_config.reach_direct_drive == 3 && !g_reachPcTarget &&
+            ReachColdExactSignatureAt(base, size, 0x1E086C,
+                "44 8B 51 08 41 83 CF FF 4D 8B F1 44 0F 28 C2 8B DA"))
+        {
+            void* target = reinterpret_cast<void*>(base + 0x1E0834);
+            const MH_STATUS created = MH_CreateHook(
+                target, reinterpret_cast<void*>(&ReachPlayerControlHook),
+                reinterpret_cast<void**>(&g_reachPcOrig));
+            if (created == MH_OK && MH_EnableHook(target) == MH_OK)
+            {
+                g_reachPcTarget = target;
+                g_reachPcDriveArmed = 1;
+                LOG("Reach direct-drive: main_player_control_update hook INSTALLED at "
+                    "haloreach.dll+0x1E0834; VR aim now writes the replicated desired_angles");
+            }
+            else
+            {
+                g_reachPcOrig = nullptr;
+                LOG("Reach direct-drive: FAILED to install main_player_control_update hook (create=%d)",
+                    (int)created);
+            }
+        }
+
         // Reach game brightness. The exact homologue of the Halo 3/ODST screen
         // colour/gamma publisher, pinned by RVA inside the already whole-image-
         // hashed module and re-proved here by its own Reach-only entry AOB.
@@ -45120,6 +45163,36 @@ void Game_Halo2RestoreAimAssist()
 #endif
 }
 
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+// Publish the world desired aim (radians) the on-foot Reach controller path just computed, for the
+// player_control hook to consume ~a frame later (cross-thread: input thread -> engine thread).
+static void ReachPublishDriveAim(float worldYaw, float worldPitch)
+{
+    g_reachDriveYaw.store(worldYaw, std::memory_order_relaxed);
+    g_reachDrivePitch.store(worldPitch, std::memory_order_relaxed);
+    g_reachDriveMs.store(GetTickCount64(), std::memory_order_release);
+    g_reachDriveValid.store(true, std::memory_order_release);
+}
+// Runs on the engine thread from the naked detour, AFTER native wrote desired_angles. Overwrites the
+// replicated yaw/pitch with the published VR aim. SEH-guarded; skips on stale/NaN/out-of-range.
+extern "C" void ReachPcApplyDesiredAngles(void* pc)
+{
+    __try
+    {
+        if (!pc || g_reachPcDriveArmed != 1) return;
+        if (!g_reachDriveValid.load(std::memory_order_acquire)) return;
+        if (GetTickCount64() - g_reachDriveMs.load(std::memory_order_acquire) > 200) return; // stale aim
+        const float yaw = g_reachDriveYaw.load(std::memory_order_relaxed);
+        const float pitch = g_reachDrivePitch.load(std::memory_order_relaxed);
+        if (yaw != yaw || pitch != pitch) return;                                    // NaN guard
+        if (yaw < -6.5f || yaw > 6.5f || pitch < -1.60f || pitch > 1.60f) return;     // range guard
+        auto* p = static_cast<unsigned char*>(pc);
+        *reinterpret_cast<float*>(p + 0x94) = yaw;    // player_control->state.desired_angles.yaw
+        *reinterpret_cast<float*>(p + 0x98) = pitch;  // player_control->state.desired_angles.pitch
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+#endif
 bool Game_ComputeAimStick(float& outRx, float& outRy)
 {
     // Preserve C-H2-43's rejected ON-FOOT hand-driven turning. A newly verified
@@ -45256,6 +45329,11 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
         desiredYaw = atan2f(followedAim[1], followedAim[0]);
         desiredPitch = asinf(Clamp(followedAim[2], -1.0f, 1.0f));
     }
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+    // Feed the direct-drive hook (reach_direct_drive==3): the world aim the player wants this frame.
+    if (TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+        ReachPublishDriveAim(desiredYaw, desiredPitch);
+#endif
 
     // ODST and Reach need no correction here: each has a shot-origin hook that
     // substitutes our rendered eye into (unit_get_camera_position, aiming

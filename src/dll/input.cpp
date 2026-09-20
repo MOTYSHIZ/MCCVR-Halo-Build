@@ -434,6 +434,13 @@ namespace
         else
 #endif
             haveStick = Game_ComputeAimStick(rx, ry);
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+        // Mode 3 (active direct drive): Game_ComputeAimStick still runs above so it PUBLISHES the world
+        // desired aim for the player_control hook; here we neutralize the stick so the state write is
+        // the only aim influence (no two drivers).
+        if (g_config.reach_direct_drive == 3 && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+        { rx = 0; ry = 0; }
+#endif
         if (haveStick)
         {
             state->Gamepad.sThumbRX = ToRawStick(rx);

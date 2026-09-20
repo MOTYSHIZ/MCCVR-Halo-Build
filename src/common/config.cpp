@@ -1515,7 +1515,9 @@ void ConfigSave()
     fprintf(f, "# foot). 1 = swing your aim reach_dd_test_deg degrees and hold it there (suppresses the\n");
     fprintf(f, "# stick). 2 = LIVE OFFSET (no suppression): aim normally and it offsets the desired-aim\n");
     fprintf(f, "# field by reach_dd_test_deg each tick; if that field drives the SHOT, bullets land that\n");
-    fprintf(f, "# many degrees off your reticle. Leave at 0 unless testing. (default %d)\n", d.reach_direct_drive);
+    fprintf(f, "# many degrees off your reticle. 3 = ACTIVE DIRECT DRIVE: the VR aim writes the game's\n");
+    fprintf(f, "# replicated control angles directly (crisp, multiplayer-correct); needs a relaunch to\n");
+    fprintf(f, "# arm. Leave at 0 unless testing. (default %d)\n", d.reach_direct_drive);
     fprintf(f, "reach_direct_drive = %d\n\n", g_config.reach_direct_drive);
     fprintf(f, "# Swing angle in degrees for the reach_direct_drive=1 test. (default %d)\n", d.reach_dd_test_deg);
     fprintf(f, "reach_dd_test_deg = %d\n\n", g_config.reach_dd_test_deg);
