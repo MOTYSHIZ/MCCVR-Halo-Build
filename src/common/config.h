@@ -605,6 +605,14 @@ struct Config
     float crosshair_distance_m = 41.0f; // how far along the aim ray it floats
     float crosshair_size_deg = 10.10f;  // apparent (angular) size
 
+    // DEMO / comparison aid: also publish the crosshair at the game's REAL aim
+    // while ON FOOT, not only in the seated cases. On foot the closed-loop aim
+    // lags the hand through the game's turn-rate integrator, so the normal
+    // hand-ray crosshair LEADS the actual shot while you turn; with this on, the
+    // crosshair sits on the true aim instead, making that lag visible. Off by
+    // default. Live in the F1 menu (Crosshair) and via this cfg key.
+    bool honest_reticle_onfoot = false;
+
     // How often the VR crosshair re-reads the game's own animated crosshair
     // art, in displayed frames. Halo 3's authored crosshair kicks when the
     // weapon fires and turns red on a hostile / green on a friendly, so a

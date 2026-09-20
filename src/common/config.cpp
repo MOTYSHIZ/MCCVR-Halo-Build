@@ -778,6 +778,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "reach_desired_aim_offset")) { g_config.reach_desired_aim_offset=(int)strtol(val,nullptr,0); continue; }
         if (!strcmp(key, "reach_direct_drive")) { g_config.reach_direct_drive=atoi(val); continue; }
         if (!strcmp(key, "reach_dd_test_deg")) { g_config.reach_dd_test_deg=atoi(val); continue; }
+        if (!strcmp(key, "honest_reticle_onfoot")) { g_config.honest_reticle_onfoot=atoi(val)!=0; continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -1464,6 +1465,7 @@ void ConfigSave()
     fprintf(f, "# Optional CE Anniversary lens-flare suppression. Does not alter world lighting.\nce_anniversary_disable_lens_flares = %d\n\n", g_config.ce_anniversary_disable_lens_flares ? 1 : 0);
     fprintf(f, "# Each owned dual-wielded gun follows its own controller.\nindependent_dual_aim = %d\n\n", g_config.independent_dual_aim ? 1 : 0);
     fprintf(f, "# Use verified visible weapon muzzle origin and orientation.\ngun_barrel_aim = %d\n\n", g_config.gun_barrel_aim ? 1 : 0);
+    fprintf(f, "# DEMO: also show the crosshair at the game's REAL aim ON FOOT, not just in\n# seats. On foot the hand-ray crosshair leads the shot while you turn; this puts\n# it on the true (integrated) aim so the lag is visible. Off by default.\nhonest_reticle_onfoot = %d\n\n", g_config.honest_reticle_onfoot ? 1 : 0);
     fprintf(f, "# Floating VR-crosshair smoothing only; bullets stay raw.\n");
     fprintf(f, "# (default %.2f, range 0 to 0.95)\n", d.aim_stabilization);
     fprintf(f, "aim_stabilization = %.2f\n\n", g_config.aim_stabilization);
