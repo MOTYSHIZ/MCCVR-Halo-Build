@@ -419,10 +419,16 @@ namespace
         float rx = 0, ry = 0;
         bool haveStick;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+        if (g_config.reach_direct_drive && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+        {
+            // Direct-drive test owns aim via the engine-thread state write; keep the stick neutral so
+            // the two do not fight -- the write is then the only aim influence.
+            rx = 0; ry = 0; haveStick = true;
+        }
         // Experimental: when the per-game aim provider is enabled on Reach, route the aim stick
         // through it. Its StickLoop rung delegates to Game_ComputeAimStick, so this is a no-op by
         // construction until the direct-drive rung lands. Off (the default) leaves the call untouched.
-        if (g_config.aim_provider && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+        else if (g_config.aim_provider && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
             haveStick = ReachAimProvider_ProduceStick(rx, ry);
         else
 #endif

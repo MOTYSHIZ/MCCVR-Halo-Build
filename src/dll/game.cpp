@@ -24809,6 +24809,84 @@ namespace
             candOff, cur[0], cur[1], cur[2], lc, des[0], des[1], des[2], ld, dot, ang,
             plausible ? "" : "  <-- desired not a unit vector: offset likely wrong");
     }
+
+    // EXPERIMENTAL direct-drive MECHANISM TEST (reach_direct_drive=1, default off). Engine thread, on
+    // foot. On activation it captures the current aim and a target = that aim swung reach_dd_test_deg
+    // degrees about world-up (z), then writes that FIXED target into the desired-aim field
+    // (unit+reach_desired_aim_offset) every tick. If that field is the desired aim the integrator
+    // consumes, the game's current aim (unit+0x214) converges on the target -- the view swings and
+    // holds and the logged err falls to ~0; if the field is only a copy, nothing moves and err stays
+    // at the swing angle. Value-agreement + SEH guarded. This is the SOLO half of the direct-drive
+    // proof; replication (co-op host-follow) is a separate later step. The stick loop is suppressed
+    // for Reach while this is on (input.cpp), so the write is the only aim influence.
+    void ReachDirectDrive_OnEngineTick()
+    {
+        static int s_active = 0;
+        static float s_tgt[3] = {0.0f, 0.0f, 0.0f};
+        static uint64_t s_logMs = 0;
+        if (g_config.reach_direct_drive != 1) { s_active = 0; return; }
+        if (!g_reachCamera.base || !g_reachCamera.playerUnitByOutputUser) return;
+        const int candOff = g_config.reach_desired_aim_offset;
+        if (candOff <= 0x100 || candOff >= 0x2000) return;
+
+        float cur[3]{};
+        bool wrote = false;
+        int unit = -1;
+        __try
+        {
+            unit = g_reachCamera.playerUnitByOutputUser(0);
+            if (unit != -1)
+            {
+                uint8_t kind = 0;
+                unsigned char* d = ReachVehicleObjectData(unit, kind);
+                if (d && kind != kReachObjectKindVehicle)
+                {
+                    memcpy(cur, d + kReachUnitAimingVectorOffset, sizeof(cur));
+                    const float lc = sqrtf(cur[0]*cur[0] + cur[1]*cur[1] + cur[2]*cur[2]);
+                    if (lc > 0.5f && lc < 1.5f)   // value-agreement: a real current-aim unit vector
+                    {
+                        if (!s_active)
+                        {
+                            const float th = g_config.reach_dd_test_deg * 0.01745329f;
+                            const float ct = cosf(th), st = sinf(th);
+                            s_tgt[0] = cur[0]*ct - cur[1]*st;   // swing about world-up (z)
+                            s_tgt[1] = cur[0]*st + cur[1]*ct;
+                            s_tgt[2] = cur[2];
+                            s_active = 1;
+                        }
+                        memcpy(d + static_cast<unsigned>(candOff), s_tgt, sizeof(s_tgt));
+                        wrote = true;
+                    }
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return;
+        }
+
+        const uint64_t now = GetTickCount64();
+        if (now - s_logMs >= 1000)
+        {
+            s_logMs = now;
+            if (wrote)
+            {
+                const float dot = cur[0]*s_tgt[0] + cur[1]*s_tgt[1] + cur[2]*s_tgt[2];
+                const float c = dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot);
+                const float err = acosf(c) * 57.29578f;   // -> 0 as current converges on the target
+                LOG("REACHDIRECTDRIVE off=0x%X swing=%ddeg tgt=(%.3f %.3f %.3f) cur=(%.3f %.3f %.3f) err=%.2f %s",
+                    candOff, g_config.reach_dd_test_deg, s_tgt[0], s_tgt[1], s_tgt[2],
+                    cur[0], cur[1], cur[2], err,
+                    err < 5.0f ? "-> current CONVERGED on target: field DRIVES aim"
+                               : "-> current not converged: field may be a copy (or still moving)");
+            }
+            else
+            {
+                LOG("REACHDIRECTDRIVE off=0x%X: no write (no on-foot unit or current aim not a unit vector)",
+                    candOff);
+            }
+        }
+    }
 #endif
 
     unsigned char* ReachPackedTagBlockElement(
@@ -26528,7 +26606,8 @@ namespace
 
         ReachSampleVehicleInputState(windowIndex, returnAddress);
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
-        ReachAimProbe_OnEngineTick();   // read-only desired-aim offset probe (default off)
+        ReachAimProbe_OnEngineTick();     // read-only desired-aim offset probe (default off)
+        ReachDirectDrive_OnEngineTick();  // desired-aim write mechanism test (default off)
 #endif
 
         uintptr_t expectedWorkspace = 0;

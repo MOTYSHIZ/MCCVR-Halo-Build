@@ -576,6 +576,20 @@ struct Config
     // parsed as hex (0x...) or decimal. Only consulted by reach_aim_probe.
     int reach_desired_aim_offset = 0x208;
 
+    // EXPERIMENTAL (Halo Reach) direct-drive MECHANISM TEST. The read-only probe confirmed 0x208 is a
+    // valid aim vector but on foot cannot tell the desired input from a copy; this writes it to learn
+    // whether it STEERS aim. Engine thread, on foot, SEH + value-agreement guarded; suppresses the aim
+    // stick while active so the write is the only aim influence. 0 = off.
+    //   1 = on activation, capture the current aim and a target = that aim swung reach_dd_test_deg
+    //       degrees about world-up, then write that FIXED target into unit+reach_desired_aim_offset
+    //       every tick. If the field drives aim, the current aim (unit+0x214) converges on the target
+    //       -- the view swings by that angle and holds, and the log's err falls to ~0. If it is only a
+    //       copy, nothing moves and err stays at the swing angle. Toggle off then on to re-arm. Co-op
+    //       host-follow (does the write REPLICATE?) is a SEPARATE later step.
+    int reach_direct_drive = 0;
+    // Swing angle in degrees for the reach_direct_drive=1 test (about world-up). (default 45)
+    int reach_dd_test_deg = 45;
+
     // rendering. The game's own HUD reticle sits at head-center and is wrong
     // whenever hand aim is on; this one is the truth.
     bool crosshair = true;

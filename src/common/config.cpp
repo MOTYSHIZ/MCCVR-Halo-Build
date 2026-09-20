@@ -776,6 +776,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "aim_provider")) { g_config.aim_provider=atoi(val); continue; }
         if (!strcmp(key, "reach_aim_probe")) { g_config.reach_aim_probe=atoi(val); continue; }
         if (!strcmp(key, "reach_desired_aim_offset")) { g_config.reach_desired_aim_offset=(int)strtol(val,nullptr,0); continue; }
+        if (!strcmp(key, "reach_direct_drive")) { g_config.reach_direct_drive=atoi(val); continue; }
+        if (!strcmp(key, "reach_dd_test_deg")) { g_config.reach_dd_test_deg=atoi(val); continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -1508,6 +1510,15 @@ void ConfigSave()
     fprintf(f, "# reverse-engineered value; only used when reach_aim_probe is on. (default 0x%X)\n",
             d.reach_desired_aim_offset);
     fprintf(f, "reach_desired_aim_offset = 0x%X\n\n", g_config.reach_desired_aim_offset);
+    fprintf(f, "# EXPERIMENTAL / diagnostic, Halo Reach only. Direct-drive MECHANISM TEST: writes the\n");
+    fprintf(f, "# desired-aim field to learn whether it STEERS aim (the read-only probe cannot tell on\n");
+    fprintf(f, "# foot). 1 = swing your aim reach_dd_test_deg degrees and hold it there via the write;\n");
+    fprintf(f, "# if the field drives aim your view swings and holds (log err falls to ~0), if it is\n");
+    fprintf(f, "# only a copy nothing moves. Suppresses the aim stick while on. Toggle off/on to re-arm.\n");
+    fprintf(f, "# Leave at 0 unless testing. (default %d)\n", d.reach_direct_drive);
+    fprintf(f, "reach_direct_drive = %d\n\n", g_config.reach_direct_drive);
+    fprintf(f, "# Swing angle in degrees for the reach_direct_drive=1 test. (default %d)\n", d.reach_dd_test_deg);
+    fprintf(f, "reach_dd_test_deg = %d\n\n", g_config.reach_dd_test_deg);
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  WEAPON CALIBRATION\n");
     fprintf(f, "#  Personal trims applied over the active title's verified base pose.\n");
