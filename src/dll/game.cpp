@@ -45172,25 +45172,38 @@ static void ReachPublishDriveAim(float worldYaw, float worldPitch)
     g_reachDrivePitch.store(worldPitch, std::memory_order_relaxed);
     g_reachDriveMs.store(GetTickCount64(), std::memory_order_release);
     g_reachDriveValid.store(true, std::memory_order_release);
+    static unsigned long long s_last = 0, s_n = 0; s_n++;   // DIAG: is the aim being published, and tracking?
+    const unsigned long long now = GetTickCount64();
+    if (now - s_last >= 1000) { s_last = now;
+        LOG("REACHDRIVE publish yaw=%.3f pitch=%.3f n/s=%llu", worldYaw, worldPitch, s_n); s_n = 0; }
 }
 // Runs on the engine thread from the naked detour, AFTER native wrote desired_angles. Overwrites the
 // replicated yaw/pitch with the published VR aim. SEH-guarded; skips on stale/NaN/out-of-range.
 extern "C" void ReachPcApplyDesiredAngles(void* pc)
 {
+    int wrote = 0, valid = 0; float yaw = 0.0f, pitch = 0.0f; unsigned long long age = 0;
     __try
     {
-        if (!pc || g_reachPcDriveArmed != 1) return;
-        if (!g_reachDriveValid.load(std::memory_order_acquire)) return;
-        if (GetTickCount64() - g_reachDriveMs.load(std::memory_order_acquire) > 200) return; // stale aim
-        const float yaw = g_reachDriveYaw.load(std::memory_order_relaxed);
-        const float pitch = g_reachDrivePitch.load(std::memory_order_relaxed);
-        if (yaw != yaw || pitch != pitch) return;                                    // NaN guard
-        if (yaw < -6.5f || yaw > 6.5f || pitch < -1.60f || pitch > 1.60f) return;     // range guard
-        auto* p = static_cast<unsigned char*>(pc);
-        *reinterpret_cast<float*>(p + 0x94) = yaw;    // player_control->state.desired_angles.yaw
-        *reinterpret_cast<float*>(p + 0x98) = pitch;  // player_control->state.desired_angles.pitch
+        valid = g_reachDriveValid.load(std::memory_order_acquire) ? 1 : 0;
+        age = GetTickCount64() - g_reachDriveMs.load(std::memory_order_acquire);
+        yaw = g_reachDriveYaw.load(std::memory_order_relaxed);
+        pitch = g_reachDrivePitch.load(std::memory_order_relaxed);
+        if (pc && g_reachPcDriveArmed == 1 && valid && age <= 200 &&
+            yaw == yaw && pitch == pitch &&
+            yaw >= -6.5f && yaw <= 6.5f && pitch >= -1.60f && pitch <= 1.60f)
+        {
+            auto* p = static_cast<unsigned char*>(pc);
+            *reinterpret_cast<float*>(p + 0x94) = yaw;    // player_control->state.desired_angles.yaw
+            *reinterpret_cast<float*>(p + 0x98) = pitch;  // player_control->state.desired_angles.pitch
+            wrote = 1;
+        }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
+    static unsigned long long s_last = 0, s_n = 0; s_n++;   // DIAG: is the write reaching the unit, with what?
+    const unsigned long long now = GetTickCount64();
+    if (now - s_last >= 1000) { s_last = now;
+        LOG("REACHDRIVE apply DETOUR-RAN armed=%d pcnull=%d valid=%d age=%llu yaw=%.3f pitch=%.3f wrote=%d n/s=%llu",
+            (int)g_reachPcDriveArmed, pc ? 0 : 1, valid, age, yaw, pitch, wrote, s_n); s_n = 0; }
 }
 #endif
 bool Game_ComputeAimStick(float& outRx, float& outRy)

@@ -126,6 +126,35 @@ derivation AND replication, so it should drive aim and be multiplayer-correct. *
 host-follow to confirm replication. Method note: kit angle-constants (build-invariant) are what mapped
 the kit function onto the stripped retail binary.
 
+## UPDATE 2026-09-19 (step 3 in-headset): hook installs but NEVER RUNS -- 0x1E0834 is the wrong target
+
+Built + deployed the mode-3 hook and ran it in a Reach level on foot. Result: **the detour never
+executes.** The hook installs cleanly (`main_player_control_update hook INSTALLED`, AOB-verified, no
+crash), but a diagnostic that ALWAYS logs when the detour runs (`REACHDRIVE apply DETOUR-RAN ...`)
+printed **zero** lines across the whole session. So retail `0x1E0834` **is not called during on-foot
+gameplay** -- the classic "installed != running" trap (addrcascade doctrine). Symptom for the player:
+aim LOCKED (mode 3 zeroes the stick, and with nothing overwriting desired_angles, aim just freezes).
+
+What this DID validate (so don't re-derive): the naked detour + MinHook install work (no crash, ABI
+forwarded fine), and the aim publish is correct -- `REACHDRIVE publish` fires ~120/s and the yaw/pitch
+track the controller (2.8->1.9->1.2->2.1) then settle when still. So `Game_ComputeAimStick`'s
+desiredYaw/desiredPitch ARE available and tracking; the ONLY break is the hook target.
+
+Why 0x1E0834 is wrong: it was found by "writes [r9+0x94]&[r9+0x98] + angle constants," and its HREK
+homolog sits with the desired_angles VALIDATORS (0x1E7D50/0x1E84D9). In retail (asserts stripped) a
+validator/setup homolog can be dead or rarely-called -- which fits "installed, never called." It is
+NOT the per-frame on-foot control update.
+
+**NEXT (both headless, no game): (A)** find the function that ACTUALLY writes player_control
+desired_angles per-frame on foot -- e.g. a runtime write-watchpoint on desired_angles+0x94, or narrow
+the other 0x94/0x98 pair-writers (0x1DE658, etc.) to the one called every frame; hook THAT (prove it
+runs with the DETOUR-RAN log before trusting it). **(B)** resolve `player_control_globals` on retail
+(the step skipped earlier because "the hook hands us r9") and write desired_angles from a hook already
+proven to run on foot -- the `ReachSampleVehicleInputState` engine-thread site where ReachAimProbe ran
+-- accepting a timing check (does the write survive to integration, or get re-stamped like the derived
+vector did?). Offsets (player_control+0x94 yaw/+0x98 pitch) are still trusted from HREK; only the
+write SITE is unresolved.
+
 ## What is already established (don't re-derive)
 
 - **Unit/player pointer path is fully resolved and guarded.** `playerUnitByOutputUser(0)` (native,
