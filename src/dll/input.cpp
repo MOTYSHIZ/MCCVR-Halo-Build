@@ -416,13 +416,18 @@ namespace
         // stick through (classic stick aiming, and it does nothing in menus).
         // While VR aim is active the turn stick is consumed by the snap/smooth
         // logic in game.cpp instead.
-#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
-        // Experimental: run the per-game aim provider in OBSERVE mode (logs only; does not steer).
-        if (g_config.aim_provider && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
-            ReachAimProvider_ObserveTick();
-#endif
         float rx = 0, ry = 0;
-        if (Game_ComputeAimStick(rx, ry))
+        bool haveStick;
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+        // Experimental: when the per-game aim provider is enabled on Reach, route the aim stick
+        // through it. Its StickLoop rung delegates to Game_ComputeAimStick, so this is a no-op by
+        // construction until the direct-drive rung lands. Off (the default) leaves the call untouched.
+        if (g_config.aim_provider && TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+            haveStick = ReachAimProvider_ProduceStick(rx, ry);
+        else
+#endif
+            haveStick = Game_ComputeAimStick(rx, ry);
+        if (haveStick)
         {
             state->Gamepad.sThumbRX = ToRawStick(rx);
             state->Gamepad.sThumbRY = ToRawStick(ry);

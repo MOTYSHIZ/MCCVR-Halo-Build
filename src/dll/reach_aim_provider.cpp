@@ -1,11 +1,13 @@
-// Reach's aim provider (see reach_aim_provider.h). OBSERVE scaffold: logs what the provider would
-// drive, never touches the live aim. Engine-bound (reads VR_GetAimPose, g_config); the pure core it
-// feeds is src/common/aim_solve_logic.h + aim_provider.h.
+// Reach's aim provider (see reach_aim_provider.h). Picks the actuation strategy via the engine-free
+// core and DELEGATES the StickLoop rung to Game_ComputeAimStick, so it is a no-op by construction
+// until the direct-drive rung lands. Engine-bound (reads VR_GetAimPose, g_config, delegates to
+// Game_ComputeAimStick); the pure core it feeds is src/common/aim_solve_logic.h + aim_provider.h.
 
 #include "reach_aim_provider.h"
 
 #include "../common/aim_provider.h"
 #include "vr.h"
+#include "game.h"   // Game_ComputeAimStick -- the StickLoop rung delegates to it (no duplication)
 #include "../common/config.h"
 #include "../common/log.h"
 
@@ -64,7 +66,9 @@ public:
     bool trace_impact_cm(const Ray&, float*) override { return false; }  // no aim trace on Reach
     bool origin_delta(Vec3*) override { return false; }                  // Reach uses origin relocation
 
-    // OBSERVE ONLY: record what would be driven; do not drive (applied = false).
+    // The engine-free orchestrator cannot produce a game right-stick, so this records the decision
+    // for the diagnostic log and reports applied=false; the real actuation is delegated in
+    // ReachAimProvider_ProduceStick (StickLoop -> Game_ComputeAimStick).
     ActuateResult actuate(Actuation how, const Angles& converged) override {
         s_last_how = how;
         s_last_angles = converged;
@@ -84,24 +88,40 @@ Angles    ReachAimProvider::s_last_angles{};
 
 } // namespace
 
-void ReachAimProvider_ObserveTick() {
+bool ReachAimProvider_ProduceStick(float& outRx, float& outRy) {
     using namespace aim_solve;
     static ReachAimProvider provider;
     static SolveState state;
 
-    // ~90 Hz aim tick; the range tau matches CampE's convergence smoothing. Result is intentionally
-    // discarded -- OBSERVE mode never drives.
+    // ~90 Hz aim tick; the range tau matches CampE's convergence smoothing. This runs the core for
+    // its actuation SELECTION + the diagnostic snapshot; the game stick itself is produced by the
+    // delegation below (the engine-free core cannot synthesize one).
     (void)solve_and_actuate(provider, state, ConvergeRails{}, 1.0f / 90.0f, 120.0f);
+    const Actuation how = select_actuation(provider.caps());
 
     static uint64_t last_ms = 0;
     const uint64_t now = GetTickCount64();
     if (now - last_ms >= 2000) {
         last_ms = now;
         const AimCaps c = provider.caps();
-        LOG("AIMPROVIDER reach (observe): actuation=%d converge=%d barrel=%d "
+        LOG("AIMPROVIDER reach: actuation=%d converge=%d barrel=%d "
             "would-yaw=%.1f would-pitch=%.1f",
-            static_cast<int>(select_actuation(c)), static_cast<int>(select_converge(c)),
+            static_cast<int>(how), static_cast<int>(select_converge(c)),
             c.has_barrel_marker ? 1 : 0,
             ReachAimProvider::s_last_angles.yaw_deg, ReachAimProvider::s_last_angles.pitch_deg);
+    }
+
+    switch (how) {
+    case Actuation::StickLoop:
+        // Reuse, no duplication: the exact closed-loop path Reach uses today.
+        return Game_ComputeAimStick(outRx, outRy);
+    case Actuation::WriteState:
+        // Not reachable yet (caps.can_write_state is false). When the replicated control record is
+        // located + co-op-verified this branch writes it; until then fail SAFE to the stick loop so
+        // an unverified rung can never drop aim.
+        return Game_ComputeAimStick(outRx, outRy);
+    case Actuation::None:
+    default:
+        return false;
     }
 }
