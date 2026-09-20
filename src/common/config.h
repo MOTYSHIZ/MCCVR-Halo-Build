@@ -564,6 +564,18 @@ struct Config
     // Currently a Reach OBSERVE scaffold -- logs what the provider would drive; does not steer.
     int aim_provider = 0;
 
+    // EXPERIMENTAL (Halo Reach, READ-ONLY diagnostic): confirm the desired-aiming struct offset for
+    // the future direct-drive rung, WITHOUT writing anything and WITHOUT needing co-op. When on, a
+    // value-agreement probe logs the candidate DESIRED aim vector (unit+reach_desired_aim_offset)
+    // against the known CURRENT aim (unit+0x214): they match at rest and the desired LEADS while you
+    // turn. Does not change aim. 0 = off.
+    int reach_aim_probe = 0;
+    // Candidate byte offset of Reach's unit DESIRED-aiming vec3 (x,y,z floats). 0x208 is the
+    // reverse-engineered value: the desired->current integrator (retail 0x480280) reads unit+0x208
+    // and writes current aim unit+0x214. Config-settable so the offset can be swept in-headset;
+    // parsed as hex (0x...) or decimal. Only consulted by reach_aim_probe.
+    int reach_desired_aim_offset = 0x208;
+
     // rendering. The game's own HUD reticle sits at head-center and is wrong
     // whenever hand aim is on; this one is the truth.
     bool crosshair = true;

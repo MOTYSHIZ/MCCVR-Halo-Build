@@ -12,6 +12,39 @@ located AND co-op host-follow-verified. Actuation is the closed-loop stick loop
 (`Game_ComputeAimStick`), which the provider already delegates to (no-op takeover, commit `10b3512`).
 Everything here is the work that would let that flag flip.
 
+## UPDATE 2026-09-19 (later): disassembly ran, candidate found, read-only probe shipped
+
+Disassembled retail `haloreach.dll` (`G:\SteamLibrary\...\haloreach\haloreach.dll`, 12.6 MB) with the
+repo's `tools/pedis.py` (capstone; `--module` override) + a scripted `.pdata`-bounded analysis. HREK
+(`reach_tag_test.exe`) is not installed on this machine, but the unit **struct offset** is identical
+between HREK and retail, so the retail binary answers it directly. Findings:
+
+- **Reach's unit aim family is three (desired, current) vec3 pairs, each 0xC apart** (the Blam control
+  model, matching CE): facing `0x1e4`/`0x1f0`, **aiming `0x208`/`0x214`**, looking `0x22c`/`0x238`. A
+  spawn/reset broadcaster (retail `0x47D900`) initialises all six from one source vector, proving they
+  are one family in one struct.
+- **`unit+0x208` = DESIRED aiming; `unit+0x214` = CURRENT aiming** (current already established). Proven
+  by the integrator **retail `0x480280`**, which `movsd`-reads `[r14+0x208]` and `movsd`-writes
+  `[r14+0x214]` on the same base, and `lea`s both as vec3 pointers into its helpers -- the
+  desired->current consumer, the exact analog of CE's `0xafbe54` (desired `+0x210` -> current `+0x21c`).
+- So the direct-drive target (the thing to write) is **`unit+0x208`**, with `unit+0x214` as its
+  value-agreement reference.
+
+**Shipped a READ-ONLY probe to confirm this SOLO in headset (no co-op, no write):** config
+`reach_aim_probe=1` (default 0), `reach_desired_aim_offset=0x208` (config-settable, hex ok). On the
+engine thread it reads `unit+0x208` (candidate desired) and `unit+0x214` (known current) each ~0.5 s
+and logs their agreement. Expected if `0x208` is right: both are unit-length, `dot`≈1.0 / `ang`≈0 at
+rest, and the desired **leads** (nonzero `ang`) while you turn. A non-unit `des` vector prints
+`offset likely wrong` -- then sweep `reach_desired_aim_offset` (try `0x1e4`, `0x22c`). This probe is
+the value-agreement guard the write will gate on; confirming the offset read-only is the precondition
+for ever writing. Code: `ReachAimProbe_OnEngineTick` in `src/dll/game.cpp` (guarded, SEH, throttled).
+
+**The write is still the co-op step.** Once the probe confirms `0x208` in headset, the WriteState rung
+writes the VR desired-aim vector to `unit+0x208` and the co-op host-follow test decides whether that
+replicates (a client write that the host/other clients see) or is only a local mirror the packet path
+re-stamps -- in which case the CE-style control-packet hook is the next RE. `can_write_state` stays
+false until that test passes.
+
 ## What is already established (don't re-derive)
 
 - **Unit/player pointer path is fully resolved and guarded.** `playerUnitByOutputUser(0)` (native,

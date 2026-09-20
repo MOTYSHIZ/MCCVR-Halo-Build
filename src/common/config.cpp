@@ -774,6 +774,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "independent_dual_aim")) { g_config.independent_dual_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "gun_barrel_aim")) { g_config.gun_barrel_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "aim_provider")) { g_config.aim_provider=atoi(val); continue; }
+        if (!strcmp(key, "reach_aim_probe")) { g_config.reach_aim_probe=atoi(val); continue; }
+        if (!strcmp(key, "reach_desired_aim_offset")) { g_config.reach_desired_aim_offset=(int)strtol(val,nullptr,0); continue; }
         if (!strcmp(key, "halo4_helmet"))
         {
             g_config.halo4_helmet = atoi(val) != 0;
@@ -1497,6 +1499,15 @@ void ConfigSave()
     fprintf(f, "# drive and does not change your aim. Leave it at 0. (default %d)\n",
             d.aim_provider);
     fprintf(f, "aim_provider = %d\n\n", g_config.aim_provider);
+    fprintf(f, "# EXPERIMENTAL / diagnostic, Halo Reach only, READ-ONLY. Confirms the desired-aim\n");
+    fprintf(f, "# struct offset for a future direct-drive aim: it logs the candidate desired-aim\n");
+    fprintf(f, "# vector against the known current aim (they match at rest, the desired leads when\n");
+    fprintf(f, "# you turn). It does NOT change your aim. Leave at 0. (default %d)\n", d.reach_aim_probe);
+    fprintf(f, "reach_aim_probe = %d\n\n", g_config.reach_aim_probe);
+    fprintf(f, "# Candidate byte offset of Reach's unit desired-aim vector (hex ok). 0x208 is the\n");
+    fprintf(f, "# reverse-engineered value; only used when reach_aim_probe is on. (default 0x%X)\n",
+            d.reach_desired_aim_offset);
+    fprintf(f, "reach_desired_aim_offset = 0x%X\n\n", g_config.reach_desired_aim_offset);
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  WEAPON CALIBRATION\n");
     fprintf(f, "#  Personal trims applied over the active title's verified base pose.\n");

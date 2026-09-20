@@ -24740,6 +24740,77 @@ namespace
         return copied && ReachNormalizeUnitAimingVector(raw, out);
     }
 
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+    // EXPERIMENTAL, READ-ONLY, default off (reach_aim_probe). Confirms the Reach unit DESIRED-aiming
+    // struct offset for the future direct-drive rung WITHOUT writing anything and WITHOUT needing
+    // co-op. Runs on the engine thread only (the object collection is reached through __readgsqword
+    // TLS, so a wrong thread just resolves null), sharing ReachSampleVehicleInputState's context;
+    // SEH-guarded; throttled to ~2 Hz. It reads the candidate desired vec3 (unit+offset) and the
+    // known current aim (unit+0x214) and logs their agreement: they match at rest and the desired
+    // LEADS the current while you turn. That is the value-agreement check the direct-drive write will
+    // gate on -- proving the offset here, solo in headset, is the precondition for ever writing it.
+    void ReachAimProbe_OnEngineTick()
+    {
+        if (!g_config.reach_aim_probe) return;
+        if (!g_reachCamera.base || !g_reachCamera.playerUnitByOutputUser) return;
+        static uint64_t lastMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (now - lastMs < 500) return;   // 2 Hz: a log probe needs no more
+        lastMs = now;
+
+        const int candOff = g_config.reach_desired_aim_offset;
+        float cur[3]{}, des[3]{};
+        bool okCur = false, okDes = false;
+        int unit = -1;
+        __try
+        {
+            unit = g_reachCamera.playerUnitByOutputUser(0);
+            if (unit != -1)
+            {
+                uint8_t kind = 0;
+                const unsigned char* d = ReachVehicleObjectData(unit, kind);
+                if (d && kind != kReachObjectKindVehicle)
+                {
+                    memcpy(cur, d + kReachUnitAimingVectorOffset, sizeof(cur));
+                    okCur = true;
+                    if (candOff > 0x100 && candOff < 0x2000)
+                    {
+                        memcpy(des, d + static_cast<unsigned>(candOff), sizeof(des));
+                        okDes = true;
+                    }
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            LOG("REACHAIMPROBE: SEH fault reading unit aim (offset=0x%X); probe skipped", candOff);
+            return;
+        }
+
+        if (!okCur)
+        {
+            LOG("REACHAIMPROBE: no on-foot unit aim sample (unit=%d) -- in a vehicle or not in a level?",
+                unit);
+            return;
+        }
+        auto vlen = [](const float v[3]) {
+            return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        };
+        const float lc = vlen(cur), ld = vlen(des);
+        float dot = 0.0f, ang = 0.0f;
+        if (okDes && lc > 1e-3f && ld > 1e-3f)
+        {
+            dot = (cur[0] * des[0] + cur[1] * des[1] + cur[2] * des[2]) / (lc * ld);
+            const float c = dot < -1.0f ? -1.0f : (dot > 1.0f ? 1.0f : dot);
+            ang = acosf(c) * 57.29578f;
+        }
+        const bool plausible = okDes && ld > 0.5f && ld < 1.5f;
+        LOG("REACHAIMPROBE off=0x%X cur=(%.3f %.3f %.3f)|%.3f des=(%.3f %.3f %.3f)|%.3f dot=%.4f ang=%.2f%s",
+            candOff, cur[0], cur[1], cur[2], lc, des[0], des[1], des[2], ld, dot, ang,
+            plausible ? "" : "  <-- desired not a unit vector: offset likely wrong");
+    }
+#endif
+
     unsigned char* ReachPackedTagBlockElement(
         uint32_t packedData, int index, size_t stride)
     {
@@ -26456,6 +26527,9 @@ namespace
         }
 
         ReachSampleVehicleInputState(windowIndex, returnAddress);
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+        ReachAimProbe_OnEngineTick();   // read-only desired-aim offset probe (default off)
+#endif
 
         uintptr_t expectedWorkspace = 0;
         uintptr_t expectedPlayerView = 0;
