@@ -766,6 +766,12 @@ if(BUILD_TESTING)
     target_compile_options(halomccvr_vehicle_camera_file_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_vehicle_camera_file_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_camera_file_tests COMMAND halomccvr_vehicle_camera_file_tests)
+    # Where a camera sits: the offset, the tracked rotations and the leash in the games' space
+    # (src/common/vehicle_camera_frame_logic.h).
+    add_executable(halomccvr_vehicle_camera_frame_tests tests/vehicle_camera_frame_tests.cpp)
+    target_compile_options(halomccvr_vehicle_camera_frame_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_camera_frame_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_camera_frame_tests COMMAND halomccvr_vehicle_camera_frame_tests)
     add_executable(halomccvr_halo4_vehicle_input_tests tests/halo4_vehicle_input_tests.cpp)
     target_compile_definitions(halomccvr_halo4_vehicle_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_halo4_vehicle_input_tests COMMAND halomccvr_halo4_vehicle_input_tests)
