@@ -310,6 +310,11 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad);
 bool Game_Halo3VehicleSwallowsGrips();
 // True while the wheel, rather than the turn stick, authors the steering.
 bool Game_Halo3VehicleWheelActive();
+// Vehicle cameras (vehicle_cameras.inl), for the F1 menu. Step asks for the seat's next (+1) or previous (-1)
+// camera and tethering mode; the cold worker takes it up within a poll. Readout copies one line saying which
+// camera is in use, or why none is; false when there is nothing to say (the feature is off).
+void Game_VehicleCameraStep(int cameraDirection, int modeDirection);
+bool Game_VehicleCameraReadout(char* out, size_t capacity);
 // C13 per-SEAT trim: the config storage slot for the seat the player occupies
 // right now (see ConfigSeatTrimSlot; a mounted gunner reports the carrier
 // vehicle's gunner slot), -1 when on foot or unidentified, plus its display

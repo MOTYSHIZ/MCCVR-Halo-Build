@@ -15618,7 +15618,7 @@ int main()
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
         "vehicle_cam_right_m",
         "vehicle_view_follow", "vehicle_cam_smoothing",
-        "vehicle_motion", "vehicle_vr_controls", "vehicle_wheel_max_deg",
+        "vehicle_motion", "vehicle_vr_controls", "vehicle_cameras", "vehicle_wheel_max_deg",
         "vehicle_wheel_deadzone_deg",
         "halo4_helmet", "crosshair", "crosshair_distance_m", "crosshair_size_deg",
         "reticle_r", "reticle_g", "reticle_b", "kill_reticle",

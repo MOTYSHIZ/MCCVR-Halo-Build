@@ -275,6 +275,9 @@ add_library(halo3xr SHARED
     src/common/scope_logic.cpp
     src/common/title_registry.cpp
     src/common/title_runtime_state.cpp
+    src/common/vehicle_camera_file.cpp
+    src/common/vehicle_camera_select.cpp
+    src/common/vehicle_camera_store.cpp
     src/dll/dllmain.cpp
     src/dll/native_fault_probe.cpp
     src/dll/telemetry_recorder.cpp

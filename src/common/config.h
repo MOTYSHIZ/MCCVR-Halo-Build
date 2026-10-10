@@ -733,6 +733,13 @@ struct Config
     // 0 = both games' seats keep the plain right stick, as on a flat screen.
     // The other games' seats are not affected (their aim settings govern them).
     bool vehicle_vr_controls = true;
+    // Vehicle cameras: in a vehicle seat, step through the cameras listed for that seat in
+    // halomccvr_vehicle_cameras.json (the mod's folder: written on first use, the player's to edit, read
+    // again when it changes). The built-in list starts with the seat view itself, so switching this on
+    // changes nothing until another camera is chosen (F1 > Vehicles). A camera the mod places shows the
+    // seat from outside, with the player's character drawn in it. Halo 3 for now, and only with
+    // vehicle_first_person on.
+    bool vehicle_cameras = false;
     float vehicle_wheel_max_deg = 75.0f;      // wheel angle at full lock
     float vehicle_wheel_deadzone_deg = 6.0f;  // slack around centre
 

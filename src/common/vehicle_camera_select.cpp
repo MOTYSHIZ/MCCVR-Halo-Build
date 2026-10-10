@@ -255,7 +255,7 @@ bool Selector::Update(const char* gameKey, bool seated, const char* vehicleName,
             return false;
         seated_ = false;
         const bool was = active_.valid;
-        Clear("on foot");
+        Clear(kOnFoot);
         return was;
     }
     const char* key = gameKey ? gameKey : "";

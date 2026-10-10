@@ -1496,6 +1496,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.vehicle_vr_controls = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "vehicle_cameras"))
+        {
+            g_config.vehicle_cameras = atoi(val) != 0;
+            continue;
+        }
         // C-H2-85: handled by table, not by the else-if chain below - that
         // chain is at MSVC's block nesting limit and cannot take more arms.
         {
@@ -2827,6 +2832,16 @@ void ConfigSave()
     fprintf(f, "# affected.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_vr_controls ? 1 : 0);
     fprintf(f, "vehicle_vr_controls = %d\n\n", g_config.vehicle_vr_controls ? 1 : 0);
+    fprintf(f, "# Vehicle cameras (Halo 3 for now; needs vehicle_first_person). In a\n");
+    fprintf(f, "# vehicle seat, step through the cameras listed for that seat in\n");
+    fprintf(f, "# halomccvr_vehicle_cameras.json, in this folder. The file is written\n");
+    fprintf(f, "# the first time this is on; it is yours to edit and is read again\n");
+    fprintf(f, "# when you save it. Its first camera is the seat view you already\n");
+    fprintf(f, "# have, so nothing changes until you choose another one from the F1\n");
+    fprintf(f, "# menu's Vehicles page. A camera placed outside the vehicle shows\n");
+    fprintf(f, "# your character in the seat.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
+    fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
     fprintf(f, "# Motion steering (Halo 3, ODST and Reach). In a Warthog,\n");
     fprintf(f, "# Mongoose, Ghost, Prowler or Chopper, DOUBLE-CLICK both grips to\n");
     fprintf(f, "# take hold of an invisible steering wheel: hold your hands as if\n");

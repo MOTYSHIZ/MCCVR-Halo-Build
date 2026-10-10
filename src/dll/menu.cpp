@@ -1311,6 +1311,30 @@ namespace
             &g_config.vehicle_wheel_max_deg, 30.0f, 180.0f, "%.0f");
         changed |= vr_menu::SliderFloat("Wheel deadzone (deg)",
             &g_config.vehicle_wheel_deadzone_deg, 0.0f, 30.0f, "%.0f");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Text("Vehicle cameras (Halo 3)");
+        changed |= ImGui::Checkbox("Cameras from halomccvr_vehicle_cameras.json",
+                                   &g_config.vehicle_cameras);
+        ImGui::TextDisabled(
+            "In a seat, step through the cameras that file lists for it. The\n"
+            "file is in the mod's folder, written the first time this is on;\n"
+            "edit it and it is read again when you save. Its first camera is\n"
+            "the seat view you already have. Needs first-person vehicles on.");
+        if (g_config.vehicle_cameras)
+        {
+            if (ImGui::Button("Next camera"))
+                Game_VehicleCameraStep(1, 0);
+            ImGui::SameLine();
+            if (ImGui::Button("Previous camera"))
+                Game_VehicleCameraStep(-1, 0);
+            ImGui::SameLine();
+            if (ImGui::Button("Next mode"))
+                Game_VehicleCameraStep(0, 1);
+            char cameraLine[384];
+            if (Game_VehicleCameraReadout(cameraLine, sizeof(cameraLine)))
+                ImGui::TextWrapped("%s", cameraLine);
+        }
         }
 
         if (CategorySection section{Cat_Reload}; section.visible)

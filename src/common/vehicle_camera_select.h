@@ -18,6 +18,8 @@
 namespace vehicle_camera_select
 {
 inline constexpr int kMarkerCapacity = 48;
+// StandDownReason() while the player is not in a seat at all.
+inline constexpr char kOnFoot[] = "on foot";
 
 struct ActiveCamera
 {
@@ -92,7 +94,7 @@ private:
     std::map<std::string, Remembered> memory_;
     std::string gameKey_;
     std::string vehicleName_;
-    std::string standDown_ = "on foot";
+    std::string standDown_ = kOnFoot;
     uint8_t seat_ = 0;
     bool seated_ = false;
     const vehicle_camera_file::Game* game_ = nullptr; // into table_

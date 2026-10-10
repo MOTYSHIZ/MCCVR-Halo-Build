@@ -54,6 +54,8 @@
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
+#include <memory>
+#include <string>
 #include <vector>
 #include <MinHook.h>
 #include "game.h"
@@ -92,6 +94,8 @@
 #include "title_adapter.h"
 #include "../common/authored_reticle_logic.h"
 #include "../common/seat_view_logic.h"
+#include "../common/vehicle_camera_place_logic.h"
+#include "../common/vehicle_camera_store.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
 #include "../common/reach_vehicle_logic.h"
@@ -5111,6 +5115,12 @@ namespace
     // C21: the rigid, vehicle-parented seat placement the hands hang off while
     // a first-person vehicle seat owns the view. False everywhere else.
     bool Halo3ComputeSeatBodyAnchor(float out[3]);
+    // Vehicle cameras (vehicle_cameras.inl): a chase camera of the mod's own in a Halo 3 seat. Place is the
+    // camera thread's, once a pass; PublishedPoint is that point for any thread while it is fresh; ThirdPerson
+    // is the seat sampler's question. All false with vehicle_cameras off, on one atomic load.
+    bool Halo3VehicleCameraPlace(float viewYaw, float out[3]);
+    bool Halo3VehicleCameraPublishedPoint(float out[3]);
+    bool Halo3VehicleCameraThirdPerson();
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     // O2: ODST's equivalent, so the shared hand solver can hang the arms off an
     // ODST seat too. Declared here because the solver runs long before the ODST
@@ -8326,6 +8336,11 @@ namespace
 #endif
         Halo3SelectHandOrigin(g_config.vehicle_hands_follow_body,
                               bodyAnchorValid, bodyAnchor, cam);
+        // A chase camera of the mod's own (vehicle_cameras.inl) is where the view is seen from: the hands are
+        // measured from that same point, whatever the setting above says of the seat.
+        float chaseCamera[3];
+        if (Halo3VehicleCameraPublishedPoint(chaseCamera))
+            memcpy(cam, chaseCamera, sizeof(chaseCamera));
         // Forward standoff along the controller's own aim direction (basis
         // column 0 = forward). EVERY left-hand use â€” support hand AND the
         // dual-wield gun seat â€” is the same wrist-to-palm PALM point (23:17
@@ -8813,8 +8828,10 @@ namespace
         // rendered node; consuming that world point directly is essential.
         if (!cinematic && Halo3VehicleFpActive())
         {
+            // A chase camera chosen for this seat (vehicle_cameras.inl) stands in for the seat's own point;
+            // without one, or when it cannot be placed this frame, the seat's point is the view as before.
             float anchor[3];
-            if (Halo3ComputeAuthoredAnchor(anchor))
+            if (Halo3VehicleCameraPlace(g_gameYawRef, anchor) || Halo3ComputeAuthoredAnchor(anchor))
             {
                 memcpy(pos, anchor, sizeof(anchor));
             }
@@ -9149,6 +9166,14 @@ namespace
         float hullFwd[3];
         float hullUp[3];
         uint32_t definitionIndex = 0xFFFFFFFFu;
+        // The vehicle's root node as it is DRAWN, for a camera the mod places beside the vehicle
+        // (vehicle_cameras.inl): the object frame above moves on the simulation's tick. Read only while
+        // vehicle_cameras is on; valid only where it agrees with that object frame.
+        float rootPos[3];
+        float rootFwd[3];
+        float rootLeft[3];
+        float rootUp[3];
+        uint32_t rootValid = 0;
     };
     Halo3VehicleTransform g_halo3VehicleTransform;
 
@@ -10138,6 +10163,30 @@ namespace
                     g_halo3HeadReference = {};
                 }
 
+                // Vehicle cameras: the root node of the vehicle the occupant's node is on, from the same node
+                // bank as the seat's. Taken only where it stands in for the object frame above: inside the
+                // vehicle's bounds, within a world unit of the object's origin, and facing within 20 degrees
+                // of it. A model whose root is somewhere else keeps the object frame.
+                Halo3Matrix4x3 rootNode{};
+                bool rootValid = false;
+                if (g_config.vehicle_cameras && frameBoundsValid)
+                {
+                    bool rootInterpolated = false;
+                    if (Halo3ReadLiveNodeMatrix(nodeObject, nodeObjectData, 0, rootNode, rootInterpolated))
+                    {
+                        const float away[3] = {rootNode.position[0] - world.pos[0],
+                                               rootNode.position[1] - world.pos[1],
+                                               rootNode.position[2] - world.pos[2]};
+                        rootValid =
+                            Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f) &&
+                            away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= 1.0f &&
+                            rootNode.forward[0] * world.fwd[0] + rootNode.forward[1] * world.fwd[1] +
+                                    rootNode.forward[2] * world.fwd[2] > 0.94f &&
+                            rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +
+                                    rootNode.up[2] * world.up[2] > 0.94f;
+                    }
+                }
+
                 // C9 diagnostic (log-only): the user reports the vehicle mesh
                 // "vibrating, fighting against the camera override". The two
                 // candidate causes look completely different here. If the
@@ -10221,6 +10270,11 @@ namespace
                 memcpy(xf.hullFwd, world.fwd, sizeof(xf.hullFwd));
                 memcpy(xf.hullUp, world.up, sizeof(xf.hullUp));
                 xf.definitionIndex = defIndex;
+                memcpy(xf.rootPos, rootNode.position, sizeof(xf.rootPos));
+                memcpy(xf.rootFwd, rootNode.forward, sizeof(xf.rootFwd));
+                memcpy(xf.rootLeft, rootNode.left, sizeof(xf.rootLeft));
+                memcpy(xf.rootUp, rootNode.up, sizeof(xf.rootUp));
+                xf.rootValid = rootValid ? 1u : 0u;
                 memcpy(xf.anchor, cameraAnchor, sizeof(xf.anchor));
                 memcpy(xf.anchorBase, bodyAnchor, sizeof(xf.anchorBase));
                 xf.anchorValid = anchorValid ? 1u : 0u;
@@ -10462,6 +10516,12 @@ namespace
         float hullFwd[3] = {0.0f, 0.0f, 0.0f};
         float hullUp[3] = {0.0f, 0.0f, 0.0f};
         uint32_t definitionIndex = 0xFFFFFFFFu;
+        // The vehicle's drawn root node (Halo3VehicleTransform); false leaves the object frame above.
+        bool rootValid = false;
+        float rootPos[3] = {0.0f, 0.0f, 0.0f};
+        float rootFwd[3] = {0.0f, 0.0f, 0.0f};
+        float rootLeft[3] = {0.0f, 0.0f, 0.0f};
+        float rootUp[3] = {0.0f, 0.0f, 0.0f};
     };
 
     bool Halo3ReadSeatSnapshot(Halo3SeatSnapshot& out)
@@ -10494,8 +10554,19 @@ namespace
         memcpy(out.hullFwd, xf.hullFwd, sizeof(out.hullFwd));
         memcpy(out.hullUp, xf.hullUp, sizeof(out.hullUp));
         out.definitionIndex = xf.definitionIndex;
+        out.rootValid = xf.rootValid != 0;
+        memcpy(out.rootPos, xf.rootPos, sizeof(out.rootPos));
+        memcpy(out.rootFwd, xf.rootFwd, sizeof(out.rootFwd));
+        memcpy(out.rootLeft, xf.rootLeft, sizeof(out.rootLeft));
+        memcpy(out.rootUp, xf.rootUp, sizeof(out.rootUp));
         if (xf.seq.load(std::memory_order_acquire) != seq)
             return false;
+        // The root node is one consumer's (the vehicle cameras'): a value that is not a number costs that
+        // consumer its drawn frame, never the seat its snapshot.
+        for (int i = 0; i < 3 && out.rootValid; ++i)
+            if (!isfinite(out.rootPos[i]) || !isfinite(out.rootFwd[i]) || !isfinite(out.rootLeft[i]) ||
+                !isfinite(out.rootUp[i]))
+                out.rootValid = false;
         for (int i = 0; i < 3; ++i)
             if (!isfinite(out.pos[i]) || !isfinite(out.fwd[i]) ||
                 !isfinite(out.rawFwd[i]) || !isfinite(out.up[i]) ||
@@ -10635,6 +10706,8 @@ namespace
             return false;
         return Game_Halo3VehicleState().state == Halo3VehicleState::Vehicle;
     }
+
+    #include "vehicle_cameras.inl"
 
     // ---- C9: the view turns with the vehicle -------------------------------
     // "the camera does not rotate with the car" (user, 2026-07-31). C8 put the
@@ -48290,6 +48363,7 @@ namespace
 #endif
             SeatAimFrameSync();   // Halo 3 / ODST seat aim: follow the first-person seat settings
             Halo3SeatViewSync();  // Halo 3 seats: the camera director's relay follows them too
+            VehicleCameras_ColdTick(pollNow);   // vehicle cameras: the file, the seat's camera, the menu's steps
 #if HALOMCCVR_DEV_DIAGNOSTICS
             Type13LogReport();   // the type-13 pilot-controller log lines (REACH SF, H4 T13)
 #endif
@@ -56318,6 +56392,16 @@ bool Game_ReachPlayerIsInVehicle()
 #else
     return false;
 #endif
+}
+
+void Game_VehicleCameraStep(int cameraDirection, int modeDirection)
+{
+    VehicleCameraRequestStep(cameraDirection, modeDirection);
+}
+
+bool Game_VehicleCameraReadout(char* out, size_t capacity)
+{
+    return VehicleCameraGetReadout(out, capacity);
 }
 
 Halo3VehicleStateSnapshot Game_Halo3VehicleState()
