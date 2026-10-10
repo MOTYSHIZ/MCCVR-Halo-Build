@@ -755,6 +755,17 @@ if(BUILD_TESTING)
     target_compile_definitions(halomccvr_halo3_seat_view_dev_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN
         HALOMCCVR_DEV_DIAGNOSTICS=1)
     add_test(NAME halomccvr_halo3_seat_view_dev_tests COMMAND halomccvr_halo3_seat_view_dev_tests)
+    # Vehicle cameras: the small JSON reader for hand-edited files (src/common/json_lite.h) and the camera
+    # file itself -- model, reader, writer and vehicle matching (src/common/vehicle_camera_file.h). Pure logic.
+    add_executable(halomccvr_json_lite_tests tests/json_lite_tests.cpp)
+    target_compile_options(halomccvr_json_lite_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_json_lite_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_json_lite_tests COMMAND halomccvr_json_lite_tests)
+    add_executable(halomccvr_vehicle_camera_file_tests tests/vehicle_camera_file_tests.cpp
+        src/common/vehicle_camera_file.cpp)
+    target_compile_options(halomccvr_vehicle_camera_file_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_camera_file_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_camera_file_tests COMMAND halomccvr_vehicle_camera_file_tests)
     add_executable(halomccvr_halo4_vehicle_input_tests tests/halo4_vehicle_input_tests.cpp)
     target_compile_definitions(halomccvr_halo4_vehicle_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_halo4_vehicle_input_tests COMMAND halomccvr_halo4_vehicle_input_tests)
