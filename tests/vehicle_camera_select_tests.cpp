@@ -1,0 +1,345 @@
+// Which vehicle camera is in use (src/common/vehicle_camera_select.h): the entry for a seat, the camera it starts
+// in, stepping through cameras and tethering modes, what a seat remembers, and a reloaded file.
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include "../src/common/vehicle_camera_select.h"
+
+using namespace vehicle_camera_file;
+using namespace vehicle_camera_select;
+
+static unsigned g_checks = 0;
+static void Check(bool condition, const char* message)
+{
+    ++g_checks;
+    if (!condition)
+    {
+        std::fprintf(stderr, "FAIL: %s\n", message);
+        std::exit(1);
+    }
+}
+
+static bool Has(const std::string& text, const char* part)
+{
+    return text.find(part) != std::string::npos;
+}
+
+static Table Read(const std::string& text)
+{
+    Table table;
+    const ParseResult result = FromJson(text.c_str(), text.size(), table);
+    if (!result.ok)
+        std::fprintf(stderr, "test table: %s\n", result.error.c_str());
+    Check(result.ok, "the test's own table parses");
+    return table;
+}
+
+// A Halo 3 section: a Warthog entry for the driver and one for the gunner, a Ghost switched off, and a default.
+static std::string Halo3Table(const char* warthogCameras)
+{
+    return std::string("{ \"games\": { \"halo3\": { \"vehicles\": {"
+                       "  \"Warthog\": { \"defaultCamera\": 1, \"defaultMode\": 1, \"cameras\": ") +
+           warthogCameras +
+           " },"
+           "  \"Warthog gunner\": { \"match\": [\"warthog\"], \"seat\": [\"gunner\"], \"cameras\": ["
+           "     { \"name\": \"Turret\", \"origin\": \"turret_marker\", \"offset\": [-200, 0, 90] } ] },"
+           "  \"Ghost\": { \"enabled\": false },"
+           "  \"default\": { \"cameras\": [ { \"name\": \"Seat\", \"type\": \"firstperson\" } ] }"
+           " } } } }";
+}
+
+static const char* const kWarthogCameras =
+    "[ { \"name\": \"Seat\", \"type\": \"firstperson\" },"
+    "  { \"name\": \"Behind\", \"offset\": [-450, 0, 180], \"leashMax\": [null, null, 360],"
+    "    \"tethering\": [ { \"name\": \"Untethered\" },"
+    "                     { \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"] } ] },"
+    "  { \"name\": \"High\", \"offset\": [-700, 0, 420], \"collide\": false,"
+    "    \"tethering\": [ { \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"] },"
+    "                     { \"name\": \"Untethered\" } ] } ]";
+
+static void TestBuiltInTable()
+{
+    Selector selector;
+    Check(!selector.Active().valid, "nothing is selected before the player sits");
+    Check(selector.StandDownReason() == "on foot", "the reason before the player sits is that he is on foot");
+    Check(selector.Describe().empty(), "nothing to describe on foot");
+    Check(!selector.Update("halo3", false, "", 0), "staying on foot changes nothing");
+    Check(!selector.StepCamera(1) && !selector.StepMode(1), "there is nothing to step on foot");
+
+    Check(selector.Update("halo3", true, "warthog", kSeatDriver), "sitting down selects a camera");
+    const ActiveCamera seat = selector.Active();
+    Check(seat.valid && !seat.chase, "the built-in table starts in the seat view");
+    Check(seat.camera == 0 && seat.cameraCount == 2 && seat.modeCount == 1, "the seat view is camera 1 of 2");
+    Check(seat.changes == 1, "sitting down counts as a change");
+    Check(selector.StandDownReason().empty(), "no stand-down reason while a camera is selected");
+    Check(selector.Describe() == "default (Driver): camera 1 of 2 \"Seat\", the seat view",
+          "the seat view's log line");
+    Check(!selector.Update("halo3", true, "warthog", kSeatDriver), "the same seat again changes nothing");
+    Check(selector.Active() == seat, "and publishes the same record");
+    Check(!selector.StepMode(1), "the seat view has one mode");
+    Check(!selector.StepCamera(0), "a step of zero is no step");
+
+    Check(selector.StepCamera(1), "stepping to the next camera");
+    const ActiveCamera behind = selector.Active();
+    Check(behind.valid && behind.chase && behind.camera == 1, "the second camera is a chase camera");
+    Check(behind.mode == 0 && behind.modeCount == 2, "it starts in its first mode of two");
+    Check(behind.offsetCm[0] == -450.0f && behind.offsetCm[1] == 0.0f && behind.offsetCm[2] == 180.0f,
+          "its offset is the file's");
+    Check(behind.locYaw && behind.locPitch && behind.locRoll && !behind.locView, "its position rides the vehicle");
+    Check(!behind.rotYaw && !behind.rotPitch && !behind.rotRoll, "its first mode does not turn the view");
+    Check(behind.origin == static_cast<uint8_t>(Origin::Vehicle) && behind.marker[0] == '\0',
+          "it is measured from the vehicle and names no marker");
+    Check(behind.collide && behind.collideMarginCm == 30.0f, "it is pulled in from obstacles by the default margin");
+    Check(behind.changes == 2, "a step counts as a change");
+    Check(selector.Describe() ==
+              "default (Driver): camera 2 of 2 \"Third Person\", mode 1 of 2 \"Untethered\", chase from vehicle, "
+              "offset -450 0 180 cm, location Yaw, Pitch, Roll, rotation None, leash None",
+          "the chase camera's log line");
+
+    Check(selector.StepMode(1), "stepping to the next mode");
+    Check(selector.Active().mode == 1 && selector.Active().rotYaw, "the second mode turns the view with the vehicle");
+    Check(selector.Active().changes == 3, "a mode step counts as a change");
+    Check(selector.StepMode(1) && selector.Active().mode == 0, "the modes wrap round forwards");
+    Check(selector.StepMode(-1) && selector.Active().mode == 1, "and backwards");
+
+    Check(selector.StepCamera(1) && selector.Active().camera == 0, "the cameras wrap round");
+    Check(selector.StepCamera(-1) && selector.Active().camera == 1, "and backwards");
+    Check(selector.Active().mode == 1,
+          "the tethering choice survives a pass through the seat view, which has no modes of its own");
+}
+
+static void TestSeatMemory()
+{
+    Selector selector;
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    selector.StepCamera(1);
+    selector.StepMode(1);
+    const uint32_t seatedChanges = selector.Active().changes;
+
+    Check(selector.Update("halo3", false, "", 0), "getting out changes the published camera");
+    Check(!selector.Active().valid, "nothing is selected on foot");
+    Check(selector.Active().changes == seatedChanges + 1, "getting out counts as a change");
+    Check(selector.StandDownReason() == "on foot", "the reason on foot");
+    Check(!selector.Update("halo3", false, "", 0), "staying out changes nothing");
+    Check(selector.Active().changes == seatedChanges + 1, "and does not count again");
+
+    Check(selector.Update("halo3", true, "warthog", kSeatDriver), "getting back in");
+    Check(selector.Active().camera == 1 && selector.Active().mode == 1,
+          "a seat starts in the camera and mode the player last chose there");
+    Check(selector.Active().changes == seatedChanges + 2, "getting in counts as a change");
+
+    selector.Update("reach", false, "", 0);
+    Check(selector.Update("reach", true, "warthog", kSeatDriver), "the same seat in another game");
+    Check(selector.Active().camera == 0, "a choice made in one game is not another game's");
+
+    // The seat view was never chosen by a step in this entry, so a seat with no memory takes the defaults.
+    Selector fresh;
+    fresh.SetTable(Read(Halo3Table(kWarthogCameras)));
+    Check(fresh.Update("halo3", true, "Warthog", kSeatDriver), "a seat with defaults in the file");
+    Check(fresh.Active().camera == 1 && fresh.Active().mode == 1, "starts in defaultCamera and defaultMode");
+    fresh.StepCamera(-1);
+    fresh.Update("halo3", false, "", 0);
+    fresh.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(fresh.Active().camera == 0, "and after a step, in the camera the player left it in instead");
+}
+
+static void TestEntriesAndSeats()
+{
+    Selector selector;
+    selector.SetTable(Read(Halo3Table(kWarthogCameras)));
+
+    Check(selector.Update("halo3", true, "Warthog", 0), "a Warthog seat the game has not named yet");
+    Check(Has(selector.Describe(), "Warthog: camera 2 of 3 \"Behind\""),
+          "takes the entry without a seat list, and says nothing about the seat");
+    const ActiveCamera unnamed = selector.Active();
+    Check(unnamed.leashMaxCm[2] == 360.0f && unnamed.leashMaxCm[0] >= kUnleashed,
+          "the camera's leash is published, an unlimited side left unlimited");
+    Check(Has(selector.Describe(), "leash up at most 360 cm"), "and described");
+
+    Check(!selector.Update("halo3", true, "Warthog", kSeatDriver), "the game naming the seat a driver's");
+    Check(selector.Active() == unnamed, "keeps the same entry's camera where it is");
+    Check(Has(selector.Describe(), "Warthog (Driver): camera 2 of 3"), "and the line now names the seat");
+
+    Check(selector.Update("halo3", true, "Warthog", kSeatGunner), "moving to the gunner's seat");
+    const ActiveCamera gunner = selector.Active();
+    Check(Has(selector.Describe(), "Warthog gunner (Gunner): camera 1 of 1 \"Turret\", chase from turret_marker"),
+          "takes the gunner's entry");
+    Check(gunner.origin == static_cast<uint8_t>(Origin::Marker) && std::strcmp(gunner.marker, "turret_marker") == 0,
+          "a marker origin publishes the marker's name");
+    Check(gunner.changes == unnamed.changes + 1, "changing seat counts as a change");
+    Check(!selector.StepCamera(1), "an entry with one camera has nothing to step to");
+    Check(!selector.StepMode(1), "a camera with no tethering list has one mode");
+    Check(!Has(selector.Describe(), "mode "), "and its line names no mode");
+
+    Check(selector.Update("halo3", true, "Ghost", kSeatDriver), "a vehicle whose entry is switched off");
+    Check(!selector.Active().valid, "selects nothing");
+    Check(Has(selector.StandDownReason(), "\"Ghost\"") && Has(selector.StandDownReason(), "\"enabled\": false"),
+          "and says which entry switched it off");
+    Check(selector.Describe().empty(), "with nothing to describe");
+    Check(!selector.StepCamera(1), "and nothing to step");
+
+    Check(selector.Update("halo3", true, "Mongoose", kSeatPassenger), "a vehicle with no entry of its own");
+    Check(Has(selector.Describe(), "default (Passenger): camera 1 of 1 \"Seat\", the seat view"),
+          "takes the default entry");
+
+    Check(selector.Update("odst", true, "Warthog", kSeatDriver), "a game with no section of its own and no default section");
+    Check(!selector.Active().valid && Has(selector.StandDownReason(), "no section for this game"),
+          "selects nothing and says why");
+
+    Selector empty;
+    empty.SetTable(Read("{ \"games\": { \"halo3\": { \"vehicles\": {"
+                        " \"Ghost\": { \"cameras\": [ { \"name\": \"A\" } ] } } } } }"));
+    empty.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(!empty.Active().valid && Has(empty.StandDownReason(), "no entry for this vehicle"),
+          "a section with no matching entry and no default selects nothing and says why");
+    Check(!empty.Update(nullptr, true, nullptr, 0) || !empty.Active().valid,
+          "a null game key and vehicle name are taken as empty text");
+}
+
+static void TestLongMarkerName()
+{
+    const std::string longName(80, 'm');
+    Selector selector;
+    selector.SetTable(Read("{ \"games\": { \"default\": { \"vehicles\": { \"default\": { \"cameras\": ["
+                           " { \"origin\": \"" + longName + "\" } ] } } } } }"));
+    selector.Update("halo3", true, "anything", kSeatDriver);
+    const ActiveCamera& active = selector.Active();
+    Check(active.valid && active.origin == static_cast<uint8_t>(Origin::Marker), "a long marker name still selects");
+    Check(std::strlen(active.marker) == static_cast<std::size_t>(kMarkerCapacity - 1),
+          "and is cut to fit the record, with its terminator");
+    Check(Has(selector.Describe(), "default (Driver): camera 1 of 1, chase from mmm"),
+          "an unnamed camera is described by its number alone");
+}
+
+static void TestReload()
+{
+    Selector selector;
+    selector.SetTable(Read(Halo3Table(kWarthogCameras)));
+    selector.Update("halo3", true, "Warthog", kSeatDriver);
+    const ActiveCamera before = selector.Active(); // Behind, Tethered
+    Check(before.camera == 1 && before.mode == 1 && before.rotYaw, "the starting point: Behind, Tethered");
+
+    // Only a number edited.
+    selector.SetTable(Read(Halo3Table(
+        "[ { \"name\": \"Seat\", \"type\": \"firstperson\" },"
+        "  { \"name\": \"Behind\", \"offset\": [-500, 20, 200],"
+        "    \"tethering\": [ { \"name\": \"Untethered\" },"
+        "                     { \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"] } ] } ]")));
+    Check(selector.Active().camera == 1 && selector.Active().mode == 1, "an edited number keeps the camera and mode");
+    Check(selector.Active().offsetCm[0] == -500.0f && selector.Active().offsetCm[1] == 20.0f,
+          "and publishes the new number");
+    Check(selector.Active().cameraCount == 2, "and the new camera count");
+    Check(selector.Active().changes == before.changes, "without counting as a change");
+
+    // Cameras and modes moved round in the file.
+    selector.SetTable(Read(Halo3Table(
+        "[ { \"name\": \"Behind\", \"offset\": [-500, 20, 200],"
+        "    \"tethering\": [ { \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"] },"
+        "                     { \"name\": \"Untethered\" } ] },"
+        "  { \"name\": \"Seat\", \"type\": \"firstperson\" } ]")));
+    Check(selector.Active().camera == 0 && selector.Active().mode == 0 && selector.Active().rotYaw,
+          "a camera and mode that moved in the file are followed by name");
+    Check(selector.Active().changes == before.changes, "without counting as a change");
+
+    // Renamed where they stand.
+    selector.SetTable(Read(Halo3Table(
+        "[ { \"name\": \"Chase\", \"offset\": [-500, 20, 200],"
+        "    \"tethering\": [ { \"name\": \"Follow\", \"rotationTracking\": [\"yaw\"] },"
+        "                     { \"name\": \"Untethered\" } ] },"
+        "  { \"name\": \"Seat\", \"type\": \"firstperson\" } ]")));
+    Check(selector.Active().camera == 0 && selector.Active().mode == 0,
+          "a renamed camera and mode are kept by their position");
+    Check(selector.Active().changes == before.changes, "without counting as a change");
+    Check(Has(selector.Describe(), "\"Chase\", mode 1 of 2 \"Follow\""), "and described by their new names");
+
+    // The mode in use removed: the nearest the camera still has.
+    selector.SetTable(Read(Halo3Table(
+        "[ { \"name\": \"Chase\", \"offset\": [-500, 20, 200],"
+        "    \"tethering\": [ { \"name\": \"Loose\" },"
+        "                     { \"name\": \"Tight\", \"rotationTracking\": [\"yaw\"] } ] },"
+        "  { \"name\": \"Seat\", \"type\": \"firstperson\" } ]")));
+    Check(selector.Active().mode == 0, "a mode renamed where it stands is still kept by position");
+    selector.StepMode(1); // Tight
+    const uint32_t tight = selector.Active().changes;
+    selector.SetTable(Read(Halo3Table(
+        "[ { \"name\": \"Chase\", \"offset\": [-500, 20, 200] },"
+        "  { \"name\": \"Seat\", \"type\": \"firstperson\" } ]")));
+    Check(selector.Active().camera == 0 && selector.Active().mode == 0 && selector.Active().modeCount == 1,
+          "a mode that is gone leaves the player in the camera");
+    Check(selector.Active().changes == tight + 1, "and that counts as a change");
+
+    // The camera in use became another kind.
+    const uint32_t chase = selector.Active().changes;
+    selector.SetTable(Read(Halo3Table(
+        "[ { \"name\": \"Chase\", \"type\": \"firstperson\" },"
+        "  { \"name\": \"Seat\", \"type\": \"firstperson\" } ]")));
+    Check(!selector.Active().chase && selector.Active().changes == chase + 1,
+          "a camera that became the seat view counts as a change");
+
+    // The camera in use removed, and nothing left at its position.
+    selector.StepCamera(1); // Seat, camera 2 of 2
+    const uint32_t second = selector.Active().changes;
+    selector.SetTable(Read(Halo3Table("[ { \"name\": \"Only\", \"offset\": [-300, 0, 100] } ]")));
+    Check(selector.Active().valid && selector.Active().camera == 0 && selector.Active().cameraCount == 1,
+          "a camera that is gone puts the player in the entry's starting camera");
+    Check(selector.Active().changes == second + 1, "and that counts as a change");
+
+    // The entry switched off, then on again.
+    const uint32_t on = selector.Active().changes;
+    selector.SetTable(Read("{ \"games\": { \"halo3\": { \"vehicles\": { \"Warthog\": { \"enabled\": false } } } } }"));
+    Check(!selector.Active().valid && selector.Active().changes == on + 1,
+          "an entry switched off in the file stands the camera down");
+    selector.SetTable(Read(Halo3Table(kWarthogCameras)));
+    Check(selector.Active().valid && selector.Active().changes == on + 2,
+          "and switched on again selects one, each counting as a change");
+
+    // A reload on foot waits for the next seat.
+    selector.Update("halo3", false, "", 0);
+    const ActiveCamera onFoot = selector.Active();
+    selector.SetTable(DefaultTable());
+    Check(selector.Active() == onFoot && selector.StandDownReason() == "on foot", "a reload on foot selects nothing");
+    selector.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(Has(selector.Describe(), "default (Driver)"), "and the next seat uses the new table");
+}
+
+static void TestTwoCamerasOfOneName()
+{
+    Selector selector;
+    const char* const twins = "[ { \"name\": \"Cam\", \"offset\": [-100, 0, 0] },"
+                              "  { \"name\": \"Cam\", \"offset\": [-200, 0, 0] } ]";
+    selector.SetTable(Read(Halo3Table(twins))); // defaultCamera 1
+    selector.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(selector.Active().camera == 1 && selector.Active().offsetCm[0] == -200.0f, "the second of two same-named cameras");
+    selector.SetTable(Read(Halo3Table(twins)));
+    Check(selector.Active().camera == 1, "is still the second after a reload");
+}
+
+static void TestCarryAcrossCameras()
+{
+    Selector selector;
+    selector.SetTable(Read(Halo3Table(kWarthogCameras)));
+    selector.Update("halo3", true, "Warthog", kSeatDriver); // Behind, Tethered (mode 1)
+    Check(selector.StepCamera(1), "stepping from Behind to High");
+    Check(selector.Active().camera == 2 && selector.Active().mode == 0 && selector.Active().rotYaw,
+          "lands in High's mode of the same name, wherever it is in its list");
+    Check(!selector.Active().collide, "a camera's own collide setting is published");
+    selector.StepMode(1); // High, Untethered
+    selector.StepCamera(1); // Seat
+    selector.StepCamera(1); // Behind
+    Check(selector.Active().camera == 1 && selector.Active().mode == 0 && !selector.Active().rotYaw,
+          "and the choice last made carries through the seat view to the next camera");
+}
+
+int main()
+{
+    TestBuiltInTable();
+    TestSeatMemory();
+    TestEntriesAndSeats();
+    TestLongMarkerName();
+    TestReload();
+    TestTwoCamerasOfOneName();
+    TestCarryAcrossCameras();
+    std::printf("PASS: %u vehicle camera selection checks\n", g_checks);
+    return 0;
+}
