@@ -797,11 +797,11 @@ if(BUILD_TESTING)
     target_compile_definitions(halomccvr_vehicle_camera_place_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_camera_place_tests COMMAND halomccvr_vehicle_camera_place_tests)
     # How a look-steered driver steers, apart from how the view turns: hand, stick or wheel
-    # (src/common/vehicle_steering_logic.h).
-    add_executable(halomccvr_vehicle_steering_tests tests/vehicle_steering_tests.cpp)
-    target_compile_options(halomccvr_vehicle_steering_tests PRIVATE /W4 /WX)
-    target_compile_definitions(halomccvr_vehicle_steering_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
-    add_test(NAME halomccvr_vehicle_steering_tests COMMAND halomccvr_vehicle_steering_tests)
+    # (src/common/vehicle_control_logic.h).
+    add_executable(halomccvr_vehicle_control_tests tests/vehicle_control_tests.cpp)
+    target_compile_options(halomccvr_vehicle_control_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_control_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_control_tests COMMAND halomccvr_vehicle_control_tests)
     add_executable(halomccvr_halo4_vehicle_input_tests tests/halo4_vehicle_input_tests.cpp)
     target_compile_definitions(halomccvr_halo4_vehicle_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_halo4_vehicle_input_tests COMMAND halomccvr_halo4_vehicle_input_tests)

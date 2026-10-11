@@ -1883,7 +1883,7 @@ inline constexpr bool Halo3SeatIsTurret(Halo3VehicleId id, bool mountedTurret)
 // makes the view follow the hull, which is why the follow toggle is an
 // argument. With the toggle off nothing rotates, the closed loop still has its
 // feedback, and every control stays exactly as Alpha 0.3.1 shipped it.
-// vehicle_steering_logic.h holds the player's own choice, of which this is the
+// vehicle_control_logic.h holds the player's own choice, of which this is the
 // default; with the argument true it answers "is this a look-steered driver?".
 inline constexpr bool Halo3SeatAuthorsSteering(Halo3VehicleId id, int seatIndex,
                                                bool mountedTurret,

@@ -1297,17 +1297,20 @@ namespace
             "Reach and Halo 4 seats are not affected.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("How you steer (Halo 3)");
-        changed |= ImGui::Combo("Steer with", &g_config.vehicle_steering,
+        ImGui::Text("How you control a seat (Halo 3)");
+        changed |= ImGui::Combo("Seat controls", &g_config.vehicle_control,
                                 "As before\0Motion: your hand\0Stick\0Wheel\0");
         ImGui::TextDisabled(
-            "Warthog, Mongoose, Ghost, Prowler, Chopper, Banshee and Hornet.\n"
             "Apart from how your view turns: each works with a view the world\n"
-            "holds still and with one that turns with the vehicle. Motion: the\n"
-            "vehicle turns toward where your hand points. Stick: the turn stick\n"
-            "steers. Wheel: the invisible wheel is in your hands from the moment\n"
-            "you sit (aircraft take the stick). As before: your hand steers a\n"
-            "still view, the stick or wheel a view that turns with the vehicle.");
+            "holds still and with one that turns with the vehicle.\n"
+            "Motion: your hand aims in every seat, and a Warthog, Mongoose,\n"
+            "Ghost, Prowler, Chopper, Banshee or Hornet turns toward it.\n"
+            "Stick: the right stick aims and steers in every seat, as on a flat\n"
+            "screen; your hand aims nothing and the stick no longer turns your view.\n"
+            "Wheel: in those ground vehicles the invisible wheel is in your hands\n"
+            "from the moment you sit; every other seat is your hand's.\n"
+            "As before: your hand aims, except that the stick or wheel steers\n"
+            "those vehicles while the view turns with them.");
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Motion steering (Halo 3, ODST, Reach)");

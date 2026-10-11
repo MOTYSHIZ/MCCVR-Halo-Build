@@ -1501,10 +1501,10 @@ void ConfigLoad(const wchar_t* path)
             g_config.vehicle_cameras = atoi(val) != 0;
             continue;
         }
-        if (!strcmp(key, "vehicle_steering"))
+        if (!strcmp(key, "vehicle_control"))
         {
             const int mode = atoi(val);
-            g_config.vehicle_steering = mode >= 0 && mode <= 3 ? mode : 0;
+            g_config.vehicle_control = mode >= 0 && mode <= 3 ? mode : 0;
             continue;
         }
         // C-H2-85: handled by table, not by the else-if chain below - that
@@ -2848,21 +2848,25 @@ void ConfigSave()
     fprintf(f, "# your character in the seat.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
     fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
-    fprintf(f, "# How you steer a Warthog, Mongoose, Ghost, Prowler, Chopper, Banshee\n");
-    fprintf(f, "# or Hornet (Halo 3 for now). This is apart from how your view turns:\n");
-    fprintf(f, "# any of them works with a view the world holds still and with one\n");
-    fprintf(f, "# that turns with the vehicle.\n");
-    fprintf(f, "#   1 = Motion: your hand aims and the vehicle turns toward it. With a\n");
-    fprintf(f, "#       view that turns with the vehicle, pointing aside keeps it\n");
-    fprintf(f, "#       turning until your hand points ahead again.\n");
-    fprintf(f, "#   2 = Stick: the turn stick steers, as on a flat screen.\n");
-    fprintf(f, "#   3 = Wheel: the invisible steering wheel is in your hands from the\n");
-    fprintf(f, "#       moment you sit; double-click both grips to let go (the stick\n");
-    fprintf(f, "#       then steers) and to take it again. Aircraft take the stick.\n");
-    fprintf(f, "#   0 = as before: your hand steers while the world holds still, and\n");
-    fprintf(f, "#       the stick or wheel steers while the view turns with the vehicle.\n");
-    fprintf(f, "# (default %d)\n", d.vehicle_steering);
-    fprintf(f, "vehicle_steering = %d\n\n", g_config.vehicle_steering);
+    fprintf(f, "# How you control a vehicle seat (Halo 3 for now). This is apart from\n");
+    fprintf(f, "# how your view turns: each works with a view the world holds still\n");
+    fprintf(f, "# and with one that turns with the vehicle.\n");
+    fprintf(f, "#   1 = Motion: your hand aims in every seat, and a Warthog, Mongoose,\n");
+    fprintf(f, "#       Ghost, Prowler, Chopper, Banshee or Hornet turns toward it.\n");
+    fprintf(f, "#       With a view that turns with the vehicle, pointing aside keeps\n");
+    fprintf(f, "#       it turning until your hand points ahead again.\n");
+    fprintf(f, "#   2 = Stick: the right stick aims and steers in every seat, as on a\n");
+    fprintf(f, "#       flat screen. Your hand aims nothing, and the crosshair is\n");
+    fprintf(f, "#       where the game's own is. The stick no longer turns your view\n");
+    fprintf(f, "#       in a seat.\n");
+    fprintf(f, "#   3 = Wheel: in those ground vehicles the invisible steering wheel\n");
+    fprintf(f, "#       is in your hands from the moment you sit; double-click both\n");
+    fprintf(f, "#       grips to let go (the stick then steers) and to take it again.\n");
+    fprintf(f, "#       Aircraft take the stick. Every other seat is your hand's.\n");
+    fprintf(f, "#   0 = as before: your hand aims every seat, except that the stick or\n");
+    fprintf(f, "#       wheel steers those vehicles while the view turns with them.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_control);
+    fprintf(f, "vehicle_control = %d\n\n", g_config.vehicle_control);
     fprintf(f, "# Motion steering (Halo 3, ODST and Reach). In a Warthog,\n");
     fprintf(f, "# Mongoose, Ghost, Prowler or Chopper, DOUBLE-CLICK both grips to\n");
     fprintf(f, "# take hold of an invisible steering wheel: hold your hands as if\n");

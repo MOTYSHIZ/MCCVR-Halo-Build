@@ -1,11 +1,11 @@
-// How a look-steered driver steers (src/common/vehicle_steering_logic.h): the choice of hand, stick or wheel
-// apart from how the view turns, and the wheel handed over when it is the chosen way.
+// How a vehicle seat is controlled (src/common/vehicle_control_logic.h): the choice of hand, stick or wheel
+// apart from how the view turns, which seats the stick aims, and the wheel handed over when it is the chosen way.
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
-#include "../src/common/vehicle_steering_logic.h"
+#include "../src/common/vehicle_control_logic.h"
 
-using namespace vehicle_steering;
+using namespace vehicle_control;
 
 static unsigned g_checks = 0;
 static void Check(bool condition, const char* message)
@@ -49,6 +49,22 @@ static void TestWhoSteers()
           "a number that names no mode is automatic");
 }
 
+static void TestStickAims()
+{
+    Check(StickAims(Mode::Stick), "stick: the right stick aims the seat, whichever seat it is");
+    Check(!StickAims(Mode::Motion) && !StickAims(Mode::Wheel) && !StickAims(Mode::Automatic),
+          "in every other mode the hand aims: a wheel steers a heading, it aims no gun");
+
+    // Who has the turn stick: the seat, or the view.
+    Check(!StickBusy(false, false, false), "a hand-aimed seat leaves the stick to turn the view");
+    Check(StickBusy(false, true, false), "a stick-aimed gunner's stick is aiming");
+    Check(StickBusy(true, false, false), "a stick-steered driver's stick is steering");
+    Check(StickBusy(true, true, false), "and so is a stick-aimed driver's");
+    Check(!StickBusy(true, false, true) && !StickBusy(true, true, true),
+          "with the wheel in hand and steering, the stick is free to turn the view");
+    Check(StickBusy(false, true, true), "a wheel that is not this seat's frees nothing");
+}
+
 static void TestWheelOnOffer()
 {
     Halo3Wheel wheel;
@@ -90,7 +106,8 @@ static void TestWheelOnOffer()
 int main()
 {
     TestWhoSteers();
+    TestStickAims();
     TestWheelOnOffer();
-    std::printf("PASS: %u vehicle steering checks\n", g_checks);
+    std::printf("PASS: %u vehicle control checks\n", g_checks);
     return 0;
 }

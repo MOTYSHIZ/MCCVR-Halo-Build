@@ -96,7 +96,7 @@
 #include "../common/seat_view_logic.h"
 #include "../common/vehicle_camera_place_logic.h"
 #include "../common/vehicle_camera_store.h"
-#include "../common/vehicle_steering_logic.h"
+#include "../common/vehicle_control_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
 #include "../common/reach_vehicle_logic.h"
@@ -8662,6 +8662,8 @@ namespace
     // whether this seat's steering is authored instead of closed-loop aimed.
     void Halo3ApplySeatYawFollow();
     bool Halo3SeatAuthorsSteeringNow();
+    // The right stick aims the Halo 3 seat the player is in, on both axes (vehicle_control = stick).
+    bool Halo3SeatStickAimsNow();
     bool SharedVrTurnSeated();
 
     void Halo3PreparePhysicalCrouchCamera(uintptr_t base,size_t size);
@@ -10732,6 +10734,9 @@ namespace
     Halo3SeatYaw g_halo3SeatYaw;
     Halo3Wheel g_halo3Wheel;
     std::atomic<uint32_t> g_halo3SeatAuthorsSteering{0};
+    // The right stick aims this seat on both axes and the hand aims nothing (vehicle_control = stick). Written
+    // with the flag above, on the camera thread; read by the aim poll and the view's turn.
+    std::atomic<uint32_t> g_halo3SeatStickAims{0};
     std::atomic<float> g_halo3SeatYawTotal{0.0f};
     // Steering the author is publishing this frame, + = right. Written by the
     // input thread's wheel update, read by the aim-stick author.
@@ -11176,14 +11181,14 @@ namespace
             }
         }
         Halo3SetPitchFollowState(pitchState);
-        // Who steers a look-steered driver's seat is the player's choice (vehicle_steering; the modes are in
-        // vehicle_steering_logic.h). Automatic is the rule this had before the choice: the stick or wheel
+        // Who steers a look-steered driver's seat is the player's choice (vehicle_control; the modes are in
+        // vehicle_control_logic.h). Automatic is the rule this had before the choice: the stick or wheel
         // steers exactly while the view follows the hull, the hand otherwise.
         const bool lookSteeredDriver = haveAuthoredSeat && Halo3SeatAuthorsSteering(
             static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex,
             seat.mounted, true);
-        const bool authors = vehicle_steering::Authored(
-            vehicle_steering::FromConfig(g_config.vehicle_steering), lookSteeredDriver, followActive);
+        const bool authors = vehicle_control::Authored(
+            vehicle_control::FromConfig(g_config.vehicle_control), lookSteeredDriver, followActive);
         // The wheel state itself belongs to the input thread, which releases it
         // on the same condition; only the published atomics are cleared here,
         // so a game that stopped polling input cannot leave a steer latched.
@@ -11194,6 +11199,10 @@ namespace
         }
         g_halo3SeatAuthorsSteering.store(authors ? 1u : 0u,
                                          std::memory_order_release);
+        // Stick, in any seat the mod's seat camera is up in: a gunner's, a passenger's, a tank driver's.
+        g_halo3SeatStickAims.store(
+            fpActive && vehicle_control::StickAims(vehicle_control::FromConfig(g_config.vehicle_control)) ? 1u : 0u,
+            std::memory_order_release);
     }
 
     // Is the wheel available in this seat? Aircraft are look-steered but take
@@ -11249,6 +11258,13 @@ namespace
 #else
         return false;
 #endif
+    }
+
+    // Re-checks the live Halo 3 gate, as the flag above does: the camera thread that clears it stops with the
+    // title.
+    bool Halo3SeatStickAimsNow()
+    {
+        return g_halo3SeatStickAims.load(std::memory_order_acquire) != 0 && Halo3VehicleFpActive();
     }
 
     const char* Halo3VehicleIdName(uint32_t id)
@@ -52206,9 +52222,9 @@ static bool ComputeHalo2ControllerAimStick(
 // other, which is exactly the frame that would fire the dismount.
 void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
 {
-    // The wheel as the chosen way to steer (vehicle_steering) is offered whatever the wheel's own switch says.
+    // The wheel as the chosen way to steer (vehicle_control) is offered whatever the wheel's own switch says.
     const bool wheelChosen =
-        vehicle_steering::FromConfig(g_config.vehicle_steering) == vehicle_steering::Mode::Wheel;
+        vehicle_control::FromConfig(g_config.vehicle_control) == vehicle_control::Mode::Wheel;
     const bool eligible = pad.valid && (g_config.vehicle_motion || wheelChosen) &&
         g_enabled.load() && g_vrAim.load() && Halo3SeatUsesWheel();
     if (Halo3UpdateWheelToggle(g_halo3Wheel, eligible, pad.gripL, pad.gripR,
@@ -52222,11 +52238,11 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
     }
     // ...and is put in the player's hands when the seat first offers one; the double-click still lets go of
     // it and takes it again.
-    static vehicle_steering::WheelOffer wheelOffer;
-    if (vehicle_steering::TakeWheelOnOffer(g_halo3Wheel, wheelOffer, eligible, wheelChosen))
+    static vehicle_control::WheelOffer wheelOffer;
+    if (vehicle_control::TakeWheelOnOffer(g_halo3Wheel, wheelOffer, eligible, wheelChosen))
     {
         VR_SetGameHaptics(0.6f);
-        LOG("H3 vehicle: steering wheel taken (vehicle_steering = 3, the wheel is the chosen way to steer)");
+        LOG("H3 vehicle: steering wheel taken (vehicle_control = 3, the wheel is the chosen way to steer)");
     }
     g_halo3WheelSwallowsGrips.store(
         Halo3WheelSwallowsGrips(g_halo3Wheel) ? 1u : 0u,
@@ -54005,6 +54021,49 @@ static bool SeatLimitReticleStep(const SeatLimitPoll& in, SeatLimitMarkPublicati
     return true;
 }
 
+// A SEAT AIMED WITH THE STICK (vehicle_control = stick; vehicle_control_logic.h). The hand aims nothing there, so
+// the reticle is not the hand's: it is put on the game's own crosshair line -- from the game's own camera along its
+// forward, the line a flat player's crosshair marks -- at the surface that line meets, drawn from the rendered eye.
+// The line is traced by the sim thread as the seat limit ray: a stick-aimed seat is never held at a clamp of the
+// hand's, so that ray is free. Without the rendered eye this poll the reticle is drawn along the line's direction
+// at the crosshair distance. `in` carries the title, the eye and the world -> VR mapping; its stops and target are
+// not used.
+static void SeatStickReticleStep(const SeatLimitPoll& in, const float lineStart[3], const float lineDir[3],
+                                 SeatLimitMarkPublication& mark)
+{
+    const float unitsPerVrMetre = g_worldScale.load(std::memory_order_relaxed);
+    float vrYaw = 0.0f, vrPitch = 0.0f;
+    if (in.eyes)
+    {
+        const uint32_t generation = TitleAdapter_GetGeneration(in.title);
+        SightAuxRay ray{};
+        ray.generation = generation;
+        ray.sampleMs = Sight_NowMs();
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            ray.origin[axis] = lineStart[axis];
+            ray.dir[axis] = lineDir[axis];
+        }
+        Sight_PublishLimitRay(in.title, ray);
+        bool hit = false;
+        float rangeWu = 0.0f;
+        const bool traced = Sight_ReadLimitTrace(in.title, generation, kSightFreshMs, hit, rangeWu);
+        const shot_point::RangeChoice range = shot_point::ChooseRange(
+            traced, hit, rangeWu, false, false, -1.0f, g_config.crosshair_distance_m * unitsPerVrMetre,
+            kSightTraceLengthWu);
+        shot_point::Placement p{};
+        if (shot_point::Place(in.head, lineStart, lineDir, range, unitsPerVrMetre, p) &&
+            SeatLimitWorldToVr(in, p.dir, vrYaw, vrPitch))
+        {
+            mark.place(vrYaw, vrPitch, p.rangeVrM, p.surface);
+            if (mark.valid)
+                return;
+        }
+    }
+    if (SeatLimitWorldToVr(in, lineDir, vrYaw, vrPitch))
+        mark.place(vrYaw, vrPitch, Clamp(g_config.crosshair_distance_m, 2.0f, 50.0f), false);
+}
+
 // THE GUN CAMERA'S OWN OFFSET, the aim poll's half (Halo 3 gun-slaved seats; gun_slaved_seat_logic.h, "the gun's own
 // offset"). In a seat whose first-person camera is the gun (seat flag bit 7) the firing assist aims the
 // shot at that camera's crosshair, and the camera sits a fixed rotation off the occupant's aim the record drives (the
@@ -55499,6 +55558,10 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             // accumulator and so keeps every limit.
             if (halo4Aim)
                 seatAxes.pitch = false;
+            // A seat the right stick aims (vehicle_control = stick): the hand's aim is not written into it on
+            // either axis. The stick is passed through, and the reticle placed, where the poll ends.
+            if (driveSeated && driveTitle == GameTitle::Halo3 && Halo3SeatStickAimsNow())
+                seatAxes = seat_drive::Axes{};
             if (!driveSeated)
                 gunSlavedSeat = gunCameraSeat = false;
             // THE GUN CAMERA'S OWN OFFSET (GunOffsetStep): once learned for this Halo 3 gun-slaved seat, the record is
@@ -55968,13 +56031,19 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     // instead: the wheel while both hands hold it, and Halo's own turn stick
     // when they do not. A Banshee/Hornet driver publishes no vehicle pitch
     // frame, so its proven climb/dive loop still follows the aiming hand.
-    // That is the automatic rule. vehicle_steering lets the player choose
+    // That is the automatic rule. vehicle_control lets the player choose
     // either way for himself, whatever the view does: the stick or wheel under
     // a view the world holds still, or the hand under one that follows the
     // hull, where its angle off straight ahead is the turn rate just described.
-    if (!freeCamera && Halo3SeatAuthorsSteeringNow())
+    //
+    // A STICK-AIMED SEAT (vehicle_control = stick) goes further, in any seat: the right stick is the seat's
+    // aim on both axes, as on a flat screen, and the hand aims nothing -- its aim is not written (above) and
+    // not steered toward. The reticle goes where the game's own crosshair is (SeatStickReticleStep).
+    const bool seatAuthored = Halo3SeatAuthorsSteeringNow();
+    const bool stickSeat = TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && Halo3SeatStickAimsNow();
+    if (!freeCamera && (seatAuthored || stickSeat))
     {
-        if (Game_Halo3VehicleWheelActive())
+        if (seatAuthored && Game_Halo3VehicleWheelActive())
         {
             outRx = Clamp(g_halo3SteerAxis.load(std::memory_order_relaxed),
                           -1.0f, 1.0f);
@@ -55987,11 +56056,35 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             outRx = (pad.valid && fabsf(pad.turnX) > 0.15f)
                 ? Clamp(pad.turnX, -1.0f, 1.0f)
                 : 0.0f;
+            // The scope's magnification has the stick's vertical axis while the scope is open.
+            if (stickSeat)
+                outRy = (pad.valid && !VR_IsScopeActive() && fabsf(pad.turnY) > 0.15f)
+                    ? Clamp(pad.turnY, -1.0f, 1.0f)
+                    : 0.0f;
         }
         // The climb/dive the hand owns through the direct drive is written, not steered (the heading never
         // is here: the stick or wheel steers it).
         if (seatWritten.pitch)
             outRy = 0.0f;
+        if (stickSeat)
+        {
+            float cameraAt[3], cameraAbout[3], cameraForward[3];
+            if (Halo3ReadObserverCamera(cameraAt, cameraAbout, cameraForward))
+            {
+                SeatLimitPoll stickPoll{};
+                stickPoll.title = GameTitle::Halo3;
+                stickPoll.eyes = limitEyes && limitEyesTitle == GameTitle::Halo3;
+                memcpy(stickPoll.head, limitHead, sizeof(stickPoll.head));
+                stickPoll.followed = followedVehicleFrame;
+                stickPoll.hullYaw = hullYaw;
+                stickPoll.hullPitch = hullPitch;
+                stickPoll.gameYawRef = gameYawReference;
+                stickPoll.headYawRef = headYawReference;
+                stickPoll.yawSign = g_yawSign.load();
+                stickPoll.pitchSign = g_pitchSign.load();
+                SeatStickReticleStep(stickPoll, cameraAt, cameraForward, seatLimitMark);
+            }
+        }
         return true;
     }
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE

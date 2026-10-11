@@ -19,7 +19,7 @@
 // game draws the player's character in the seat and no first-person arms. Nothing the simulation reads is
 // touched. The camera's mode turns the view (Halo3ApplySeatYawFollow): rotationTracking yaw follows the hull's
 // heading, and pitch with it where the seat takes the hull's pitch. How the seat is steered is a separate
-// choice (vehicle_steering).
+// choice (vehicle_control).
 // Not applied in this game yet: rotationTracking roll, pitch without yaw, the leash, collide, and an origin
 // naming a marker (the vehicle's origin stands in). The cold worker says so in the log for a camera that asks
 // for one.
@@ -195,8 +195,9 @@ bool Halo3VehicleCameraFollowWanted()
 
 // The game's own camera for the local player as its observer computed it this frame, before any effect and
 // before the mod's seat camera: where it stands, and the point it turns about. For a seat the director draws in
-// third person those are the game's chase camera and the seat's camera pivot.
-bool Halo3ReadObserverCamera(float position[3], float focus[3])
+// third person those are the game's chase camera and the seat's camera pivot. `forward`, when asked for, is
+// the way it looks: the line a flat player's crosshair marks.
+bool Halo3ReadObserverCamera(float position[3], float focus[3], float* forward = nullptr)
 {
     Halo3ObserverCapture& cap = g_halo3ObserverCapture;
     if (!cap.valid.load(std::memory_order_acquire))
@@ -205,17 +206,26 @@ bool Halo3ReadObserverCamera(float position[3], float focus[3])
         return false;
     constexpr size_t positionIndex = (kHalo3ObserverPosOffset - kHalo3ObserverCaptureBase) / 4;
     constexpr size_t focusIndex = (kHalo3ObserverFocusOffset - kHalo3ObserverCaptureBase) / 4;
-    static_assert(positionIndex + 2 < kHalo3ObserverCaptureFloats && focusIndex + 2 < kHalo3ObserverCaptureFloats,
-                  "the position and focus triplets must sit inside the capture window");
+    constexpr size_t forwardIndex = (kHalo3ObserverFwdOffset - kHalo3ObserverCaptureBase) / 4;
+    static_assert(positionIndex + 2 < kHalo3ObserverCaptureFloats && focusIndex + 2 < kHalo3ObserverCaptureFloats &&
+                      forwardIndex + 2 < kHalo3ObserverCaptureFloats,
+                  "the position, focus and forward triplets must sit inside the capture window");
     const uint32_t seq = cap.seq.load(std::memory_order_acquire);
     if (seq & 1u)
         return false;
     const float at[3] = {cap.floats[positionIndex], cap.floats[positionIndex + 1], cap.floats[positionIndex + 2]};
     const float about[3] = {cap.floats[focusIndex], cap.floats[focusIndex + 1], cap.floats[focusIndex + 2]};
+    float along[3] = {cap.floats[forwardIndex], cap.floats[forwardIndex + 1], cap.floats[forwardIndex + 2]};
     if (cap.seq.load(std::memory_order_acquire) != seq)
         return false;
     if (!vehicle_camera_place::Finite3(at) || !vehicle_camera_place::Finite3(about))
         return false;
+    if (forward)
+    {
+        if (!vehicle_camera_place::Finite3(along) || !vehicle_camera_frame::Normalize(along))
+            return false;
+        memcpy(forward, along, sizeof(along));
+    }
     memcpy(position, at, sizeof(at));
     memcpy(focus, about, sizeof(about));
     return true;
