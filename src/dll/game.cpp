@@ -96,6 +96,7 @@
 #include "../common/seat_view_logic.h"
 #include "../common/vehicle_camera_place_logic.h"
 #include "../common/vehicle_camera_store.h"
+#include "../common/vehicle_steering_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
 #include "../common/reach_vehicle_logic.h"
@@ -1522,6 +1523,12 @@ namespace
     float g_gameYawRef = 0;
     float g_headPosRef[3] = {0, 0, 0}; // headset position (m) captured at recenter
     bool Halo3VehicleFpActive();
+    // Vehicle cameras (vehicle_cameras.inl): how a chase camera chosen for the Halo 3 seat turns the view.
+    // FollowWanted: one is chosen and its mode follows the hull's yaw. ViewTurn: when one is chosen, sets the
+    // two from its mode and returns true; otherwise leaves them as given. Both cost one atomic load with
+    // vehicle_cameras off.
+    bool Halo3VehicleCameraFollowWanted();
+    bool Halo3VehicleCameraViewTurn(bool& yaw, bool& pitch);
 
     // C25 optional pitch follow. The camera thread publishes the current
     // rendered hull yaw+pitch; camera, hands, room translation, and aim all
@@ -1630,9 +1637,11 @@ namespace
 
     bool Halo3ReadRollStableFollow(float& hullYaw, float& hullPitch)
     {
-        // The existing checkbox remains the master switch. OFF reaches none of
-        // the new transforms, preserving the shipped world-locked path.
-        if (!g_config.vehicle_first_person || !g_config.vehicle_view_follow)
+        // The checkbox is the master switch for every seat view but one: a chase camera from the vehicle
+        // camera file turns the view by its own mode (vehicle_cameras.inl), and publishes a frame here only
+        // while that mode follows the hull. With neither, none of these transforms is reached.
+        if (!g_config.vehicle_first_person ||
+            (!g_config.vehicle_view_follow && !Halo3VehicleCameraFollowWanted()))
             return false;
         // Whichever title is actually driving supplies both the gate and the
         // generation the sample must match.
@@ -10985,9 +10994,14 @@ namespace
             haveAuthoredSeat &&
             Halo3SeatFollowsHull(static_cast<Halo3VehicleId>(seat.identity),
                                  seat.seatIndex, seat.mounted);
-        const bool followEnabled = g_config.vehicle_view_follow;
+        // How the view turns in this seat. A chase camera from the vehicle camera file says for itself, by its
+        // mode's rotationTracking; every other seat view follows the setting. How the seat is STEERED is
+        // decided apart from this, below.
+        bool followEnabled = g_config.vehicle_view_follow;
+        bool pitchWanted = true;
+        Halo3VehicleCameraViewTurn(followEnabled, pitchWanted);
         const bool pitchEligible =
-            active && Halo3SeatFollowsPitch(
+            active && pitchWanted && Halo3SeatFollowsPitch(
                 static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex,
                 seat.mounted);
 
@@ -11162,11 +11176,14 @@ namespace
             }
         }
         Halo3SetPitchFollowState(pitchState);
-        // Steering ownership switches on exactly the condition that removes
-        // the closed loop's feedback, so the two can never be out of step.
-        const bool authors = followActive && Halo3SeatAuthorsSteering(
+        // Who steers a look-steered driver's seat is the player's choice (vehicle_steering; the modes are in
+        // vehicle_steering_logic.h). Automatic is the rule this had before the choice: the stick or wheel
+        // steers exactly while the view follows the hull, the hand otherwise.
+        const bool lookSteeredDriver = haveAuthoredSeat && Halo3SeatAuthorsSteering(
             static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex,
-            seat.mounted, followEnabled);
+            seat.mounted, true);
+        const bool authors = vehicle_steering::Authored(
+            vehicle_steering::FromConfig(g_config.vehicle_steering), lookSteeredDriver, followActive);
         // The wheel state itself belongs to the input thread, which releases it
         // on the same condition; only the published atomics are cleared here,
         // so a game that stopped polling input cannot leave a steer latched.
@@ -52189,7 +52206,10 @@ static bool ComputeHalo2ControllerAimStick(
 // other, which is exactly the frame that would fire the dismount.
 void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
 {
-    const bool eligible = pad.valid && g_config.vehicle_motion &&
+    // The wheel as the chosen way to steer (vehicle_steering) is offered whatever the wheel's own switch says.
+    const bool wheelChosen =
+        vehicle_steering::FromConfig(g_config.vehicle_steering) == vehicle_steering::Mode::Wheel;
+    const bool eligible = pad.valid && (g_config.vehicle_motion || wheelChosen) &&
         g_enabled.load() && g_vrAim.load() && Halo3SeatUsesWheel();
     if (Halo3UpdateWheelToggle(g_halo3Wheel, eligible, pad.gripL, pad.gripR,
                                GetTickCount64()))
@@ -52199,6 +52219,14 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
         VR_SetGameHaptics(g_halo3Wheel.engaged ? 0.6f : 0.35f);
         LOG("H3 vehicle: steering wheel %s (double-click both grips)",
             g_halo3Wheel.engaged ? "taken" : "released");
+    }
+    // ...and is put in the player's hands when the seat first offers one; the double-click still lets go of
+    // it and takes it again.
+    static vehicle_steering::WheelOffer wheelOffer;
+    if (vehicle_steering::TakeWheelOnOffer(g_halo3Wheel, wheelOffer, eligible, wheelChosen))
+    {
+        VR_SetGameHaptics(0.6f);
+        LOG("H3 vehicle: steering wheel taken (vehicle_steering = 3, the wheel is the chosen way to steer)");
     }
     g_halo3WheelSwallowsGrips.store(
         Halo3WheelSwallowsGrips(g_halo3Wheel) ? 1u : 0u,
@@ -55940,6 +55968,10 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     // instead: the wheel while both hands hold it, and Halo's own turn stick
     // when they do not. A Banshee/Hornet driver publishes no vehicle pitch
     // frame, so its proven climb/dive loop still follows the aiming hand.
+    // That is the automatic rule. vehicle_steering lets the player choose
+    // either way for himself, whatever the view does: the stick or wheel under
+    // a view the world holds still, or the hand under one that follows the
+    // hull, where its angle off straight ahead is the turn rate just described.
     if (!freeCamera && Halo3SeatAuthorsSteeringNow())
     {
         if (Game_Halo3VehicleWheelActive())

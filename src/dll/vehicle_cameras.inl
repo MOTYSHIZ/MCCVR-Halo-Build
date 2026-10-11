@@ -17,9 +17,12 @@
 // so what hangs off the rendered eye goes with it, and the hands' origin follows (ControllerWorldPoseEx). The
 // camera director is left on its own third-person answer for that seat (halo3_native_seat_patch.inl), so the
 // game draws the player's character in the seat and no first-person arms. Nothing the simulation reads is
-// touched. The view's turning is unchanged: vehicle_view_follow governs it.
-// Not applied in this game yet: a mode's rotationTracking, the leash, collide, and an origin naming a marker
-// (the vehicle's origin stands in). The cold worker says so in the log for a camera that asks for one.
+// touched. The camera's mode turns the view (Halo3ApplySeatYawFollow): rotationTracking yaw follows the hull's
+// heading, and pitch with it where the seat takes the hull's pitch. How the seat is steered is a separate
+// choice (vehicle_steering).
+// Not applied in this game yet: rotationTracking roll, pitch without yaw, the leash, collide, and an origin
+// naming a marker (the vehicle's origin stands in). The cold worker says so in the log for a camera that asks
+// for one.
 
 const char* Halo3VehicleIdName(uint32_t id);
 
@@ -139,25 +142,150 @@ struct Halo3VehicleCameraPoint
 Halo3VehicleCameraPoint g_halo3VehicleCameraPoint;
 inline constexpr uint64_t kHalo3VehicleCameraPointFreshMs = 100;
 vehicle_camera_place::State g_halo3VehicleCameraState; // camera thread
-// Frames placed, and those of them placed from the simulation's vehicle frame because the drawn root node did
-// not check out. Counted by the camera thread, taken by the cold worker for its log line.
+// Frames placed; those of them placed from the simulation's vehicle frame because the drawn root node did not
+// check out; and those placed at the mod's stand-in because the game's own third-person camera could not be
+// read. Counted by the camera thread, taken by the cold worker for its log lines.
 std::atomic<uint32_t> g_halo3VehicleCameraFrames{0};
 std::atomic<uint32_t> g_halo3VehicleCameraTickFrames{0};
+std::atomic<uint32_t> g_halo3VehicleCameraStandInFrames{0};
+
+// A chase camera is chosen for exactly the seat the snapshot shows. Any thread; one atomic load while none is.
+bool Halo3VehicleCameraSelected(vehicle_camera_select::ActiveCamera& camera, Halo3SeatSnapshot& seat,
+                                VehicleCameraSeatKey& key)
+{
+    VehicleCameraSeatKey chosenFor;
+    if (!VehicleCameraRead(camera, chosenFor))
+        return false;
+    if (!Halo3ReadSeatSnapshot(seat))
+        return false;
+    key = VehicleCameraSeatKey{g_halo3RuntimeGeneration.load(std::memory_order_relaxed), seat.parentHandle,
+                               seat.seatIndex, seat.identity, seat.mounted};
+    return key == chosenFor;
+}
+
+// The seat sampler's question: is this seat shown from a chase camera? It is from the moment one is chosen, so
+// the game's director is already drawing the seat in third person when the camera is first placed.
+bool Halo3VehicleCameraThirdPerson()
+{
+    vehicle_camera_select::ActiveCamera camera;
+    Halo3SeatSnapshot seat;
+    VehicleCameraSeatKey key;
+    return Halo3VehicleCameraSelected(camera, seat, key);
+}
+
+// How a chosen chase camera turns the view (Halo3ApplySeatYawFollow): its mode's rotationTracking. Yaw follows
+// the hull's heading; pitch follows it too where the seat takes the hull's pitch at all, and only with yaw.
+bool Halo3VehicleCameraViewTurn(bool& yaw, bool& pitch)
+{
+    vehicle_camera_select::ActiveCamera camera;
+    Halo3SeatSnapshot seat;
+    VehicleCameraSeatKey key;
+    if (!Halo3VehicleCameraSelected(camera, seat, key))
+        return false;
+    yaw = camera.rotYaw;
+    pitch = camera.rotYaw && camera.rotPitch;
+    return true;
+}
+
+bool Halo3VehicleCameraFollowWanted()
+{
+    bool yaw = false, pitch = false;
+    return Halo3VehicleCameraViewTurn(yaw, pitch) && yaw;
+}
+
+// The game's own camera for the local player as its observer computed it this frame, before any effect and
+// before the mod's seat camera: where it stands, and the point it turns about. For a seat the director draws in
+// third person those are the game's chase camera and the seat's camera pivot.
+bool Halo3ReadObserverCamera(float position[3], float focus[3])
+{
+    Halo3ObserverCapture& cap = g_halo3ObserverCapture;
+    if (!cap.valid.load(std::memory_order_acquire))
+        return false;
+    if (GetTickCount64() - cap.captureMs.load(std::memory_order_relaxed) > 200)
+        return false;
+    constexpr size_t positionIndex = (kHalo3ObserverPosOffset - kHalo3ObserverCaptureBase) / 4;
+    constexpr size_t focusIndex = (kHalo3ObserverFocusOffset - kHalo3ObserverCaptureBase) / 4;
+    static_assert(positionIndex + 2 < kHalo3ObserverCaptureFloats && focusIndex + 2 < kHalo3ObserverCaptureFloats,
+                  "the position and focus triplets must sit inside the capture window");
+    const uint32_t seq = cap.seq.load(std::memory_order_acquire);
+    if (seq & 1u)
+        return false;
+    const float at[3] = {cap.floats[positionIndex], cap.floats[positionIndex + 1], cap.floats[positionIndex + 2]};
+    const float about[3] = {cap.floats[focusIndex], cap.floats[focusIndex + 1], cap.floats[focusIndex + 2]};
+    if (cap.seq.load(std::memory_order_acquire) != seq)
+        return false;
+    if (!vehicle_camera_place::Finite3(at) || !vehicle_camera_place::Finite3(about))
+        return false;
+    memcpy(position, at, sizeof(at));
+    memcpy(focus, about, sizeof(about));
+    return true;
+}
+
+// WHERE THE GAME'S OWN THIRD-PERSON CAMERA RESTS in the seat ("origin": "thirdperson"). The game's camera
+// swings about its pivot with the aim; where it RESTS is that pivot and its distance from it. The distance is
+// the furthest the game's camera has stood off in this seat: the game pulls its camera in from walls and
+// through its change of view, and the furthest it stands is the distance it means. Camera thread.
+struct Halo3VehicleCameraRest
+{
+    VehicleCameraSeatKey seat{};
+    float distance = 0.0f; // world units
+    uint32_t waited = 0;   // placements asked for before a distance was known
+};
+Halo3VehicleCameraRest g_halo3VehicleCameraRest;
+inline constexpr float kHalo3RestKnownWu = 0.25f; // nearer than this the director is still in the seat's own view
+inline constexpr float kHalo3RestFurthestWu = 8.0f;
+inline constexpr float kHalo3RestPivotReachWu = 10.0f; // a pivot further than this from the vehicle is not its seat's
+inline constexpr uint32_t kHalo3RestWaitFrames = 45;
+
+// Fills `in` with the resting place. False: not known YET, and the seat keeps the view it has for this frame.
+// True with in.restValid false: it could not be read at all, and the caller's stand-in applies.
+bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camera_place::Inputs& in)
+{
+    Halo3VehicleCameraRest& rest = g_halo3VehicleCameraRest;
+    if (!(rest.seat == seat))
+    {
+        rest = {};
+        rest.seat = seat;
+    }
+    float at[3], about[3];
+    bool observed = Halo3ReadObserverCamera(at, about);
+    if (observed)
+    {
+        const float fromVehicle[3] = {about[0] - in.vehicleOrigin[0], about[1] - in.vehicleOrigin[1],
+                                      about[2] - in.vehicleOrigin[2]};
+        observed = vehicle_camera_frame::Dot(fromVehicle, fromVehicle) <= kHalo3RestPivotReachWu * kHalo3RestPivotReachWu;
+    }
+    if (observed)
+    {
+        const float stood[3] = {at[0] - about[0], at[1] - about[1], at[2] - about[2]};
+        const float distance = sqrtf(vehicle_camera_frame::Dot(stood, stood));
+        if (std::isfinite(distance) && distance > rest.distance && distance <= kHalo3RestFurthestWu)
+            rest.distance = distance;
+    }
+    if (observed && rest.distance >= kHalo3RestKnownWu)
+    {
+        in.restValid = true;
+        memcpy(in.rest, about, sizeof(in.rest));
+        in.restDistance = rest.distance;
+        return true;
+    }
+    if (rest.waited < kHalo3RestWaitFrames)
+    {
+        ++rest.waited;
+        return false;
+    }
+    in.restValid = false;
+    return true;
+}
 
 // Camera thread, once a camera pass. `viewYaw` is the heading the player's room faces. True with `out` the
 // world point the seat view is seen from: a chase camera is in use for exactly the seat the snapshot shows.
 bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
 {
     vehicle_camera_select::ActiveCamera camera;
-    VehicleCameraSeatKey chosenFor;
-    if (!VehicleCameraRead(camera, chosenFor))
-        return false;
     Halo3SeatSnapshot seat;
-    if (!Halo3ReadSeatSnapshot(seat) || !seat.anchorValid)
-        return false;
-    const VehicleCameraSeatKey now{g_halo3RuntimeGeneration.load(std::memory_order_relaxed), seat.parentHandle,
-                                   seat.seatIndex, seat.identity, seat.mounted};
-    if (!(now == chosenFor))
+    VehicleCameraSeatKey key;
+    if (!Halo3VehicleCameraSelected(camera, seat, key))
         return false;
 
     vehicle_camera_place::Inputs in;
@@ -176,11 +304,16 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
             return false;
         memcpy(in.vehicleOrigin, seat.hullPos, sizeof(in.vehicleOrigin));
     }
+    // A vehicle the mod has no seat point for (one it does not know) has neither of these; a camera measured
+    // from one then falls back to the vehicle's origin.
     in.seatValid = seat.anchorBaseValid;
     memcpy(in.seat, seat.anchorBase, sizeof(in.seat));
     in.headValid = seat.anchorValid;
     memcpy(in.head, seat.anchor, sizeof(in.head));
     in.viewYaw = viewYaw;
+    if (camera.origin == static_cast<uint8_t>(vehicle_camera_file::Origin::ThirdPerson) &&
+        !Halo3VehicleCameraRestPlace(key, in))
+        return false;
 
     float point[3];
     if (!vehicle_camera_place::Place(camera, in, g_halo3VehicleCameraState, point))
@@ -194,6 +327,8 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
     g_halo3VehicleCameraFrames.fetch_add(1, std::memory_order_relaxed);
     if (!drawn)
         g_halo3VehicleCameraTickFrames.fetch_add(1, std::memory_order_relaxed);
+    if (g_halo3VehicleCameraState.standIn)
+        g_halo3VehicleCameraStandInFrames.fetch_add(1, std::memory_order_relaxed);
     memcpy(out, point, sizeof(point));
     return true;
 }
@@ -223,23 +358,16 @@ bool Halo3VehicleCameraPublishedPoint(float out[3])
     return false;
 }
 
-// The seat sampler's question: is this seat's view a chase camera right now? It is once a point was placed, so
-// the director keeps its first-person answer for a seat whose camera could not be placed.
-bool Halo3VehicleCameraThirdPerson()
-{
-    float point[3];
-    return Halo3VehicleCameraPublishedPoint(point);
-}
-
 // The cold worker's reading of the Halo 3 seat. Unknown: seated, but this moment's snapshot could not be read;
-// the answer of the last tick stands.
+// the answer of the last tick stands. A vehicle the mod does not know is a seat like any other here: its name
+// is "unidentified", and the file's "default" entry is the one it gets.
 enum class VehicleCameraSeatRead { OnFoot, Seated, Unknown };
 VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const char*& name, uint8_t& seatBits)
 {
     if (!Halo3VehicleFpActive())
         return VehicleCameraSeatRead::OnFoot;
     Halo3SeatSnapshot seat;
-    if (!Halo3ReadSeatSnapshot(seat) || !seat.anchorValid)
+    if (!Halo3ReadSeatSnapshot(seat))
         return VehicleCameraSeatRead::Unknown;
     const auto id = static_cast<Halo3VehicleId>(seat.identity);
     const bool turret = id == Halo3VehicleId::StationaryTurret;
@@ -265,8 +393,10 @@ std::string Halo3VehicleCameraNotApplied(const vehicle_camera_select::ActiveCame
             list += "; ";
         list += what;
     };
-    if (camera.rotYaw || camera.rotPitch || camera.rotRoll)
-        add("rotationTracking (the view turns as vehicle_view_follow says)");
+    if (camera.rotRoll)
+        add("rotationTracking roll (the horizon is never rolled)");
+    if (camera.rotPitch && !camera.rotYaw)
+        add("rotationTracking pitch without yaw");
     if (vehicle_camera_file::LeashSet(camera.leashMinCm) || vehicle_camera_file::LeashSet(camera.leashMaxCm))
         add("the leash");
     if (camera.collide)
@@ -290,6 +420,7 @@ struct VehicleCameraRuntime
     std::string loggedLine;
     std::string readout;
     int frameSourceLogged = -1; // 0 = the drawn root node, 1 = the simulation's frame
+    bool standInLogged = false;
 };
 inline constexpr uint64_t kVehicleCameraFilePollMs = 2000;
 
@@ -314,6 +445,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 runtime->publishedSeat = {};
                 runtime->loggedLine.clear();
                 runtime->frameSourceLogged = -1;
+                runtime->standInLogged = false;
             }
             LOG("Vehicle cameras: off (vehicle_cameras = 0); every seat keeps the view it has without them");
         }
@@ -416,10 +548,20 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     {
         r.loggedLine.clear();
         r.frameSourceLogged = -1;
+        r.standInLogged = false;
     }
 
     const uint32_t frames = g_halo3VehicleCameraFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t tickFrames = g_halo3VehicleCameraTickFrames.exchange(0, std::memory_order_relaxed);
+    const uint32_t standInFrames = g_halo3VehicleCameraStandInFrames.exchange(0, std::memory_order_relaxed);
+    if (standInFrames && !r.standInLogged)
+    {
+        r.standInLogged = true;
+        LOG("Vehicle cameras (Halo 3): where the game's own third-person camera rests could not be read for "
+            "this seat, so the camera stands %.0f cm behind and %.0f cm above the vehicle's origin instead",
+            static_cast<double>(vehicle_camera_place::kStandInBehindCm),
+            static_cast<double>(vehicle_camera_place::kStandInAboveCm));
+    }
     if (frames)
     {
         const int source = tickFrames * 2 > frames ? 1 : 0;

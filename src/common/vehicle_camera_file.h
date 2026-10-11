@@ -43,7 +43,10 @@ enum class CameraType : uint8_t { Chase = 0, FirstPerson = 1 };
 // Where a camera's offset is measured FROM: the vehicle's own origin, the seat the player sits in, the seated
 // character's head, or -- any other name in the file -- a marker or node of the vehicle, so a camera can ride a
 // part that turns on its own (a turret). A marker that is not found falls back to the vehicle's origin.
-enum class Origin : uint8_t { Vehicle = 0, Seat = 1, Head = 2, Marker = 3 };
+// ThirdPerson ("thirdperson") is where the GAME'S OWN third-person camera rests for the seat: the point it
+// turns about and its own distance behind, so a zero offset is the view the game gives that vehicle, whatever
+// its size. It is what a vehicle nobody wrote an entry for gets.
+enum class Origin : uint8_t { Vehicle = 0, Seat = 1, Head = 2, Marker = 3, ThirdPerson = 4 };
 
 // THE LEASH ("leashMin" / "leashMax"): a box the player's HEAD stays inside, in the same space as "offset" --
 // [forward, right, up] in cm FROM THE ORIGIN -- so a limit is a place and the two are tuned together. Past a limit
@@ -161,8 +164,9 @@ inline constexpr int kMaxTethers = 8;   // per camera
 inline constexpr std::size_t kMaxFileBytes = 512u * 1024u;
 
 // The built-in table: what a missing file gives, and what the first run writes out. One "default" section whose
-// "default" entry lists the existing seat view first and a camera behind the vehicle second, so the feature
-// changes nothing until the player steps to another camera.
+// "default" entry lists the existing seat view first and, second, a camera where the game's own third-person
+// camera rests, so the feature changes nothing until the player steps to another camera and suits a vehicle of
+// any size.
 Table DefaultTable();
 
 struct ParseResult

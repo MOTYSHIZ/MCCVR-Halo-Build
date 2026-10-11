@@ -1878,11 +1878,13 @@ inline constexpr bool Halo3SeatIsTurret(Halo3VehicleId id, bool mountedTurret)
     return mountedTurret || id == Halo3VehicleId::StationaryTurret;
 }
 
-// The one gate that hands a seat's steering to the wheel/stick author instead
-// of the closed-loop hand aim. It must switch on exactly the same condition
-// that makes the view follow the hull, which is why the follow toggle is an
-// argument: when off nothing rotates, the closed loop still has its
+// The AUTOMATIC rule for handing a seat's steering to the wheel/stick author
+// instead of the closed-loop hand aim: it switches on the same condition that
+// makes the view follow the hull, which is why the follow toggle is an
+// argument. With the toggle off nothing rotates, the closed loop still has its
 // feedback, and every control stays exactly as Alpha 0.3.1 shipped it.
+// vehicle_steering_logic.h holds the player's own choice, of which this is the
+// default; with the argument true it answers "is this a look-steered driver?".
 inline constexpr bool Halo3SeatAuthorsSteering(Halo3VehicleId id, int seatIndex,
                                                bool mountedTurret,
                                                bool followEnabled)

@@ -192,7 +192,8 @@ struct Reader
         return true;
     }
 
-    // "vehicle" | "seat" | "playerhead" ("head" too); any other name is a marker or node of the vehicle.
+    // "vehicle" | "seat" | "playerhead" ("head" too) | "thirdperson"; any other name is a marker or node of the
+    // vehicle.
     bool OriginValue(const Value& value, const std::string& where, Origin& origin, std::string& marker, const char* want)
     {
         if (!value.IsString() || value.text.empty())
@@ -204,6 +205,8 @@ struct Reader
             origin = Origin::Seat;
         else if (SameText(value.text, "playerhead") || SameText(value.text, "head"))
             origin = Origin::Head;
+        else if (SameText(value.text, "thirdperson"))
+            origin = Origin::ThirdPerson;
         else
         {
             origin = Origin::Marker;
@@ -276,7 +279,7 @@ struct Reader
                 }
                 Origin origin = Origin::Vehicle;
                 if (!OriginValue(item, at, origin, raw.mode.originMarker,
-                                 "\"vehicle\", \"seat\", \"playerhead\", a marker name, or null (null = the camera's)"))
+                                 "\"vehicle\", \"seat\", \"playerhead\", \"thirdperson\", a marker name, or null (null = the camera's)"))
                     return false;
                 raw.mode.origin = static_cast<int>(origin);
             }
@@ -331,7 +334,7 @@ struct Reader
             else if (key == "origin")
             {
                 if (!OriginValue(item, at, camera.origin, camera.originMarker,
-                                 "\"vehicle\", \"seat\", \"playerhead\", or a marker name on the vehicle"))
+                                 "\"vehicle\", \"seat\", \"playerhead\", \"thirdperson\", or a marker name on the vehicle"))
                     return false;
             }
             else if (key == "offset")
@@ -703,9 +706,11 @@ const char* const kGuide[] = {
     "  name              shown when you switch to it (left out = just its number)",
     "  type              chase (a camera placed by the fields below) | firstperson (the seat view you have",
     "                    without this file; the fields below are then not used)",
-    "  origin            vehicle | seat | playerhead : where 'offset' is measured from (the vehicle's own",
-    "                    origin, your seat, or your character's head); or any other name: a marker on the",
-    "                    vehicle, and the camera rides it (not found = the vehicle's origin; the log says so)",
+    "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
+    "                    vehicle's own origin, your seat, your character's head, or where the game's own",
+    "                    third-person camera rests for that seat -- with a zero offset, the view the game gives",
+    "                    that vehicle); or any other name: a marker on the vehicle, and the camera rides it (not",
+    "                    found = the vehicle's origin; the log says so)",
     "  offset            [forward, right, up] in cm from the origin (negative forward = behind);",
     "                    locationTracking decides whether those directions turn with the vehicle",
     "  locationTracking  which vehicle rotations carry the camera's position round: any of yaw, pitch, roll",
@@ -891,17 +896,19 @@ const Game* Table::FindGame(const char* gameKey) const noexcept
 Table DefaultTable()
 {
     // The seat view the player already has comes first, so the file changes nothing until another camera is
-    // chosen. The camera behind the vehicle has two modes: the world held still, and the view turning with the
-    // vehicle's heading.
+    // chosen. The second camera sits where the game's own third-person camera rests, which suits a vehicle of
+    // any size, and has two modes: the world held still, and the view turning with the vehicle's heading.
     Camera seat;
     seat.name = "Seat";
     seat.type = CameraType::FirstPerson;
 
     Camera behind;
     behind.name = "Third Person";
-    behind.origin = Origin::Vehicle;
-    behind.offset[0] = -450.0f;
-    behind.offset[2] = 180.0f;
+    behind.origin = Origin::ThirdPerson;
+    // Behind the way the vehicle faces and level, as the game's own camera is: it does not dip and bank with
+    // the hull.
+    behind.locPitch = false;
+    behind.locRoll = false;
     Tether still = behind.Mode(0);
     still.name = "Untethered";
     Tether turning = still;
@@ -1092,6 +1099,8 @@ std::string OriginText(Origin origin, const std::string& marker)
         return "playerhead";
     case Origin::Marker:
         return marker;
+    case Origin::ThirdPerson:
+        return "thirdperson";
     default:
         return "vehicle";
     }

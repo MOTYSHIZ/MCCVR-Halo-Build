@@ -156,6 +156,49 @@ static void TestOrigins()
     Check(Place(camera, in, state, point) && Near3(point, 1.0f, 2.0f, 3.0f), "a marker the game has not resolved is the vehicle's origin");
 }
 
+static void TestThirdPersonRest()
+{
+    ActiveCamera camera = Behind();
+    camera.origin = static_cast<uint8_t>(Origin::ThirdPerson);
+    camera.offsetCm[0] = camera.offsetCm[1] = camera.offsetCm[2] = 0.0f;
+    State state;
+    float point[3]{};
+
+    // The vehicle faces +Y; the game's camera turns about a point above it and rests 2 world units behind.
+    Inputs in = At(10.0f, 20.0f, 3.0f, kQuarterTurn, 0.0f, 0.0f);
+    in.restValid = true;
+    in.rest[0] = 10.0f;
+    in.rest[1] = 20.5f;
+    in.rest[2] = 4.0f;
+    in.restDistance = 2.0f;
+    Check(Place(camera, in, state, point), "a camera at the game's own third-person place");
+    Check(Near3(point, 10.0f, 18.5f, 4.0f), "rests the game's own distance behind the game's own turning point");
+    Check(!state.standIn, "and that is not the stand-in");
+
+    camera.offsetCm[0] = 100.0f;
+    camera.offsetCm[2] = 50.0f;
+    Check(Place(camera, in, state, point) &&
+              Near3(point, 10.0f, 18.5f + 100.0f * kWorldUnitsPerCm, 4.0f + 50.0f * kWorldUnitsPerCm),
+          "an offset is measured from that resting place");
+
+    // A level, yaw-only carrier keeps the place level on a tilted vehicle; nothing of the vehicle's aim is in it.
+    camera.offsetCm[0] = camera.offsetCm[2] = 0.0f;
+    camera.locPitch = camera.locRoll = false;
+    in.vehicle = FromAngles(kQuarterTurn, 0.4f, 0.3f);
+    Check(Place(camera, in, state, point) && Near3(point, 10.0f, 18.5f, 4.0f), "and it rides only the rotations its mode lists");
+
+    in.restValid = false;
+    Check(Place(camera, in, state, point), "a game that cannot say where its camera rests");
+    Check(Near3(point, 10.0f, 20.0f - kStandInBehindCm * kWorldUnitsPerCm, 3.0f + kStandInAboveCm * kWorldUnitsPerCm),
+          "gets the mod's stand-in behind and above the vehicle's origin");
+    Check(state.standIn, "and the caller is told");
+    in.restValid = true;
+    in.restDistance = 0.0f;
+    Check(Place(camera, in, state, point) && state.standIn, "a distance of nothing is no resting place either");
+    in.restDistance = 2.0f;
+    Check(Place(camera, in, state, point) && !state.standIn, "and a place given again is used again");
+}
+
 static void TestRefusals()
 {
     State state;
@@ -188,6 +231,7 @@ int main()
     TestWorldHeadingIsKept();
     TestOrbit();
     TestOrigins();
+    TestThirdPersonRest();
     TestRefusals();
     std::printf("PASS: %u vehicle camera placement checks\n", g_checks);
     return 0;

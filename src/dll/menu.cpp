@@ -1297,6 +1297,19 @@ namespace
             "Reach and Halo 4 seats are not affected.");
         ImGui::Spacing();
         ImGui::Separator();
+        ImGui::Text("How you steer (Halo 3)");
+        changed |= ImGui::Combo("Steer with", &g_config.vehicle_steering,
+                                "As before\0Motion: your hand\0Stick\0Wheel\0");
+        ImGui::TextDisabled(
+            "Warthog, Mongoose, Ghost, Prowler, Chopper, Banshee and Hornet.\n"
+            "Apart from how your view turns: each works with a view the world\n"
+            "holds still and with one that turns with the vehicle. Motion: the\n"
+            "vehicle turns toward where your hand points. Stick: the turn stick\n"
+            "steers. Wheel: the invisible wheel is in your hands from the moment\n"
+            "you sit (aircraft take the stick). As before: your hand steers a\n"
+            "still view, the stick or wheel a view that turns with the vehicle.");
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Text("Motion steering (Halo 3, ODST, Reach)");
         changed |= ImGui::Checkbox("Virtual steering wheel",
                                    &g_config.vehicle_motion);

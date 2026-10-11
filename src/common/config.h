@@ -740,6 +740,13 @@ struct Config
     // seat from outside, with the player's character drawn in it. Halo 3 for now, and only with
     // vehicle_first_person on.
     bool vehicle_cameras = false;
+    // How the driver of a look-steered vehicle (Warthog, Mongoose, Ghost, Prowler, Chopper, Banshee, Hornet)
+    // steers, apart from how the view turns (vehicle_steering_logic.h): 1 = Motion, the hand aims and the
+    // vehicle turns toward it; 2 = Stick, the turn stick steers; 3 = Wheel, the invisible wheel is in your
+    // hands from the moment you sit (an aircraft takes the stick). 0 = as before this choice existed: the hand
+    // steers a view the world holds still, the stick or wheel a view that turns with the vehicle. Halo 3 for
+    // now; in the other games the stick or wheel still steers only a view that follows the vehicle.
+    int vehicle_steering = 0;
     float vehicle_wheel_max_deg = 75.0f;      // wheel angle at full lock
     float vehicle_wheel_deadzone_deg = 6.0f;  // slack around centre
 

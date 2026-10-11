@@ -47,6 +47,9 @@ static void TestBuiltInTable()
     Check(any.cameras[0].type == CameraType::FirstPerson, "the first is the seat view the player already has");
     Check(any.cameras[1].type == CameraType::Chase && any.cameras[1].ModeCount() == 2, "the second has two modes");
     Check(!any.cameras[1].Mode(0).rotYaw && any.cameras[1].Mode(1).rotYaw, "untethered first, then tethered to yaw");
+    Check(any.cameras[1].origin == Origin::ThirdPerson && any.cameras[1].offset[0] == 0.0f &&
+              any.cameras[1].offset[1] == 0.0f && any.cameras[1].offset[2] == 0.0f,
+          "and sits where the game's own third-person camera rests, so it suits a vehicle of any size");
 
     // Written and read back it is the same table, and writing that again gives the same text.
     const std::string text = ToJson(built);
@@ -58,6 +61,9 @@ static void TestBuiltInTable()
     Check(Has(text, "\"_readme\"") && !Has(ToJson(built, false), "\"_readme\""), "the guide is optional");
     Check(Has(text, "{ \"name\": \"Seat\", \"type\": \"firstperson\" }"),
           "a firstperson camera names only what was set");
+    Check(Has(text, "\"origin\": \"thirdperson\"") && back.games[0].vehicles[0].cameras[1].origin == Origin::ThirdPerson,
+          "the game's own third-person place is written and read by name");
+    Check(OriginText(Origin::ThirdPerson, "x") == "thirdperson", "and named so in a readout");
 }
 
 static void TestGames()

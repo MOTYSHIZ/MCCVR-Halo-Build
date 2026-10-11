@@ -1501,6 +1501,12 @@ void ConfigLoad(const wchar_t* path)
             g_config.vehicle_cameras = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "vehicle_steering"))
+        {
+            const int mode = atoi(val);
+            g_config.vehicle_steering = mode >= 0 && mode <= 3 ? mode : 0;
+            continue;
+        }
         // C-H2-85: handled by table, not by the else-if chain below - that
         // chain is at MSVC's block nesting limit and cannot take more arms.
         {
@@ -2842,6 +2848,21 @@ void ConfigSave()
     fprintf(f, "# your character in the seat.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
     fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
+    fprintf(f, "# How you steer a Warthog, Mongoose, Ghost, Prowler, Chopper, Banshee\n");
+    fprintf(f, "# or Hornet (Halo 3 for now). This is apart from how your view turns:\n");
+    fprintf(f, "# any of them works with a view the world holds still and with one\n");
+    fprintf(f, "# that turns with the vehicle.\n");
+    fprintf(f, "#   1 = Motion: your hand aims and the vehicle turns toward it. With a\n");
+    fprintf(f, "#       view that turns with the vehicle, pointing aside keeps it\n");
+    fprintf(f, "#       turning until your hand points ahead again.\n");
+    fprintf(f, "#   2 = Stick: the turn stick steers, as on a flat screen.\n");
+    fprintf(f, "#   3 = Wheel: the invisible steering wheel is in your hands from the\n");
+    fprintf(f, "#       moment you sit; double-click both grips to let go (the stick\n");
+    fprintf(f, "#       then steers) and to take it again. Aircraft take the stick.\n");
+    fprintf(f, "#   0 = as before: your hand steers while the world holds still, and\n");
+    fprintf(f, "#       the stick or wheel steers while the view turns with the vehicle.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_steering);
+    fprintf(f, "vehicle_steering = %d\n\n", g_config.vehicle_steering);
     fprintf(f, "# Motion steering (Halo 3, ODST and Reach). In a Warthog,\n");
     fprintf(f, "# Mongoose, Ghost, Prowler or Chopper, DOUBLE-CLICK both grips to\n");
     fprintf(f, "# take hold of an invisible steering wheel: hold your hands as if\n");

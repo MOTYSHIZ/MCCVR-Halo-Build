@@ -84,17 +84,18 @@ static void TestBuiltInTable()
     const ActiveCamera behind = selector.Active();
     Check(behind.valid && behind.chase && behind.camera == 1, "the second camera is a chase camera");
     Check(behind.mode == 0 && behind.modeCount == 2, "it starts in its first mode of two");
-    Check(behind.offsetCm[0] == -450.0f && behind.offsetCm[1] == 0.0f && behind.offsetCm[2] == 180.0f,
+    Check(behind.offsetCm[0] == 0.0f && behind.offsetCm[1] == 0.0f && behind.offsetCm[2] == 0.0f,
           "its offset is the file's");
-    Check(behind.locYaw && behind.locPitch && behind.locRoll && !behind.locView, "its position rides the vehicle");
+    Check(behind.locYaw && !behind.locPitch && !behind.locRoll && !behind.locView,
+          "its position turns with the vehicle and stays level");
     Check(!behind.rotYaw && !behind.rotPitch && !behind.rotRoll, "its first mode does not turn the view");
-    Check(behind.origin == static_cast<uint8_t>(Origin::Vehicle) && behind.marker[0] == '\0',
-          "it is measured from the vehicle and names no marker");
+    Check(behind.origin == static_cast<uint8_t>(Origin::ThirdPerson) && behind.marker[0] == '\0',
+          "it is measured from where the game's own third-person camera rests and names no marker");
     Check(behind.collide && behind.collideMarginCm == 30.0f, "it is pulled in from obstacles by the default margin");
     Check(behind.changes == 2, "a step counts as a change");
     Check(selector.Describe() ==
-              "default (Driver): camera 2 of 2 \"Third Person\", mode 1 of 2 \"Untethered\", chase from vehicle, "
-              "offset -450 0 180 cm, location Yaw, Pitch, Roll, rotation None, leash None",
+              "default (Driver): camera 2 of 2 \"Third Person\", mode 1 of 2 \"Untethered\", chase from thirdperson, "
+              "offset 0 0 0 cm, location Yaw, rotation None, leash None",
           "the chase camera's log line");
 
     Check(selector.StepMode(1), "stepping to the next mode");
