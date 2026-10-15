@@ -276,8 +276,13 @@ struct Halo3VehicleCameraRest
     uint32_t waited = 0;   // placements asked for before a distance was known
 };
 Halo3VehicleCameraRest g_halo3VehicleCameraRest;
-// The resting distance in use, world units (0 = none yet), for the cold worker's log line.
+// The resting distance in use, world units (0 = none yet), for the cold worker's log line, with the shape of the
+// game's camera where it stood furthest: its height above its pivot along the vehicle's up, the pitch it looked
+// at, and the pivot's own height above the vehicle's origin.
 std::atomic<float> g_halo3VehicleCameraRestWu{0.0f};
+std::atomic<float> g_halo3VehicleCameraRestUpWu{0.0f};
+std::atomic<float> g_halo3VehicleCameraRestPitchDeg{0.0f};
+std::atomic<float> g_halo3VehicleCameraRestPivotUpWu{0.0f};
 inline constexpr float kHalo3RestKnownWu = 0.25f; // nearer than this the director is still in the seat's own view
 inline constexpr float kHalo3RestFurthestWu = 8.0f;
 inline constexpr float kHalo3RestPivotReachWu = 10.0f; // a pivot further than this from the vehicle is not its seat's
@@ -293,8 +298,8 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
         rest = {};
         rest.seat = seat;
     }
-    float at[3], about[3];
-    bool observed = Halo3ReadObserverCamera(at, about);
+    float at[3], about[3], looks[3];
+    bool observed = Halo3ReadObserverCamera(at, about, looks);
     if (observed)
     {
         const float fromVehicle[3] = {about[0] - in.vehicleOrigin[0], about[1] - in.vehicleOrigin[1],
@@ -306,7 +311,19 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
         const float stood[3] = {at[0] - about[0], at[1] - about[1], at[2] - about[2]};
         const float distance = sqrtf(vehicle_camera_frame::Dot(stood, stood));
         if (std::isfinite(distance) && distance > rest.distance && distance <= kHalo3RestFurthestWu)
+        {
             rest.distance = distance;
+            const float pivot[3] = {about[0] - in.vehicleOrigin[0], about[1] - in.vehicleOrigin[1],
+                                    about[2] - in.vehicleOrigin[2]};
+            const float lookUp = vehicle_camera_frame::Dot(looks, in.vehicle.up);
+            g_halo3VehicleCameraRestUpWu.store(vehicle_camera_frame::Dot(stood, in.vehicle.up),
+                                               std::memory_order_relaxed);
+            g_halo3VehicleCameraRestPitchDeg.store(
+                asinf(lookUp < -1.0f ? -1.0f : (lookUp > 1.0f ? 1.0f : lookUp)) * 57.29578f,
+                std::memory_order_relaxed);
+            g_halo3VehicleCameraRestPivotUpWu.store(vehicle_camera_frame::Dot(pivot, in.vehicle.up),
+                                                    std::memory_order_relaxed);
+        }
     }
     if (observed && rest.distance >= kHalo3RestKnownWu)
     {
@@ -589,6 +606,7 @@ struct VehicleCameraRuntime
     bool standInLogged = false;
     bool noTraceLogged = false;
     float restLoggedWu = 0.0f;
+    float restSeenWu = 0.0f;
     uint32_t heldFramesStint = 0;
 };
 inline constexpr uint64_t kVehicleCameraFilePollMs = 2000;
@@ -791,6 +809,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 r.heldFramesStint);
         r.heldFramesStint = 0;
         r.restLoggedWu = 0.0f;
+        r.restSeenWu = 0.0f;
         g_halo3VehicleCameraRestWu.store(0.0f, std::memory_order_relaxed);
     }
 
@@ -800,15 +819,24 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     const uint32_t collideFrames = g_halo3VehicleCameraCollideFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t noTraceFrames = g_halo3VehicleCameraNoTraceFrames.exchange(0, std::memory_order_relaxed);
     r.heldFramesStint += g_halo3VehicleCameraHeldFrames.exchange(0, std::memory_order_relaxed);
-    // The game's own third-person camera's resting distance: said once it is first measured in a seat, and
-    // again whenever it has grown by a tenth since (the distance is the furthest the game's camera has stood).
+    // The game's own third-person camera's resting distance: said once it has settled in a seat (the same on two
+    // polls running; it grows over the first half second as the game's camera eases out), and again whenever it
+    // has settled a tenth further out (the distance is the furthest the game's camera has stood).
     const float restWu = g_halo3VehicleCameraRestWu.load(std::memory_order_relaxed);
-    if (restWu > 0.0f && restWu > r.restLoggedWu * 1.1f)
+    const bool restSettled = restWu == r.restSeenWu;
+    r.restSeenWu = restWu;
+    if (restWu > 0.0f && restSettled && restWu > r.restLoggedWu * 1.1f)
     {
         r.restLoggedWu = restWu;
+        const float upWu = g_halo3VehicleCameraRestUpWu.load(std::memory_order_relaxed);
+        const float pivotUpWu = g_halo3VehicleCameraRestPivotUpWu.load(std::memory_order_relaxed);
         LOG("Vehicle cameras (Halo 3): the game's own third-person camera rests %.2f world units (%.0f cm) from "
-            "its pivot in this seat",
-            static_cast<double>(restWu), static_cast<double>(restWu / vehicle_camera_frame::kWorldUnitsPerCm));
+            "its pivot in this seat; where it stood furthest it was %.0f cm above the pivot looking %.1f deg up, "
+            "and the pivot is %.0f cm above the vehicle's origin",
+            static_cast<double>(restWu), static_cast<double>(restWu / vehicle_camera_frame::kWorldUnitsPerCm),
+            static_cast<double>(upWu / vehicle_camera_frame::kWorldUnitsPerCm),
+            static_cast<double>(g_halo3VehicleCameraRestPitchDeg.load(std::memory_order_relaxed)),
+            static_cast<double>(pivotUpWu / vehicle_camera_frame::kWorldUnitsPerCm));
     }
     if (noTraceFrames > 60 && collideFrames == 0 && !r.noTraceLogged)
     {
