@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <share.h>
 #include <MinHook.h>
 #include "game.h"
@@ -59,6 +60,11 @@ namespace
     std::atomic<bool> g_overrideLogged{false};
     MenuChordDetector g_menuChord;
     MenuChordDetector g_pauseChord;
+    // The vehicle camera buttons' one state machine, for every thread that polls the pad. MCC polls from more than
+    // one thread, and with a copy per thread a held button re-centred once for each of them, while a thread that
+    // polled too rarely to see the hold reach its second took the release for a tap and stepped the camera.
+    vehicle_seat_buttons::Seat g_seatButtons;
+    std::mutex g_seatButtonsLock;
     thread_local ScopeActionInput g_scopeInput;
     thread_local PhysicalCrouchInput g_physicalCrouchInput;
     std::atomic<bool> g_physicalCrouchRiseCapped{false};   // the menu's recalibrate hint
@@ -250,7 +256,6 @@ namespace
         // passenger's seat the support trigger switches weapon. Before anything below reads a button, so every
         // route to the game -- the action mapper, the native bridge, legacy routing -- sees the seat's buttons.
         {
-            static thread_local vehicle_seat_buttons::Seat seatButtons;
             bool passenger = false;
             const bool live = Game_VehicleSeatButtonsLive(passenger) && !Menu_IsOpen() && !pad.exclusiveInput;
             vehicle_seat_buttons::Buttons buttons;
@@ -260,8 +265,13 @@ namespace
             buttons.clickL = pad.clickL;
             buttons.clickR = pad.clickR;
             buttons.supportTrigger = pad.trigL;
-            const vehicle_seat_buttons::Requests asked = seatButtons.Step(
-                buttons, live, passenger, GetTickCount64(), vehicle_seat_buttons::kDefaultHoldMs);
+            vehicle_seat_buttons::Requests asked;
+            {
+                // The clock is read under the lock, so the polls the state machine sees are in time order.
+                std::lock_guard<std::mutex> lock(g_seatButtonsLock);
+                asked = g_seatButtons.Step(buttons, live, passenger, GetTickCount64(),
+                                           vehicle_seat_buttons::kDefaultHoldMs);
+            }
             if (live)
             {
                 pad.x = buttons.x;

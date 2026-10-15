@@ -13,7 +13,9 @@
 // a seat records what is already down (the button that boarded the vehicle is still held when the seat comes
 // up) and acts on nothing. A left stick click joined by the right stick's is the menu's chord, not a click.
 //
-// Pure: the caller hands in the poll's buttons and gets back what reaches the game and what was asked for.
+// Pure: the caller hands in the poll's buttons and gets back what reaches the game and what was asked for. Keep ONE
+// instance for every thread that polls the pad and step it under a lock, with the time read inside the lock: a
+// copy per thread sees each press once per thread, and a rarely polling copy can miss a hold and call it a tap.
 
 #include <cmath>
 #include <cstdint>

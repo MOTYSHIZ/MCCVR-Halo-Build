@@ -86,6 +86,40 @@ static void TestHold()
     Check(never.seat.Step(never.out, true, false, 5010, 0).mode == 1, "and a long press is then still a tap");
 }
 
+// Several threads poll the pad, each at its own rate, into the one state machine: a poll that comes rarely is just
+// another sample. The hold re-centres once, and the rare poll that next sees the button up steps nothing.
+static void TestPollsFromSeveralThreads()
+{
+    Seat seat;
+    Buttons out;
+    uint64_t now = 1000;
+    out = With(false, false);
+    seat.Step(out, true, false, now, kDefaultHoldMs);
+    unsigned recentres = 0;
+    int steps = 0;
+    // The frequent poller every 16 ms while left Y is held for 1.4 s, a rare one every 600 ms.
+    for (uint64_t t = 16; t <= 1400; t += 16)
+    {
+        out = With(false, true);
+        const Requests r = seat.Step(out, true, false, now + t, kDefaultHoldMs);
+        recentres += r.recenter ? 1u : 0u;
+        steps += r.camera;
+        if (t % 592 == 0)
+        {
+            out = With(false, true);
+            const Requests rare = seat.Step(out, true, false, now + t, kDefaultHoldMs);
+            recentres += rare.recenter ? 1u : 0u;
+            steps += rare.camera;
+        }
+    }
+    out = With(false, false);
+    steps += seat.Step(out, true, false, now + 1800, kDefaultHoldMs).camera;
+    out = With(false, false);
+    steps += seat.Step(out, true, false, now + 1810, kDefaultHoldMs).camera;
+    Check(recentres == 1, "a hold polled from several threads re-centres once");
+    Check(steps == 0, "and its release, whichever thread sees it, steps no camera");
+}
+
 static void TestBoardingPress()
 {
     Poll p;
@@ -151,6 +185,7 @@ int main()
 {
     TestTaps();
     TestHold();
+    TestPollsFromSeveralThreads();
     TestBoardingPress();
     TestLeavingTheSeat();
     TestStickClick();
