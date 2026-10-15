@@ -163,6 +163,25 @@ vehicle_camera_place::State g_halo3VehicleCameraState; // camera thread
 std::atomic<uint32_t> g_halo3VehicleCameraFrames{0};
 std::atomic<uint32_t> g_halo3VehicleCameraTickFrames{0};
 std::atomic<uint32_t> g_halo3VehicleCameraStandInFrames{0};
+// "collide": frames that asked for it and had a fresh trace, frames held short of something, and frames that
+// asked with no trace to go on (the title's trace is not running for this seat).
+std::atomic<uint32_t> g_halo3VehicleCameraCollideFrames{0};
+std::atomic<uint32_t> g_halo3VehicleCameraHeldFrames{0};
+std::atomic<uint32_t> g_halo3VehicleCameraNoTraceFrames{0};
+// How much of the way out the camera may go, eased (vehicle_camera_place::EaseReach). Camera thread.
+float g_halo3VehicleCameraReach = 1.0f;
+// This pass's placement, for the leash on the head (Halo3VehicleCameraLeashHead), later in the same pass.
+// Camera thread.
+struct Halo3VehicleCameraPass
+{
+    bool placed = false;
+    float reach = 1.0f;
+    vehicle_camera_select::ActiveCamera camera{};
+    vehicle_camera_place::Placed where{};
+};
+Halo3VehicleCameraPass g_halo3VehicleCameraPass;
+uint64_t g_halo3VehicleCameraReachAt = 0;
+inline constexpr float kHalo3CameraReleasePerSecond = 1.5f;
 
 // A chase camera is chosen for exactly the seat the snapshot shows. Any thread; one atomic load while none is.
 bool Halo3VehicleCameraSelected(vehicle_camera_select::ActiveCamera& camera, Halo3SeatSnapshot& seat,
@@ -307,6 +326,7 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
 // world point the seat view is seen from: a chase camera is in use for exactly the seat the snapshot shows.
 bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
 {
+    g_halo3VehicleCameraPass.placed = false;
     vehicle_camera_select::ActiveCamera camera;
     Halo3SeatSnapshot seat;
     VehicleCameraSeatKey key;
@@ -341,8 +361,69 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
         return false;
 
     float point[3];
-    if (!vehicle_camera_place::Place(camera, in, g_halo3VehicleCameraState, point))
+    vehicle_camera_place::Placed placed;
+    if (!vehicle_camera_place::Place(camera, in, g_halo3VehicleCameraState, point, &placed))
         return false;
+    const float* pivot = placed.pivot;
+    float reachUsed = 1.0f;
+
+    // HELD SHORT OF A WALL ("collide"): the line from the pivot to the camera's place is traced by the title's own
+    // simulation thread beside the aim's ray (legacy_sight_trace.inl), and the camera stops short of what it meets.
+    // The trace is a tick or two behind the line it is read against; at the speed a camera moves that is a few
+    // centimetres. With no trace to go on the camera goes all the way, as before.
+    if (camera.collide)
+    {
+        const float toward[3] = {point[0] - pivot[0], point[1] - pivot[1], point[2] - pivot[2]};
+        const float length = sqrtf(vehicle_camera_frame::Dot(toward, toward));
+        float wanted = 1.0f;
+        if (std::isfinite(length) && length > 0.05f)
+        {
+            const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_relaxed);
+            SightAuxRay ray{};
+            ray.generation = generation;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                ray.origin[axis] = pivot[axis];
+                ray.dir[axis] = toward[axis] / length;
+            }
+            Sight_PublishCameraRay(GameTitle::Halo3, ray);
+            bool hit = false;
+            float rangeWu = 0.0f;
+            if (Sight_ReadCameraTrace(GameTitle::Halo3, generation, 150, hit, rangeWu))
+            {
+                wanted = vehicle_camera_place::CollideReach(hit, rangeWu, length, camera.collideMarginCm);
+                g_halo3VehicleCameraCollideFrames.fetch_add(1, std::memory_order_relaxed);
+            }
+            else
+            {
+                g_halo3VehicleCameraNoTraceFrames.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+        const uint64_t nowMs = GetTickCount64();
+        const float seconds = g_halo3VehicleCameraReachAt && nowMs > g_halo3VehicleCameraReachAt
+            ? static_cast<float>(nowMs - g_halo3VehicleCameraReachAt) * 0.001f
+            : 0.0f;
+        g_halo3VehicleCameraReachAt = nowMs;
+        const float reach = vehicle_camera_place::EaseReach(g_halo3VehicleCameraReach, wanted,
+                                                            seconds > 0.1f ? 0.1f : seconds,
+                                                            kHalo3CameraReleasePerSecond);
+        if (reach < 0.999f)
+        {
+            for (int axis = 0; axis < 3; ++axis)
+                point[axis] = pivot[axis] + toward[axis] * reach;
+            g_halo3VehicleCameraHeldFrames.fetch_add(1, std::memory_order_relaxed);
+            reachUsed = reach;
+        }
+    }
+    else
+    {
+        g_halo3VehicleCameraReach = 1.0f;
+    }
+
+    g_halo3VehicleCameraPass.placed = true;
+    g_halo3VehicleCameraPass.reach = reachUsed;
+    g_halo3VehicleCameraPass.camera = camera;
+    g_halo3VehicleCameraPass.where = placed;
 
     Halo3VehicleCameraPoint& published = g_halo3VehicleCameraPoint;
     published.seq.fetch_add(1, std::memory_order_acq_rel);
@@ -356,6 +437,20 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
         g_halo3VehicleCameraStandInFrames.fetch_add(1, std::memory_order_relaxed);
     memcpy(out, point, sizeof(point));
     return true;
+}
+
+void Halo3VehicleCameraBeginPass()
+{
+    g_halo3VehicleCameraPass.placed = false;
+}
+
+// Camera thread, after Halo3VehicleCameraPlace in the same pass: the player's head movement `head` (world units,
+// added to the camera's point) held inside the camera's leash. False when this pass placed no chase camera or the
+// camera sets no leash.
+bool Halo3VehicleCameraLeashHead(float head[3])
+{
+    const Halo3VehicleCameraPass& pass = g_halo3VehicleCameraPass;
+    return pass.placed && vehicle_camera_place::LeashHead(pass.camera, pass.where, pass.reach, head);
 }
 
 // Any thread. The point the camera thread last placed, while it is fresh.
@@ -428,10 +523,6 @@ std::string Halo3VehicleCameraNotApplied(const vehicle_camera_select::ActiveCame
         add("rotationTracking roll (the horizon is never rolled)");
     if (camera.rotPitch && !camera.rotYaw)
         add("rotationTracking pitch without yaw");
-    if (vehicle_camera_file::LeashSet(camera.leashMinCm) || vehicle_camera_file::LeashSet(camera.leashMaxCm))
-        add("the leash");
-    if (camera.collide)
-        add("collide (the camera is not pulled in from what stands in its way)");
     if (camera.origin == static_cast<uint8_t>(vehicle_camera_file::Origin::Marker))
         add("an origin naming a marker (the vehicle's origin is used)");
     return list;
@@ -493,6 +584,7 @@ struct VehicleCameraRuntime
     std::string readout;
     int frameSourceLogged = -1; // 0 = the drawn root node, 1 = the simulation's frame
     bool standInLogged = false;
+    bool noTraceLogged = false;
 };
 inline constexpr uint64_t kVehicleCameraFilePollMs = 2000;
 
@@ -521,6 +613,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 runtime->loggedLine.clear();
                 runtime->frameSourceLogged = -1;
                 runtime->standInLogged = false;
+                runtime->noTraceLogged = false;
             }
             LOG("Vehicle cameras: off (vehicle_cameras = 0); every seat keeps the view it has without them");
         }
@@ -687,11 +780,21 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.loggedLine.clear();
         r.frameSourceLogged = -1;
         r.standInLogged = false;
+        r.noTraceLogged = false;
     }
 
     const uint32_t frames = g_halo3VehicleCameraFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t tickFrames = g_halo3VehicleCameraTickFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t standInFrames = g_halo3VehicleCameraStandInFrames.exchange(0, std::memory_order_relaxed);
+    const uint32_t collideFrames = g_halo3VehicleCameraCollideFrames.exchange(0, std::memory_order_relaxed);
+    const uint32_t noTraceFrames = g_halo3VehicleCameraNoTraceFrames.exchange(0, std::memory_order_relaxed);
+    g_halo3VehicleCameraHeldFrames.exchange(0, std::memory_order_relaxed);
+    if (noTraceFrames > 60 && collideFrames == 0 && !r.noTraceLogged)
+    {
+        r.noTraceLogged = true;
+        LOG("Vehicle cameras (Halo 3): this camera asks to be kept out of walls (\"collide\"), but the game's trace is "
+            "not running for this seat, so it goes all the way out");
+    }
     if (standInFrames && !r.standInLogged)
     {
         r.standInLogged = true;

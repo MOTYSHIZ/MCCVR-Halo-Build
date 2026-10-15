@@ -509,6 +509,14 @@ void Sight_PublishLimitRay(GameTitle title, const SightAuxRay& ray);
 bool Sight_ReadLimitRay(GameTitle title, uint32_t generation, uint64_t maxAgeMs, SightAuxRay& out);
 void Sight_PublishLimitTrace(GameTitle title, uint32_t generation, bool hit, float rangeWu);
 bool Sight_ReadLimitTrace(GameTitle title, uint32_t generation, uint64_t maxAgeMs, bool& hit, float& rangeWu);
+// VEHICLE CAMERA RAY (all builds; vehicle_cameras.inl). While a chase camera of the vehicle cameras is up with
+// "collide" set, the camera thread publishes the ray from the point the camera is measured from toward where it
+// sits, and the title's trace runs it as an auxiliary ray beside the intent ray, with the same ignores (the
+// player's own vehicle and its parts), so the camera can be held short of a wall. Halo 3 for now.
+void Sight_PublishCameraRay(GameTitle title, const SightAuxRay& ray);
+bool Sight_ReadCameraRay(GameTitle title, uint32_t generation, uint64_t maxAgeMs, SightAuxRay& out);
+void Sight_PublishCameraTrace(GameTitle title, uint32_t generation, bool hit, float rangeWu);
+bool Sight_ReadCameraTrace(GameTitle title, uint32_t generation, uint64_t maxAgeMs, bool& hit, float& rangeWu);
 // The seat's reticle is clamped at a natural stop (stamped by each aim poll that clamps it; live for 150 ms). While
 // it holds, a muzzle redirect is refused (the shot leaves along the game's clamped aim, through the clamped mark,
 // never past the stop) and the zoom lens keeps the game's aim instead of the hand's ray. Any thread.

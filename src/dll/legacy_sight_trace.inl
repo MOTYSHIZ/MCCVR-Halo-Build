@@ -399,6 +399,25 @@ void LegacySightTraceTick(GameTitle title, uint32_t unit, int32_t localUnit, boo
         }
         Sight_PublishLimitTrace(title, generation, limitHit, limitHit ? limitRangeWu : 0.0f);
     }
+    // THE VEHICLE CAMERA RAY (vehicle_cameras.inl): from the point a chase camera is measured from toward where it
+    // sits, while one with "collide" is up. The same query, flags and ignores as the intent ray, so the player's own
+    // vehicle and its parts are looked past. Only while the camera thread published one.
+    SightAuxRay cameraRay{};
+    if (Sight_ReadCameraRay(title, generation, kSightRayFreshMs, cameraRay))
+    {
+        bool cameraHit = false;
+        float cameraRangeWu = 0.0f;
+        if (!SightAuxTraceVector(original, flags, kReachAimTraceMode, cameraRay, length, kSightTraceSkipWu,
+                                 kLegacySightSelfStepWu, seated ? kLegacySightSelfPasses : 1, ignoreA, ignoreB,
+                                 ignoreC, isOurs, cameraHit, cameraRangeWu))
+        {
+            Sight_NoteTraceFault(title);
+            LOG("SIGHT %s: the vehicle camera trace raised a native fault; the trace stays off until the title "
+                "reinstalls", LegacySightTitleName(title));
+            return;
+        }
+        Sight_PublishCameraTrace(title, generation, cameraHit, cameraHit ? cameraRangeWu : 0.0f);
+    }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
     // DEV ASSESSMENT (honest_reticle_assess): the game's own aim ray from its shot origin (the engine eye, or the

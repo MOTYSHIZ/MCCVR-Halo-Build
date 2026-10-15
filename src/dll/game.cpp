@@ -5142,6 +5142,10 @@ namespace
     // camera thread's, once a pass; PublishedPoint is that point for any thread while it is fresh; ThirdPerson
     // is the seat sampler's question. All false with vehicle_cameras off, on one atomic load.
     bool Halo3VehicleCameraPlace(float viewYaw, float out[3]);
+    // ...and the leash on the head's movement from that point, later in the same pass. BeginPass opens a pass: a
+    // pass that places no chase camera leashes nothing.
+    void Halo3VehicleCameraBeginPass();
+    bool Halo3VehicleCameraLeashHead(float head[3]);
     bool Halo3VehicleCameraPublishedPoint(float out[3]);
     bool Halo3VehicleCameraThirdPerson();
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
@@ -8868,6 +8872,7 @@ namespace
         // authored placement and did not cure the vehicle/eye mismatch. C18
         // supplies the exact Blender point already parented through Halo's live
         // rendered node; consuming that world point directly is essential.
+        Halo3VehicleCameraBeginPass();
         if (!cinematic && Halo3VehicleFpActive())
         {
             // A chase camera chosen for this seat (vehicle_cameras.inl) stands in for the seat's own point;
@@ -8935,6 +8940,17 @@ namespace
                 oz = dy * s;
             }
             ox = Clamp(ox, -1.5f, 1.5f); oy = Clamp(oy, -1.5f, 1.5f); oz = Clamp(oz, -1.5f, 1.5f);
+            // A chase camera's own leash (vehicle_cameras.inl): the head moves the view only inside the box the
+            // camera sets, so a lean cannot take the eyes through what the camera sits beside.
+            {
+                float lean[3] = {ox, oy, oz};
+                if (!cinematic && Halo3VehicleCameraLeashHead(lean))
+                {
+                    ox = lean[0];
+                    oy = lean[1];
+                    oz = lean[2];
+                }
+            }
             pos[0] += ox; pos[1] += oy; pos[2] += oz;
             // THE LEASH BELOW THE CHARACTER'S EYE (Reach's, ReachApplyHeadLook; CampE's heightleash). A
             // duck deeper than the character's own crouch takes the view inside his chest and legs: the

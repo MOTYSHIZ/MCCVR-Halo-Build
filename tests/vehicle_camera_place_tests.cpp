@@ -47,6 +47,11 @@ static ActiveCamera Behind()
     camera.offsetCm[1] = 60.0f;
     camera.offsetCm[2] = 150.0f;
     camera.locYaw = camera.locPitch = camera.locRoll = true;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        camera.leashMinCm[axis] = -vehicle_camera_file::kUnleashed;
+        camera.leashMaxCm[axis] = vehicle_camera_file::kUnleashed;
+    }
     camera.changes = 1;
     return camera;
 }
@@ -199,6 +204,53 @@ static void TestThirdPersonRest()
     Check(Place(camera, in, state, point) && !state.standIn, "and a place given again is used again");
 }
 
+static void TestCollide()
+{
+    Check(CollideReach(false, 0.0f, 2.0f, 30.0f) == 1.0f, "nothing met: all the way out");
+    Check(CollideReach(true, 3.0f, 2.0f, 30.0f) == 1.0f, "something past the camera: all the way out");
+    const float margin = 30.0f * kWorldUnitsPerCm;
+    Check(Near(CollideReach(true, 1.0f, 2.0f, 30.0f), (1.0f - margin) / 2.0f), "a wall halfway: stopped the margin short");
+    Check(CollideReach(true, 0.05f, 2.0f, 30.0f) == 0.0f, "a wall nearer than the margin: at the pivot");
+    Check(CollideReach(true, 1.0f, 0.0f, 30.0f) == 1.0f, "no way out to speak of: nothing to hold in");
+
+    float held = 1.0f;
+    Check(EaseReach(held, 0.25f, 0.01f, 1.5f) == 0.25f, "drawn in at once");
+    Check(Near(EaseReach(held, 1.0f, 0.1f, 1.5f), 0.4f), "let out at its rate");
+    Check(Near(EaseReach(held, 1.0f, 1.0f, 1.5f), 1.0f), "and no further than the way out");
+    Check(EaseReach(held, 7.0f, 0.1f, 1.5f) == 1.0f && EaseReach(held, -3.0f, 0.1f, 1.5f) == 0.0f,
+          "kept between none and all of the way");
+}
+
+static void TestLeash()
+{
+    ActiveCamera camera = Behind(); // 300 behind, 60 right, 150 up; rigid
+    State state;
+    float point[3]{};
+    Placed placed;
+    Check(Place(camera, At(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f), state, point, &placed), "a placement to leash against");
+    Check(placed.offsetCm[0] == -300.0f && placed.offsetCm[2] == 150.0f && vehicle_camera_frame::Usable(placed.carrier),
+          "the placement says where and in what frame the offset was laid out");
+    float head[3]{0.1f, 0.0f, 0.5f};
+    Check(!LeashHead(camera, placed, 1.0f, head) && head[2] == 0.5f, "no leash: the head goes where it goes");
+
+    // Up at most 160 cm from the origin: 10 cm above the camera's point.
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        camera.leashMinCm[axis] = vehicle_camera_file::kUnleashed * -1.0f;
+        camera.leashMaxCm[axis] = vehicle_camera_file::kUnleashed;
+    }
+    camera.leashMaxCm[2] = 160.0f;
+    Check(LeashHead(camera, placed, 1.0f, head), "a leash on the way up");
+    Check(Near(head[2], 10.0f * kWorldUnitsPerCm) && Near(head[0], 0.1f), "stops the head 10 cm up and leaves the rest");
+    float down[3]{0.0f, 0.0f, -0.5f};
+    Check(LeashHead(camera, placed, 1.0f, down) && Near(down[2], -0.5f), "coming down is free");
+
+    // A camera held in by a wall to half its offset: the ceiling is a place, so there is more room above.
+    float lean[3]{0.0f, 0.0f, 0.5f};
+    Check(LeashHead(camera, placed, 0.5f, lean), "a leash with the camera held in");
+    Check(Near(lean[2], (160.0f - 75.0f) * kWorldUnitsPerCm), "the limit stays where it is in the vehicle");
+}
+
 static void TestRefusals()
 {
     State state;
@@ -232,6 +284,8 @@ int main()
     TestOrbit();
     TestOrigins();
     TestThirdPersonRest();
+    TestCollide();
+    TestLeash();
     TestRefusals();
     std::printf("PASS: %u vehicle camera placement checks\n", g_checks);
     return 0;
