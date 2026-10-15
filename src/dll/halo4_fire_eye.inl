@@ -200,12 +200,14 @@ void Halo4NoteFireEyeProof(int32_t unit, bool eligible, int notEligible, const f
                                                      : "the controller root's eye carried one tick");
 }
 
-// THE TICK FEED (every build where the transport is wanted): our on-foot unit's own update (the contact lane's per-unit
-// detour, simulation thread), while its eye stands still -- one proof sample, so the proof latches before any shot.
-// Moving, nothing is asked (a moving sample is no evidence). `onFoot`: the caller's biped test on the live instance.
+// THE TICK FEED (every build where the fire eye is asked for: Sight_FireEyeAsked, so never in a shared simulation --
+// the ask is a call of the game's own inside the tick that only this machine would make): our on-foot unit's own
+// update (the contact lane's per-unit detour, simulation thread), while its eye stands still -- one proof sample, so
+// the proof latches before any shot. Moving, nothing is asked (a moving sample is no evidence). `onFoot`: the
+// caller's biped test on the live instance.
 void Halo4NoteFireEyeTick(uint32_t unit, bool onFoot)
 {
-    if (!onFoot || !Sight_TransportWanted(GameTitle::Halo4, false) ||
+    if (!onFoot || !Sight_FireEyeAsked(GameTitle::Halo4) ||
         !g_halo4FireEye.evaluator.load(std::memory_order_acquire))
         return;
 #if HALOMCCVR_DEV_DIAGNOSTICS

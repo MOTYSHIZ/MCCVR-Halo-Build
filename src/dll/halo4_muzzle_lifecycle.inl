@@ -143,7 +143,7 @@ bool InstallHalo4Muzzle(uintptr_t base,size_t size,uint32_t generation)
         if(MH_EnableHook(target)!=MH_OK)
         {LOG("Halo4 muzzle StockFallback: hook enable failed");(void)RemoveHalo4Muzzle();return false;}
     feature.enabled.store(true,std::memory_order_release);g_halo4BarrelBindingsReady.store(true,std::memory_order_release);
-    LOG("Halo4 muzzle Installed: optional committed FP barrel with native targeting/obstruction; option=%d",g_config.gun_barrel_aim?1:0);
+    LOG("Halo4 muzzle Installed: optional committed FP barrel with native targeting/obstruction; option=%d",Sight_GunBarrelAim()?1:0);
     return true;
 }
 void ReportHalo4Muzzle()
@@ -151,5 +151,5 @@ void ReportHalo4Muzzle()
     auto& feature=g_halo4Barrel;if(!feature.targets[0])return;
     LOG("Halo4 barrel trajectory: enabled=%d fault=%d applied=%llu refused=%llu queries=%llu restoreRefused=%llu option=%d",
         feature.enabled.load()?1:0,feature.faulted.load()?1:0,feature.applied.exchange(0),feature.refused.exchange(0),
-        feature.queries.exchange(0),feature.restoreRefused.exchange(0),g_config.gun_barrel_aim?1:0);
+        feature.queries.exchange(0),feature.restoreRefused.exchange(0),Sight_GunBarrelAim()?1:0);
 }

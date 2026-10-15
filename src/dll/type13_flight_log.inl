@@ -11,10 +11,13 @@
 // a slew cap), the forced-steer/redirect windows, the roll mode, the time arguments, the tag limits, Halo
 // 4's biped physics mode and runtime type override, and which dispatcher callers run in a tick.
 //
-// Nothing is hooked unless type13_log = 1 (read at startup): a 0 run carries no detour, so it is a true control.
-// The detours write NOTHING to the game. They run the native unchanged (through CallNativeWithSpareSlots:
+// Each controller's one hook is the direct drive's (reach_type13_drive.inl, halo4_type13_drive.inl, every build).
+// With type13_log = 1 its detour calls this file's observer around the native call (T13ReachBefore / T13ReachAfter,
+// T13Halo4Before / T13Halo4After), before the drive writes anything; with 0 the observer is never made ready and is
+// never called.
+// The observers write NOTHING to the game. The native runs unchanged (through CallNativeWithSpareSlots:
 // seven arguments, three of them on the stack; tools/audit_caller_area.py 64828:11:v and aa524:11:v clean,
-// 6 slots a violation at entry+0x38), read under SEH before and after it, and push POD events into a
+// 6 slots a violation at entry+0x38); they read under SEH before and after it, and push POD events into a
 // lock-free single-producer ring (src/common/type13_flight_log.h); the cold worker formats every line. Only
 // one owner thread observes a lane (claimed by compare_exchange, taken over after 500 ms of silence), and a
 // busy flag keeps the producer single-threaded even across a takeover. The worker takes the same flag, only
@@ -22,16 +25,16 @@
 // then, not at the next flight's first call (or never). They never stamp g_reachPcLiveMs or
 // g_reachLastCamCopyMs, so the Reach heartbeat question (Phase A3) stays measurable.
 //
-// ADDR-HYGIENE: dev-only, guarded. Every RVA and offset below is a measurement of the retail Steam builds
-// (haloreach.dll SizeOfImage 0x4EDA000, halo4.dll 0x4A3F000; the Store modules carry the same code at the
-// same RVAs, docs/MCC-EDITIONS-EVIDENCE.md). The install proves each one before a hook exists: every anchor
-// in the tables matches at its RVA (the ones that locate the entry, the call site or a shared global are
-// also unique in the whole module), the dispatcher's type-13 call (rel32) lands on the entry, the TLS index,
-// tag pages and tag instances globals agree across independent sites, and the caller-attribution frame is
-// derived from the dispatcher prologue the table pins. Any miss: no hook, one log line naming what failed,
-// the pilot stays on the stick servo. The anchors are generated from the retail DLLs, and
-// tools/verify_type13_anchors.py re-proves every one of them (and the install's other checks) offline, reading
-// the tables straight out of this file: run it after any edit here and on any new game build.
+// ADDR-HYGIENE: dev-only, resolved (src/common/drive_sites.h: kT13ReachAnchors, kT13Halo4Anchors, ResolveT13).
+// No recorded RVA says where anything is. The install FINDS every anchor in the loaded module: the ones that
+// locate the entry, the call site or a shared global by signature anywhere in its code, exactly once; the short
+// ones that read a field inside the function they belong to. On what was found it proves that the dispatcher's
+// type-13 call (rel32) lands on the entry, that the TLS index, tag pages and tag instances globals agree across
+// independent sites (the TLS index also with the module's own PE TLS directory), and that the
+// caller-attribution frame derived from the dispatcher's prologue is the one its unwind info gives. Every struct
+// offset the observer reads stands in an anchor's own displacement bytes, which are exact. Any miss: the
+// observer is not made ready, one log line names what failed, and nothing else changes. The offline check
+// (tools/drive_address_check.cpp) runs the same tables against the game DLLs: run it on any new game build.
 
 #include "../common/type13_flight_log.h"
 
@@ -40,23 +43,13 @@ namespace
 constexpr size_t kT13RingSize = 256;
 constexpr uint64_t kT13TakeoverMs = 500;
 
-struct T13Anchor
-{
-    const char* name;
-    uint32_t rva;
-    bool unique;           // also unique in the whole module (it locates code or supplies an address)
-    const char* pattern;   // the rest match exactly at their RVA (pure field offsets)
-};
-
 // One title's observer. Install/remove fields belong to the worker; the producer, the ring's producer
 // side and the claim to the sim thread that owns the lane; the counters are read by the worker.
 struct T13Lane
 {
     explicit T13Lane(uint8_t laneTitle) : title(laneTitle), producer(laneTitle) {}
     const uint8_t title;                     // 0 Reach, 1 Halo 4 (the events' title)
-    // Install (worker). Read by the hook only while enabled (released after they are set).
-    void* target = nullptr;
-    void* original = nullptr;                // Halo 4's trampoline (Reach's is g_reachT13Orig)
+    // Install (worker). Read by the observer only while enabled (released after they are set).
     uintptr_t base = 0;
     std::atomic<uint32_t> generation{0};
     uintptr_t ctrlRet = 0;                   // the controller's return address in the dispatcher
@@ -64,8 +57,7 @@ struct T13Lane
     t13::CallerTable<4> callers{};
     uintptr_t pages = 0, instances = 0;      // the tag globals (pages: u64[16]; instances: u64 pointer)
     const uint32_t* tlsIndex = nullptr;
-    std::atomic<bool> enabled{false};
-    std::atomic<uint32_t> callbacks{0};      // Halo 4's quiescence counter (Reach holds g_reachCamera's)
+    std::atomic<bool> enabled{false};        // proven and ready (the controller's own hook decides whether it runs)
     // Sim thread.
     t13::OwnerClaim owner;
     std::atomic<bool> busy{false};
@@ -112,26 +104,44 @@ bool T13Executable(uintptr_t address)
            protection == PAGE_EXECUTE_WRITECOPY;
 }
 
-bool T13AnchorMatches(uintptr_t base, size_t size, const T13Anchor& a)
+// What one title's install found in the loaded module (drive_sites.h: ResolveT13): every row of its table, and
+// what is derived from them.
+template <size_t N>
+struct T13Found
 {
-    if (!T13Executable(base + a.rva))
-        return false;
-    return a.unique ? LegacyDriveUniqueAt(base, size, a.rva, a.pattern) : LegacyDriveBytesAt(base, size, a.rva, a.pattern);
+    uint32_t rows[N]{};
+    drive_sites::T13 t13;
+};
+
+// Finds a table in the loaded module. False: the module could not be read at all (resolution.why says why).
+template <size_t N>
+bool T13Resolve(uintptr_t base, size_t size, GameTitle title, const drive_sites::Anchor (&rows)[N],
+                const drive_sites::FlightSites& flight, const drive_sites::T13Sites& sites,
+                drive_cascade::Resolution<T13Found<N>>& resolution)
+{
+    const drive_cascade::Drive drive{title, "pilot-observer"};
+    return drive_cascade::Resolve(base, size, drive, resolution, [&](drive_resolve::Resolver& r) {
+        T13Found<N> f;
+        f.t13 = drive_sites::ResolveT13(r, rows, f.rows, flight, sites);
+        return f;
+    });
 }
 
-// Checks every anchor; the names of the ones that failed go into `failed` (comma-separated).
+// Every row was found, at an address the loaded module executes; the names of the ones that were not go into
+// `failed` (comma-separated).
 template <size_t N>
-bool T13AnchorsMatch(uintptr_t base, size_t size, const T13Anchor (&anchors)[N], char* failed, size_t failedSize)
+bool T13RowsFound(uintptr_t base, const drive_sites::Anchor (&rows)[N], const uint32_t (&found)[N], char* failed,
+                  size_t failedSize)
 {
     bool all = true;
     size_t used = 0;
     failed[0] = 0;
-    for (const T13Anchor& a : anchors)
+    for (size_t i = 0; i < N; ++i)
     {
-        if (T13AnchorMatches(base, size, a))
+        if (found[i] && T13Executable(base + found[i]))
             continue;
         all = false;
-        const int n = snprintf(failed + used, failedSize - used, "%s%s", used ? "," : "", a.name);
+        const int n = snprintf(failed + used, failedSize - used, "%s%s", used ? "," : "", rows[i].name);
         if (n > 0 && used + static_cast<size_t>(n) < failedSize)
             used += static_cast<size_t>(n);
     }
@@ -139,24 +149,42 @@ bool T13AnchorsMatch(uintptr_t base, size_t size, const T13Anchor (&anchors)[N],
 }
 
 // The target of a rip-relative operand: the instruction at insnRva, its disp32 at +dispOffset, `length` bytes
-// long. 0 unless it lands inside the module. Read only after the anchor covering the instruction matched.
+// long. 0 unless it lands inside the module. Read only after the anchor covering the instruction was found.
 uintptr_t T13Rip(uintptr_t base, size_t size, uint32_t insnRva, uint32_t dispOffset, uint32_t length)
 {
     if (static_cast<size_t>(insnRva) + length > size)
         return 0;
     int32_t disp = 0;
-    memcpy(&disp, reinterpret_cast<const void*>(base + insnRva + dispOffset), sizeof(disp));
+    if (!drive_install::Read(base + insnRva + dispOffset, &disp, sizeof(disp)))   // guarded, as every read after the plan
+        return 0;
     const uintptr_t target = base + insnRva + length + static_cast<intptr_t>(disp);
     return target >= base && target < base + size ? target : 0;
+}
+
+// A shared global, read again from the loaded module at every one of its sites (each inside a found row): all of
+// them must name the address the resolution settled on.
+template <size_t N, size_t M>
+bool T13GlobalAgrees(uintptr_t base, size_t size, const uint32_t (&rows)[N], const drive_sites::RipSite (&sites)[M],
+                     uint32_t foundRva)
+{
+    if (!foundRva)
+        return false;
+    for (const drive_sites::RipSite& site : sites)
+    {
+        const uint32_t row = rows[site.row];
+        if (!row || T13Rip(base, size, row + site.offset, site.displacement, site.length) != base + foundRva)
+            return false;
+    }
+    return true;
 }
 
 // The target of an `E8 rel32` at callRva; 0 when it is not one or lands outside the module.
 uintptr_t T13CallTarget(uintptr_t base, size_t size, uint32_t callRva)
 {
-    if (static_cast<size_t>(callRva) + 5 > size)
+    if (!callRva || static_cast<size_t>(callRva) + 5 > size)
         return 0;
-    const auto* p = reinterpret_cast<const uint8_t*>(base + callRva);
-    if (p[0] != 0xE8)
+    uint8_t p[5];
+    if (!drive_install::Read(base + callRva, p, sizeof(p)) || p[0] != 0xE8)
         return 0;
     int32_t rel = 0;
     memcpy(&rel, p + 1, sizeof(rel));
@@ -164,30 +192,37 @@ uintptr_t T13CallTarget(uintptr_t base, size_t size, uint32_t callRva)
     return target >= base && target < base + size ? target : 0;
 }
 
-// The caller-attribution slot: the call site's own function (.pdata) must begin at the dispatcher whose
-// prologue the anchors pinned, and the slot is derived from that prologue (t13::DispatcherReturnSlot).
+// The caller-attribution slot: the found call site's own function (the loaded module's function table) must
+// begin at the found dispatcher, and the slot is derived from that dispatcher's prologue
+// (t13::DispatcherReturnSlot).
 bool T13DispatcherSlot(uintptr_t base, uint32_t dispatcherRva, size_t prologueBytes, uint32_t callRva, uint32_t& slot)
 {
     slot = 0;
+    if (!dispatcherRva || !callRva)
+        return false;
     DWORD64 imageBase = 0;
     const PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(base + callRva, &imageBase, nullptr);
     if (!function || imageBase != base || function->BeginAddress != dispatcherRva)
         return false;
-    return t13::DispatcherReturnSlot(reinterpret_cast<const uint8_t*>(base + dispatcherRva), prologueBytes, slot);
+    uint8_t prologue[32];
+    if (prologueBytes > sizeof(prologue) || !drive_install::Read(base + dispatcherRva, prologue, prologueBytes))
+        return false;
+    return t13::DispatcherReturnSlot(prologue, prologueBytes, slot);
 }
 
-// Dispatcher callers -> CallerTable (labels only, never a gate): each must be an E8 to the dispatcher.
+// Dispatcher callers -> CallerTable (labels only, never a gate): each found call must be an E8 to the found
+// dispatcher. `calls` is in the order of the title's caller names.
 template <size_t N>
-void T13Callers(uintptr_t base, size_t size, uint32_t dispatcherRva, const uint32_t (&callRvas)[N], T13Lane& lane,
-                bool (&ok)[N])
+void T13Callers(uintptr_t base, size_t size, uint32_t dispatcherRva, const uint32_t (&calls)[drive_sites::kMaxCallers],
+                T13Lane& lane, bool (&ok)[N])
 {
-    static_assert(N <= 4);
+    static_assert(N <= 4 && N <= drive_sites::kMaxCallers);
     for (size_t i = 0; i < 4; ++i)
         lane.callers.ret[i] = 0;
     for (size_t i = 0; i < N; ++i)
     {
-        ok[i] = T13CallTarget(base, size, callRvas[i]) == base + dispatcherRva;
-        lane.callers.ret[i] = ok[i] ? base + callRvas[i] + 5 : 0;
+        ok[i] = dispatcherRva && calls[i] && T13CallTarget(base, size, calls[i]) == base + dispatcherRva;
+        lane.callers.ret[i] = ok[i] ? base + calls[i] + 5 : 0;
     }
 }
 
@@ -356,105 +391,28 @@ int32_t T13TagType(const uint8_t* def, size_t blocks)
 // ============================================================================================================
 namespace
 {
-// ADDR-HYGIENE: dev-only, guarded. The whole Reach image is also hash-pinned before InstallReachCameraCore
-// reaches this install (the preflight token), so every one of these is pinned twice.
-constexpr uint32_t kT13ReachEntryRva = 0x64828;
-constexpr uint32_t kT13ReachCallRva = 0x63607;       // in CALL: E8 -> the entry, then jmp past 0x6365E
-constexpr uint32_t kT13ReachDispatcherRva = 0x6350C;
-constexpr const T13Anchor kT13ReachAnchors[] = {
-    // The controller's entry: 151 bytes (the 37-byte prologue alone also matches 0x12B7F0 and 0x15280C).
-    // TLS index load at +0x648A8, tag pages lea at +0x648A1.
-    {"ENTRY", 0x64828, true,
-     "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 18 FF FF FF 48 81 EC A8 01 00 00 0F 29 70 A8 0F 29 78 98 "
-     "44 0F 29 40 88 44 0F 29 88 78 FF FF FF 44 0F 29 90 68 FF FF FF 44 0F 29 98 58 FF FF FF 44 0F 29 A0 48 FF FF FF "
-     "44 0F 29 A8 38 FF FF FF 44 0F 29 B0 28 FF FF FF 44 0F 29 B8 18 FF FF FF 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 F0 "
-     "65 48 8B 04 25 58 00 00 00 48 8D 35 ?? ?? ?? ?? 44 8B 05 ?? ?? ?? ?? 45 0F 57 C9 41 B9 10 00 00 00 41 BD D8 00 00 00"},
-    // The dispatcher: physics type == 13 -> call the controller (+0x63607) -> jmp past the accumulator call.
-    {"CALL", 0x635D5, true,
-     "8B 08 E8 ?? ?? ?? ?? 83 F8 0D 75 ?? F3 0F 10 45 7F 0F 28 DF F3 0F 10 4D 77 0F 28 D6 8B 55 C7 8B CF "
-     "F3 0F 11 44 24 30 F3 0F 11 4C 24 28 4C 89 6C 24 20 E8 ?? ?? ?? ?? EB ??"},
-    // The dispatcher's earlier tests: the camera parent is a vehicle (kind 1) and the seat has flag bit 2.
-    {"DRIVER", 0x63592, false,
-     "E8 ?? ?? ?? ?? 83 7D C7 FF 74 ?? 0F B7 45 C7 B9 10 00 00 00 4A 8B 0C 31 4C 8D 34 40 4C 8B 79 50 43 80 7C F7 04 01 "
-     "75 ?? 0F B7 55 CB 41 B8 02 00 00 00 8B 4D C7 E8 ?? ?? ?? ?? 84 C0 74 ??"},
-    // The dispatcher's prologue: 7 pushes + sub 0xC0, the caller-attribution frame (DispatcherReturnSlot).
-    {"DISP", 0x6350C, false, "48 8B C4 55 53 57 41 54 41 55 41 56 41 57 48 8D 68 B1 48 81 EC C0 00 00 00"},
-    // The record: PC = *(TLS+0xD8) + user*0x180 (lea r12,[rax+rax*2]; shl r12,7); the controller's rbx = PC+0x80.
-    {"REC", 0x648B3, false,
-     "41 B9 10 00 00 00 41 BD D8 00 00 00 F3 0F 11 54 24 48 4E 8B 04 C0 48 63 C1 0F B7 CA F3 0F 11 5C 24 50 4F 8B 2C 28 "
-     "4C 8D 24 40 4C 89 45 A8 4B 8B 04 01 48 8D 14 49 49 C1 E4 07 48 89 54 24 68 49 8D 9D 80 00 00 00 49 03 DC"},
-    {"PC88", 0x64900, false, "44 8A 7B 08 48 8B 44 D1 10 48 89 45 A0 41 C0 EF 02"},   // PC+0x88 bit 2: roll mode
-    // The tag chain: def index u16 at veh+0; instances (+0x64914); the type-13 block's address at def+0x570.
-    {"TAGDEF", 0x64911, true,
-     "0F B7 08 48 8B 05 ?? ?? ?? ?? 8B 54 C8 04 B9 01 00 00 00 8B C2 48 C1 E8 1C 48 8B 04 C6 8B BC 90 70 05 00 00 "
-     "8B C7 48 C1 E8 1C 48 8B 34 C6"},
-    {"ROLLIN", 0x64944, false, "48 8B 85 10 01 00 00 F3 0F 10 78 04"},          // input (entry+0x28) +4: roll axis
-    {"HOLD", 0x6496D, false, "F3 0F 10 83 C8 00 00 00"},                        // PC+0x148 look hold
-    {"LATCH", 0x649E8, false, "43 88 84 2C 4C 01 00 00"},                       // PC+0x14C latch byte
-    {"IDLE", 0x64A34, false, "89 8B C0 00 00 00 F3 0F 10 43 18"},               // PC+0x140 idle; PC+0x98 pitch
-    {"RRATE", 0x64AD2, false, "F3 0F 10 64 BE 5C 4C 8D B3 C4 00 00 00"},        // sf+0x5C; PC+0x144 roll rate
-    {"SF60", 0x64AF1, false, "F3 0F 59 5C BE 60"},
-    {"SF64", 0x64B0C, false, "F3 0F 59 5C BE 64"},
-    {"SF68", 0x64C2A, false, "F3 0F 59 5C BE 68"},
-    {"SF6C", 0x64A7B, false, "F3 0F 5D 44 BE 6C"},
-    {"SF70", 0x64A51, false, "0F 2F 4C BE 70"},
-    {"SF74", 0x64B89, false, "F3 0F 5C 4C BE 74"},
-    {"SF78", 0x64BAB, false, "F3 0F 10 44 BE 78"},
-    {"SF7C", 0x64A1C, false, "F3 0F 59 54 BE 7C"},
-    {"SF80", 0x64B6B, false, "F3 0F 10 84 BE 80 00 00 00"},
-    {"SF84", 0x64BB7, false, "F3 0F 10 84 BE 84 00 00 00"},
-    {"ANGPTR", 0x64C88, false, "4C 8D 7B 14"},                                  // r15 = PC+0x94, the Euler output
-    {"ANG", 0x64D19, false,
-     "4C 8D 44 24 58 48 8D 55 C0 48 8D 4D B0 E8 ?? ?? ?? ?? 41 0F 28 D1 48 8D 4C 24 58 49 8B D7 E8 ?? ?? ?? ??"},
-    // The forced steer's stamp: direction veh+0xAC0/+0xAC8, tick veh+0xABC.
-    {"STAMP", 0x64D6A, false, "F2 41 0F 10 85 C0 0A 00 00 41 8B 85 C8 0A 00 00 45 8B B5 BC 0A 00 00"},
-    {"SFA8", 0x64D9C, false, "84 94 BE A8 00 00 00"},                           // sf+0xA8 bit 0
-    {"AIM", 0x64DA9, false, "F3 41 0F 10 9D 14 02 00 00"},                      // veh+0x214 aiming vector
-    // The window: sf+0xAC; game time TLS+0xA0 -> tick +0xC, seconds per tick +8 (comiss/jbe).
-    {"WIN", 0x64E58, false,
-     "F3 0F 10 84 BE AC 00 00 00 B9 A0 00 00 00 4A 8B 0C 21 8B 41 0C 41 2B C6 66 0F 6E C8 0F 5B C9 F3 0F 59 49 08 "
-     "0F 2F C1 0F 86 ?? ?? ?? ??"},
-    {"WRAPP", 0x651E4, false, "F3 0F 11 43 18"},                                // PC+0x98 pitch wrap
-    {"WRAPR", 0x65200, false, "F3 0F 11 43 1C"},                                // PC+0x9C roll wrap
-    {"EXIT", 0x65205, false,
-     "F3 41 0F 10 07 41 0F 28 CE F3 41 0F 58 C6 E8 ?? ?? ?? ?? F3 41 0F 11 07 48 8B 4D F0 48 33 CC"},   // yaw wrap
-    // The accumulator 0x6375C adds the stick into the same desired yaw PC+0x94 (direct drive's own anchor).
-    {"ACC", 0x63AF9, false,
-     "0F 28 D0 F3 0F 58 94 1F 94 00 00 00 41 83 CB FF B8 10 00 00 00 F3 0F 11 94 1F 94 00 00 00"},
-    // The vehicle-type accessor: 15 twelve-byte type blocks from def+0x4D0 (lea r8,[rdx+0x134]).
-    {"TYPEACC", 0x4AC1E4, false,
-     "48 8B 05 ?? ?? ?? ?? 0F B7 C9 8B 54 C8 04 48 8D 0D ?? ?? ?? ?? 8B C2 48 C1 E8 1C 4C 8D 82 34 01 00 00 48 8B 0C C1 "
-     "33 C0 45 33 C9 44 8D 50 10 4E 8D 04 81 41 83 38 00 75 11 FF C0 49 FF C1 49 83 C0 0C 49 83 F9 0F 7C EB EB 03 "
-     "44 8B D0 41 8B C2 C3"},
-    // The hull 0x51DE3C (the type-13 case of 0x4AD958): pages (+0x51DEB5) and the TLS index (+0x51DEC2) ...
-    {"HPAGES", 0x51DEAC, true, "65 48 8B 04 25 58 00 00 00 48 8D 3D ?? ?? ?? ?? 4C 8B F1 44 8B E2 8B 0D ?? ?? ?? ??"},
-    {"HDEF", 0x51DEF3, true, "48 8B 05 ?? ?? ?? ?? 0F B7 0E 0F B7 96 D8 09 00 00 44 8B 6C C8 04"},   // ... instances
-    {"HSF", 0x51DF22, false, "42 8B 9C A8 70 05 00 00"},                        // ... the same block, def+0x570
-    {"HFWD", 0x51DF73, false,                                                     // veh+0x50/0x54/0x58 (atan2)
-     "F3 0F 10 4E 54 F3 0F 10 46 50 F3 0F 59 C0 F3 0F 59 C9 F3 0F 58 C1 E8 ?? ?? ?? ?? 0F 28 C8 F3 0F 10 46 58"},
-    // The desired facing the hull steers by, veh+0x1E4/0x1E8/0x1EC, and its roll base veh+0x250.
-    {"HX", 0x51E551, false,
-     "F3 0F 10 B6 E8 01 00 00 F3 0F 10 BE E4 01 00 00 0F 28 C6 0F 28 CF E8 ?? ?? ?? ?? F3 0F 59 FF F3 0F 11 45 C0 "
-     "F3 0F 59 F6 F3 0F 58 FE 0F 28 C7 E8 ?? ?? ?? ?? 0F 28 C8 F3 0F 10 86 EC 01 00 00 E8 ?? ?? ?? ?? F3 0F 10 B6 50 02 00 00"},
-    {"H10", 0x51E526, false, "F3 44 0F 10 54 9F 10"},                           // hull sf+0x10
-    {"H14", 0x51E04D, false, "F3 44 0F 59 54 9F 14"},                           // hull sf+0x14
-    {"H38", 0x51E7CE, false, "F3 0F 10 64 9F 38 F3 0F 59 A6 A0 03 00 00"},      // hull sf+0x38 x veh+0x3A0
-    {"H88", 0x51E5F7, false, "F3 0F 59 84 9F 88 00 00 00"},
-    {"H8C", 0x51E5DC, false, "F3 0F 10 9C 9F 8C 00 00 00"},
-    {"H90", 0x51E62A, false, "F3 0F 10 84 9F 90 00 00 00"},
-    // Hull steering is skipped while veh + i16[veh+0x1AE] holds 0x1B.
-    {"STATE", 0x51FDE0, false, "48 0F BF 81 AE 01 00 00 48 03 C1 74 07 83 38 1B 41 0F 94 C1"},
-};
-// Dispatcher callers (labels): the action/kit consumer 0x5DF80, then 0x61A38's two calls ([I] the second is
-// the no-unit path, the analogue of Halo 4's 0xA7A01).
-constexpr uint32_t kT13ReachCallerRvas[3] = {0x5EE43, 0x62467, 0x628A3};
+// ADDR-HYGIENE: dev-only, resolved (drive_sites.h: kT13ReachAnchors, kT13ReachFlight, kT13ReachSites). The install
+// below finds every row in the loaded module and reads only what it found. This is where the tables record the
+// controller, for the lines written when it was not looked for or was not found. (The whole Reach image is also
+// hash-pinned before InstallReachCameraCore reaches this install: the preflight token.)
+constexpr uint32_t kT13ReachEntryRecorded = drive_sites::kT13ReachAnchors[drive_sites::kT13ReachFlight.entryRow].rva;
+// The dispatcher's prologue: the row the caller-attribution frame is derived from, and how many bytes it holds.
+constexpr int kT13ReachDispRow = drive_sites::RowIndex(drive_sites::kT13ReachAnchors, "DISP");
+constexpr size_t kT13ReachDispBytes = 25;
+static_assert(kT13ReachDispRow >= 0);
+// Dispatcher callers (labels, named by their return addresses in the recorded build): the action/kit consumer
+// 0x5DF80, then 0x61A38's two calls ([I] the second is the no-unit path, the analogue of Halo 4's 0xA7A01). In
+// the order the resolution gives them (kT13ReachFlight.order).
 constexpr const char* kT13ReachCallerNames[4] = {"alt+5EE48", "main+6246C", "nounit?+628A8", "-"};
+static_assert(drive_sites::kT13ReachFlight.order[0] == aim_caller::Caller::Impulse &&
+              drive_sites::kT13ReachFlight.order[1] == aim_caller::Caller::Stick &&
+              drive_sites::kT13ReachFlight.order[2] == aim_caller::Caller::NoUnit);
 
 bool T13ReachAdmitted()
 {
     const auto& lane = g_t13Reach;
-    return g_reachT13Enabled.load(std::memory_order_acquire) && g_config.type13_log &&
-           !g_reachCamera.teardownRequested.load(std::memory_order_acquire) &&
+    return g_reachT13Enabled.load(std::memory_order_acquire) && lane.enabled.load(std::memory_order_acquire) &&
+           g_config.type13_log && !g_reachCamera.teardownRequested.load(std::memory_order_acquire) &&
            g_reachCamera.generation.load(std::memory_order_acquire) == lane.generation.load(std::memory_order_acquire);
 }
 
@@ -625,111 +583,93 @@ void T13ReachAfter(T13Call& call)
 }
 } // namespace
 
-// MinHook's relay jumps here, so _AddressOfReturnAddress() is the native's own entry rsp. The callback count
-// spans the whole call, the native included (as ReachUnitCameraPositionHook): the teardown's quiescence
-// proof and ScanForReachDetourIngress cover it. The native call is inside __try/__finally only; each read
-// has its own __except.
-__declspec(noinline) void ReachType13Detour(int user, uint32_t vehicle, float yawD, float pitchD, const void* input,
-                                            float dtA, float dtB)
-{
-    const auto* entry = static_cast<const uintptr_t*>(_AddressOfReturnAddress());
-    volatile bool observing = false;
-    g_reachCamera.activeCallbacks.fetch_add(1, std::memory_order_acq_rel);
-    __try
-    {
-        const auto native = reinterpret_cast<T13ControllerFn>(g_reachT13Orig);
-        if (!native)
-            return;
-        T13Call call{};
-        observing = T13ReachBefore(user, vehicle, yawD, pitchD, input, dtA, dtB, entry, call);
-        CallNativeWithSpareSlots(native, user, vehicle, yawD, pitchD, input, dtA, dtB);
-        if (observing)
-        {
-            observing = false;
-            T13ReachAfter(call);   // releases the busy flag
-        }
-    }
-    __finally
-    {
-        if (observing)
-            T13Release(g_t13Reach);
-        g_reachCamera.activeCallbacks.fetch_sub(1, std::memory_order_acq_rel);
-    }
-}
+// The observer is called from the controller's one detour, ReachType13Detour (reach_type13_drive.inl): Before, the
+// native, After. Each read has its own __except.
 
-// Worker, inside InstallReachCameraCore (whole-image-hashed module, g_reachCamera.base/generation set).
+// Worker, inside InstallReachCameraCore (whole-image-hashed module, g_reachCamera.base/generation set), BEFORE the
+// controller's hook is installed: the observer is proven and made ready here, and creates no hook of its own.
 bool ReachType13LogInstall(uintptr_t base, size_t size, uint32_t generation)
 {
     auto& lane = g_t13Reach;
     if (!g_config.type13_log)
     {
-        // Read at startup only, so a 0 run never carries the detour: it is the true control arm.
-        LOG("REACH SF: type13_log 0: type-13 pilot controller +0x%X not hooked (no detour)", kT13ReachEntryRva);
+        lane.enabled.store(false, std::memory_order_release);
+        LOG("REACH SF: type13_log 0: the type-13 pilot controller (recorded at +0x%X) is not observed",
+            kT13ReachEntryRecorded);
         return false;
     }
     if (g_reachT13Target)
     {
-        if (lane.base == base)
+        // The controller's hook outlived a cleanup and may be running: the observer keeps what it proved on that
+        // module, and nothing of it is rebuilt under a live detour.
+        if (lane.base == base && lane.tlsIndex)
         {
             lane.generation.store(generation, std::memory_order_release);
-            return true;
+            return lane.enabled.load(std::memory_order_acquire);
         }
-        LOG("REACH SF: the type-13 log hook is still installed on another module; not reinstalled");
+        lane.enabled.store(false, std::memory_order_release);
+        LOG("REACH SF: the controller's hook is still installed on another module; the observer stays off");
         return false;
     }
+    // No hook exists, so no detour can be observing: off until this install has proven it again.
+    lane.enabled.store(false, std::memory_order_release);
     const uint64_t started = GetTickCount64();
-    char failed[512];
-    const bool anchorsOk = T13AnchorsMatch(base, size, kT13ReachAnchors, failed, sizeof(failed));
-    const bool callOk = anchorsOk && T13CallTarget(base, size, kT13ReachCallRva) == base + kT13ReachEntryRva;
-    // The shared globals, each from independent sites: TLS index (ENTRY, HPAGES, and the build's pinned RVA),
-    // tag pages (ENTRY, HPAGES, TYPEACC), tag instances (TAGDEF, HDEF, TYPEACC).
-    const uintptr_t tls = anchorsOk ? T13Rip(base, size, 0x648A8, 3, 7) : 0;
-    const bool tlsOk = tls && tls == T13Rip(base, size, 0x51DEC2, 2, 6) && tls == base + kReachEngineTlsIndexRva;
-    const uintptr_t pages = anchorsOk ? T13Rip(base, size, 0x648A1, 3, 7) : 0;
-    const bool pagesOk = pages && pages == T13Rip(base, size, 0x51DEB5, 3, 7) && pages == T13Rip(base, size, 0x4AC1F2, 3, 7);
-    const uintptr_t instances = anchorsOk ? T13Rip(base, size, 0x64914, 3, 7) : 0;
-    const bool instOk = instances && instances == T13Rip(base, size, 0x51DEF3, 3, 7) &&
-                        instances == T13Rip(base, size, 0x4AC1E4, 3, 7);
+    // WHERE EVERYTHING IS IN THIS MODULE (drive_sites.h, by the rungs of drive_known.h): verified at the addresses
+    // it is known to stand at, or found by search; every proof is made on those addresses either way. Nothing
+    // below trusts a recorded RVA.
+    drive_cascade::Resolution<T13Found<drive_sites::kT13ReachRows>> resolution;
+    const bool opened = T13Resolve(base, size, GameTitle::HaloReach, drive_sites::kT13ReachAnchors,
+                                   drive_sites::kT13ReachFlight, drive_sites::kT13ReachSites, resolution);
+    const drive_sites::T13& found = resolution.found.t13;
+    const uint32_t (&rows)[drive_sites::kT13ReachRows] = resolution.found.rows;
+    if (opened)
+        drive_cascade::Announce(drive_cascade::kReachObserverName, resolution);
+    char failed[512] = "";
+    const bool anchorsOk = opened && T13RowsFound(base, drive_sites::kT13ReachAnchors, rows, failed, sizeof(failed));
+    // The dispatcher's type-13 call lands on the found entry: read again from the loaded module.
+    const bool callOk = anchorsOk && found.flight.entry &&
+                        T13CallTarget(base, size, found.flight.call) == base + found.flight.entry;
+    // The shared globals, each from independent sites and read again from the loaded module: TLS index (ENTRY,
+    // HPAGES, the module's own PE TLS directory, and the RVA this lane's readers use), tag pages (ENTRY, HPAGES,
+    // TYPEACC), tag instances (TAGDEF, HDEF, TYPEACC).
+    const bool tlsOk = anchorsOk && found.tlsIndex == kReachEngineTlsIndexRva &&
+                       T13GlobalAgrees(base, size, rows, drive_sites::kT13ReachSites.tlsIndex, found.tlsIndex);
+    const bool pagesOk = anchorsOk && T13GlobalAgrees(base, size, rows, drive_sites::kT13ReachSites.pages, found.pages);
+    const bool instOk = anchorsOk &&
+                        T13GlobalAgrees(base, size, rows, drive_sites::kT13ReachSites.instances, found.instances);
     if (!anchorsOk || !callOk || !tlsOk || !pagesOk || !instOk)
     {
-        LOG("REACH SF: type-13 pilot controller +0x%X NOT hooked (anchors failed: %s; dispatcher call=%d tls=%d "
-            "pages=%d instances=%d); the log-only lane is off, the Sabre stays exactly as before",
-            kT13ReachEntryRva, failed[0] ? failed : "none", callOk, tlsOk, pagesOk, instOk);
+        char first[280] = "";
+        if (opened)
+            drive_cascade::FirstFailure(resolution.report, first, sizeof(first));
+        LOG("REACH SF: type-13 pilot controller (recorded at +0x%X) NOT observed (%s; anchors failed: %s; dispatcher "
+            "call=%d tls=%d pages=%d instances=%d); the log-only lane is off",
+            kT13ReachEntryRecorded, opened ? first : (resolution.why ? resolution.why : "the module did not open"),
+            failed[0] ? failed : "none", callOk, tlsOk, pagesOk, instOk);
         return false;
     }
     bool callerOk[3]{};
-    T13Callers(base, size, kT13ReachDispatcherRva, kT13ReachCallerRvas, lane, callerOk);
+    T13Callers(base, size, found.flight.dispatcher, found.flight.callerCall, lane, callerOk);
+    // The dispatcher's own return address, for caller attribution: derived from the prologue the DISP row holds,
+    // which must be what the found dispatcher begins with, and equal to what its unwind info gives (the resolution).
     uint32_t slot = 0;
-    const bool frameOk = T13DispatcherSlot(base, kT13ReachDispatcherRva, 25, kT13ReachCallRva, slot);
-    void* target = reinterpret_cast<void*>(base + kT13ReachEntryRva);
-    const MH_STATUS created = MH_CreateHook(target, reinterpret_cast<void*>(&ReachType13Detour), &g_reachT13Orig);
-    if (created != MH_OK)
-    {
-        g_reachT13Orig = nullptr;
-        LOG("REACH SF: type-13 log hook FAILED (create=%d); the lane is off", static_cast<int>(created));
-        return false;
-    }
-    // Everything the hook reads is set before it can run; a fresh owner, producer and counters.
+    const bool frameOk = rows[kT13ReachDispRow] == found.flight.dispatcher &&
+                         T13DispatcherSlot(base, found.flight.dispatcher, kT13ReachDispBytes, found.flight.call, slot) &&
+                         slot * 8u == found.flight.frame;
+    // Everything the observer reads is set before it can be admitted; a fresh owner, producer and counters.
     lane.base = base;
-    lane.ctrlRet = base + kT13ReachCallRva + 5;
+    lane.ctrlRet = base + found.flight.call + 5;
     lane.dispSlot = frameOk ? slot : 0;
-    lane.pages = pages;
-    lane.instances = instances;
-    lane.tlsIndex = reinterpret_cast<const uint32_t*>(tls);
+    lane.pages = base + found.pages;
+    lane.instances = base + found.instances;
+    lane.tlsIndex = reinterpret_cast<const uint32_t*>(base + found.tlsIndex);
     lane.generation.store(generation, std::memory_order_release);
     T13ResetForInstall(lane);
-    if (MH_EnableHook(target) != MH_OK)
-    {
-        MH_RemoveHook(target);
-        g_reachT13Orig = nullptr;
-        LOG("REACH SF: type-13 log hook FAILED to enable; removed, the lane is off");
-        return false;
-    }
-    g_reachT13Target = target;
-    g_reachT13Enabled.store(true, std::memory_order_release);
-    LOG("REACH SF: type-13 pilot controller +0x%X hooked LOG-ONLY in %llu ms (writes nothing; type13_log %d); "
-        "dispatcher return at entry rsp+0x%X %s; caller labels alt %d main %d nounit? %d",
-        kT13ReachEntryRva, static_cast<unsigned long long>(GetTickCount64() - started), g_config.type13_log,
+    lane.enabled.store(true, std::memory_order_release);
+    LOG("REACH SF: type-13 pilot controller +0x%X observed LOG-ONLY, proven in %llu ms (the observer writes "
+        "nothing; the hook is the direct drive's; type13_log %d); dispatcher return at entry rsp+0x%X %s; caller "
+        "labels alt %d main %d nounit? %d",
+        found.flight.entry, static_cast<unsigned long long>(GetTickCount64() - started), g_config.type13_log,
         lane.dispSlot * 8u, frameOk ? "(derived from the dispatcher prologue)" : "UNAVAILABLE (caller attribution off)",
         callerOk[0], callerOk[1], callerOk[2]);
     return true;
@@ -742,115 +682,28 @@ bool ReachType13LogInstall(uintptr_t base, size_t size, uint32_t generation)
 // ============================================================================================================
 namespace
 {
-// ADDR-HYGIENE: dev-only, guarded (the anchors below; Halo 4's module is identified by PE timestamp, size and
-// the camera anchors, not by a whole-image hash, so every offset read here has its own anchor).
-constexpr uint32_t kT13Halo4EntryRva = 0xAA524;
-constexpr uint32_t kT13Halo4CallRva = 0xA892E;       // in CALL: E8 -> the entry, then jmp 0xA898D
-constexpr uint32_t kT13Halo4DispatcherRva = 0xA8828;
-constexpr const T13Anchor kT13Halo4Anchors[] = {
-    // The controller's entry: 137 bytes (the short prologue alone also matches 0x7BE124). Pages lea +0xAA59D.
-    {"ENTRY", 0xAA524, true,
-     "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 38 FF FF FF 48 81 EC 88 01 00 00 0F 29 70 A8 0F 29 78 98 "
-     "44 0F 29 40 88 44 0F 29 88 78 FF FF FF 44 0F 29 90 68 FF FF FF 44 0F 29 98 58 FF FF FF 44 0F 29 A0 48 FF FF FF "
-     "44 0F 29 A8 38 FF FF FF 44 0F 29 B0 28 FF FF FF 44 0F 29 B8 18 FF FF FF 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 45 D8 "
-     "65 48 8B 04 25 58 00 00 00 48 8D 35 ?? ?? ?? ?? 44 8B CA 41 BC 01 00 00 00"},
-    // The dispatcher: runtime type (0x63EC30) == 13 -> call the controller (+0xA892E) -> jmp 0xA898D.
-    {"CALL", 0xA88FA, true,
-     "8B 4D C7 E8 ?? ?? ?? ?? 83 F8 0D 75 2E F3 0F 10 45 7F 41 0F 28 D8 F3 0F 10 75 77 0F 28 D7 8B 55 C7 8B CE "
-     "F3 0F 11 44 24 30 F3 0F 11 74 24 28 4C 89 64 24 20 E8 ?? ?? ?? ?? EB 58"},
-    // The dispatcher's object table (TLS+0x18, kind 1 = vehicle) and seat flag bit 2 tests, and its post-block.
-    {"VEH", 0xA88C2, false,
-     "83 7D C7 FF 74 6D 0F B7 45 C7 BA 18 00 00 00 48 8D 0C 40 4A 8B 14 3A 48 8B 42 50 80 7C C8 04 01 75 51"},
-    {"DRIVER", 0xA88E4, false, "0F B7 55 CB 41 B8 02 00 00 00 8B 4D C7 E8 ?? ?? ?? ?? 84 C0 74 3B"},
-    {"JOIN", 0xA898D, false,
-     "F2 0F 10 43 18 0F 57 ED F3 0F 10 25 ?? ?? ?? ?? 8B 43 20 F3 44 0F 10 05 ?? ?? ?? ?? F2 0F 11 45 A7"},
-    // The dispatcher's prologue: 5 pushes + sub 0xD0 (mov [rax+20h],rbx moves nothing).
-    {"DISP", 0xA8828, false, "48 8B C4 48 89 58 20 55 56 41 54 41 56 41 57 48 8D 68 B1 48 81 EC D0 00 00 00"},
-    // The TLS index load (must be the one the camera core resolved); player_control at TLS+0xB0.
-    {"TLSIDX", 0xAA5AD, true,
-     "8B 15 ?? ?? ?? ?? 45 0F 57 C9 41 B8 B0 00 00 00 F3 0F 11 54 24 58 F3 0F 11 5C 24 40 48 8B 14 D0"},
-    // The record: *(TLS+0xB0) + 0x120 + user*0x1F0 (the legacy-drive record + 0x120; its angles at +0x18).
-    {"RECSETUP", 0xAA5C9, false, "48 8B 14 D0 48 63 C1 48 69 D8 F0 01 00 00 49 8B 04 10 48 05 20 01 00 00"},
-    {"PC08", 0xAA5F6, false, "44 8A 7B 08 4D 8B 04 10 48 8D 14 49 41 C0 EF 02"},   // rec+0x08 bit 2: roll mode
-    // Instances; def index u16 at veh+8; the type-13 block (T) at def+0x670.
-    {"TAGDEF", 0xAA60F, true,
-     "48 8B 05 ?? ?? ?? ?? 41 0F B7 4D 08 8B 54 C8 04 8B C2 48 C1 E8 1C 48 8B 04 C6 8B BC 90 70 06 00 00 8B C7 48 C1 "
-     "E8 1C 48 8B 34 C6"},
-    {"ROLLIN", 0xAA63F, false, "48 8B 85 F0 00 00 00 F3 0F 10 70 04"},          // input (entry+0x28) +4
-    {"HOLD", 0xAA668, false, "F3 0F 10 83 20 01 00 00"},                        // rec+0x120 look hold
-    {"LATCH", 0xAA6E5, false, "88 83 24 01 00 00"},                             // rec+0x124 latch byte
-    {"IDLE", 0xAA731, false, "89 8B 18 01 00 00"},                              // rec+0x118 idle timer
-    {"RRATE", 0xAA7D1, false, "F3 0F 10 64 BE 60 4C 8D B3 1C 01 00 00"},        // T+0x60; rec+0x11C roll rate
-    {"T64", 0xAA7F1, false, "F3 0F 59 5C BE 64"},
-    {"T68", 0xAA80D, false, "F3 0F 59 5C BE 68"},
-    {"T6C", 0xAA925, false, "F3 0F 59 5C BE 6C"},
-    {"T70", 0xAA77B, false, "F3 0F 5D 44 BE 70"},
-    {"T74", 0xAA750, false, "0F 2F 4C BE 74"},
-    {"T78", 0xAA88A, false, "F3 0F 5C 4C BE 78"},
-    {"T7C", 0xAA8AC, false, "F3 0F 10 44 BE 7C"},
-    {"T80", 0xAA717, false, "F3 0F 59 94 BE 80 00 00 00"},
-    {"T84", 0xAA86C, false, "F3 0F 10 84 BE 84 00 00 00"},
-    {"T88", 0xAA8B8, false, "F3 0F 10 84 BE 88 00 00 00"},
-    {"ANGPTR", 0xAA984, false, "4C 8D 7B 18"},                                  // r15 = rec+0x18, the Euler output
-    {"COMPOSE", 0xAAA03, false,
-     "48 8D 54 24 48 48 8D 4D A8 E8 ?? ?? ?? ?? 4C 8D 44 24 48 48 8D 55 A8 48 8D 4D 98 E8 ?? ?? ?? ?? 41 0F 28 D1 "
-     "48 8D 4C 24 48 49 8B D7 E8 ?? ?? ?? ??"},
-    // The redirect: direction veh+0x1050/+0x1058, stamp veh+0x104C; T+0xC8 bit 0.
-    {"REDIR", 0xAAA3B, false,
-     "E8 ?? ?? ?? ?? 83 F8 0D 75 23 F2 41 0F 10 85 50 10 00 00 41 8B 85 58 10 00 00 45 8B B5 4C 10 00 00"},
-    {"TC8", 0xAAA72, false, "F6 84 BE C8 00 00 00 01"},
-    // The window: T+0xCC; game time TLS+0x90 -> tick +0xC, seconds per tick +8.
-    {"WIN", 0xAAB35, false,
-     "F3 0F 10 84 BE CC 00 00 00 B8 90 00 00 00 48 8B 0C 08 8B 41 0C 41 2B C6 66 0F 6E C8 0F 5B C9 F3 0F 59 49 08 "
-     "0F 2F C1 0F 86 ?? ?? ?? ??"},
-    {"YAWWRAP", 0xAAEF3, false,
-     "F3 41 0F 10 07 41 0F 28 CD F3 41 0F 58 C5 E8 ?? ?? ?? ?? F3 41 0F 11 07 48 8B 4D D8 48 33 CC"},
-    // The redirect's writer 0x630EE8: veh+0x104C = tick, +0x1050/+0x1058 = direction, byte +0x105C = 1.
-    {"REDIRW", 0x631014, false,
-     "83 F8 0D 75 41 B8 90 00 00 00 48 8B 0C 30 8B 41 0C 41 89 86 4C 10 00 00 48 8B 44 24 30 F2 0F 10 00 "
-     "F2 41 0F 11 86 50 10 00 00 8B 40 08 41 89 86 58 10 00 00 41 C6 86 5C 10 00 00 01"},
-    // The physics 0x6CACD8 (case 13 of 0x6425BC): pages (+0x6CAD51), the TLS index (+0x6CAD5E), instances
-    // (+0x6CAD8A), the same block def+0x670, veh+0x70/0x74 (atan2), the facing it steers by and the roll.
-    {"PPAGES", 0x6CAD48, true,
-     "65 48 8B 04 25 58 00 00 00 48 8D 3D ?? ?? ?? ?? 44 8B E2 48 8B F1 8B 15 ?? ?? ?? ?? 4D 8B E8 41 0F B7 CC "
-     "41 B8 18 00 00 00 48 8B 04 D0 48 89 45 E8 48 8D 14 49 4D 8B 04 00 49 8B 40 50 4C 8B 74 D0 10 48 8B 05 ?? ?? ?? ?? "
-     "41 0F B7 4E 08 44 8B 7C C8 04"},
-    {"PT", 0x6CADAE, false, "42 8B 9C B8 70 06 00 00"},
-    {"PFWD", 0x6CADEF, false, "F3 41 0F 10 4E 74 F3 41 0F 10 46 70"},
-    {"PX", 0x6CB43E, false,
-     "F3 41 0F 10 B6 C0 04 00 00 F3 41 0F 10 BE BC 04 00 00 0F 28 C6 0F 28 CF E8 ?? ?? ?? ?? F3 0F 59 FF 44 0F 28 C0 "
-     "F3 0F 59 F6 F3 0F 58 FE 0F 28 C7 E8 ?? ?? ?? ?? 0F 28 C8 F3 41 0F 10 86 C4 04 00 00 E8 ?? ?? ?? ?? "
-     "F3 41 0F 10 B6 28 05 00 00"},
-    {"P10", 0x6CB426, false, "F3 44 0F 10 64 9F 10"},                           // physics T+0x10
-    {"P14", 0x6CAEDA, false, "F3 44 0F 59 5C 9F 14"},                           // physics T+0x14
-    {"P3C", 0x6CB864, false, "F3 0F 10 64 9F 3C F3 41 0F 59 A6 A4 06 00 00"},   // T+0x3C x veh+0x6A4
-    {"PA4", 0x6CB4B7, false, "F6 84 9F A4 00 00 00 01"},                        // T+0xA4 bit 0
-    {"PA8", 0x6CB52B, false, "F3 0F 59 B4 9F A8 00 00 00"},                     // T+0xA8
-    // The biped physics mode *(i32*)(unit + u16[unit+0x47A]) (7/8 rebase the record's angles).
-    {"PHYSMODE", 0x80C91, false, "0F B7 81 7A 04 00 00 8B 04 08 83 C0 F9 83 F8 01 0F 87"},
-    // The runtime type: veh+0xF58 set -> (i8) veh+0xF59, else the tag accessor 0x62DAD0.
-    {"TYPEOVR", 0x63EC48, false, "80 B8 58 0F 00 00 00 74 09 0F BE 98 59 0F 00 00 EB 0A 8B 48 08 E8"},
-    {"TAGTYPE", 0x62DAD0, true,
-     "48 8B 05 ?? ?? ?? ?? 0F B7 C9 8B 54 C8 04 48 8D 0D ?? ?? ?? ?? 8B C2 48 C1 E8 1C 4C 8D 82 74 01 00 00 48 8B 0C C1 "
-     "33 C0 45 33 C9 44 8D 50 10 4E 8D 04 81 41 83 38 00 75 11 FF C0 49 FF C1 49 83 C0 0C 49 83 F9 0F 7C EB EB 03 "
-     "44 8B D0 41 8B C2 C3"},
-    // The driver -> vehicle facing copy 0x5EE590: skipped while veh+0x16C bit 2; reads the driver unit's
-    // +0x4C4/+0x4BC and writes the vehicle's.
-    {"GATE16C", 0x5EEAC1, false, "83 F8 FF 0F 84 ?? ?? ?? ?? 8B 8E 6C 01 00 00 C1 E9 02 80 E1 01 0F 85"},
-    {"UNIT4BC", 0x5EEB76, false, "45 8B 84 24 C4 04 00 00 F2 45 0F 10 94 24 BC 04 00 00"},
-    {"COPY4BC", 0x5EEF09, false, "F2 44 0F 11 96 BC 04 00 00 44 89 86 C4 04 00 00 41 8B 84 24 28 05 00 00"},
-    // The record's unit at player_control +0x120 (= the controller record +0; direct drive's own anchor).
-    {"RECUNIT", 0xA8C15, false, "8B 8C 1F 20 01 00 00"},
-};
-// Dispatcher callers (labels): the action/kit consumer 0xA2670; 0xA6BA8's aim-SWAY call (0xA5B90 computes
-// sinf of tag-driven phases; not recoil), its main stick update and its no-unit path.
-constexpr uint32_t kT13Halo4CallerRvas[4] = {0xA349E, 0xA7751, 0xA7774, 0xA7A01};
+// ADDR-HYGIENE: dev-only, resolved (drive_sites.h: kT13Halo4Anchors, kT13Halo4Flight, kT13Halo4Sites). The install
+// below finds every row in the loaded module and reads only what it found. This is where the tables record the
+// controller, for the lines written when it was not looked for or was not found. (Halo 4's module is identified by
+// PE timestamp, size and the camera anchors, not by a whole-image hash, so every offset read here has its own row.)
+constexpr uint32_t kT13Halo4EntryRecorded = drive_sites::kT13Halo4Anchors[drive_sites::kT13Halo4Flight.entryRow].rva;
+// The dispatcher's prologue: the row the caller-attribution frame is derived from, and how many bytes it holds.
+constexpr int kT13Halo4DispRow = drive_sites::RowIndex(drive_sites::kT13Halo4Anchors, "DISP");
+constexpr size_t kT13Halo4DispBytes = 26;
+static_assert(kT13Halo4DispRow >= 0);
+// Dispatcher callers (labels, named by their return addresses in the recorded build): the action/kit consumer
+// 0xA2670; 0xA6BA8's aim-SWAY call (0xA5B90 computes sinf of tag-driven phases; not recoil), its main stick update
+// and its no-unit path. In the order the resolution gives them (kT13Halo4Flight.order).
 constexpr const char* kT13Halo4CallerNames[4] = {"alt+A34A3", "sway+A7756", "main+A7779", "nounit+A7A06"};
+static_assert(drive_sites::kT13Halo4Flight.order[0] == aim_caller::Caller::Impulse &&
+              drive_sites::kT13Halo4Flight.order[1] == aim_caller::Caller::Sway &&
+              drive_sites::kT13Halo4Flight.order[2] == aim_caller::Caller::Stick &&
+              drive_sites::kT13Halo4Flight.order[3] == aim_caller::Caller::NoUnit);
 
 bool T13Halo4Admitted()
 {
     const auto& lane = g_t13Halo4;
-    return lane.enabled.load(std::memory_order_acquire) && g_config.type13_log &&
+    return Halo4Type13HookEnabled() && lane.enabled.load(std::memory_order_acquire) && g_config.type13_log &&
            !g_halo4Camera.teardownRequested.load(std::memory_order_acquire) &&
            g_halo4Camera.generation.load(std::memory_order_acquire) == lane.generation.load(std::memory_order_acquire) &&
            TitleAdapter_GetActiveTitle() == GameTitle::Halo4;
@@ -1032,145 +885,107 @@ void T13Halo4After(T13Call& call)
     T13Observe(lane, call, T13Halo4ReadTag);
 }
 
-// Same shape as ReachType13Detour, on the lane's own quiescence counter (as legacy drive's hook).
-__declspec(noinline) void Halo4Type13Detour(int user, uint32_t vehicle, float yawD, float pitchD, const void* input,
-                                            float dtA, float dtB)
-{
-    const auto* entry = static_cast<const uintptr_t*>(_AddressOfReturnAddress());
-    auto& lane = g_t13Halo4;
-    volatile bool observing = false;
-    lane.callbacks.fetch_add(1, std::memory_order_acq_rel);
-    __try
-    {
-        const auto native = reinterpret_cast<T13ControllerFn>(lane.original);
-        if (!native)
-            return;
-        T13Call call{};
-        observing = T13Halo4Before(user, vehicle, yawD, pitchD, input, dtA, dtB, entry, call);
-        CallNativeWithSpareSlots(native, user, vehicle, yawD, pitchD, input, dtA, dtB);
-        if (observing)
-        {
-            observing = false;
-            T13Halo4After(call);
-        }
-    }
-    __finally
-    {
-        if (observing)
-            T13Release(lane);
-        lane.callbacks.fetch_sub(1, std::memory_order_acq_rel);
-    }
-}
+// The observer is called from the controller's one detour, Halo4Type13Detour (halo4_type13_drive.inl): Before, the
+// native, After. Each read has its own __except.
 } // namespace
 
 // Worker, inside InstallHalo4CameraCore after InstallHalo4VehicleInput (the module size, cold observation and
-// g_halo4EngineTlsIndex are established).
+// g_halo4EngineTlsIndex are established), BEFORE the controller's hook is installed: the observer is proven and
+// made ready here, and creates no hook of its own.
 bool Halo4Type13LogInstall(uintptr_t base, size_t size, uint32_t generation)
 {
     auto& lane = g_t13Halo4;
     if (!g_config.type13_log)
     {
-        // As Reach's: a 0 run never carries the detour (Halo4Type13LogRemove has nothing to remove).
-        LOG("H4 T13: type13_log 0: type-13 pilot controller +0x%X not hooked (no detour)", kT13Halo4EntryRva);
+        lane.enabled.store(false, std::memory_order_release);
+        LOG("H4 T13: type13_log 0: the type-13 pilot controller (recorded at +0x%X) is not observed",
+            kT13Halo4EntryRecorded);
         return false;
     }
-    if (lane.target)
+    if (Halo4Type13HookEnabled())
     {
-        if (lane.base == base)
+        // The controller's hook is live: the observer keeps what it proved on that module, and nothing of it is
+        // rebuilt under a running detour.
+        if (lane.base == base && lane.tlsIndex)
         {
             lane.generation.store(generation, std::memory_order_release);
-            return true;
+            return lane.enabled.load(std::memory_order_acquire);
         }
-        LOG("H4 T13: the type-13 log hook is still installed on another module; not reinstalled");
+        lane.enabled.store(false, std::memory_order_release);
+        LOG("H4 T13: the controller's hook is live on another module; the observer stays off");
         return false;
     }
+    // The hook admits nothing, so no detour can be observing: off until this install has proven it again.
+    lane.enabled.store(false, std::memory_order_release);
     if (!g_halo4EngineTlsIndex)
     {
-        LOG("H4 T13: type-13 pilot controller +0x%X NOT hooked (the camera core's TLS index is unresolved); the "
-            "log-only lane is off", kT13Halo4EntryRva);
+        LOG("H4 T13: type-13 pilot controller (recorded at +0x%X) NOT observed (the camera core's TLS index is "
+            "unresolved); the log-only lane is off", kT13Halo4EntryRecorded);
         return false;
     }
     const uint64_t started = GetTickCount64();
-    char failed[512];
-    const bool anchorsOk = T13AnchorsMatch(base, size, kT13Halo4Anchors, failed, sizeof(failed));
-    const bool callOk = anchorsOk && T13CallTarget(base, size, kT13Halo4CallRva) == base + kT13Halo4EntryRva;
-    // TLS index (TLSIDX, PPAGES, the camera core's resolution, the pinned RVA), pages (ENTRY, TAGTYPE, PPAGES),
-    // instances (TAGDEF, TAGTYPE, PPAGES).
-    const uintptr_t tls = anchorsOk ? T13Rip(base, size, 0xAA5AD, 2, 6) : 0;
-    const bool tlsOk = tls && tls == T13Rip(base, size, 0x6CAD5E, 2, 6) && tls == base + kHalo4EngineTlsIndexRva &&
-                       tls == reinterpret_cast<uintptr_t>(g_halo4EngineTlsIndex);
-    const uintptr_t pages = anchorsOk ? T13Rip(base, size, 0xAA59D, 3, 7) : 0;
-    const bool pagesOk = pages && pages == T13Rip(base, size, 0x62DADE, 3, 7) && pages == T13Rip(base, size, 0x6CAD51, 3, 7);
-    const uintptr_t instances = anchorsOk ? T13Rip(base, size, 0xAA60F, 3, 7) : 0;
-    const bool instOk = instances && instances == T13Rip(base, size, 0x62DAD0, 3, 7) &&
-                        instances == T13Rip(base, size, 0x6CAD8A, 3, 7);
+    // WHERE EVERYTHING IS IN THIS MODULE (drive_sites.h, by the rungs of drive_known.h): verified at the addresses
+    // it is known to stand at, or found by search; every proof is made on those addresses either way. Nothing
+    // below trusts a recorded RVA.
+    drive_cascade::Resolution<T13Found<drive_sites::kT13Halo4Rows>> resolution;
+    const bool opened = T13Resolve(base, size, GameTitle::Halo4, drive_sites::kT13Halo4Anchors,
+                                   drive_sites::kT13Halo4Flight, drive_sites::kT13Halo4Sites, resolution);
+    const drive_sites::T13& found = resolution.found.t13;
+    const uint32_t (&rows)[drive_sites::kT13Halo4Rows] = resolution.found.rows;
+    if (opened)
+        drive_cascade::Announce(drive_cascade::kHalo4ObserverName, resolution);
+    char failed[512] = "";
+    const bool anchorsOk = opened && T13RowsFound(base, drive_sites::kT13Halo4Anchors, rows, failed, sizeof(failed));
+    // The dispatcher's type-13 call lands on the found entry: read again from the loaded module.
+    const bool callOk = anchorsOk && found.flight.entry &&
+                        T13CallTarget(base, size, found.flight.call) == base + found.flight.entry;
+    // The shared globals, each from independent sites and read again from the loaded module: TLS index (TLSIDX,
+    // PPAGES, the module's own PE TLS directory, the camera core's resolution and the RVA this lane's readers use),
+    // pages (ENTRY, TAGTYPE, PPAGES), instances (TAGDEF, TAGTYPE, PPAGES).
+    const bool tlsOk = anchorsOk && found.tlsIndex == kHalo4EngineTlsIndexRva &&
+                       base + found.tlsIndex == reinterpret_cast<uintptr_t>(g_halo4EngineTlsIndex) &&
+                       T13GlobalAgrees(base, size, rows, drive_sites::kT13Halo4Sites.tlsIndex, found.tlsIndex);
+    const bool pagesOk = anchorsOk && T13GlobalAgrees(base, size, rows, drive_sites::kT13Halo4Sites.pages, found.pages);
+    const bool instOk = anchorsOk &&
+                        T13GlobalAgrees(base, size, rows, drive_sites::kT13Halo4Sites.instances, found.instances);
     if (!anchorsOk || !callOk || !tlsOk || !pagesOk || !instOk)
     {
-        LOG("H4 T13: type-13 pilot controller +0x%X NOT hooked (anchors failed: %s; dispatcher call=%d tls=%d "
-            "pages=%d instances=%d); the log-only lane is off, the Broadsword stays exactly as before",
-            kT13Halo4EntryRva, failed[0] ? failed : "none", callOk, tlsOk, pagesOk, instOk);
+        char first[280] = "";
+        if (opened)
+            drive_cascade::FirstFailure(resolution.report, first, sizeof(first));
+        LOG("H4 T13: type-13 pilot controller (recorded at +0x%X) NOT observed (%s; anchors failed: %s; dispatcher "
+            "call=%d tls=%d pages=%d instances=%d); the log-only lane is off",
+            kT13Halo4EntryRecorded, opened ? first : (resolution.why ? resolution.why : "the module did not open"),
+            failed[0] ? failed : "none", callOk, tlsOk, pagesOk, instOk);
         return false;
     }
     bool callerOk[4]{};
-    T13Callers(base, size, kT13Halo4DispatcherRva, kT13Halo4CallerRvas, lane, callerOk);
+    T13Callers(base, size, found.flight.dispatcher, found.flight.callerCall, lane, callerOk);
+    // The dispatcher's own return address, for caller attribution: derived from the prologue the DISP row holds,
+    // which must be what the found dispatcher begins with, and equal to what its unwind info gives (the resolution).
     uint32_t slot = 0;
-    const bool frameOk = T13DispatcherSlot(base, kT13Halo4DispatcherRva, 26, kT13Halo4CallRva, slot);
-    void* target = reinterpret_cast<void*>(base + kT13Halo4EntryRva);
-    const MH_STATUS created = MH_CreateHook(target, reinterpret_cast<void*>(&Halo4Type13Detour), &lane.original);
-    if (created != MH_OK)
-    {
-        lane.original = nullptr;
-        LOG("H4 T13: type-13 log hook FAILED (create=%d); the lane is off", static_cast<int>(created));
-        return false;
-    }
+    const bool frameOk = rows[kT13Halo4DispRow] == found.flight.dispatcher &&
+                         T13DispatcherSlot(base, found.flight.dispatcher, kT13Halo4DispBytes, found.flight.call, slot) &&
+                         slot * 8u == found.flight.frame;
+    // Everything the observer reads is set before it can be admitted; a fresh owner, producer and counters.
     lane.base = base;
-    lane.ctrlRet = base + kT13Halo4CallRva + 5;
+    lane.ctrlRet = base + found.flight.call + 5;
     lane.dispSlot = frameOk ? slot : 0;
-    lane.pages = pages;
-    lane.instances = instances;
+    lane.pages = base + found.pages;
+    lane.instances = base + found.instances;
     lane.tlsIndex = g_halo4EngineTlsIndex;
     lane.generation.store(generation, std::memory_order_release);
     T13ResetForInstall(lane);
-    if (MH_EnableHook(target) != MH_OK)
-    {
-        MH_RemoveHook(target);
-        lane.original = nullptr;
-        LOG("H4 T13: type-13 log hook FAILED to enable; removed, the lane is off");
-        return false;
-    }
-    lane.target = target;
     lane.enabled.store(true, std::memory_order_release);
-    LOG("H4 T13: type-13 pilot controller +0x%X hooked LOG-ONLY in %llu ms (writes nothing; type13_log %d); "
-        "dispatcher return at entry rsp+0x%X %s; caller labels alt %d sway %d main %d nounit %d",
-        kT13Halo4EntryRva, static_cast<unsigned long long>(GetTickCount64() - started), g_config.type13_log,
+    LOG("H4 T13: type-13 pilot controller +0x%X observed LOG-ONLY, proven in %llu ms (the observer writes nothing; "
+        "the hook is the direct drive's; type13_log %d); dispatcher return at entry rsp+0x%X %s; caller labels alt "
+        "%d sway %d main %d nounit %d",
+        found.flight.entry, static_cast<unsigned long long>(GetTickCount64() - started), g_config.type13_log,
         lane.dispSlot * 8u, frameOk ? "(derived from the dispatcher prologue)" : "UNAVAILABLE (caller attribution off)",
         callerOk[0], callerOk[1], callerOk[2], callerOk[3]);
     return true;
 }
 
-// Worker, inside RemoveHalo4CameraCore before RemoveHalo4VehicleInput: admission off, disable without
-// touching foreign bytes, prove quiescence (callback count + frozen-thread ingress scan of the detour and the
-// trampoline), then remove; the trampoline is forgotten only after MH_RemoveHook.
-bool Halo4Type13LogRemove()
-{
-    auto& lane = g_t13Halo4;
-    lane.enabled.store(false, std::memory_order_release);
-    if (!lane.target)
-        return true;
-    const MH_STATUS disabled = MCCVR_DisableHookForRetirement(lane.target);
-    if (disabled != MH_OK && disabled != MH_ERROR_DISABLED && disabled != MH_ERROR_NOT_CREATED)
-        return false;
-    const void* functions[]{reinterpret_cast<const void*>(&Halo4Type13Detour)};
-    const void* trampolines[]{lane.original};
-    if (!WaitForNativeDetourQuiescence(functions, trampolines, 1, lane.callbacks))
-        return false;
-    const MH_STATUS removed = MH_RemoveHook(lane.target);
-    if (removed != MH_OK && removed != MH_ERROR_NOT_CREATED)
-        return false;
-    lane.target = nullptr;
-    lane.original = nullptr;
-    return true;
-}
 #endif // HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
 
 // ============================================================================================================

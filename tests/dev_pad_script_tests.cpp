@@ -49,6 +49,9 @@ int main()
               steps[0].op == Op::Set && steps[0].name == "converged_aim" && steps[0].value == 0 &&
               steps[1].name == "aim_direct_drive" && steps[1].value == 1,
           "set <setting> <int> parses");
+    Check(Parse("set aim_lead_ticks_x100 150\n", steps, error) && steps.size() == 1 &&
+              steps[0].name == "aim_lead_ticks_x100" && steps[0].value == 150,
+          "a setting's name may hold digits after its first character");
 
     const char* bad[] = {
         "press up",            // no duration
@@ -67,6 +70,7 @@ int main()
         "set converged_aim",   // no value
         "set Converged-Aim 1", // not a setting name (after lower-casing, the dash)
         "set converged_aim x", // not a number
+        "set 100x 1",          // a setting's name does not start with a digit
     };
     for (const char* line : bad)
     {

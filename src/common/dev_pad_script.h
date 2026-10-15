@@ -175,9 +175,10 @@ inline bool Parse(const std::string& text, std::vector<Step>& steps, std::string
         {
             s.op = Op::Set;
             s.name = w[1];
-            ok = !s.name.empty();
+            // A setting's name: lower-case letters, underscores, and digits after the first character.
+            ok = !s.name.empty() && !(s.name[0] >= '0' && s.name[0] <= '9');
             for (char c : s.name)
-                if (!((c >= 'a' && c <= 'z') || c == '_')) ok = false;
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) ok = false;
             uint32_t v = 0;
             ok = ok && ParseUint(w[2], 1000000, v);
             s.value = static_cast<int>(v);

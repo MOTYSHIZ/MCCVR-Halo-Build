@@ -3023,6 +3023,15 @@ inline ReachStereoPassPolicy SelectReachStereoPassPolicy(
     };
 }
 
+// MONO RENDERING (mono_view_logic.h): the frame's one pass. It is drawn as the eye the eye-order setting draws
+// first (what is done once a frame in that eye's pass is done in it), and it is the frame's FINAL window: the stock
+// last-window byte goes in and what the engine leaves there persists, as after the final eye of a pair.
+inline ReachStereoPassPolicy SelectReachMonoPassPolicy(
+    bool rightEyeFirst, uint8_t originalStockValue) noexcept
+{
+    return {true, rightEyeFirst ? 1 : 0, true, originalStockValue, false};
+}
+
 struct ReachRollbackLayout
 {
     size_t workspaceSize;

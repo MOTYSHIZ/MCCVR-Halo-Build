@@ -1,6 +1,10 @@
 #pragma once
 
-// HALO 4 SEATED AIM -- the engine-free half of Halo 4's seated trace-and-reaim (stages 0 and 1).
+// HALO 4 SEATED AIM -- how Halo 4 fires from a seat, and the engine-free decisions of the seated trace and of
+// the dev seat witnesses (src/dll/halo4_seat_sight.inl). The SOLVE -- which camera the simulation aims a seat
+// from, the point of its line the aim is solved from, the fixed point and its rate -- is
+// halo4_seat_converge_logic.h; the eye agreement and the barrel verdict below judge the first-person case for the
+// witnesses and decide nothing.
 //
 // What the game does in a seat (static RE of the retail module): the fire routine 0x6176B8
 // turns a seated shot onto the CROSSHAIR point. Its assist 0x1DCB8C traces 128 wu from the player's aim
@@ -9,8 +13,10 @@
 // max(21 deg, the weapon's own angle). The shot line is the barrel marker's forward, or the aiming unit's own
 // aim vector when the fire routine hands its aim call the unit-aim flag (see ShotLine). It runs only while
 // the aiming unit 0x5F1ABC(weapon owner) carries a player. So a seat converges exactly like Halo 3's: bend
-// the aim so the game's eye line passes through the point the intent ray hits, and the native assist does
-// the shot side -- as long as the shot line can reach that point within its cap.
+// the aim so the line from the game's aim camera passes through the point the intent ray hits, and the native
+// assist does the shot side -- as long as the shot line can reach that point within its cap. (The aim camera
+// is the first-person eye only where the camera selector 0x10D268 says so; otherwise it is the following
+// camera, which is what a simulation tick uses for a third-person seat while the seat override stands down.)
 //
 // This header holds the pure decisions, unit-tested in tests/halo4_seat_aim_logic_tests.cpp:
 //   * the seat CLASS from the seat flags and the unit the seat controls (0x5F9694);

@@ -127,9 +127,11 @@ def check_config(data: bytes) -> int:
         key = f"bloom_enabled_{title}"
         require(values.get(key) in ("0", "1"), f"Missing per-game bloom setting: {key}")
     for key in ("virtual_stock", "virtual_stock_proximity_release",
-                "vr_action_mapping", "flashlight_suppress_on_two_hand", "physical_crouch"):
+                "vr_action_mapping", "flashlight_suppress_on_two_hand", "physical_crouch",
+                "coop_safe_shots"):
         require(values.get(key) in ("0", "1"), f"Missing boolean config setting: {key}")
     require(values["physical_crouch"] == "1", "Physical crouch must default on")
+    require(values["coop_safe_shots"] == "1", "Co-op safe shots must default on")
     require(values["virtual_stock"] == "0", "Optional virtual stock must default off")
     for key, low, high in (
         ("virtual_stock_standard_strength", 0, 1),

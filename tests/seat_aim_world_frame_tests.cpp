@@ -92,6 +92,11 @@ public:
 static bool g_seatViewWritesTag = true;
 bool Halo3SeatViewWritesTag() { return g_seatViewWritesTag; }
 
+// The sight layer's rule (sight_layer.h): false while the simulation is shared and one-machine changes are not
+// allowed. The checks that predate it run alone in the game.
+static bool g_fireTimeChangesAllowed = true;
+bool Sight_FireTimeChangesAllowed() { return g_fireTimeChangesAllowed; }
+
 #include "../src/dll/seat_aim_world_frame.inl"
 
 // ---- the fixture ---------------------------------------------------------------------------------------------
@@ -197,6 +202,7 @@ void ResetWorld()
     g_config.vehicle_hide_body = true;
     g_config.seat_aim_world_frame = 1;
     g_seatViewWritesTag = true;
+    g_fireTimeChangesAllowed = true;
     g_halo3SeatNativeNoThirdPerson = 0;
     g_odstSeatNativeNoThirdPerson = 0;
     g_reachSeatNativeNoThirdPerson = 0;
@@ -299,6 +305,23 @@ void TestInstallPatchRemove(Fixture& f)
     SeatAimFrameSync();
     Check(f.Patched(), "(fixture) the binding back: skipped again");
 
+    // A shared simulation: no seat patch clears a seat's camera flag there, so the skip has nothing to undo, and
+    // the game's own rebase is what every machine runs -- whatever seat is occupied.
+    g_log.clear();
+    g_fireTimeChangesAllowed = false;
+    SeatAimFrameSync();
+    Check(f.Stock() && !f.State().patched, "a shared simulation: the stock jne is back");
+    Check(Logged("back in place") && Logged("Co-op safe is on"), "...logged with the reason");
+    NativeFlag(f) = 0x80000000u | 0x12u << 8 | 1u;
+    SeatAimFrameSync();
+    Check(f.Stock(), "...and it stays with a natively bit-4-less seat occupied");
+    NativeFlag(f) = 0;
+    SeatAimFrameSync();
+    Check(f.Stock(), "...and with it left again");
+    g_fireTimeChangesAllowed = true;
+    SeatAimFrameSync();
+    Check(f.Patched(), "alone in the game again: skipped again");
+
 #if HALOMCCVR_DEV_DIAGNOSTICS
     g_log.clear();
     g_config.seat_aim_world_frame = 0;
@@ -327,6 +350,16 @@ void TestNotWantedAtInstall(Fixture& f)
     g_config.vehicle_first_person = true;
     SeatAimFrameSync();
     Check(f.Patched(), "the seat patch switched on: applied by the poll");
+    Check(SeatAimFrameRemove(f.title) && f.Stock(), "teardown");
+
+    // Installed into a shared simulation: verified, and the game's bytes are never written.
+    ResetWorld();
+    f.Build();
+    g_fireTimeChangesAllowed = false;
+    Check(f.Install() && f.Stock() && !f.State().patched, "installed in a shared simulation: verified, not applied");
+    SeatAimFrameSync();
+    Check(f.Stock(), "...and the poll leaves it");
+    g_fireTimeChangesAllowed = true;
     Check(SeatAimFrameRemove(f.title) && f.Stock(), "teardown");
 }
 

@@ -16,6 +16,7 @@
 #include "flashlight_input.h"
 #include "dlss_logic.h"
 #include "roomscale_recenter_logic.h"
+#include "aim_lead_logic.h"
 #include "log.h"
 
 Config g_config;
@@ -90,6 +91,12 @@ Config::Config()
         reach_vehicle_cam_forward_set[slot] = true;
         reach_vehicle_cam_up_set[slot] = true;
         reach_vehicle_cam_right_set[slot] = true;
+    }
+    for (const ConfigShippedVehicleModelTrim& trim : kConfigShippedVehicleModelTrims)
+    {
+        const int slot = ConfigEnsureVehicleModelTrim(*this, trim.title, trim.identity, trim.seat);
+        if (slot >= 0)
+            ConfigResetVehicleModelTrim(*this, slot);
     }
 }
 static std::wstring g_path;
@@ -1327,6 +1334,15 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "two_hand_coherent_aim")) { g_config.two_hand_coherent_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "gun_barrel_aim")) { g_config.gun_barrel_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "shots_from_muzzle")) { g_config.shots_from_muzzle=atoi(val)!=0; continue; }
+        if (!strcmp(key, "coop_safe_shots")) { g_config.coop_safe_shots=atoi(val)!=0; continue; }
+        if (!strcmp(key, "aim_lead_ticks"))
+        {
+            // Held inside 0 to 3 ticks; a value that is not a number keeps the one in effect.
+            float ticks = g_config.aim_lead_ticks;
+            if (ParseFloatSetting(key, val, ticks))
+                g_config.aim_lead_ticks = aim_lead::ClampTicks(ticks, g_config.aim_lead_ticks);
+            continue;
+        }
         if (!strcmp(key, "aim_provider")) { g_config.aim_provider=atoi(val); continue; }
         if (!strcmp(key, "legacy_direct_drive")) { g_config.legacy_direct_drive = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "converged_aim")) { g_config.converged_aim = atoi(val) != 0 ? 1 : 0; continue; }
@@ -1334,8 +1350,11 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "seat_direct_drive")) { g_config.seat_direct_drive = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "seat_aim_through_barrel")) { g_config.seat_aim_through_barrel = atoi(val) != 0; continue; }
         if (!strcmp(key, "seat_fire_from_eye")) { g_config.seat_fire_from_eye = atoi(val) != 0; continue; }
+        if (!strcmp(key, "halo4_seat_converge")) { g_config.halo4_seat_converge = atoi(val) != 0 ? 1 : 0; continue; }
+        if (!strcmp(key, "install_search_memory")) { g_config.install_search_memory = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "aim_direct_drive"))
         { g_config.aim_direct_drive = atoi(val) != 0 ? 1 : 0; aimDirectDriveSeen = true; continue; }
+        if (!strcmp(key, "drive_address_cache")) { g_config.drive_address_cache = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "reach_direct_drive"))
         {
             g_config.reach_direct_drive=atoi(val);
@@ -1346,8 +1365,12 @@ void ConfigLoad(const wchar_t* path)
 #endif
             continue;
         }
+        // A player's setting stands ABOVE the development-only part below: a key read only in there is saved by a
+        // player build and then called unknown at its next start (tests/config_player_roundtrip_tests.cpp).
+        if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
 #if HALOMCCVR_DEV_DIAGNOSTICS   // research tools and dev overrides: a player build never reads them
         if (!strcmp(key, "reach_aim_probe")) { g_config.reach_aim_probe=atoi(val); continue; }
+        if (!strcmp(key, "dev_install_search_check")) { g_config.dev_install_search_check = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "reach_desired_aim_offset")) { g_config.reach_desired_aim_offset=(int)strtol(val,nullptr,0); continue; }
         if (!strcmp(key, "reach_dd_test_deg")) { g_config.reach_dd_test_deg=atoi(val); continue; }
         if (!strcmp(key, "reach_dd_watchpoint")) { g_config.reach_dd_watchpoint=atoi(val); continue; }
@@ -1355,7 +1378,6 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "reach_sight_trace_mode")) { g_config.reach_sight_trace_mode=(int)strtol(val,nullptr,0); continue; }
         if (!strcmp(key, "reach_collision_census")) { g_config.reach_collision_census=atoi(val); continue; }
         if (!strcmp(key, "sight_ray_census")) { g_config.sight_ray_census=atoi(val); continue; }
-        if (!strcmp(key, "halo4_seat_converge")) { g_config.halo4_seat_converge=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "seated_inherit_compensation")) { g_config.seated_inherit_compensation=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "shot_point_transport")) { g_config.shot_point_transport=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "shot_point_transport_seated")) { g_config.shot_point_transport_seated=atoi(val)!=0?1:0; continue; }
@@ -1377,9 +1399,27 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "seat_aim_world_frame")) { g_config.seat_aim_world_frame=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "seat_view_tag_write")) { g_config.seat_view_tag_write=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_synthetic_pad")) { g_config.dev_synthetic_pad=atoi(val)!=0?1:0; continue; }
+        if (!strcmp(key, "dev_sim_trace")) { g_config.dev_sim_trace=atoi(val)!=0?1:0; continue; }
+        if (!strcmp(key, "dev_sim_probe")) { g_config.dev_sim_probe=(int)strtol(val,nullptr,0)&0xFF; continue; }
+        if (!strcmp(key, "dev_sim_minimal")) { g_config.dev_sim_minimal=atoi(val)!=0?1:0; continue; }
+        if (!strcmp(key, "dev_sim_bisect")) { g_config.dev_sim_bisect=(int)strtol(val,nullptr,0)&0xFFFF; continue; }
+        if (!strcmp(key, "dev_ps_census")) { g_config.dev_ps_census = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "reach_sight_fault")) { g_config.reach_sight_fault=(int)strtol(val,nullptr,0); continue; }
         if (!strcmp(key, "first_person_rung_fault")) { g_config.first_person_rung_fault=(int)strtol(val,nullptr,0)&0xF; continue; }
+        if (!strcmp(key, "drive_fault")) { g_config.drive_fault=(int)strtol(val,nullptr,0)&0xFF; continue; }
         if (!strcmp(key, "reach_sight_trace_length_m")) { g_config.reach_sight_trace_length_m=(float)atof(val); continue; }
+        if (!strcmp(key, "reach_sight_trace_site"))
+        {
+            const int v = atoi(val);
+            g_config.reach_sight_trace_site = v < 0 ? -1 : (v > 1 ? 1 : v);
+            continue;
+        }
+        if (!strcmp(key, "reach_effect_move_rule"))
+        {
+            const int v = atoi(val);
+            g_config.reach_effect_move_rule = v < 0 ? -1 : (v > 3 ? 3 : v);
+            continue;
+        }
         if (!strcmp(key, "tracker_head_sign")) { g_config.tracker_head_sign = atoi(val) < 0 ? -1 : 1; continue; }
         if (!strcmp(key, "audio_head_halo4_parts")) { g_config.audio_head_halo4_parts = atoi(val) & 7; continue; }
         if (!strcmp(key, "nav_marker_witness")) { g_config.nav_marker_witness = atoi(val) != 0 ? 1 : 0; continue; }
@@ -2080,6 +2120,12 @@ void ConfigSave()
     fprintf(f, "# Distance from your head to that screen, in meters.\n");
     fprintf(f, "# (default %.2f, range 0.3 to 20)\n", d.screen_distance_m);
     fprintf(f, "screen_distance_m = %.2f\n\n", g_config.screen_distance_m);
+    fprintf(f, "# Mono rendering. 1 = the game is drawn once a frame and both eyes see that one picture: no 3D\n");
+    fprintf(f, "# depth. For very large maps that are too slow in 3D. Halo: CE with its Anniversary graphics is\n");
+    fprintf(f, "# always drawn in 3D. Not on headsets with angled (canted) displays, in the cutscene theatre, or\n");
+    fprintf(f, "# with DLSS. (default %d)\n",
+            d.mono_rendering ? 1 : 0);
+    fprintf(f, "mono_rendering = %d\n\n", g_config.mono_rendering ? 1 : 0);
     fprintf(f, "# Stereo 3D theatre for engine-confirmed cutscenes where the game\n");
     fprintf(f, "# has taken camera control away from the player. Shared by every\n");
     fprintf(f, "# supported title, including future title adapters. (default %d)\n",
@@ -2313,7 +2359,8 @@ void ConfigSave()
             d.halo4_hands_mirrored);
     fprintf(f, "halo4_hands_mirrored = %d\n\n", g_config.halo4_hands_mirrored);
     fprintf(f, "# Halo 4 authored Mjolnir helmet/visor frame. This does not hide\n");
-    fprintf(f, "# shields, radar, ammo, objectives, or the aiming reticle. (default %d)\n",
+    fprintf(f, "# shields, radar, ammo, objectives, or the aiming reticle. In the campaign the\n");
+    fprintf(f, "# frame is a dark band above the HUD and a larger one below it. (default %d)\n",
             d.halo4_helmet ? 1 : 0);
     fprintf(f, "halo4_helmet = %d\n\n", g_config.halo4_helmet ? 1 : 0);
     fprintf(f, "# Hide gameplay HUD and VR reticle; menus remain available.\nhide_hud = %d\n\n", g_config.hide_hud ? 1 : 0);
@@ -2327,6 +2374,21 @@ void ConfigSave()
                "# they land where the shot from the eye would have. Needs converged_aim; gun_barrel_aim wins.\n"
                "# (default %d)\n"
                "shots_from_muzzle = %d\n\n", d.shots_from_muzzle ? 1 : 0, g_config.shots_from_muzzle ? 1 : 0);
+    fprintf(f, "# Co-op safe shots. LEAVE THIS ON (1) unless you only ever play alone: with it off, your first\n"
+               "# shot in a campaign co-op or Spartan Ops session ends the session for everyone.\n"
+               "# 1 = nothing changes a shot as it is fired (no muzzle or barrel origin, no fire-time re-aim, no\n"
+               "# separate dual-wield aim, no seat redirect), so every player's game fires it the same way.\n"
+               "# Your hand still aims; shots leave the eye. True physical melee presses the game's melee\n"
+               "# instead of striking on contact (Halo CE: it does nothing), in Halo 2 your hand aims only with\n"
+               "# direct drive on, and seats in Halo CE and ODST and passenger seats in Reach keep the game's\n"
+               "# own camera. (default %d)\n"
+               "coop_safe_shots = %d\n\n", d.coop_safe_shots ? 1 : 0, g_config.coop_safe_shots ? 1 : 0);
+    fprintf(f, "# Aim lead, on foot in Halo 3, ODST and Reach: the aim written for each shot is carried ahead by\n"
+               "# this many simulation ticks of the aim's own motion, so a shot fired while you turn lands where\n"
+               "# the reticle is and not where it was a tick ago. Only the game's aim is led: the reticle, the\n"
+               "# gun and the scope do not move. The same in solo and co-op. 0 = off.\n"
+               "# (default %.2f, range 0 to %.0f)\n"
+               "aim_lead_ticks = %.2f\n\n", d.aim_lead_ticks, aim_lead::kMaxTicks, g_config.aim_lead_ticks);
     fprintf(f, "# Floating VR-crosshair smoothing only; bullets stay raw.\n");
     fprintf(f, "# (default %.2f, range 0 to 0.95)\n", d.aim_stabilization);
     fprintf(f, "aim_stabilization = %.2f\n\n", g_config.aim_stabilization);
@@ -2460,9 +2522,6 @@ void ConfigSave()
     fprintf(f, "# DEV BUILD ONLY. Log the game's own queries that start at the eye along the aim (Halo 4,\n");
     fprintf(f, "# Halo 2). Leave at 0.\n");
     fprintf(f, "sight_ray_census = %d\n\n", g_config.sight_ray_census);
-    fprintf(f, "# DEV BUILD ONLY. Halo 4 seated convergence (stage 1): 1 = a seat converges like Halo 3's while\n");
-    fprintf(f, "# every proof holds, and stays converged where the native assist cannot bring the shot on. 0 = seats as before.\n");
-    fprintf(f, "halo4_seat_converge = %d\n\n", g_config.halo4_seat_converge);
     fprintf(f, "# DEV BUILD ONLY. Halo 3 seated shots: 1 = aim so the round, which inherits its vehicle's sideways\n");
     fprintf(f, "# velocity, still flies at the reticle's point. 0 = aim straight at it (rounds lead along your travel).\n");
     fprintf(f, "seated_inherit_compensation = %d\n\n", g_config.seated_inherit_compensation);
@@ -2564,6 +2623,17 @@ void ConfigSave()
     fprintf(f, "# something low and near can then be pulled down onto it. Needs converged_aim. Live.\n");
     fprintf(f, "# (default %d)\n", d.seat_fire_from_eye ? 1 : 0);
     fprintf(f, "seat_fire_from_eye = %d\n\n", g_config.seat_fire_from_eye ? 1 : 0);
+    fprintf(f, "# Halo 4. 1 = CONVERGED AIM IN HALO 4 SEATS: the game traces the ray from your eye\n");
+    fprintf(f, "# along the controller, and the seat's aim is bent so the line the game itself aims the seat\n");
+    fprintf(f, "# along passes through the point it hits; the reticle sits on that point. With coop_safe_shots\n");
+    fprintf(f, "# on that line starts at the game's own seat camera, the same on every player's game, and\n");
+    fprintf(f, "# nothing but the aim you send is changed. The gun then turns its shot onto the point as far as\n");
+    fprintf(f, "# the game lets it (its own 21 degree cap, a seat's stops). Halo 4 seats write the heading; the\n");
+    fprintf(f, "# up/down still follows the stick's turn rate. Needs converged_aim, reach_vehicle_aim above 0\n");
+    fprintf(f, "# and vehicle_first_person. 0 = Halo 4 seats keep the fixed-distance aim. Live. The log line\n");
+    fprintf(f, "# \"SIGHT Halo 4 seat converge\" says every 2 s whether it runs and, if not, why. (default %d)\n",
+            d.halo4_seat_converge);
+    fprintf(f, "halo4_seat_converge = %d\n\n", g_config.halo4_seat_converge);
     fprintf(f, "# Reach, Halo 3, ODST and Halo 4 (switch it live in F1 > Weapon & aim). 1 = DIRECT DRIVE: your\n");
     fprintf(f, "# aim writes the game's own aim instead of steering the right stick (which can only turn at the\n");
     fprintf(f, "# game's turn rate). It arms itself a moment after it is switched on, once the aim it found\n");
@@ -2573,9 +2643,17 @@ void ConfigSave()
     fprintf(f, "# Replaces reach_direct_drive = 3 and legacy_direct_drive = 1. 0 = off. (default %d)\n",
             d.aim_direct_drive);
     fprintf(f, "aim_direct_drive = %d\n\n", g_config.aim_direct_drive);
+    fprintf(f, "# Direct drive finds the game's own aim code each time a game loads. 1 = when it had to search a\n");
+    fprintf(f, "# game DLL for that code (a game build newer than this mod knows), it remembers where it was in\n");
+    fprintf(f, "# HaloMCCVR-drive-addresses.txt beside this file, and later launches check those addresses\n");
+    fprintf(f, "# instead of searching again. That file is a cache, not a setting: every address in it is\n");
+    fprintf(f, "# checked before it is used, and it is safe to delete. 0 = never read or write that file.\n");
+    fprintf(f, "# (default %d)\n", d.drive_address_cache);
+    fprintf(f, "drive_address_cache = %d\n\n", g_config.drive_address_cache);
     fprintf(f, "# Every title (Reach also needs aim_direct_drive = 1), on foot and in vehicle seats: Halo 3,\n");
     fprintf(f, "# ODST and Reach; Halo CE and Halo 2 in their first-person seat view (vehicle_first_person = 1;\n");
-    fprintf(f, "# Halo 2 where direct drive writes the seat, see seat_direct_drive); Halo 4 seats not yet.\n");
+    fprintf(f, "# Halo 2 where direct drive writes the seat, see seat_direct_drive); Halo 4 seats with\n");
+    fprintf(f, "# halo4_seat_converge = 1.\n");
     fprintf(f, "# 1 = CONVERGED AIM: the game traces the ray from your eye\n");
     fprintf(f, "# along the controller and bends the aim so the shot passes through the point it hits, at\n");
     fprintf(f, "# any distance; the reticle sits on that point. In a Halo CE or Halo 2 seat the game's own\n");
@@ -2675,6 +2753,8 @@ void ConfigSave()
                 vehicleAxes[axis],g_config.vehicle_cam_game[title][axis]);
     fprintf(f,"\n");
     fprintf(f,"# Identified vehicle/seat overrides; stable authored model identity, never object handles.\n");
+    fprintf(f,"# Built in: Halo 4's Mantis pilot (halo4_000000551b05181e_seat0) sits above its closed cockpit,\n");
+    fprintf(f,"# forward 0.30, up 0.80. At 0 the eye is inside the cockpit and sees only its walls.\n");
     for(const auto& trim:g_config.vehicle_model_trims)
     {
         const int title=weapon_interaction::TitleIndex(trim.title);
@@ -3393,6 +3473,10 @@ void ConfigSave()
     fprintf(f, "# Ghosting diagnostic: 1 renders the right eye first.\n");
     fprintf(f, "# (default %d)\n", d.right_eye_first ? 1 : 0);
     fprintf(f, "right_eye_first = %d\n", g_config.right_eye_first ? 1 : 0);
+    fprintf(f, "# Halo 3: the mod's hooks are installed again at each new level. 1 = an install re-uses\n");
+    fprintf(f, "# what an earlier one found in the same load of the game's DLL and searches it only for what is new.\n");
+    fprintf(f, "# 0 = every install searches all of it again. (default %d)\n", d.install_search_memory);
+    fprintf(f, "install_search_memory = %d\n", g_config.install_search_memory);
     fprintf(f, "# --- Per-title weapon/hand/HUD/crosshair profiles (C-TITLE-1) ---\n");
     fprintf(f, "# Every supported game - and Halo 2 Anniversary vs Classic\n");
     fprintf(f, "# separately - keeps its OWN copy of the tunables below.\n");

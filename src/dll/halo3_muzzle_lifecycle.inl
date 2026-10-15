@@ -46,6 +46,6 @@ bool InstallHalo3Muzzle(uintptr_t base,size_t size)
     {LOG("Halo 3 muzzle StockFallback: marker hook enable failed");(void)RemoveHalo3Muzzle();return false;}
     feature.enabled.store(true,std::memory_order_release);
     g_halo3MuzzleBindingsReady.store(true,std::memory_order_release);
-    LOG("Halo 3 muzzle Installed: optional committed FP marker, native targeting/obstruction; option=%d",g_config.gun_barrel_aim?1:0);
+    LOG("Halo 3 muzzle Installed: optional committed FP marker, native targeting/obstruction; option=%d",Sight_GunBarrelAim()?1:0);
     return true;
 }

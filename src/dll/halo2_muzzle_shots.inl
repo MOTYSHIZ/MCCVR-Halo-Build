@@ -23,7 +23,7 @@ bool ApplyHalo2MuzzleMarker(uint32_t object,uint16_t count,void* markers,int16_t
 {
     auto& feature=g_halo2Muzzle;
     const auto request=g_halo2MuzzleRequest;
-    if(!feature.enabled.load() || feature.faulted.load() || !(g_config.gun_barrel_aim||Sight_MuzzleShotsConverge()) ||
+    if(!feature.enabled.load() || feature.faulted.load() || !(Sight_GunBarrelAim()||Sight_MuzzleShotsConverge()) ||
         !g_halo2Dual.enabled.load() || g_halo2Dual.faulted.load() || exclusive_input::Active() ||
         !Game_Halo2ControllerAimActive() || !Halo2Observer6Dof_FinalPaletteArmed() ||
         !Halo2Observer6Dof_DirectWeaponAimArmed() ||
@@ -71,12 +71,12 @@ bool ApplyHalo2MuzzleMarker(uint32_t object,uint16_t count,void* markers,int16_t
     // The firing assist's acquisition aims at the carrier's point `distance` along it, so that point is the
     // converged point itself -- handed to the acquisition, which runs the query that consumes it.
     float throughDistance=0.0f;
-    if(!g_config.gun_barrel_aim &&
-        ((slot==1&&g_config.independent_dual_aim) ||
+    if(!Sight_GunBarrelAim() &&
+        ((slot==1&&Sight_IndependentDualAim()) ||
          !Halo2AimMuzzleShot(before,muzzle.ray.position,muzzle.ray.direction,muzzle.ray.up,throughDistance)))
         return false;
     if(!AcquireHalo2IndependentShot(request.weapon,*request.lease,&muzzle,
-        g_config.gun_barrel_aim?0.0f:throughDistance))return false;
+        Sight_GunBarrelAim()?0.0f:throughDistance))return false;
     // Preserve the native local matrix, node/region identity, scale and flags.
     // Its world orientation/position now matches the verified visible marker.
     auto* bytes=static_cast<uint8_t*>(markers);

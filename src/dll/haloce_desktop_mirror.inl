@@ -34,7 +34,7 @@ bool CeDesktopViewport(const halo_ce::EyeCache::Completed& pair,
     const auto& cover=pair.covers[0];
     if (!pair.borrowId||!pair.key.generation||!pair.key.serial||
         !pair.key.spaceEpoch||!pair.key.resourceEpoch||
-        !pair.eyes[0]||!pair.eyes[1]||pair.eyes[0]==pair.eyes[1]||
+        !pair.eyes[0]||!pair.eyes[1]||(pair.eyes[0]==pair.eyes[1])!=(pair.monoEye>=0)||
         !destination.Width||!destination.Height||
         destination.Width>16384||destination.Height>16384||
         destination.ArraySize!=1||destination.MipLevels!=1||

@@ -7,6 +7,9 @@
 #include <limits>
 
 struct {bool manual_reload=true;bool per_gun_alignment=false;bool gun_barrel_aim=false;bool shots_from_muzzle=false;} g_config;
+// The shot switches as they are in effect (sight_layer.h); here, the test's own config.
+[[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
+[[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
 struct BoneMatrix {float unused;};
 struct Context {const BoneMatrix* source{};uint32_t generation{};bool valid{};} g_fpInterpolationContexts[2];
 uint32_t observedGeneration{},observations{},fixtureChecksum{};

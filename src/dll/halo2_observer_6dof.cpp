@@ -29,6 +29,11 @@
 #include "native_vehicle_first_person.h"
 #include "physical_crouch_camera.h"
 #include "sigscan.h"
+// Where the direct drive's code is in the loaded game DLL (halo2_direct_drive.inl): the tables and their
+// resolution, and the DLL's side.
+#include "../common/drive_sites.h"
+#include "drive_cascade.h"
+#include "drive_install.h"
 #include "seat_frame_reader.h"
 #include "seat_limit_publication.h"
 #include "../common/physical_crouch_native_read.h"
@@ -58,6 +63,7 @@
 #include "halo2_stereo_core.h"
 #include "vr.h"
 #include "sight_layer.h"
+#include "../common/session_read_logic.h"
 
 #ifndef HALOMCCVR_HALO2_OBSERVER_6DOF
 #define HALOMCCVR_HALO2_OBSERVER_6DOF 0
@@ -479,6 +485,8 @@ namespace
     // One atomic publication: native sample time in the upper bits, seated in
     // bit zero. Input polling never dereferences a live engine object.
     std::atomic<uint64_t> g_vehicleSeatSample{0};
+    // The game tick that sample was taken in (-1: unread), for Halo2SeatHeldThroughStall.
+    std::atomic<int64_t> g_vehicleSeatSampleTick{-1};
     // Decoded from the independently verified generic loaded-tag resolver.
     // H2's tag blocks store word-addresses relative to this base.
     std::atomic<uintptr_t> g_halo2TagDataBaseSlot{0};
@@ -687,6 +695,8 @@ namespace
     std::atomic<bool> g_vehicleFrameVerified{false};
     std::atomic<bool> g_vehicleIdentityVerified{false};
     std::atomic<uint64_t> g_vehicleViewApplied{0},g_vehicleViewRefused{0};
+    // Frames the seat was kept through a stalled simulation (Halo2SeatHeldThroughStall).
+    std::atomic<uint64_t> g_vehicleViewHeld{0};
     bool ReadVehicleViewFrame(Halo2VehicleViewKey&,Halo2CameraBasis&) noexcept;
     // Roomscale re-seats of the reference (ApplyHeadPose): how many, and how far
     // the head had moved from the reference between its capture and the follow's
@@ -727,6 +737,28 @@ namespace
             tick = -1;
             factor = NAN;
         }
+    }
+
+    // THE SEAT THROUGH A STALLED SIMULATION. The seat sample is taken by the simulation, so it stops when the
+    // simulation does -- a hitch, or in a co-op session this machine waiting for another's input -- while frames
+    // and the input poll carry on. The player is still in the seat the last tick left him in; read as "not
+    // seated", the view falls to the stock camera (whose heading under the seat drive is the hand's aim) and the
+    // on-foot stick lanes take the seat's sticks until the next tick. True while `sample` said seated, is past
+    // its window, and no tick beyond the one it was taken in has completed: a tick that ran without refreshing it
+    // means the unit is no longer the player's. Not through a menu, a pause or the theater, where the seat's
+    // consumers stand down as they always have. Any thread (guarded reads only).
+    bool Halo2SeatHeldThroughStall(uint64_t sample, uint64_t now) noexcept
+    {
+        const uint64_t at = sample >> 1;
+        if (!(sample & 1u) || !at || now < at || now - at <= 100)
+            return false;
+        if (Menu_IsOpen() || VR_IsPausePresentation() || VR_IsCutsceneTheaterActive())
+            return false;
+        const int64_t sampled = g_vehicleSeatSampleTick.load(std::memory_order_relaxed);
+        int64_t tick = -1;
+        float factor = 0.0f;
+        Halo2ReadGameClock(tick, factor);
+        return sampled >= 0 && tick >= sampled && tick - sampled <= 1;
     }
 
     void PublishPose(
@@ -880,6 +912,7 @@ namespace
     struct Halo2DriveState
     {
         void* target = nullptr;
+        uint32_t entryRva = 0;         // where the install found the accumulator in this module
         uintptr_t slot = 0;            // the record's global pointer (from the prologue's rip load)
         uintptr_t controlReturn = 0;   // the control update's return address: the only call written after
         std::atomic<bool> installed{false}, armed{false};
@@ -1347,6 +1380,9 @@ namespace
 
         const float stockYaw=std::atan2(stock.forward[1],stock.forward[0]);
         const bool vehicle=Halo2Observer6Dof_VehicleControlActive();
+        if (vehicle && Halo2SeatHeldThroughStall(g_vehicleSeatSample.load(std::memory_order_acquire),
+                GetTickCount64()))
+            g_vehicleViewHeld.fetch_add(1, std::memory_order_relaxed);
         UpdateFootView(g_generation.load(std::memory_order_acquire), stock, stockYaw, vehicle,
             GetTickCount64());
         const uint64_t settled=g_snapSettled.exchange(0,std::memory_order_acq_rel);
@@ -2014,7 +2050,7 @@ namespace
 
     uint64_t Halo2ObserveReloadModel(uint32_t tag,uint32_t nodes,bool observePrimary=true) noexcept
     {
-        if((!g_config.manual_reload&&!g_config.per_gun_alignment&&!g_config.gun_barrel_aim&&!g_config.shots_from_muzzle)||
+        if((!g_config.manual_reload&&!g_config.per_gun_alignment&&!Sight_GunBarrelAim()&&!Sight_ShotsFromMuzzle())||
             tag==UINT32_MAX||!nodes) return 0;
         const auto get=reinterpret_cast<Halo2GraphDefinitionGetFn>(
             g_graphDefinitionGet.load(std::memory_order_acquire));
@@ -2051,7 +2087,7 @@ namespace
         if(context.valid&&handsMatrices&&gunMatrices)
         {
             const uint64_t identity=Halo2ObserveReloadModel(gunRenderModelTag,context.gunCount);
-            if(g_config.gun_barrel_aim||g_config.shots_from_muzzle)
+            if(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle())
             {
                 Halo2PublishMuzzlePalette(context,0,identity,gunMatrices,context.gunCount);
                 const uint64_t secondaryIdentity=secondaryMatrices
@@ -2065,7 +2101,7 @@ namespace
                 VR_PublishReloadTarget(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),
                     identity,context.contactFrames[1].serial,context.contactFrames[1].transform,point);
         }
-        if ((!g_config.world_collision && !g_config.physical_melee) || !handsMatrices || !gunMatrices ||
+        if ((!g_config.world_collision && !Sight_PhysicalMelee()) || !handsMatrices || !gunMatrices ||
             !context.valid || context.handsCount == 0 ||
             context.handsCount > kHalo2FirstPersonPaletteCapacity ||
             context.gunCount == 0 ||
@@ -4144,10 +4180,32 @@ namespace
                 auto* const unit=static_cast<uint8_t*>(Halo2ObjectFromIndex(objectIndex));
                 if (!unit || unit[0xAA]!=0) __leave;
                 ownedForContact = true;
+                // The session as the game holds it, for the log (src/common/session_read_logic.h). Halo 2 keeps
+                // the three pointers in module globals: game globals, the players array, "players globals".
+                // ADDR-HYGIENE: guarded (session_read::Read believes the count only beside a players array
+                // whose own name, signature, maximum and datum size check) and log only: nothing acts on it.
+                {
+                    constexpr uintptr_t kGameGlobalsRva=0xE80A78,kPlayersArrayRva=0xE80A28,kPlayersGlobalsRva=0xE80A20;
+                    const uintptr_t base=g_moduleBase.load(std::memory_order_acquire);
+                    if (base)
+                    {
+                        const session_read::Session session=session_read::Read(
+                            *reinterpret_cast<const uint8_t* const*>(base+kGameGlobalsRva),
+                            *reinterpret_cast<const uint8_t* const*>(base+kPlayersArrayRva),
+                            *reinterpret_cast<const uint8_t* const*>(base+kPlayersGlobalsRva),session_read::kHalo2);
+                        Sight_NoteSession(GameTitle::Halo2,session.type,session.players,session.others);
+                    }
+                }
                 if (g_vehicleSeatVerified.load(std::memory_order_acquire))
                 {
                     const bool seated = *reinterpret_cast<const int16_t*>(
                         unit + kHalo2UnitParentSeatOffset) != -1;
+                    {
+                        int64_t tick = -1;
+                        float factor = 0.0f;
+                        Halo2ReadGameClock(tick, factor);
+                        g_vehicleSeatSampleTick.store(tick, std::memory_order_relaxed);
+                    }
                     g_vehicleSeatSample.store((GetTickCount64() << 1) | uint64_t(seated),
                         std::memory_order_release);
                     // Vehicle/turret input owns native aiming in the seated
@@ -4171,6 +4229,11 @@ namespace
                 }
                 if (!directVrAim) __leave;
                 Halo2SightTrace(objectIndex);
+                // Co-op safe: the unit's two aim vectors are simulation state, and writing them here changes it on
+                // this machine only. The stock updater then builds them from the control record the direct
+                // drive writes (the converged aim, halo2_direct_drive.inl), as it does for every other player;
+                // the trace above still ran for that write.
+                if (!Sight_FireTimeChangesAllowed()) __leave;
                 float direction[3]{};
                 bool converged = false;
                 if (!BuildPublishedControllerAimDirection(direction, &converged)) __leave;
@@ -4283,9 +4346,12 @@ namespace
         g_aimAssistCalls.fetch_add(1, std::memory_order_relaxed);
         const auto original = reinterpret_cast<Halo2AimAssistCalculateFn>(
             g_aimAssistOriginal.load(std::memory_order_acquire));
+        // Co-op safe: the calculation runs as the game built it, from the view the control record gives it (the
+        // hand's aim, under the direct drive). Feeding it the controller ray, or blanking its result, changes the
+        // target the simulation works from on this machine only.
         const bool suppress = original && userIndex == kOwnedUser && control &&
             targeting && Game_Halo2ControllerAimActive() &&
-            Halo2Observer6Dof_DirectWeaponAimArmed();
+            Halo2Observer6Dof_DirectWeaponAimArmed() && Sight_FireTimeChangesAllowed();
 
         bool originalCompleted = false;
         bool originalStarted = false;
@@ -6453,7 +6519,7 @@ namespace
             g_halo2Dual.secondaryRays.exchange(0), g_halo2Dual.refused.exchange(0));
         LOG("Halo 2 dual native targeting: queries=%llu restoreRefused=%llu option=%d",
             g_halo2Dual.nativeQueries.exchange(0),g_halo2Dual.targetRestoresRefused.exchange(0),
-            g_config.independent_dual_aim?1:0);
+            Sight_IndependentDualAim()?1:0);
         {
             const uint64_t seatApplied=g_halo2SeatFireApplied.exchange(0),seatThrough=g_halo2SeatFireThrough.exchange(0),
                 seatSkipped=g_halo2SeatFireSkipped.exchange(0),seatFromEye=g_halo2SeatFireFromEye.exchange(0);
@@ -6465,7 +6531,7 @@ namespace
         }
         LOG("Halo 2 barrel trajectory: enabled=%d fault=%d applied=%llu refused=%llu option=%d",
             g_halo2Muzzle.enabled.load()?1:0,g_halo2Muzzle.faulted.load()?1:0,
-            g_halo2Muzzle.applied.exchange(0),g_halo2Muzzle.refused.exchange(0),g_config.gun_barrel_aim?1:0);
+            g_halo2Muzzle.applied.exchange(0),g_halo2Muzzle.refused.exchange(0),Sight_GunBarrelAim()?1:0);
         const uint64_t applied = g_appliedPoses.load(std::memory_order_relaxed);
         // Report even when nothing is being applied. A silent zero is exactly
         // the failure this telemetry exists to expose: it distinguishes "the
@@ -6792,9 +6858,12 @@ namespace
         float coverRadians[3]{};
         std::memcpy(coverRadians, coverBits, sizeof(coverRadians));
         constexpr float kDegrees = 57.29577951308232f;
-        LOG("Halo 2 vehicle reference: %llu applied, %llu refused; view/hands/controller use one occupation reference, native aim remains feedback",
+        LOG("Halo 2 vehicle reference: %llu applied, %llu refused; the seat was kept on %llu frames while the "
+            "simulation was not ticking (a hitch, or a co-op session waiting for another player's input); "
+            "view/hands/controller use one occupation reference, native aim remains feedback",
             static_cast<unsigned long long>(g_vehicleViewApplied.load(std::memory_order_relaxed)),
-            static_cast<unsigned long long>(g_vehicleViewRefused.load(std::memory_order_relaxed)));
+            static_cast<unsigned long long>(g_vehicleViewRefused.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_vehicleViewHeld.load(std::memory_order_relaxed)));
         LOG("Halo 2 C-H2-71 upstream visibility cover: %llu expanded, %llu "
             "already wide, %llu refused; last stock %.1f deg, headset %.1f "
             "deg, selected %.1f deg at observer_result+0x%X (pose/stereo stay "
@@ -6922,6 +6991,11 @@ bool Halo2Observer6Dof_Installed() noexcept
     return g_installed.load(std::memory_order_acquire);
 }
 
+std::atomic<bool>* Halo2Observer6Dof_TeardownRequested() noexcept
+{
+    return &g_teardownRequested;
+}
+
 bool Halo2Observer6Dof_Armed() noexcept
 {
     return g_armed.load(std::memory_order_acquire);
@@ -7045,7 +7119,9 @@ bool Halo2Observer6Dof_VehicleControlActive() noexcept
     const uint64_t sample = g_vehicleSeatSample.load(std::memory_order_acquire);
     const uint64_t at = sample >> 1;
     const uint64_t now = GetTickCount64();
-    return (sample & 1u) && at && now >= at && now - at <= 100;
+    if ((sample & 1u) && at && now >= at && now - at <= 100)
+        return true;
+    return Halo2SeatHeldThroughStall(sample, now);
 }
 
 bool Halo2Observer6Dof_WorldCollisionActive() noexcept

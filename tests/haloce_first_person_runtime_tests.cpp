@@ -349,6 +349,8 @@ static bool CheckContactPaletteCommit()
 int main(int argc,char** argv)
 {
     using namespace halo_ce;
+    // The fire-time paths below act only while one-machine changes are allowed (co-op safe shots off).
+    g_config.coop_safe_shots=false;
     installed=true;active=true;retiring=false;generation=testGeneration;
     prepareHook.original=reinterpret_cast<void*>(&NativePrepareFixture);
     testContext.tracking.generation=testGeneration;testContext.tracking.spaceEpoch=4;testContext.tracking.serial=12;
@@ -552,6 +554,11 @@ int main(int argc,char** argv)
             CHECK(AssistRayBody(targetPlayer.unit,&position,&direction,moduleBase+0xb67be4)==0);
             CHECK(Dot(position-Vec3{1,2,3},position-Vec3{1,2,3})<1e-9f);
             CHECK(Dot(direction,Vec3{0,1,0})>.9999f);
+            // Co-op safe shots: the same converged seat's ray is left as the game built it.
+            g_config.coop_safe_shots=true;
+            CHECK(AssistRayBody(targetPlayer.unit,&position,&direction,moduleBase+0xb67be4)==0);
+            CHECK(Dot(direction,Vec3{.6f,.8f,0})>.9999f);
+            g_config.coop_safe_shots=false;
             // Another caller of the director, and another seat than the converged one: untouched.
             CHECK(AssistRayBody(targetPlayer.unit,&position,&direction,moduleBase+1)==0);
             CHECK(Dot(direction,Vec3{.6f,.8f,0})>.9999f);

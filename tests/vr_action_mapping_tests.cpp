@@ -428,6 +428,50 @@ int main()
         ConfigVehicleModelCam(g_config,GameTitle::Halo2,0x123456789abcdef0ull,1,0)==-.2f&&
         ConfigVehicleModelCam(g_config,GameTitle::HaloCE,0x123456789abcdef0ull,0,0)==.31f,
         "identified vehicle presets survive save/reload without transient instance IDs");
+    // A seat with a built-in offset: placed with no config line, moved by a line one axis at a time, and handed
+    // back to the built-in offset (not to the game's base) by its reset.
+    {
+        const uint64_t mantis=0x000000551b05181eull;
+        const Config fresh{};
+        Check(ConfigVehicleModelCam(fresh,GameTitle::Halo4,mantis,0,0)==.30f&&
+            ConfigVehicleModelCam(fresh,GameTitle::Halo4,mantis,0,1)==.80f&&
+            ConfigVehicleModelCam(fresh,GameTitle::Halo4,mantis,0,2)==0.f,
+            "the Mantis pilot's seat camera ships above the cockpit");
+        Check(ConfigVehicleModelCam(fresh,GameTitle::Halo4,mantis,1,1)==ConfigGameVehicleCam(fresh,GameTitle::Halo4,1)&&
+            ConfigVehicleModelCam(fresh,GameTitle::Halo4,mantis+1,0,1)==ConfigGameVehicleCam(fresh,GameTitle::Halo4,1)&&
+            ConfigVehicleModelCam(fresh,GameTitle::Halo3,mantis,0,1)==ConfigGameVehicleCam(fresh,GameTitle::Halo3,1),
+            "a built-in seat offset reaches only its own game, model and seat");
+        for(const ConfigShippedVehicleModelTrim& trim:kConfigShippedVehicleModelTrims)
+            Check(trim.identity&&trim.seat>=0&&trim.seat<=31&&trim.name&&*trim.name&&
+                trim.forward>=kVehicleCamForwardMin&&trim.forward<=kVehicleCamForwardMax&&
+                trim.up>=kVehicleCamUpMin&&trim.up<=kVehicleCamUpMax&&
+                trim.right>=kVehicleCamRightMin&&trim.right<=kVehicleCamRightMax&&
+                ConfigShippedVehicleModelTrimFor(trim.title,trim.identity,trim.seat)==&trim,
+                "every built-in seat offset is one its sliders can reach, and is named once");
+        {std::ofstream file(path);file<<"vehicle_model_halo4_000000551b05181e_seat0_up_m = 1.1\n";}
+        ConfigLoad(path.c_str());
+        Check(ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,1)==1.1f&&
+            ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,0)==.30f,
+            "a config line moves one axis of a built-in seat offset and leaves the others");
+        ConfigSave();ConfigLoad(path.c_str());
+        Check(ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,1)==1.1f&&
+            ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,0)==.30f,
+            "a moved built-in seat offset survives save and reload");
+        const int slot=ConfigVehicleModelTrimSlot(g_config,GameTitle::Halo4,mantis,0);
+        ConfigResetVehicleModelTrim(g_config,slot);
+        Check(slot>=0&&ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,1)==.80f&&
+            ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,0)==.30f,
+            "resetting a seat with a built-in offset returns to that offset");
+        const int other=ConfigEnsureVehicleModelTrim(g_config,GameTitle::Halo4,mantis+1,0);
+        g_config.vehicle_model_trims[other].value[1]=.5f;g_config.vehicle_model_trims[other].set[1]=true;
+        ConfigResetVehicleModelTrim(g_config,other);
+        Check(other>=0&&ConfigVehicleModelTrimSlot(g_config,GameTitle::Halo4,mantis+1,0)<0,
+            "resetting a seat with no built-in offset hands it back to its game's base");
+        {std::ofstream file(path);}
+        ConfigLoad(path.c_str());
+        Check(ConfigVehicleModelCam(g_config,GameTitle::Halo4,mantis,0,1)==.80f,
+            "a config file with no line for the seat keeps its built-in offset");
+    }
     Check(vehicle_identity::Path("vehicles\\warthog\\warthog")==vehicle_identity::Path("VEHICLES/WARTHOG/WARTHOG")&&
         vehicle_identity::Path("vehicles\\warthog\\warthog")!=vehicle_identity::Path("vehicles\\ghost\\ghost"),
         "authored path identity normalizes cache spelling and keeps different vehicles separate");

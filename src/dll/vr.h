@@ -445,6 +445,9 @@ struct Halo4VrRenderSnapshot
     bool leftControllerValid = false;
     float leftControllerOrientation[4]{0.0f, 0.0f, 0.0f, 1.0f};
     float leftControllerPosition[3]{};
+    // MONO RENDERING (src/common/mono_view_logic.h): this frame is one pass. Both `eyes` are then the one camera:
+    // no offset, no cant, and the frustum that covers either eye. Last, so the offsets asserted below stand.
+    bool mono = false;
 };
 
 static_assert(sizeof(Halo4VrEyeSnapshot) == 0x30);
@@ -531,6 +534,15 @@ bool VR_Halo2RestoreEyeToFinalTarget(
     uint32_t generation, uint64_t preparedSerial, int eye);
 bool VR_Halo2CompleteSynchronousPair(
     uint32_t generation, uint64_t preparedSerial);
+// MONO RENDERING (mono_view_logic.h): complete a frame drawn as ONE pass, as `eye`. Its stamps (serial, capture,
+// half-angles, image) answer for the other eye too; when the core owns poses the other eye keeps its own submitted
+// pose (`otherPosition`/`otherOrientation`), so each eye is still shown where it is. The picture is marked mono
+// before the frame can be presented. Reports the mono frame (VR_NoteMonoFrameRendered) on success.
+bool VR_Halo2CompleteSynchronousMonoPair(
+    uint32_t generation, uint64_t preparedSerial, int eye,
+    const float* otherPosition = nullptr, const float* otherOrientation = nullptr);
+// The eye capture's source is settled: learning it compares the two eyes' pictures, so a mono frame waits for it.
+bool VR_Halo2CaptureSourceSettled();
 // Claim immediately before the first original eye render_view call. A failed
 // publication must take the zero-eye pre-stereo screen path; once published,
 // this
@@ -729,7 +741,56 @@ bool VR_RedirectRenderTargets(ID3D11DeviceContext* context, UINT count,
 void VR_Halo4NoteBoundRenderTargets(
     ID3D11DeviceContext* context, UINT count,
     ID3D11RenderTargetView* const* rtvs);
-void VR_Halo4PrepareAuthoredReticleDraw(ID3D11DeviceContext* context);
+// One Draw / DrawIndexed, seen from the D3D hooks. If the draw goes into Halo 4's reticle capture it gets the
+// capture's framing, and unless its blend writes coverage it is made without its alpha write
+// (halo4_reticle_alpha_logic.h); the game's own blend state is bound again when the scope ends. Any other draw
+// is not touched.
+// The scope is made around EVERY draw of every title, so the draw that is not touched pays one call and one
+// store: the end of the scope is tested here, and only a draw whose blend state was changed calls out again.
+class VrHalo4ReticleDrawScope
+{
+public:
+    explicit VrHalo4ReticleDrawScope(ID3D11DeviceContext* context);
+    ~VrHalo4ReticleDrawScope()
+    {
+        if (context_)
+            Restore();
+    }
+    VrHalo4ReticleDrawScope(const VrHalo4ReticleDrawScope&) = delete;
+    VrHalo4ReticleDrawScope& operator=(const VrHalo4ReticleDrawScope&) = delete;
+
+private:
+    void Restore();
+    // Set only by a draw whose blend state was changed; the rest are read only then.
+    ID3D11DeviceContext* context_ = nullptr;
+    ID3D11BlendState* saved_;
+    FLOAT factor_[4];
+    UINT sampleMask_;
+};
+#if HALOMCCVR_DEV_DIAGNOSTICS
+// Dev A/B of the rule above: 0 the capture as the game draws it, 1 the rule, 2 no draw writes alpha.
+void VR_DevSetHalo4ReticleAlphaMode(int mode);
+#endif
+// Halo 4 (halo4_scene_copy_logic.h): the source a whole-resource copy is to read. While an eye is drawn, a copy
+// out of the game's scene colour texture reads that eye's image; any other copy reads what it named. Called from
+// the CopyResource hook, on whichever thread copies.
+ID3D11Resource* VR_RedirectSceneCopySource(ID3D11DeviceContext* context, ID3D11Resource* destination,
+                                           ID3D11Resource* source);
+// How many copies were given an eye's image since the last call (the worker's status line).
+uint64_t VR_TakeHalo4SceneCopyCount();
+#if HALOMCCVR_DEV_DIAGNOSTICS
+// Dev A/B: false leaves every copy as the game made it (the stock, blacked-out behaviour).
+void VR_DevSetHalo4SceneCopy(bool on);
+#endif
+#if HALOMCCVR_DEV_DIAGNOSTICS
+// For the pixel shader census (dev_ps_census.inl). What a resource is to this mod: 0 other, 1 the game's scene
+// colour (the target the eyes are drawn in place of), 2 / 3 the image of eye 0 / 1, 4 the crosshair capture.
+int VR_DevResourceRole(ID3D11Resource* resource);
+// That role's name, the resource's address and its shape, as text.
+void VR_DevDescribeResource(ID3D11Resource* resource, char* out, size_t outSize);
+// The eye being drawn now, or -1.
+int VR_DevRasterEye();
+#endif
 // The optional H4 hooks pass through completely after a fatal reticle-resource
 // failure, leaving the stock CUI reticle visible without affecting camera,
 // theatre, stereo, or OpenXR ownership.
@@ -994,6 +1055,17 @@ bool VR_SupportInvocationReceiptTrustedForReticle(GameTitle title,
 
 // Latest OpenXR per-eye FOV angles: left, right, up, down (radians).
 bool VR_GetEyeFov(int eye, float outFov[4]);
+// MONO RENDERING (src/common/mono_view_logic.h). Whoever builds a frame's eye cameras for `title` asks once,
+// before its eye passes. True: draw the world ONCE, as the eye the eye-order setting draws first, from the
+// midpoint of the eyes (no eye offset, no cant) with the symmetric frustum `coverFov` (left, right, up, down;
+// radians), capture it, and call VR_NoteMonoFrameRendered with that eye. False: both eyes as usual.
+bool VR_MonoRenderThisFrame(GameTitle title, float coverFov[4]);
+void VR_NoteMonoFrameRendered(GameTitle title, int eye);
+// `title` drew a pair: the latest picture is two eyes' again.
+void VR_NoteStereoFrameRendered(GameTitle title);
+// `title`'s renderer turned a single pass down (its own checks on the frame failed, or it faulted). A run of them
+// is answered with a probe pair; single passes dropped where pairs are drawn leave the title in stereo.
+void VR_NoteMonoFrameRejected(GameTitle title);
 // Pixel aspect of Halo's main render surface. Halo lays native 2D HUD geometry
 // out for this shape, which can differ substantially from the headset's
 // tangent-space view aspect.
@@ -1081,6 +1153,9 @@ struct ReachVrRenderSnapshot
     float leftControllerPosition[3]{};
     VrPadState pad{};
     ReachVrEyeSnapshot eyes[2]{};
+    // MONO RENDERING (src/common/mono_view_logic.h): this frame is one pass. Both `eyes` are then the one camera:
+    // no offset, no cant, and the frustum that covers either eye.
+    bool mono = false;
     int64_t predictedDisplayTimeNs = 0;
     uint64_t trackingSpaceEpoch = 0;
 };

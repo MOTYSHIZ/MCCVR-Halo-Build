@@ -243,7 +243,8 @@ bool Halo2CallFireEyeEvaluator(uint32_t unit, float position[3], int32_t& path)
 // writes later in this tick.
 void Halo2NoteFireEyeTick(uint32_t unit) noexcept
 {
-    if (!Sight_TransportWanted(GameTitle::Halo2, false) || unit == UINT32_MAX || unit != Halo2OwnedUnit())
+    // Never in a shared simulation (Sight_FireEyeAsked): the ask is a call of the game's own inside the tick.
+    if (!Sight_FireEyeAsked(GameTitle::Halo2) || unit == UINT32_MAX || unit != Halo2OwnedUnit())
         return;
     Halo2ObserverPosePublication publication{};
     int notRead = 0;

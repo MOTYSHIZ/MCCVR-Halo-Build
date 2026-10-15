@@ -37,6 +37,22 @@ inline uint32_t ClassifyAuthoredReticleColorOrdering(const float channel[4])
     return ordering;
 }
 
+// THE ART'S IDENTITY INCLUDES THE SCALE IT WAS DRAWN AT. The crosshair's picture is taken from the HUD as the
+// game draws it and kept for as long as the same art is drawn (the key). The HUD layout's scale is not part of
+// what the game draws with: the mod writes it into the game's layout, some seconds into a map where the layout
+// has to be searched for. A picture taken before that write is of the art at the game's own scale, and the same
+// key afterwards kept it on the quad: too large, and of the wrong shape wherever the quad is shaped for the
+// layout, until a change of weapon brought another key. So the key carries how many times the layout's scale has
+// been changed (`scaleEpoch`); a change makes it a new identity, which is retaken once it has settled.
+// 0 stays 0 (no art), and an art key never becomes 0.
+inline uint64_t AuthoredReticleKeyAtScale(uint64_t artKey, uint32_t scaleEpoch) noexcept
+{
+    if (!artKey || !scaleEpoch)
+        return artKey;
+    const uint64_t key = artKey ^ (static_cast<uint64_t>(scaleEpoch) * 0x9E3779B97F4A7C15ULL);
+    return key ? key : 1;
+}
+
 enum class AuthoredReticleRefreshPolicy : uint8_t
 {
     IdentityAndColorState,

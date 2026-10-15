@@ -1045,6 +1045,8 @@ namespace
         const bool modelTarget=!perSeat&&!editVehicleBase&&NativeVehicleFirstPerson_TrimTarget(
             editVehicleTitle,vehicleIdentity,modelSeat);
         const int modelTrim=ConfigVehicleModelTrimSlot(g_config,editVehicleTitle,vehicleIdentity,modelSeat);
+        const ConfigShippedVehicleModelTrim* shippedModelTrim=modelTarget?
+            ConfigShippedVehicleModelTrimFor(editVehicleTitle,vehicleIdentity,modelSeat):nullptr;
         bool modelCapacity=modelTrim>=0;
         for(const auto& trim:g_config.vehicle_model_trims)modelCapacity|=!trim.identity;
         auto setModelAxis=[&](unsigned axis,float value) {
@@ -1078,6 +1080,7 @@ namespace
                         Game_VehicleSeatTrimName(seatSlot, s_seatBank));
         else if(modelTarget) {
             const char* vehicleName=editVehicleTitle==GameTitle::Halo2?halo2_vehicle_identity::Name(vehicleIdentity):nullptr;
+            if(!vehicleName&&shippedModelTrim)vehicleName=shippedModelTrim->name;
             ImGui::Text("Adjusting: %s, seat %d (%s)",vehicleName?vehicleName:"last identified vehicle",modelSeat,
                 weapon_interaction::kTitleNames[vehicleGame]);
             ImGui::TextDisabled("Last identified seat; retained while F1 pauses the game.");
@@ -1150,8 +1153,9 @@ namespace
             changed = true;
         }
         ImGui::EndDisabled();
-        if(modelTarget&&modelTrim>=0&&ImGui::SmallButton("Use this game's base for this seat##modeltrim"))
-        {g_config.vehicle_model_trims[modelTrim]={};changed=true;}
+        if(modelTarget&&modelTrim>=0&&ImGui::SmallButton(shippedModelTrim?
+            "Back to this seat's built-in position##modeltrim":"Use this game's base for this seat##modeltrim"))
+        {ConfigResetVehicleModelTrim(g_config,modelTrim);changed=true;}
         if (perSeat && (trimForwardSet[seatSlot] || trimUpSet[seatSlot] ||
                         trimRightSet[seatSlot]))
         {
@@ -1235,6 +1239,17 @@ namespace
                                     "OFF keeps every seat there on the stick. Halo 2 reads the role off the seat\n"
                                     "itself. Halo CE's hand aims every seat either way.");
             }
+            bool halo4Seats = g_config.halo4_seat_converge != 0;
+            if (ImGui::Checkbox("Halo 4: converged aim in seats", &halo4Seats))
+            { g_config.halo4_seat_converge = halo4Seats ? 1 : 0; changed = true; }
+            ImGui::TextDisabled("ON (default): in a Halo 4 seat the game traces your aim, and the seat's aim is\n"
+                                "bent so the line the game itself aims that seat along passes through the point\n"
+                                "you point at; the crosshair sits on that point. With Co-op safe shots on, that\n"
+                                "line starts at the game's own seat camera, as on every other player's game, and\n"
+                                "only the aim you send is changed. The gun turns its shot onto the point as far as\n"
+                                "the game lets it. Needs Converged aim and the first-person seat view. Halo 4\n"
+                                "seats write the heading; up/down still turns at the stick's rate. OFF: Halo 4\n"
+                                "seats keep the fixed-distance aim. Live.");
         }
         ImGui::Spacing();
         ImGui::Separator();
@@ -1522,12 +1537,21 @@ namespace
                                 "eye would have while tracers and projectiles come out of the barrel. Needs Converged\n"
                                 "aim. If the muzzle is inside a wall your eye sees past, or the aim is not converged,\n"
                                 "the shot leaves your eye as before. \"Aim from the visible gun barrel\" (Crosshair\n"
-                                "page), when on, wins and keeps the barrel's own direction. Live.");
+                                "page), when on, wins and keeps the barrel's own direction. Live.\n"
+                                "Only while Co-op safe shots (Advanced page) is off: with that on, as it is by\n"
+                                "default, shots leave your eye.");
             ImGui::TextDisabled("Both cover vehicle seats too. Every seat you aim from converges (Halo 3, ODST,\n"
                                 "Halo CE and Halo 2 in first-person seats; Reach and Halo 2 with Direct drive;\n"
-                                "Halo 4 seats not yet). With Direct drive, seats have\n"
+                                "Halo 4 seats with their switch on the Vehicles page). With Direct drive, seats have\n"
                                 "their aim written too (Vehicles > Aim in seats says which); a seat first checks\n"
                                 "its own aim, about a second after you sit down.");
+            changed |= vr_menu::SliderFloat("Aim lead (game ticks)", &g_config.aim_lead_ticks, 0.0f, 3.0f, "%.2f");
+            ImGui::TextDisabled("On foot in Halo 3, ODST and Reach with Direct drive. The game fires each shot along\n"
+                                "the aim it was given about one game tick earlier, so a shot fired while you turn\n"
+                                "lands a little behind the reticle. This writes the aim that far ahead of your\n"
+                                "hand's own motion instead. Only the game's aim is led: the reticle, the gun and\n"
+                                "the scope do not move, and a snap turn or a hand at rest is never led. It works\n"
+                                "the same in solo and co-op. 0 = off. Live.");
 #if HALOMCCVR_DEV_DIAGNOSTICS
             ImGui::Spacing();
             bool transport = g_config.shot_point_transport != 0;
@@ -2165,12 +2189,25 @@ namespace
             changed |= ImGui::Checkbox(
                 "Show Halo 4 helmet frame", &g_config.halo4_helmet);
             ImGui::TextDisabled(
-                "Keeps or hides only the authored Mjolnir helmet/visor shading; the rest of the HUD stays visible.");
+                "Keeps or hides only the authored Mjolnir helmet/visor shading; the rest of the HUD stays visible.\n"
+                "In the campaign the shading is a dark band above the HUD and a larger one below it, in the\n"
+                "middle of your view. OFF (default) leaves the visor's thin outline. Live.");
         }
         }
 
         if (CategorySection section{Cat_Picture}; section.visible)
         {
+        ImGui::Text("Rendering");
+        changed |= ImGui::Checkbox("Mono rendering: one picture for both eyes", &g_config.mono_rendering);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The game is drawn once a frame instead of once for each eye, and both eyes see that\n"
+                              "one picture. You lose 3D depth.\n"
+                              "For very large maps that will not hold the headset's frame rate in 3D.\n"
+                              "The crosshair and the scope move far away so they do not double.\n"
+                              "Every game; Halo: CE with its Anniversary graphics is always drawn in 3D.\n"
+                              "Not on headsets with angled displays, in the cutscene theatre, or with DLSS.");
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Text("Headset picture resolution");
         changed |= vr_menu::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
@@ -2406,6 +2443,17 @@ namespace
 
         if (g_activeCategory == Cat_Advanced)
         {
+        changed |= ImGui::Checkbox("Co-op safe shots (leave on)", &g_config.coop_safe_shots);
+        ImGui::TextDisabled("ON (default): nothing the mod does changes a shot as it is fired, so every player's game\n"
+                            "fires it the same way and a campaign co-op or Spartan Ops session stays together. Your\n"
+                            "hand still aims; shots leave your eye. In Halo 2 your hand aims only with Direct drive\n"
+                            "on, True physical melee presses the game's melee instead of striking on contact (Halo\n"
+                            "CE: it does nothing), and seats in Halo CE and ODST and passenger seats in Reach keep\n"
+                            "the game's own camera.\n"
+                            "OFF is for playing alone: shots can leave the visible muzzle and are re-aimed as they\n"
+                            "are fired. With it off, your first shot in a co-op session ends it for everyone. Live.");
+        ImGui::Spacing();
+        ImGui::Separator();
         changed |= ImGui::Checkbox("Bone probe (diagnostic)", &g_config.weapon_probe);
         ImGui::TextDisabled("Pushes every composed skeleton 1m left to prove writable palette boundaries.");
         changed |= ImGui::Checkbox("Render right eye first (diagnostic)",

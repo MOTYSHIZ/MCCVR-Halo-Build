@@ -79,7 +79,7 @@ __declspec(noinline) void __fastcall OdstMuzzleQueryDetour(int32_t inputUser,uin
     auto& feature=g_odstMuzzle;feature.callbacks.fetch_add(1,std::memory_order_acq_rel);
     const auto previous=g_odstMuzzleCapture;g_odstMuzzleCapture={};
     const bool capture=feature.enabled.load()&&!feature.faulted.load()&&
-        (g_config.gun_barrel_aim||Sight_MuzzleShotsConverge()||(kEnableOdstIndependentAim&&g_config.independent_dual_aim))&&
+        (Sight_GunBarrelAim()||Sight_MuzzleShotsConverge()||(kEnableOdstIndependentAim&&Sight_IndependentDualAim()))&&
         inputUser>=0&&inputUser<4&&!(flags&1)&&direction&&control&&targeting;
     g_odstMuzzleCapture.active=capture;
     __try
@@ -133,7 +133,7 @@ bool AcquireOdstMuzzleTarget(const weapon_muzzle::Receipt& muzzle,NativeShotTarg
 bool ApplyOdstMuzzleMarker(uint32_t object,uint64_t count,void* markers,int16_t capacity)
 {
     auto& feature=g_odstMuzzle;const auto request=g_odstMuzzleRequest;
-    if(!feature.enabled.load()||feature.faulted.load()||!(g_config.gun_barrel_aim||Sight_MuzzleShotsConverge())||
+    if(!feature.enabled.load()||feature.faulted.load()||!(Sight_GunBarrelAim()||Sight_MuzzleShotsConverge())||
         exclusive_input::Active()||!g_vrAim.load()||!g_enabled.load()||!VR_IsStereoEnabled()||
         TitleAdapter_GetActiveTitle()!=GameTitle::Halo3ODST||feature.generation!=g_odstRuntimeGeneration.load()||
         !request.lease||request.lease->active||request.barrel<0||request.barrel>=2||
@@ -161,8 +161,8 @@ bool ApplyOdstMuzzleMarker(uint32_t object,uint64_t count,void* markers,int16_t 
     // converged point instead of along the barrel. A refusal refuses the barrel shot: it leaves the eye.
     // The second gun under independent dual aim follows its own controller (the shot that lane prepared).
     // A seat held at its stop or a turret (unit_in_vehicle reads false there) refuses it: SeatMuzzleShotHeld.
-    if(!g_config.gun_barrel_aim&&
-        ((slot==1&&kEnableOdstIndependentAim&&g_config.independent_dual_aim)||
+    if(!Sight_GunBarrelAim()&&
+        ((slot==1&&kEnableOdstIndependentAim&&Sight_IndependentDualAim())||
          SeatMuzzleShotHeld(GameTitle::Halo3ODST)||
          !Sight_AimMuzzleShot(GameTitle::Halo3ODST,TitleAdapter_GetGeneration(GameTitle::Halo3ODST),
             before,muzzle.ray.position,muzzle.ray.direction,muzzle.ray.up)))return false;
@@ -182,7 +182,7 @@ bool PrepareOdstIndependentShot(uint32_t weapon,NativeShotTargetLease<0x28>& lea
 {
     if constexpr(!kEnableOdstIndependentAim)return false;
     auto& feature=g_odstMuzzle;
-    if(!feature.enabled.load()||feature.faulted.load()||!g_config.independent_dual_aim||
+    if(!feature.enabled.load()||feature.faulted.load()||!Sight_IndependentDualAim()||
         exclusive_input::Active()||!g_vrAim.load()||!g_enabled.load()||!VR_IsStereoEnabled()||
         TitleAdapter_GetActiveTitle()!=GameTitle::Halo3ODST||feature.generation!=g_odstRuntimeGeneration.load())return false;
     int32_t scene=-1,shot=-1;

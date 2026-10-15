@@ -272,7 +272,11 @@ __declspec(noinline) void __fastcall ReachTrackerHeadDetour(void* tracker)
     feature.callbacks.fetch_add(1, std::memory_order_acq_rel);
     __try
     {
-        if (tracker && feature.enabled.load(std::memory_order_acquire))
+        if (tracker && feature.enabled.load(std::memory_order_acquire)
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            && !(g_config.dev_sim_bisect & 256)
+#endif
+            )
             ReachTrackerApplyHead(tracker);
         if (const auto original = reinterpret_cast<ReachTrackerReaderFn>(feature.original))
             CallNativeWithSpareSlots(original, tracker);
@@ -542,7 +546,11 @@ __declspec(noinline) void __fastcall ReachListenerHeadDetour(uint8_t sendPlatfor
         // The game builds every listener exactly as it always does; only then is user 0's turned to the head.
         if (const auto original = reinterpret_cast<ReachListenerUpdateFn>(feature.original))
             CallNativeWithSpareSlots(original, sendPlatformProperties);
-        if (feature.enabled.load(std::memory_order_acquire))
+        if (feature.enabled.load(std::memory_order_acquire)
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            && !(g_config.dev_sim_bisect & 256)
+#endif
+            )
             ReachListenerApplyHead(caller);
     }
     __finally

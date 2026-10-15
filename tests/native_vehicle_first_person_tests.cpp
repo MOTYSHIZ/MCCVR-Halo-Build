@@ -17,17 +17,32 @@ static bool refuseRemoval=false;
 static void Check(bool condition,const char* name)
 {++checks;if(!condition){std::fprintf(stderr,"FAIL: %s\n",name);std::exit(1);}}
 void Logf(const char*,...) {}
+// One-machine changes allowed (co-op safe shots off) unless a test says otherwise.
+static bool fireTimeAllowed=true;
+bool Sight_FireTimeChangesAllowed() {return fireTimeAllowed;}
+// A stand-in for the engine's TLS block: this module's own, with the frame interpolator's state pointer in it.
+extern "C" unsigned long _tls_index;
+static thread_local const uint8_t* t_interpolatorState=nullptr;
 const wchar_t* LogDirectory() {return L"";}
 GameTitle TitleAdapter_GetActiveTitle() {return activeTitle;}
 uint32_t TitleAdapter_GetGeneration(GameTitle) {return activeGeneration;}
 const TitleDescriptor* TitleRegistry_Find(GameTitle) {return nullptr;}
 float Game_GetWorldScale() {return 0.5f;}
+// The title's camera core as the lane is told it (game.h GameTitleCoreState): no title says, unless a test does.
+static bool coreSays=false,coreInstalled=false;
+static std::atomic<bool> coreTearingDown{false};
+static unsigned pinned=0,unpinned=0;
+bool Game_TitleCoreState(GameTitle,GameTitleCoreState& out) noexcept
+{out={};if(!coreSays)return false;out.installed=coreInstalled;out.tearingDown=&coreTearingDown;return true;}
+void HostUnloadGate_Pin(HMODULE,std::atomic<bool>*,const std::atomic<uint64_t>*,const char*,bool) {++pinned;}
+void HostUnloadGate_Unpin(HMODULE) {++unpinned;}
 bool Game_ReadVehicleCameraOwner(GameTitle title,NativeVehicleCameraOwner& output) noexcept
 {output=owned;return ownedValid&&title==activeTitle;}
+// The sight clock: a millisecond further on at every read.
+uint64_t Sight_NowUs() {static uint64_t us=1000;return us+=1000;}
 #if HALOMCCVR_DEV_DIAGNOSTICS
 void Game_Halo4CameraOwnerReport() noexcept {}
 void Halo2Observer6Dof_DevGameClock(long long& tick,float& factor) noexcept {tick=-1;factor=0;}
-uint64_t Sight_NowUs() {return 0;}
 #endif
 namespace sig {uintptr_t Find(uintptr_t,size_t,const char*) {return 0;}}
 bool WaitForNativeDetourQuiescence(const void* const* functions,const void* const*,size_t count,
@@ -88,7 +103,17 @@ int16_t __fastcall H2InterpolatedMarker(uint32_t object,uint32_t marker,void* ou
     std::memcpy(static_cast<uint8_t*>(output)+56,frame,sizeof(frame));return 1;
 }
 int16_t __fastcall H4Marker(uint32_t unit,uint32_t marker,void* output,int16_t maximum,uint8_t a,uint8_t b,uint8_t c)
-{Check(unit==owned.unit&&marker==0x122&&maximum==1&&!a&&!b&&c==1,"H4 marker ABI and interpolation");return FillMarker(output);}
+{
+    if (marker==0) {
+        // The same query asked for no marker: the vehicle's root node, as simulated (c 0) or as drawn (c 1).
+        Check(unit==owned.parent&&maximum==1&&!a&&!b&&c<=1,"H4 vehicle root query ABI");
+        ++vehicleRootQueries;std::memset(output,0,128);
+        const float frame[13]{1, 1,0,0, 0,1,0, 0,0,1, c?99.875f:100.0f,200,300};
+        std::memcpy(static_cast<uint8_t*>(output)+56,frame,sizeof(frame));return 1;
+    }
+    Check(unit==owned.unit&&marker==0x122&&maximum==1&&!a&&!b&&c==1,"H4 marker ABI and interpolation");
+    return FillMarker(output);
+}
 template<unsigned I> void Run()
 {
     auto& r=runtime[I];activeTitle=kBindings[I].title;activeGeneration=7;
@@ -104,6 +129,17 @@ template<unsigned I> void Run()
     Check(SelectHook<I>(owned.unit,&mode)==0&&mode==2,"occupied seat chooses first person");
     camera();Check(position[0]==10&&position[1]==20&&position[2]==30,"camera at occupant head after native evaluation");
     for(unsigned j=0;j<128;++j) if(j<4||j>=16) Check(result[j]==0x5a,"all other camera fields preserved");
+    if constexpr(I==2) {
+        // The placed point is published for the render transaction (the Broadsword's view stands on it).
+        NativeVehicleSeatPoint placed{};
+        Check(NativeVehicleFirstPerson_PlacedPoint(activeTitle,placed)&&placed.point[0]==10&&placed.point[1]==20&&
+            placed.point[2]==30&&placed.parent==owned.parent&&placed.seat==owned.seat&&placed.generation==7&&
+            placed.vehicleIdentity==owned.vehicleIdentity&&placed.us,"H4 placed point published with its seat");
+        Check(!NativeVehicleFirstPerson_PlacedPoint(GameTitle::Halo2,placed),"the placed point answers only Halo 4");
+        activeGeneration=8;
+        Check(!NativeVehicleFirstPerson_PlacedPoint(activeTitle,placed),"a point from another generation is no answer");
+        activeGeneration=7;
+    }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     if constexpr(I==2) {
         // Stage 0's native seat eye: the native point the override replaced, as an offset from the placed point.
@@ -235,6 +271,86 @@ template<unsigned I> void Run()
         "retirement removes exactly two drained hooks");
     Check(!r.attempted&&!r.ready&&!r.generation&&!r.marker,
         "retirement clears old generation so next title can initialize");
+    // A TITLE WHOSE CAMERA CORE SAYS WHEN ITS HOOKS ARE IN (game.h GameTitleCoreState): the lane lets go of the game
+    // DLL when the core is out, in the same title and generation, tells the unload gate, and takes nothing again
+    // while the core stays out. A title that does not say keeps the reference until the title changes.
+    {
+        HMODULE self=nullptr;
+        GetModuleHandleExW(0,nullptr,&self);   // a reference of the test's own for the lane to free
+        r.module=self;r.generation=activeGeneration;r.attempted=true;
+        const auto unpinnedBefore=unpinned;
+        coreSays=false;
+        NativeVehicleFirstPerson_Poll();
+        Check(r.module==self&&unpinned==unpinnedBefore,"a title that does not say: the reference is kept");
+        coreSays=true;coreInstalled=true;
+        NativeVehicleFirstPerson_Poll();
+        Check(r.module==self&&unpinned==unpinnedBefore,"the core installed: the reference is kept");
+        coreInstalled=false;
+        NativeVehicleFirstPerson_Poll();
+        Check(!r.module&&unpinned==unpinnedBefore+1,
+            "the core out in the same title and generation: the lane lets go and tells the gate");
+        NativeVehicleFirstPerson_Poll();
+        Check(!r.module&&!r.attempted&&unpinned==unpinnedBefore+1,"nothing is taken again while the core is out");
+        coreSays=false;
+    }
+}
+// CO-OP SAFE: the override answers the frame and never the simulation.
+template<unsigned I> void RunCoopSafe()
+{
+    auto& r=runtime[I];activeTitle=kBindings[I].title;activeGeneration=7;
+    owned={7,0x12340001,0x56780002,0,0x10000};ownedValid=true;
+    r.generation=7;r.requested=true;r.faulted=false;
+    r.original[Selector]=reinterpret_cast<void*>(&StockSelector<I>);
+    r.original[Camera]=reinterpret_cast<void*>(&StockCamera);
+    r.marker=I==0?reinterpret_cast<void*>(&CeMarker):I==1?reinterpret_cast<void*>(&H2Marker):reinterpret_cast<void*>(&H4Marker);
+    r.markerInterpolated=nullptr;
+    Mode<I> mode{};alignas(16) uint8_t result[128]{};float position[3]{};
+    auto camera=[&] {CameraHook<I>(owned.unit,nullptr,result);std::memcpy(position,result+4,12);};
+    nativeMode=2;nativeResult=1;markerCount=1;markerX=10;
+    g_config.vehicle_cam_forward_m=g_config.vehicle_cam_up_m=g_config.vehicle_cam_right_m=0;
+    const auto owns=[&] {const bool select=SelectHook<I>(owned.unit,&mode)==0;camera();return select&&position[0]==10;};
+    const auto stock=[&] {const bool select=SelectHook<I>(owned.unit,&mode)==1;camera();return select&&position[0]==-10;};
+    uint8_t state[8]{};
+    const auto* block=reinterpret_cast<const uint8_t*>(reinterpret_cast<const uintptr_t*>(__readgsqword(0x58))[_tls_index]);
+    const auto tick=[&](bool known,bool inside) {
+        t_interpolatorState=state;state[3]=inside?1:0;
+        r.tlsIndex=known?reinterpret_cast<const uint32_t*>(&_tls_index):nullptr;
+        r.tickSlot=uint32_t(reinterpret_cast<const uint8_t*>(&t_interpolatorState)-block);r.tickByte=3;
+    };
+    fireTimeAllowed=true;tick(true,true);
+    Check(owns(),"one-machine changes allowed: the override answers inside a tick too");
+    tick(false,false);
+    Check(owns(),"one-machine changes allowed: the override answers where the tick is not read");
+    fireTimeAllowed=false;
+    if constexpr (I==1) {
+        tick(true,true);
+        Check(owns(),"Halo 2 is stood down by its own caller, never by a tick read");
+        NativeVehicleFirstPerson_SetStockOnThisThread(true);
+        Check(stock(),"Halo 2's simulation caller gets the game's own camera");
+        NativeVehicleFirstPerson_SetStockOnThisThread(false);
+        Check(owns(),"and the override answers again once that call returns");
+    } else {
+        const auto before=r.simulationCalls.load();
+        tick(true,true);
+        Check(stock(),"co-op safe, inside a tick: the simulation gets the game's own camera");
+        Check(r.simulationCalls.load()==before+1,"and the selector call for our seat is counted");
+        tick(true,false);
+        Check(owns(),"co-op safe, outside a tick: the frame gets the placed camera");
+        tick(false,false);
+        Check(stock(),"co-op safe, tick not read: the override answers nothing");
+        tick(true,false);t_interpolatorState=nullptr;
+        Check(stock(),"co-op safe, no interpolator state on this thread: the override answers nothing");
+        t_interpolatorState=state;
+        Check(SelectHook<I>(0x99990003,&mode)==1&&r.simulationCalls.load()==before+3,
+            "another unit's call is the game's own and is not counted as ours");
+    }
+    fireTimeAllowed=true;r.tlsIndex=nullptr;r.tickSlot=r.tickByte=0;t_interpolatorState=nullptr;
+    r.requested=false;r.original[Selector]=r.original[Camera]=nullptr;r.marker=nullptr;r.generation=0;
+    Check(r.callbacks==0,"co-op safe paths drain their callbacks");
 }
 int main()
-{Run<0>();Run<1>();Run<2>();std::printf("%d native vehicle first-person checks passed\n",checks);return 0;}
+{
+    Run<0>();Run<1>();Run<2>();
+    RunCoopSafe<0>();RunCoopSafe<1>();RunCoopSafe<2>();
+    std::printf("%d native vehicle first-person checks passed\n",checks);return 0;
+}

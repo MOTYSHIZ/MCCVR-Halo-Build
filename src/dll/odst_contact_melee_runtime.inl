@@ -266,7 +266,7 @@ void OdstContactTick(uint32_t unit)
     {
         const uint64_t now=GetTickCount64();
         int32_t scene=-1,shot=-1;
-        const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
+        const bool admit=!exclusive_input::Active() && Sight_PhysicalMelee() && g_enabled.load(std::memory_order_acquire) &&
             VR_IsStereoEnabled() && g_odstContact.generation==g_odstRuntimeGeneration.load() &&
             g_odstContact.playback && !g_odstContact.playback() &&
             ReadCinematicControl(scene,shot)==CinematicControlState::PlayerControlled &&
@@ -393,7 +393,7 @@ void OdstPublishContactHand(int hand,const FpInterpolationContext& context,
     const BoneMatrix& root,const BoneMatrix* solved,const float points[][3],
     int count,int32_t unit,uint32_t generation)
 {
-    if(!OdstContactMeleeReady() || !g_config.physical_melee || hand<0 || hand>1 ||
+    if(!OdstContactMeleeReady() || !Sight_PhysicalMelee() || hand<0 || hand>1 ||
         unit==-1 || !points || !solved || count<=0 || count>64 ||
         generation!=g_odstContact.generation || !g_baseCamValid.load()) return;
     const uint64_t now=GetTickCount64();

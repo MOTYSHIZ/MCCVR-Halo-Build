@@ -414,6 +414,26 @@ inline constexpr bool Halo2StructuralFailureRequiresQuarantine(
         transactionShapeFailed;
 }
 
+// MONO RENDERING (mono_view_logic.h): a Halo 2 frame is complete with every eye pass it asked for and no other. A
+// pair is two passes that completed both eyes; a mono frame is ONE pass, drawn as the eye drawn first, which
+// completed that eye alone.
+inline constexpr uint32_t Halo2ExpectedEyePasses(bool mono) noexcept
+{
+    return mono ? 1u : 2u;
+}
+inline constexpr uint8_t Halo2ExpectedEyeMask(bool mono, int firstEye) noexcept
+{
+    return mono ? static_cast<uint8_t>(firstEye == 1 ? 2u : 1u) : static_cast<uint8_t>(3u);
+}
+inline constexpr bool Halo2EyePassesComplete(
+    bool mono, int firstEye, uint32_t renderViewCalls,
+    uint32_t renderViewReturns, uint8_t completedEyeMask) noexcept
+{
+    return renderViewCalls == Halo2ExpectedEyePasses(mono) &&
+        renderViewReturns == renderViewCalls &&
+        completedEyeMask == Halo2ExpectedEyeMask(mono, firstEye);
+}
+
 // The engine stores one heap-allocated 0x2C-byte game_time_globals object
 // behind this module pointer slot. The official H2EK establishes the layout;
 // retail's unique incrementer and level initializer independently decode the

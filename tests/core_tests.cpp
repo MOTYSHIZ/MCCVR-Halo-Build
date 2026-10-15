@@ -17,6 +17,7 @@ int RunDirectorCameraTests();
 #include "../src/common/halo3_melee_selection_logic.h"
 #include "../src/common/weapon_order_diagnostic_logic.h"
 #include "../src/common/contact_melee_motion.h"
+#include "../src/common/session_read_logic.h"
 #include "../src/dll/contact_melee_queue.h"
 #include <array>
 #include <cstdlib>
@@ -63,8 +64,10 @@ int RunDirectorCameraTests();
 #include "reach_hand_shot_logic.h"
 #include "halo4_adapter.h"
 #include "halo4_cui_reticle_logic.h"
+#include "halo4_reticle_alpha_logic.h"
 #include "halo4_helmet_shader_logic.h"
 #include "halo4_screen_effect_shader_logic.h"
+#include "halo4_scene_copy_logic.h"
 #include "halo4_hud_logic.h"
 #include "halo4_restoration_logic.h"
 #include "halo4_parity_trace_logic.h"
@@ -213,6 +216,28 @@ namespace
 
 int main()
 {
+    {
+        using namespace halo4_reticle_alpha;
+        const uint8_t all = 15, rgb = 7;
+        const Blend additive{true, 2, kBlendOpAdd, all};      // (one, one): it adds
+        const Blend showThrough{true, 5, kBlendOpAdd, all};   // (one, source alpha): alpha is what shows through
+        const Blend over{true, kBlendInvSrcAlpha, kBlendOpAdd, all};
+        const Blend opaque{false, 1, kBlendOpAdd, all};       // blending off
+        const Blend subtract{true, kBlendInvSrcAlpha, 3, all};
+        Check(WritesCoverage(over) && !WritesCoverage(additive) && !WritesCoverage(showThrough) &&
+                  !WritesCoverage(opaque) && !WritesCoverage(subtract),
+              "H4 reticle alpha: only an enabled add with (one minus source alpha) on the scene writes coverage");
+        Check(!DropsAlphaWrite(over), "H4 reticle alpha: a draw that writes coverage keeps its alpha");
+        Check(DropsAlphaWrite(additive) && DropsAlphaWrite(showThrough),
+              "H4 reticle alpha: the game's two HUD blends are drawn without their alpha write");
+        Check(DropsAlphaWrite(opaque) && DropsAlphaWrite(subtract),
+              "H4 reticle alpha: any other alpha that is not coverage is not written either");
+        const Blend additiveRgb{true, 2, kBlendOpAdd, rgb};
+        Check(!DropsAlphaWrite(additiveRgb), "H4 reticle alpha: a draw that writes no alpha is left as it is");
+        Check(WriteMaskWithoutAlpha(all) == rgb && WriteMaskWithoutAlpha(rgb) == rgb &&
+                  WriteMaskWithoutAlpha(kWriteAlpha) == 0,
+              "H4 reticle alpha: the twin's mask is the game's without the alpha bit");
+    }
     {
         const float identity[]{0.f,0.f,0.f,1.f},zero[3]{};
         auto basis=[](float yaw) {Halo2CameraBasis b{};b.forward[0]=std::cos(yaw);
@@ -1634,6 +1659,42 @@ int main()
             heldAfterRearm &= rearm.Observe(true) == Gate::Decision::Hold;
         Check(heldAfterRearm,
               "after rearm the dying ticks hold again until a real freeze");
+    }
+    {
+        // The crosshair's kept picture is of the art at one HUD scale: a change of scale is a new identity.
+        const uint64_t art = 0x33637B71E3AA1D40ULL;
+        Check(AuthoredReticleKeyAtScale(0, 0) == 0 && AuthoredReticleKeyAtScale(0, 7) == 0,
+              "no art stays no art at any scale");
+        Check(AuthoredReticleKeyAtScale(art, 0) == art, "before any change of scale the key is the art's own");
+        Check(AuthoredReticleKeyAtScale(art, 1) != art &&
+                  AuthoredReticleKeyAtScale(art, 1) != AuthoredReticleKeyAtScale(art, 2),
+              "each change of scale gives the same art another key");
+        Check(AuthoredReticleKeyAtScale(art, 3) == AuthoredReticleKeyAtScale(art, 3),
+              "and the same scale the same key");
+        Check(AuthoredReticleKeyAtScale(0x9E3779B97F4A7C15ULL, 1) == 1, "an art key never becomes none");
+        // What it is for: a picture taken before the layout's scale was written is retaken after it, once the
+        // new identity has settled, with no change of weapon.
+        AuthoredReticleRefreshState state{};
+        uint64_t frame = 100;
+        bool uploaded = false;
+        for (; frame < 100 + kAuthoredIdentitySettleFrames + 2 && !uploaded; ++frame)
+            uploaded = ShouldUploadAuthoredReticle(AuthoredReticleRefreshPolicy::IdentityAndColorState, true, true,
+                                                   AuthoredReticleKeyAtScale(art, 0), 0, 0, frame, 1, state);
+        Check(uploaded, "the first picture is taken once its art has settled");
+        MarkAuthoredReticleUploaded(state, AuthoredReticleKeyAtScale(art, 0), 0, 0, frame);
+        bool again = false;
+        for (uint64_t f = frame + 10; f < frame + 200; ++f)
+            again = again || ShouldUploadAuthoredReticle(AuthoredReticleRefreshPolicy::IdentityAndColorState, true,
+                                                         true, AuthoredReticleKeyAtScale(art, 0), 0, 0, f, 1, state);
+        Check(!again, "the same art at the same scale is kept");
+        const uint64_t written = frame + 200;
+        uint64_t retakenAt = 0;
+        for (uint64_t f = written; f < written + 100 && !retakenAt; ++f)
+            if (ShouldUploadAuthoredReticle(AuthoredReticleRefreshPolicy::IdentityAndColorState, true, true,
+                                            AuthoredReticleKeyAtScale(art, 1), 0, 0, f, 1, state))
+                retakenAt = f;
+        Check(retakenAt >= written + kAuthoredIdentitySettleFrames && retakenAt < written + 100,
+              "after the scale changes the picture is retaken, some frames after the change");
     }
     {
         const float neutral[4]{1.0f, 0.3f, 0.6f, 0.9f};
@@ -5266,6 +5327,13 @@ int main()
               !invalidPass.writeLastWindow &&
               invalidPass.restoreLastWindowAfterPass,
             "Reach last-window policy fails closed for invalid passes and preserves the final result");
+        const ReachStereoPassPolicy monoLeftFirst = SelectReachMonoPassPolicy(false, 1);
+        const ReachStereoPassPolicy monoRightFirst = SelectReachMonoPassPolicy(true, 0);
+        Check(monoLeftFirst.valid && monoLeftFirst.eye == 0 && monoLeftFirst.writeLastWindow &&
+              monoLeftFirst.lastWindowInput == 1 && !monoLeftFirst.restoreLastWindowAfterPass &&
+              monoRightFirst.valid && monoRightFirst.eye == 1 && monoRightFirst.writeLastWindow &&
+              monoRightFirst.lastWindowInput == 0 && !monoRightFirst.restoreLastWindowAfterPass,
+            "Reach's one mono pass is the first eye and the frame's final window");
         Check(kReachRollbackLayout.workspaceSize == 0x2B0 &&
               kReachCameraPairDataSize == 0x2A8 &&
               kReachSecondaryDerivedOffset + kReachDerivedBlockSize ==
@@ -7090,6 +7158,22 @@ int main()
             "H2 still rejects a repeated, backwards, missing, or wrapped serial "
             "after the first Complete, because those are what a stale or reused "
             "eye actually looks like");
+        Check(Halo2EyePassesComplete(false, 0, 2, 2, 3) &&
+                  Halo2EyePassesComplete(false, 1, 2, 2, 3),
+            "H2 MONO: a pair is two passes that completed both eyes, whichever "
+            "eye went first");
+        Check(Halo2EyePassesComplete(true, 0, 1, 1, 1) &&
+                  Halo2EyePassesComplete(true, 1, 1, 1, 2),
+            "H2 MONO: a mono frame is one pass that completed the eye drawn first");
+        Check(!Halo2EyePassesComplete(false, 0, 1, 1, 1) &&
+                  !Halo2EyePassesComplete(true, 0, 2, 2, 3) &&
+                  !Halo2EyePassesComplete(true, 0, 1, 1, 2) &&
+                  !Halo2EyePassesComplete(true, 1, 1, 1, 1) &&
+                  !Halo2EyePassesComplete(true, 0, 1, 0, 1) &&
+                  !Halo2EyePassesComplete(true, 0, 1, 1, 0),
+            "H2 MONO: a pair short of an eye, a mono frame with a second pass, "
+            "the wrong eye, an unreturned pass or an uncompleted eye is never "
+            "complete");
         Check(!Halo2StructuralFailureRequiresQuarantine(
                   0, false, false, false, false),
             "A clean zero-eye H2 failure retains its one stock replay");
@@ -11472,6 +11556,21 @@ int main()
                   !halo4_screen_effect_shader::ShouldSuppress(
                       true, true, true, false),
             "Halo 4 motion-suck suppression is exact, feature-local, title-local, and stereo-only");
+
+        // The frame copy: taken from the eye's image only when every condition holds.
+        using halo4_scene_copy::TakesEyeImage;
+        Check(TakesEyeImage(true, true, true, true, true, true, false),
+            "Halo 4: a copy out of the scene colour texture while an eye is drawn reads that eye's image");
+        Check(!TakesEyeImage(false, true, true, true, true, true, false) &&
+                  !TakesEyeImage(true, false, true, true, true, true, false) &&
+                  !TakesEyeImage(true, true, false, true, true, true, false) &&
+                  !TakesEyeImage(true, true, true, false, true, true, false) &&
+                  !TakesEyeImage(true, true, true, true, false, true, false) &&
+                  !TakesEyeImage(true, true, true, true, true, false, false),
+            "Halo 4: switched off, another title, another source, no eye being drawn on this context, an eye "
+            "whose draws were not redirected, or no eye image: the copy is left as the game made it");
+        Check(!TakesEyeImage(true, true, true, true, true, true, true),
+            "Halo 4: a copy that would read and write the eye's image is left alone");
     }
 
     Halo4CuiReticleInstallProof halo4CuiInstall{};
@@ -15669,6 +15768,7 @@ int main()
         file << "haptic_intensity = 2.0\n";
         file << "headset_smoothing = 1.0\n";
         file << "aim_stabilization = -1.0\n";
+        file << "aim_lead_ticks = 9.0\n";
         file << "vehicle_cam_forward_m = -9.0\n";
         file << "vehicle_cam_up_m = 9.0\n";
         file << "vehicle_cam_right_m = 9.0\n";
@@ -15679,6 +15779,7 @@ int main()
     Check(g_config.headset_smoothing == 0.10f,
         "Headset smoothing is capped at the low-latency maximum");
     Check(g_config.aim_stabilization == 0.0f, "Aim stabilization is safely clamped");
+    Check(g_config.aim_lead_ticks == 3.0f, "The aim lead is held inside its range of 0 to 3 ticks");
     Check(g_config.vehicle_cam_forward_m == kVehicleCamForwardMin &&
               g_config.vehicle_cam_up_m == kVehicleCamUpMax &&
               g_config.vehicle_cam_right_m == kVehicleCamRightMax,
@@ -15884,9 +15985,12 @@ int main()
           g_config.roomscale_recenter_moving && g_config.roomscale_recenter_moving_speed == 0.25f,
           "legacy config inherits the roomscale view recenter options (on; they act only with roomscale on)");
     Check(g_config.shots_from_muzzle, "legacy config inherits shots from the muzzle");
+    Check(g_config.coop_safe_shots, "legacy config gets co-op safe shots on");
+    Check(g_config.aim_lead_ticks == 1.0f, "legacy config inherits the aim lead at its default of one tick");
     Check(g_config.physical_crouch && g_config.physical_crouch_depth_m == 0.22f,
           "legacy config inherits the physical crouch (on) at its default depth");
     Check(!g_config.experimental_hand_alignment, "legacy config preserves released hand positioning");
+    Check(g_config.halo4_seat_converge == 1, "legacy config inherits Halo 4 seated convergence (on)");
     Check(!g_config.manual_reload&&g_config.weapon_holsters,
         "legacy config leaves manual reload off and inherits weapon holsters (on)");
     Check(!g_config.game_menu_pointer, "legacy config leaves native menu pointing off");
@@ -16020,12 +16124,16 @@ int main()
         file << "roomscale_recenter_moving = 1\nroomscale_recenter_moving_speed = 0.01\n";
         file << "physical_running = 1\nphysical_running_speed = 0.6\nphysical_running_sensitivity = 2\n";
         file << "physical_crouch = 0\n";
+        file << "coop_safe_shots = 0\n";
+        file << "aim_lead_ticks = 1.5\n";
         file << "experimental_body_ik = 1\nbody_ik_hide_lower = 1\n";
         file << "physical_melee_swing_speed = 0.10\n";
+        file << "halo4_seat_converge = 0\n";
     }
     ConfigLoad(primary.c_str());
     Check(g_config.world_collision,
         "the shared world-collision option can be enabled from config");
+    Check(g_config.halo4_seat_converge == 0, "Halo 4 seated convergence is a player key: every build reads it");
     Check(g_config.physical_melee &&
               g_config.physical_melee_swing_speed == 0.3f,
         "physical melee loads independently and clamps its swing threshold");
@@ -16042,10 +16150,13 @@ int main()
         g_config.physical_running_sensitivity==2&&g_config.experimental_body_ik&&g_config.body_ik_hide_lower,
         "physical running controls and separate avatar/lower-body toggles survive config save/load");
     Check(!g_config.physical_crouch, "a config that switched the physical crouch off keeps it off through save/load");
+    Check(!g_config.coop_safe_shots, "a config that switched co-op safe shots off keeps it off through save/load");
+    Check(g_config.aim_lead_ticks == 1.5f, "the aim lead survives config save/load");
     Check(g_config.left_handed,
         "left-handed main-weapon mode survives a save/load round trip");
     Check(!g_config.experimental_hand_alignment,
         "left-handed updates keep released positioning until explicitly opted in");
+    Check(g_config.halo4_seat_converge == 0, "Halo 4 seated convergence survives config save/load");
     g_config.experimental_hand_alignment = true;
     ConfigSave();
     ConfigLoad(primary.c_str());
@@ -20714,6 +20825,98 @@ int main()
             !MakeControllerFingerInput(true,.5f,true,2.f).valid,"missing or malformed finger axes retain authored poses");
         const auto bounded=MakeControllerFingerInput(true,-.005f,true,1.005f);
         Check(bounded.valid&&bounded.trigger==0&&bounded.grip==1,"small analog endpoint noise remains bounded");
+    }
+    {
+        // The session read: each layout's own offsets, built as the engine lays them out.
+        using namespace session_read;
+        struct Fixture
+        {
+            const Layout* layout;
+            alignas(8) uint8_t globals[0x40]{}, header[0x80]{}, count[0x100]{};
+            explicit Fixture(const Layout& l, int type, int players, uint64_t mask, int local) : layout(&l)
+            {
+                globals[0] = 1;
+                if (l.typeDword) { const uint32_t v = uint32_t(type); std::memcpy(globals + l.typeOffset, &v, 4); }
+                else globals[l.typeOffset] = uint8_t(type);
+                std::memcpy(header, "players", 8);
+                const uint32_t signature = kDataArraySignature;
+                const int32_t maximum = 16;
+                if (l.wideHeader)
+                {
+                    const uint64_t size = l.datumSize;
+                    std::memcpy(header + 0x20, &size, 8);
+                    std::memcpy(header + 0x28, &signature, 4);
+                    std::memcpy(header + 0x2C, &maximum, 4);
+                }
+                else
+                {
+                    std::memcpy(header + 0x20, &maximum, 4);
+                    std::memcpy(header + 0x24, &l.datumSize, 4);
+                    std::memcpy(header + 0x2C, &signature, 4);
+                }
+                const int32_t p = players, me = local;
+                std::memcpy(count, &p, 4);
+                if (l.mask64) std::memcpy(count + l.maskOffset, &mask, 8);
+                else { const uint32_t m = uint32_t(mask); std::memcpy(count + l.maskOffset, &m, 4); }
+                std::memcpy(count + l.localOffset, &me, 4);
+            }
+            Session read() const { return Read(globals, header, count, *layout); }
+        };
+        for (const Layout* layout : {&kHalo3, &kOdst, &kReach, &kHalo4, &kHalo2})
+        {
+            Fixture solo(*layout, 3, 1, 0x1, 0);
+            Session s = solo.read();
+            Check(s.type == 3 && s.players == 1 && s.others == 0, "session: a solo level is a sync-server with one player");
+            Fixture host(*layout, 3, 2, 0x3, 0);
+            s = host.read();
+            Check(s.type == 3 && s.players == 2 && s.others == 1, "session: a co-op host has the same type and another machine");
+            Fixture joiner(*layout, 2, 3, 0x7, 2);
+            s = joiner.read();
+            Check(s.type == 2 && s.players == 3 && s.others == 2, "session: a joiner's own machine bit is not counted");
+            Fixture wrongSize(*layout, 3, 1, 0x1, 0);
+            wrongSize.header[layout->wideHeader ? 0x20 : 0x24] ^= 0x08;
+            s = wrongSize.read();
+            Check(s.type == 3 && s.players == kNotRead && s.others == kNotRead,
+                "session: another build's players array proves nothing beside it");
+            Fixture wrongName(*layout, 3, 1, 0x1, 0);
+            wrongName.header[0] = 'q';
+            Check(wrongName.read().players == kNotRead, "session: the array must carry its own name");
+            Fixture noLocal(*layout, 3, 2, 0x3, -1);
+            s = noLocal.read();
+            Check(s.players == 2 && s.others == kNotRead, "session: without a local machine the others are not read");
+            Fixture garbage(*layout, 3, 99, 0x1, 0);
+            Check(garbage.read().players == kNotRead, "session: a count past sixteen players is not believed");
+            Check(Read(nullptr, host.header, host.count, *layout).type == kNotRead &&
+                Read(host.globals, nullptr, host.count, *layout).players == kNotRead &&
+                Read(host.globals, host.header, nullptr, *layout).players == kNotRead,
+                "session: a missing pointer reads nothing past it");
+            if (layout->progressFlags)
+            {
+                Fixture idle(*layout, 3, 1, 0x1, 0);
+                idle.globals[0] = idle.globals[1] = 0;
+                Check(idle.read().type == kNotRead, "session: no game in progress has no type");
+            }
+        }
+        {
+            Fixture wide(kHalo4, 5, 4, (uint64_t(1) << 16) | 0x1F | (uint64_t(1) << 40), 16);
+            const Session s = wide.read();
+            Check(s.type == 5 && s.players == 4 && s.others == 5,
+                "session: Halo 4's mask is 64 bits wide and only its 17 machine bits count");
+        }
+        {
+            alignas(8) uint8_t tls[0x200]{};
+            Fixture host(kReach, 3, 2, 0x3, 1);
+            const uint8_t* pointers[3]{host.globals, host.header, host.count};
+            std::memcpy(tls + kReachSlots.gameGlobals, &pointers[0], sizeof(void*));
+            std::memcpy(tls + kReachSlots.playersArray, &pointers[1], sizeof(void*));
+            std::memcpy(tls + kReachSlots.countBlock, &pointers[2], sizeof(void*));
+            const Session s = ReadTls(tls, kReachSlots, kReach);
+            Check(s.type == 3 && s.players == 2 && s.others == 1, "session: the three pointers come from the engine's TLS block");
+            Check(ReadTls(nullptr, kReachSlots, kReach).type == kNotRead, "session: no TLS block reads nothing");
+        }
+        Check(std::strcmp(TypeName(3), "sync-server") == 0 && std::strcmp(TypeName(2), "sync-client") == 0 &&
+            std::strcmp(TypeName(4), "dist-client") == 0 && std::strcmp(TypeName(9), "unknown") == 0,
+            "session: the type names are the game's own");
     }
     g_failures += RunRoomscaleInputTests();
     g_failures += RunRoomscaleRecenterTests();

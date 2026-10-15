@@ -138,7 +138,7 @@ __declspec(noinline) void __fastcall Halo3IndependentQueryDetour(
     // A TLS record is usable only on this same native thread at firing time.
     const bool capture=feature.enabled.load(std::memory_order_acquire) &&
         !feature.faulted.load(std::memory_order_acquire) &&
-        (g_config.independent_dual_aim || g_config.gun_barrel_aim || g_config.shots_from_muzzle) &&
+        (Sight_IndependentDualAim() || Sight_GunBarrelAim() || Sight_ShotsFromMuzzle()) &&
         inputUser>=0 && inputUser<4 && !(flags&1) && direction && control && targeting;
     g_halo3QueryCapture.active=capture;
     const int32_t previousAcquisitionUser=t_halo3AcquisitionUser;
@@ -182,7 +182,7 @@ bool AcquireHalo3IndependentShot(uint32_t weapon,NativeShotTargetLease<0x24>& le
 {
     auto& feature=g_halo3Dual;
     if(!feature.enabled.load(std::memory_order_acquire) || feature.faulted.load() ||
-        (!muzzle&&!g_config.independent_dual_aim) || exclusive_input::Active() ||
+        (!muzzle&&!Sight_IndependentDualAim()) || exclusive_input::Active() ||
         !g_vrAim.load() || !g_enabled.load() || !VR_IsStereoEnabled() ||
         TitleAdapter_GetActiveTitle()!=GameTitle::Halo3 ||
         feature.generation!=g_halo3RuntimeGeneration.load() || !feature.queryOriginal)

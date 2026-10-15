@@ -25,6 +25,10 @@ static struct {
 } g_reachCamera;
 static std::atomic<bool> g_vrAim{true},g_enabled{true},g_reachBarrelBindingsReady{true},g_reachCinematicLocked{false},g_reachVehicleShotRedirectEnabled{true};
 static struct {bool gun_barrel_aim=true,left_handed=false,shots_from_muzzle=false;} g_config;
+// The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
+[[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
+[[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
+[[maybe_unused]] static bool Sight_IndependentDualAim(){return false;}
 static weapon_muzzle::Store g_reachBarrelMuzzles;
 static thread_local bool g_legacyCollisionOwnedQuery=false;
 static alignas(8) uint8_t tlsBytes[0x700]{},users[0x53A8]{},unitBytes[0x400]{},replacementBytes[0x400]{},

@@ -124,6 +124,13 @@ namespace
     std::atomic<uint32_t> g_coverLoggedGeneration{0};
     std::atomic<uint32_t> g_activeCallbacks{0};
     std::atomic<uint64_t> g_lastCompletedSerial{0};
+    // MONO RENDERING: the eye the frame at g_lastCompletedSerial was drawn as when it was one pass; -1 a pair.
+    // Stored before that serial, read after it.
+    std::atomic<int> g_lastCompletedMonoEye{-1};
+    std::atomic<uint64_t> g_monoFrames{0};
+    std::atomic<uint64_t> g_monoDrops{0};
+    // Of the HUD replays, those over a mono frame's one picture (drawn once, not per eye).
+    std::atomic<uint64_t> g_hudMonoReplays{0};
 
     std::atomic<uint64_t> g_callbacks{0};
     std::atomic<uint64_t> g_pairs{0};
@@ -830,6 +837,20 @@ namespace
             return;
         }
 
+        // MONO RENDERING (mono_view_logic.h): asked once for this frame, and only once the capture source is settled
+        // (learning it compares the two eyes' pictures). One pass, as eye 0 (this core always draws eye 0 first),
+        // from the tracked centre: the midpoint of the eyes, turned the head's way, under the same cover. Each eye
+        // is still submitted at its own pose.
+        bool mono = false;
+        if (VR_Halo2CaptureSourceSettled())
+        {
+            float monoCover[4]{};
+            mono = VR_MonoRenderThisFrame(GameTitle::Halo2, monoCover);
+            if (mono)
+                eyes[0] = tracked;
+        }
+        const int passes = static_cast<int>(Halo2ExpectedEyePasses(mono));
+
         bool ok = true;
         // E-H2-34: the weapon re-anchor moves the first-person geometry to
         // the tracked centre THESE eyes are rendered from; no stale-camera
@@ -840,7 +861,7 @@ namespace
             passCameras.frameValid = true;
             Halo2Observer6Dof_SetFirstPersonPassCameras(&passCameras);
         }
-        for (int eye = 0; eye < kHalo2EyeCount && ok; ++eye)
+        for (int eye = 0; eye < passes && ok; ++eye)
         {
             if (eye != 0)
             {
@@ -1058,10 +1079,18 @@ namespace
             CountBail(Bail::CameraRestoreFailed);
         if (ok && restored)
         {
-            if (VR_Halo2CompleteSynchronousPair(generation, serial))
+            if (mono
+                    ? VR_Halo2CompleteSynchronousMonoPair(
+                          generation, serial, 0, submitPosition[1], submitOrientation[1])
+                    : VR_Halo2CompleteSynchronousPair(generation, serial))
             {
+                g_lastCompletedMonoEye.store(mono ? 0 : -1, std::memory_order_release);
                 g_lastCompletedSerial.store(serial, std::memory_order_release);
                 g_pairs.fetch_add(1, std::memory_order_relaxed);
+                if (mono)
+                    g_monoFrames.fetch_add(1, std::memory_order_relaxed);
+                else
+                    VR_NoteStereoFrameRendered(GameTitle::Halo2);
 #if HALOMCCVR_DEV_DIAGNOSTICS
                 // Dev AS SEEN (halo2_impact_witness.inl): this serial's centre camera, the head its views were
                 // submitted with, and the publication the frame's camera matched.
@@ -1076,6 +1105,11 @@ namespace
 
         VR_Halo2InvalidateSynchronousPair(generation, serial);
         g_drops.fetch_add(1, std::memory_order_relaxed);
+        if (mono)
+        {
+            g_monoDrops.fetch_add(1, std::memory_order_relaxed);
+            VR_NoteMonoFrameRejected(GameTitle::Halo2);
+        }
     }
 
     // E-H2-18: detour on the view-record rebuild 0x1C6D80. The engine (and
@@ -1215,6 +1249,7 @@ namespace
         const uintptr_t faultAnchor = OwnImageFault_Anchor();
         const uint32_t generation = g_generation.load(std::memory_order_acquire);
         const uint64_t serial = g_lastCompletedSerial.load(std::memory_order_acquire);
+        const int monoEye = g_lastCompletedMonoEye.load(std::memory_order_acquire);
         const char* reason = "none";
         bool eligible = false;
         __try { eligible = VR_Halo2HudReplayEligible(generation, serial, &reason); }
@@ -1233,34 +1268,52 @@ namespace
         bool ok = true;
         __try
         {
-            // E-H2-19: the backbuffer is NOT guaranteed to hold eye 1 here -
-            // a second Saber view rendered after the pair (serialRepeated
-            // stock passes, the C-H2-26 "flash to the flat screen" in one
-            // eye). Eye 1's finished scene is put back first, always.
-            ok = VR_Halo2RestoreEyeToFinalTarget(generation, serial, 1);
-            if (!ok)
-                reason = "eye 1 restore refused";
-            if (ok)
+            if (monoEye == 0 || monoEye == 1)
             {
-                original(param);                         // interface over eye 1
-                (void)DrawNativeGameplayHud(generation, serial);
-            }
-            if (ok)
-                ok = VR_Halo2RecaptureEyeFromFinalTarget(generation, serial, 1);
-            if (!ok)
-                reason = "eye 1 recapture refused";
-            if (ok && !VR_Halo2RestoreEyeToFinalTarget(generation, serial, 0))
-            {
-                ok = false;
-                reason = "eye 0 restore refused";
-            }
-            if (ok)
-            {
-                original(param);                         // interface over eye 0
-                (void)DrawNativeGameplayHud(generation, serial);
-                ok = VR_Halo2RecaptureEyeFromFinalTarget(generation, serial, 0);
+                // MONO: one picture, drawn as `monoEye`, shown to both eyes: the interface goes over it once.
+                ok = VR_Halo2RestoreEyeToFinalTarget(generation, serial, monoEye);
                 if (!ok)
-                    reason = "eye 0 recapture refused";
+                    reason = "mono eye restore refused";
+                if (ok)
+                {
+                    original(param);
+                    (void)DrawNativeGameplayHud(generation, serial);
+                    ok = VR_Halo2RecaptureEyeFromFinalTarget(generation, serial, monoEye);
+                    if (!ok)
+                        reason = "mono eye recapture refused";
+                }
+            }
+            else
+            {
+                // E-H2-19: the backbuffer is NOT guaranteed to hold eye 1 here -
+                // a second Saber view rendered after the pair (serialRepeated
+                // stock passes, the C-H2-26 "flash to the flat screen" in one
+                // eye). Eye 1's finished scene is put back first, always.
+                ok = VR_Halo2RestoreEyeToFinalTarget(generation, serial, 1);
+                if (!ok)
+                    reason = "eye 1 restore refused";
+                if (ok)
+                {
+                    original(param);                         // interface over eye 1
+                    (void)DrawNativeGameplayHud(generation, serial);
+                }
+                if (ok)
+                    ok = VR_Halo2RecaptureEyeFromFinalTarget(generation, serial, 1);
+                if (!ok)
+                    reason = "eye 1 recapture refused";
+                if (ok && !VR_Halo2RestoreEyeToFinalTarget(generation, serial, 0))
+                {
+                    ok = false;
+                    reason = "eye 0 restore refused";
+                }
+                if (ok)
+                {
+                    original(param);                         // interface over eye 0
+                    (void)DrawNativeGameplayHud(generation, serial);
+                    ok = VR_Halo2RecaptureEyeFromFinalTarget(generation, serial, 0);
+                    if (!ok)
+                        reason = "eye 0 recapture refused";
+                }
             }
         }
         __except (GameFault(faultAnchor))
@@ -1270,7 +1323,11 @@ namespace
             reason = "replay faulted";
         }
         if (ok)
+        {
             g_hudReplays.fetch_add(1, std::memory_order_relaxed);
+            if (monoEye == 0 || monoEye == 1)
+                g_hudMonoReplays.fetch_add(1, std::memory_order_relaxed);
+        }
         else
         {
             g_hudFailures.fetch_add(1, std::memory_order_relaxed);
@@ -1493,6 +1550,7 @@ namespace
         g_teardown.store(false, std::memory_order_release);
         g_referenceValid.store(false, std::memory_order_release);
         g_recenterRequested.store(true, std::memory_order_release);
+        g_lastCompletedMonoEye.store(-1, std::memory_order_release);
         g_lastCompletedSerial.store(0, std::memory_order_release);
         g_installed.store(true, std::memory_order_release);
         g_coreState = CoreState::CleanupRequired;
@@ -1562,6 +1620,13 @@ namespace
                 static_cast<unsigned long long>(n));
             if (written > 0)
                 used += static_cast<size_t>(written);
+        }
+        if (g_monoFrames.load(std::memory_order_relaxed) || g_monoDrops.load(std::memory_order_relaxed))
+        {
+            // MONO RENDERING: of the eye pairs, the frames drawn as one pass; of the drops, the mono frames.
+            LOG("Halo 2 Anniversary mono: %llu frames drawn as one pass, %llu mono frames dropped",
+                static_cast<unsigned long long>(g_monoFrames.load(std::memory_order_relaxed)),
+                static_cast<unsigned long long>(g_monoDrops.load(std::memory_order_relaxed)));
         }
         LOG("Halo 2 Anniversary stereo: %llu scene callbacks, %llu eye pairs, "
             "%llu drops, %llu stock passes, %llu exceptions; pose published=%llu "
@@ -1711,12 +1776,14 @@ namespace
             LOG("Halo 2 Anniversary HUD: host UI callback +0x%X (-> 0x960230(1) "
                 "-> 0x7E1990 interface draw) fired %llu times; replayed per eye "
                 "(eye 1 restored+drawn+recaptured, eye 0 restored+drawn+recaptured) on "
-                "%llu frames, run once untouched on %llu (no complete pair), "
+                "%llu frames (%llu of them mono: drawn once over the one picture), "
+                "run once untouched on %llu (no complete pair), "
                 "%llu interface failures; native gameplay HUD draws=%llu "
                 "failures=%llu; last reason: %s",
                 static_cast<unsigned>(kHalo2SaberHostUiCallbackRva),
                 static_cast<unsigned long long>(g_hudCallbacks.load(std::memory_order_relaxed)),
                 static_cast<unsigned long long>(replays),
+                static_cast<unsigned long long>(g_hudMonoReplays.load(std::memory_order_relaxed)),
                 static_cast<unsigned long long>(g_hudStockPasses.load(std::memory_order_relaxed)),
                 static_cast<unsigned long long>(g_hudFailures.load(std::memory_order_relaxed)),
                 static_cast<unsigned long long>(

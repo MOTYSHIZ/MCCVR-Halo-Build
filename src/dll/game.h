@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 #include "../common/converge_policy.h"
@@ -20,6 +21,22 @@ uint32_t Game_VrActionTransport(vr_mapping::Action action, uint64_t nowMs);
 // camera where the title has it bound (every title; Reach, Halo 4 and Halo 2 since director_camera_logic.h), else
 // by the first-person view-model witness -- behind the roomscale setting and the presentation gates. The verdict
 // names the reading that refused.
+// A TITLE'S CAMERA CORE, for a lane that keeps its own loader reference on the game DLL (the first-person seat
+// view, native_vehicle_first_person.cpp). Every game is meant to start in a fresh image of its DLL: when a game
+// ends MCC lets go of the DLL, it unloads, and MCC loads it again for its menus (host_unload_gate.cpp). A reference
+// that outlives the game makes that load take the old image, and the next game of the same title starts in a
+// module whose own shutdown has already run. So such a lane holds its reference only while `installed` (the
+// core's hooks are in: they need the image mapped until they are out), and registers it with the unload gate
+// with `tearingDown` (the core's own "teardown requested") and `lastFrameMs` (GetTickCount64 of the title's last
+// frame; null: the gate only waits for a teardown the core began itself). False: this title's core does not say,
+// and the lane keeps its reference until another title starts, as before.
+struct GameTitleCoreState
+{
+    bool installed = false;
+    std::atomic<bool>* tearingDown = nullptr;
+    const std::atomic<uint64_t>* lastFrameMs = nullptr;
+};
+bool Game_TitleCoreState(GameTitle title, GameTitleCoreState& out) noexcept;
 roomscale_admission::Verdict Game_RoomscaleCameraVerdict(GameTitle title);
 bool Game_RoomscaleCameraAllowed(GameTitle title);
 // That on-foot, player-controlled, first-person evidence alone (no roomscale setting or presentation gates): the
@@ -357,6 +374,12 @@ bool Game_GetClampedAimDirection(float outDir[3], float* outRangeM = nullptr,
 // for (VR metres, `hit` = a traced surface). The XInput hook, every poll: whether the RT fed to the game is pressed.
 void Game_DevNoteTracedReticle(uint64_t serial, const float center[3], const float dir[3], float rangeM, bool hit);
 void Game_DevNoteFireTrigger(bool pressed);
+// A gun-slaved seat's pitch check (Halo 3 / ODST): false lets the stick servo run while the check collects its
+// evidence, as before the hold existed. For comparing the two in one sitting; a player build always holds.
+void Game_DevSetSeatPitchCheckHold(bool hold);
+// Halo 4's Broadsword view: true stands it on the seat camera's point, false leaves the observer as the game makes
+// it (the line still measures how far it trails). A player build always rides.
+void Game_DevSetBroadswordRide(bool ride);
 #endif
 // THE SEAT LIMIT RETICLE (all builds; src/common/seat_limit_reticle_logic.h):
 // true while this input poll clamped the seated reticle at a natural angular

@@ -328,6 +328,39 @@ inline constexpr int kConfigReachShippedSeatTrimCount =
     sizeof(kConfigReachShippedSeatTrims) /
     sizeof(kConfigReachShippedSeatTrims[0]);
 
+// Seats named by the vehicle's stable model identity (ConfigVehicleModelTrim): the games whose seats have no
+// named bank above. A row is that seat's built-in camera offset from its occupant's head, in metres, all three
+// axes set. The seat's sliders start from it and its reset returns to it.
+//
+// Halo 4's Mantis. The pilot's head is inside a closed cockpit: a camera there sees the cockpit's walls and the
+// dashboard, and nothing of the world (the game's own camera for the seat is third person). The cockpit roof is
+// cleared at about 0.4 m above the head. The row puts the eye above the roof and a little forward, with the
+// roof and both weapon arms below it. Seen headless on one multiplayer map; not seen in a headset.
+struct ConfigShippedVehicleModelTrim
+{
+    GameTitle title;
+    uint64_t identity;
+    int16_t seat;
+    float forward;
+    float up;
+    float right;
+    const char* name;
+};
+
+inline constexpr ConfigShippedVehicleModelTrim kConfigShippedVehicleModelTrims[] = {
+    // game,            model identity,        seat, forward, up,    right, name
+    {GameTitle::Halo4, 0x000000551b05181eull, 0,    0.30f,   0.80f, 0.00f, "Mantis"},
+};
+
+inline const ConfigShippedVehicleModelTrim* ConfigShippedVehicleModelTrimFor(
+    GameTitle title, uint64_t identity, int seat)
+{
+    for (const ConfigShippedVehicleModelTrim& trim : kConfigShippedVehicleModelTrims)
+        if (trim.title == title && trim.identity == identity && trim.seat == seat)
+            return &trim;
+    return nullptr;
+}
+
 // C-TITLE-1: the weapon/hand/HUD/crosshair tunables every title keeps its
 // own copy of - one struct so a profile is copied whole. Defaults mirror
 // the shared fields' defaults so an untouched profile behaves identically.
@@ -439,6 +472,15 @@ struct Config
 
     float screen_width_m = 4.0f;    // width of the virtual screen, in meters
     float screen_distance_m = 2.4f; // how far away the screen floats, in meters
+
+    // MONO RENDERING (mono_view_logic.h; every title, Halo CE on its Classic graphics only): 1 = the world is drawn
+    // once a frame, from between the eyes, and shown to both: no depth between the eyes, one pass of drawing instead
+    // of two. For maps with so much in view that two passes do not fit the headset's frame. Refused, with a log
+    // line, on canted displays, in the cutscene theatre, while DLSS is on, and in a title whose renderer turns
+    // single passes down. Halo CE's Anniversary graphics have no single-pass path and are drawn in stereo; Halo 2
+    // waits until it has learned where the game leaves each eye's picture, which compares two eyes. Followed live.
+    // (default 0)
+    bool mono_rendering = false;
 
     // Universal cutscene-only stereo theatre. A title enters it only after its
     // adapter proves the engine owns an authored camera and player camera
@@ -766,7 +808,11 @@ struct Config
     // Halo 4's authored Mjolnir helmet/visor overlay. This is deliberately
     // separate from HUD scale/curvature so players can keep the complete HUD
     // while hiding only the helmet frame.
-    bool halo4_helmet = true;
+    // Off by default. The frame is opaque art the game lights like a model, authored to sit at the edges of a
+    // flat screen. The HUD's scale brings it into the middle of the view with the rest of the HUD: in the
+    // campaign it covers a band above the HUD and a larger one below it, and each eye sees it cut off at a
+    // different place. The visor's thin outline is drawn by another shader and stays.
+    bool halo4_helmet = false;
     bool hide_hud = false;
     bool hud_reveal_near_head = false;
     float hud_reveal_radius_m = .22f;
@@ -782,6 +828,28 @@ struct Config
     // own obstruction check pulls back (the gun through a wall the eye sees past) and every other refusal
     // leave from the eye as before. gun_barrel_aim, when on, wins. sight_layer.h: Sight_AimMuzzleShot.
     bool shots_from_muzzle = true;
+    // CO-OP SAFE SHOTS (default ON, live; F1 > Advanced): 1 = nothing changes a shot as it is fired. It leaves as the game
+    // builds it from the aim the hand writes: not from the muzzle or along the barrel, not re-aimed through the
+    // newest intent point, not from a second gun's own controller and, in a seat, not redirected or restarted
+    // from the eye. In Halo 2 the character's aim and the aim-assist target are also left to the game.
+    // A campaign co-op session runs one simulation on every machine from shared input. The written aim is part
+    // of that input; a change made inside one machine's simulation is not, and the machines then disagree.
+    // Contact melee (physical_melee) does not apply its own damage either: its swing presses the game's melee
+    // (Halo CE has no such lane; there it does nothing).
+    // On by default because nothing tells a player his session is shared before his first shot ends it: 0 is
+    // for solo play, and brings back what the switch stands down.
+    // sight_layer.h: Sight_FireTimeChangesAllowed.
+    bool coop_safe_shots = true;
+    // AIM LEAD (default 1 tick, live; 0 = off, up to 3): the aim written into the game's record on foot (Halo 3,
+    // ODST, Reach) is carried ahead by the setpoint's own rate times this many simulation ticks. A record
+    // written at one control pass is first used by the next tick, so a shot leaves along a hand sample about a
+    // tick old; the lead writes where the aim will be then. Only the record is led -- the reticle, the gun and
+    // the scope are drawn from the hand as before -- and the record is shared input, so every machine of a
+    // co-op session fires the same shot. A snap turn, a recentre, a stop and an aim at rest are written
+    // unchanged (aim_lead_logic.h). The default is the tick the record recomposition already carries the game's
+    // eye by, not a measured optimum: the "AIM LEAD" and "CO-OP SAFE SHOTS" / "SHOT REAIM" log lines say what it
+    // did and what is left. Seats are not led. sight_layer.h: Sight_LeadWrittenAim.
+    float aim_lead_ticks = 1.0f;
 
     // EXPERIMENTAL (dev): route this title's aim through the game-agnostic aim-solve core + per-game
     // provider (src/common/aim_solve_logic.h, aim_provider.h). 0 = off (shipped path untouched).
@@ -852,6 +920,13 @@ struct Config
     // old files that set those are still read, as aliases that can only turn it on. (default 1: direct drive is
     // the aim path everything else builds on; no release ever shipped this key, so no saved file holds an old 0)
     int aim_direct_drive = 1;
+    // EVERY TITLE WITH DIRECT DRIVE: 1 = the address cache (src/common/drive_known.h). When a drive had to search
+    // its game DLL for its code -- a game build the mod's tables were not measured on -- what it found is written
+    // to HaloMCCVR-drive-addresses.txt in the mod's folder, and the next launch on that build verifies those
+    // addresses instead of searching again. The file is a cache, not a setting: every address is verified
+    // before it is used, another game build or another version of the mod's tables makes an entry dead, and
+    // deleting it costs one search. 0 = the file is neither read nor written. (default 1)
+    int drive_address_cache = 1;
     // EVERY TITLE, live from F1 > Weapon & aim > "Converged aim" (Reach's also needs direct drive; with it off
     // Reach keeps its own convergence), on foot and in Halo 3, ODST and Reach seats (reach_vehicle_aim):
     // CONVERGED AIM (1). The game traces the ray from your eye along the controller and bends the aim so the
@@ -886,6 +961,14 @@ struct Config
     // DEV BUILDS ONLY, test-only (never saved): trace length override in metres for a cost A/B.
     // 0 = the shipped 1 km.
     float reach_sight_trace_length_m = 0.0f;
+    // DEV BUILDS ONLY (not parsed otherwise): where the trace is made, for an A/B. -1 = by the rule (inside the
+    // unit's update when alone in the game, at the control pass when the simulation is shared); 0 = always inside
+    // the unit's update; 1 = always at the control pass.
+    int reach_sight_trace_site = -1;
+    // DEV BUILDS ONLY (not parsed otherwise): when Reach moves an effect's place onto the gun, for an A/B. -1 = by
+    // the rule (always when alone in the game; only outside a simulation tick when the simulation is shared);
+    // 0 = always; 1 = only outside a tick; 2 = never; 3 = only the player's own first-person weapon effects.
+    int reach_effect_move_rule = -1;
     // DEV BUILDS ONLY (not parsed otherwise): replace the resolved flags for an experiment. 0 = use them.
     unsigned long long reach_sight_trace_flags = 0;
     int reach_sight_trace_mode = 0;
@@ -902,6 +985,26 @@ struct Config
     // a first-person game camera reads "not first person" (the value agreement with the view model must
     // then withdraw the rung). Read at launch; 0 for every other run.
     int first_person_rung_fault = 0;
+    // DEV BUILDS ONLY (not parsed and compiled out otherwise; never saved): fault injection for the direct drives'
+    // address resolution, every title (src/common/drive_resolve.h, src/dll/drive_cascade.cpp). Each bit forces one
+    // thing that only happens on a game build the tables were not measured on, so the rung below it -- or the
+    // refusal -- can be watched working through the real install path. Bit 0 (0x01) = every signature search
+    // finds nothing: no drive is hooked, each says what was not found. Bit 1 (0x02) = every signature search
+    // finds one match too many: each is taken at its recorded address, and says so. Bit 2 (0x04) = every recorded
+    // RVA is wrong: the search must win, and each address is reported MOVED. Bits 1 and 2 together = ambiguous
+    // with no record to settle it: no drive is hooked. Bit 3 (0x08) = the module's PE TLS directory disagrees
+    // with the instruction a drive anchors on: no drive that reads the engine TLS index is hooked. Bit 4 (0x10)
+    // = a hook's watchdog is told the hook never ran: it must say so once, after its ten seconds of possible
+    // time. Bit 5 (0x20) = no short field anchor stands at its recorded offset in its function: each must be the
+    // one match inside that function. Bit 6 (0x40) = the addresses saved from an earlier launch are stale: the
+    // resolution behaves as on a build that is not the recorded one, verifying them fails, and the search must
+    // find everything. Bit 7 (0x80) = a self-test, not a fault: where the known addresses verified, the search
+    // is run as well and the log says whether the two agree; what is used does not change. With bits 0, 1, 2
+    // or 5 the known addresses fail first, so the whole path shows: not verified, searched, reported. While
+    // ANY bit is set the address cache's file is neither read nor written, so nothing a launch with this key
+    // in it found can reach a later launch (with bit 7 the self-test is therefore of the recorded addresses,
+    // the only known ones left). Read when a drive is installed; 0 for every other run.
+    int drive_fault = 0;
     // Diagnostic: log the distinct (caller, flags, mode) of Reach's own collision_test_vector calls,
     // to identify the flags a bullet's flight test uses. Leave at 0 for play.
     int reach_collision_census = 0;
@@ -909,16 +1012,16 @@ struct Config
     // engine eye and run along the converged aim (the crosshair / shot query candidates; Halo 4 and Halo 2).
     // Leave at 0 for play.
     int sight_ray_census = 0;
-    // DEV BUILDS ONLY (not parsed otherwise), Halo 4 SEATED CONVERGENCE, stage 1: 1 = a Halo 4 seat converges
-    // like a Halo 3 one -- the seated trace is published, and the aim is bent so the game's own seat eye line
-    // passes through the point the intent ray hits, while every proof holds (our first-person seat view, the
-    // exact first-person witness, the eye agreement, a known seat class with a weapon, the record's frame anchor
-    // read). Converged is then CLAIMED as on foot and in a Halo 3 seat: the native assist's verdict
-    // (21 deg cap, an aiming unit that carries the player), a slope and a slaved turret are natural and only
-    // counted for the dev line; a gun that cannot reach the point fires where it can, as in flat Halo. A slaved
-    // turret is still parked by the servo. 0 = no Halo 4 seat converges (stage 0 still measures). An A/B
-    // switch. (default 0)
-    int halo4_seat_converge = 0;
+    // Halo 4 SEATED CONVERGENCE (every build; F1 > Vehicles): 1 = a Halo 4 seat converges -- its
+    // intent ray is traced, and the aim is bent so the line the SIMULATION aims the seat along passes through the
+    // point that ray hits; the reticle sits on that point. The line is sampled from the game's own aim-view call
+    // for the seat: with coop_safe_shots on that is the game's own seat camera (the following camera in a seat the
+    // game aims in third person), on every machine, and nothing in the simulation is changed -- only the aim
+    // written into the control record and the stick. Converged is then claimed as on foot and in a Halo 3 seat:
+    // the native assist's cap, a seat's stop and a gun still turning are natural and never switch it off. Needs
+    // converged_aim, reach_vehicle_aim > 0 and the first-person seat view. 0 = Halo 4 seats keep the
+    // fixed-distance aim. (src/dll/halo4_seat_converge.inl; default 1)
+    int halo4_seat_converge = 1;
     // DEV BUILD ONLY (parsed and saved only in dev builds): 1 = a Halo 3 SEATED local shot whose round will inherit
     // its vehicle's velocity (the fire routine's body-velocity branch, 0x369419) re-aims its crosshair query through
     // P' -- the point that makes the round's own velocity, d * Vp + the inherited sideways velocity, point at P --
@@ -989,6 +1092,30 @@ struct Config
     // mod folder press its buttons (tools/Send-MccPad.ps1; the language is src/common/dev_pad_script.h).
     // Read once at startup. Leave at 0 to play.
     int dev_synthetic_pad = 0;
+    // DEV BUILD ONLY (not parsed and compiled out otherwise), Halo: Reach (src/dll/reach_sim_trace.inl).
+    // dev_sim_trace: 1 = every object's state at each simulation tick goes to HaloMCCVR-simtrace-<stamp>.bin beside
+    // the log (about 35 MB a minute), to compare two replays of one saved film, or a game with its own film.
+    // dev_sim_probe: make one of the mod's own calls while a film replays. Bit 0 = the aim trace inside the tick (a
+    // 1 km collision test along the unit's aim, once a tick, in the unit's own update); bit 1 = the unit
+    // camera-position evaluator alone, inside the tick; bit 2 = that aim trace between ticks instead (when the game
+    // builds the unit's camera); bit 3 = the collision test alone, inside the tick (no evaluator). Both keys can be
+    // set live with the dev pad (`set dev_sim_probe 1`).
+    // dev_sim_minimal (needs dev_sim_trace, read at startup): the reference. Nothing of the mod is installed in
+    // Reach but the recorder -- no VR view, no aim, no other hook -- so the trace is the game's own.
+    // dev_sim_bisect: each bit makes one group of the mod's Reach detours a plain pass-through (the game's own
+    // function and nothing else): 1 the per-unit update, 2 the collision test, 4 the unit camera position, 8 the
+    // unit adjust, 16 the effect location, 32 the muzzle lane's four, 64 the melee damage, 128 the weapon haptics'
+    // five, 256 the tracker and the sound listener. For finding which one changes a replay.
+    int dev_sim_trace = 0;
+    int dev_sim_probe = 0;
+    int dev_sim_minimal = 0;
+    int dev_sim_bisect = 0;
+    // Dev builds: the pixel shader census (src/dll/dev_ps_census.inl). 1 = in Halo 4, each pixel shader's first
+    // small draw (a full-screen pass or a HUD quad) is logged with its target, blend state and textures, its
+    // disassembly is written beside the log, and once a second the log says which of them drew and which copies
+    // touched the game's scene colour or an eye's image. Read at startup (it creates three more hooks); the pad's
+    // `set dev_ps_census` pauses and resumes it. (default 0)
+    int dev_ps_census = 0;
 
     // Halo Reach, SEATED, direct drive (reach_direct_drive = 3): the same trace-and-reaim aim in vehicles.
     // The write drives the seat's look (desired_angles), and Reach aims every seat's weapon from it: it
@@ -1596,6 +1723,16 @@ struct Config
     // move to the right lens. See docs/CONTINUATION.md "KNOWN MAJOR BUG".
     bool right_eye_first = false;
 
+    // INSTALL SEARCH MEMORY (sigscan.h, ImageMemoScope; Halo 3): 1 = within one load of the game's DLL, an install
+    // of the hooks answers the searches an earlier install already made from what that one found, and searches
+    // only for what is new. Halo 3's hooks are installed again at each new level in one load of the DLL, and an
+    // install asks over two hundred searches of it (measured: 226, about 2 s of the worker thread). 0 = every
+    // install searches again. Read when an install begins. (default 1)
+    int install_search_memory = 1;
+    // Dev builds: every remembered answer is searched for as well, and the install's line counts the ones the
+    // search did not confirm. The proof of the memory against a running game; it costs every search. (default 0)
+    int dev_install_search_check = 0;
+
     // C-TITLE-1: per-title weapon/hand/HUD/crosshair profiles. Every supported
     // game - and Halo 2's Anniversary and Classic renderers separately - keeps
     // its OWN copy of the tunables in TitleTunables, exactly like the per-vehicle
@@ -1834,6 +1971,16 @@ inline int ConfigEnsureVehicleModelTrim(Config& c,GameTitle title,uint64_t ident
     for(unsigned i=0;i<kVehicleModelTrimCapacity;++i)if(!c.vehicle_model_trims[i].identity)
     {c.vehicle_model_trims[i]={title,identity,static_cast<int16_t>(seat)};return static_cast<int>(i);}
     return -1;
+}
+// Hands a seat back: to its built-in offset where one ships, and to its game's base otherwise.
+inline void ConfigResetVehicleModelTrim(Config& c,int slot)
+{
+    if(slot<0||slot>=static_cast<int>(kVehicleModelTrimCapacity))return;
+    ConfigVehicleModelTrim& trim=c.vehicle_model_trims[slot];
+    const ConfigShippedVehicleModelTrim* shipped=ConfigShippedVehicleModelTrimFor(trim.title,trim.identity,trim.seat);
+    if(!shipped){trim={};return;}
+    trim.value[0]=shipped->forward;trim.value[1]=shipped->up;trim.value[2]=shipped->right;
+    for(bool& axis:trim.set)axis=true;
 }
 inline float ConfigVehicleModelCam(const Config& c,GameTitle title,uint64_t identity,int seat,unsigned axis)
 {

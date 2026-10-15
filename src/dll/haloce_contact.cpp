@@ -375,7 +375,7 @@ void ContactTick(uint32_t unit)
                     packet.publishedAtMs>now||now-packet.publishedAtMs>150||!packet.frame.Valid())
                 { meleeHands[side].Reset();workers[side].seeded=false;continue; }
                 latest=packet;found=true;
-                if (!exclusive_input::Active()&&g_config.physical_melee&&meleeReady.load()&&!meleeFault.load()) ProcessMelee(side,packet.frame);
+                if (!exclusive_input::Active()&&Sight_PhysicalMelee()&&meleeReady.load()&&!meleeFault.load()) ProcessMelee(side,packet.frame);
                 else meleeHands[side].Reset();
             }
             if (found&&g_config.world_collision&&worldReady.load()&&!worldFault.load())
@@ -648,7 +648,7 @@ bool HaloCEContact_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive) n
     {
         lastReport=now;
         LOG("CE contact gen=%u armed=%d world=%d/%d melee=%d/%d worldFault=%d meleeFault=%d publish=%llu ticks=%llu queries=%llu contacts=%llu corrections=%llu meleeQueries=%llu meleeContacts=%llu applied=%llu/%llu drops=%llu exceptions=%llu",
-            gen,Current(),g_config.world_collision,worldReady.load(),g_config.physical_melee,meleeReady.load(),worldFault.load(),meleeFault.load(),publications.load(),ticks.load(),
+            gen,Current(),g_config.world_collision,worldReady.load(),Sight_PhysicalMelee(),meleeReady.load(),worldFault.load(),meleeFault.load(),publications.load(),ticks.load(),
             worldQueries.load(),worldContacts.load(),corrections.load(),meleeQueries.load(),meleeContacts.load(),
             meleeApplied[0].load(),meleeApplied[1].load(),dropped.load(),exceptions.load());
         LOG("CE weapon contact stock-envelope=%llu node-only-fallback=%llu graph=%llX; 14 surface probes plus up to 7 node probes for held hand, unknown graph keeps nodes only",
@@ -668,7 +668,7 @@ void HaloCEContact_ApplyPalette(const halo_ce::RenderContext& context,
     callbacks.fetch_add(1,std::memory_order_acq_rel);
     __try
     {
-        if (!Current()||(!g_config.world_collision&&!g_config.physical_melee)) __leave;
+        if (!Current()||(!g_config.world_collision&&!Sight_PhysicalMelee())) __leave;
         HaloCELocalPlayerState state{};
         if (!HaloCEControls_GetLocalPlayerState(state)||state.generation!=context.tracking.generation||
             !state.hasControlledUnit||!state.onFoot||!state.nativePreparesFirstPerson||
@@ -707,7 +707,7 @@ void HaloCEContact_CommitPalette(const halo_ce::RenderContext& context,
     __try
     {
         if (!publication.generation||publication.generation!=context.tracking.generation||
-            !Current()||(!g_config.world_collision&&!g_config.physical_melee)||
+            !Current()||(!g_config.world_collision&&!Sight_PhysicalMelee())||
             !HaloCE_RenderContextCurrent(context)) __leave;
         const uint64_t now=GetTickCount64();
         for (int side=0;side<2;++side)

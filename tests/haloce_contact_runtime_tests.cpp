@@ -183,6 +183,9 @@ bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t,
 
 int main()
 {
+    // The contact strike applies its own damage only while one-machine changes are allowed (co-op safe shots
+    // off): these are that mode's paths.
+    g_config.coop_safe_shots=false;
     auto* image=VirtualAlloc(nullptr,contract::imageSize,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
     if (!image) return 2;moduleBase=reinterpret_cast<uintptr_t>(image);
     if (!InstallService(contract::contact::contact_resolver,&TestResolver)||

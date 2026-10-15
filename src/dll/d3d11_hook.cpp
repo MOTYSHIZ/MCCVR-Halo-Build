@@ -38,6 +38,7 @@
 #include "../common/coop_probe_logic.h"
 #include "../common/log.h"
 #include "../common/runtime_types.h"
+#include "dev_ps_census.inl"
 
 // We can't hook "the game's swapchain" directly because it doesn't exist yet
 // when we're injected. Instead we create a throwaway D3D11 device + swapchain
@@ -111,7 +112,7 @@ static std::atomic<bool> g_halo4AuthoredReticleDrawPathAvailable{false};
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 typedef void(STDMETHODCALLTYPE* DrawIndexedFn)(ID3D11DeviceContext*, UINT, UINT, INT);
 #endif
-#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP || HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
 typedef void(STDMETHODCALLTYPE* CopyResourceFn)(ID3D11DeviceContext*,
     ID3D11Resource*, ID3D11Resource*);
 #endif
@@ -342,7 +343,10 @@ static void STDMETHODCALLTYPE Halo2DrawIndexedCensusHook(
     if(hud_visibility::Hidden()) return;
     Halo2HudDrawMutation mutation = BeginHalo2HudDraw(context);
     if(mutation.kind==Halo2HudDrawMutation::Kind::Hidden) return;
-    VR_Halo4PrepareAuthoredReticleDraw(context);
+    VrHalo4ReticleDrawScope reticleDraw(context);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    dev_ps_census::OnDraw(context, indexCount, true);
+#endif
     {
         BloomDrawScope bloom(context);
         g_origHalo2DrawIndexed(context, indexCount, startIndex, baseVertex);
@@ -358,7 +362,10 @@ static void STDMETHODCALLTYPE Halo2DrawCensusHook(
     if(hud_visibility::Hidden()) return;
     Halo2HudDrawMutation mutation = BeginHalo2HudDraw(context);
     if(mutation.kind==Halo2HudDrawMutation::Kind::Hidden) return;
-    VR_Halo4PrepareAuthoredReticleDraw(context);
+    VrHalo4ReticleDrawScope reticleDraw(context);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    dev_ps_census::OnDraw(context, vertexCount, false);
+#endif
     {
         BloomDrawScope bloom(context);
         g_origHalo2Draw(context, vertexCount, startVertex);
@@ -458,6 +465,13 @@ static void STDMETHODCALLTYPE PixelShaderSetHook(
     ID3D11ClassInstance* const* classInstances, UINT classInstanceCount)
 {
     Bloom_ObserveShader(context,shader,classInstanceCount);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    if (dev_ps_census::OnBind(shader))
+    {
+        g_origPixelShaderSet(context, nullptr, classInstances, classInstanceCount);
+        return;
+    }
+#endif
     const bool suppressMotionSuck =
         halo4_screen_effect_shader::ShouldSuppress(
             g_halo4ScreenEffectShaderPathAvailable.load(
@@ -509,6 +523,9 @@ static HRESULT STDMETHODCALLTYPE CreatePixelShaderHook(
 #if HALOMCCVR_HALO2_STEREO6DOF
     const uint64_t hash =
         halo2_hud_shader::MigotoFnv1(bytecode, bytecodeLength);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    dev_ps_census::OnCreate(*shader, bytecode, bytecodeLength, hash);
+#endif
     const halo2_hud_shader::Role role =
         halo2_hud_shader::Classify(hash);
     const bool newlyRegistered = RegisterHalo2PixelShader(*shader, role);
@@ -553,7 +570,7 @@ static void STDMETHODCALLTYPE Halo4DrawIndexedFramingHook(
     ID3D11DeviceContext* context, UINT indexCount, UINT startIndex,
     INT baseVertex)
 {
-    VR_Halo4PrepareAuthoredReticleDraw(context);
+    VrHalo4ReticleDrawScope reticleDraw(context);
     BloomDrawScope bloom(context);
     g_origHalo4DrawIndexed(context, indexCount, startIndex, baseVertex);
 }
@@ -561,7 +578,7 @@ static void STDMETHODCALLTYPE Halo4DrawIndexedFramingHook(
 static void STDMETHODCALLTYPE Halo4DrawFramingHook(
     ID3D11DeviceContext* context, UINT vertexCount, UINT startVertex)
 {
-    VR_Halo4PrepareAuthoredReticleDraw(context);
+    VrHalo4ReticleDrawScope reticleDraw(context);
     BloomDrawScope bloom(context);
     g_origHalo4Draw(context, vertexCount, startVertex);
 }
@@ -686,7 +703,7 @@ static DrawIndexedFn g_origDrawIndexed = nullptr;
 // blocking GPU readback and file I/O to a render hot hook would be unsafe.
 constexpr bool kEnableReachDrawIndexedDiagnostic = false;
 #endif
-#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP || HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
 static CopyResourceFn g_origCopyResource = nullptr;
 #endif
 
@@ -1773,12 +1790,22 @@ static void STDMETHODCALLTYPE DrawIndexedHook(ID3D11DeviceContext* context,
 }
 #endif
 
-#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP || HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+// A copy out of the game's scene colour texture, made while an eye is drawn, reads that eye's image: ODST's
+// native HUD phase, and Halo 4's full-screen HUD materials that draw the frame again (halo4_scene_copy_logic.h).
 static void STDMETHODCALLTYPE CopyResourceHook(ID3D11DeviceContext* context,
     ID3D11Resource* destination, ID3D11Resource* source)
 {
-    g_origCopyResource(context, destination,
-                       VR_RedirectNativeHudCopySource(source));
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    dev_ps_census::NoteCopy(destination, source, "whole copy");
+#endif
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+    source = VR_RedirectNativeHudCopySource(source);
+#endif
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    source = VR_RedirectSceneCopySource(context, destination, source);
+#endif
+    g_origCopyResource(context, destination, source);
 }
 #endif
 
@@ -2264,9 +2291,12 @@ bool InstallD3D11Hooks()
             static_cast<int>(halo4PixelShaderSet));
     }
 #endif
-#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP || HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     ok = ok && MH_CreateHook(contextVtbl[47], (void*)&CopyResourceHook,
                              (void**)&g_origCopyResource) == MH_OK;
+#endif
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    dev_ps_census::CreateHooks(deviceVtbl, contextVtbl);
 #endif
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     // Slot 34 is the alternate OM RTV/UAV setter and slot 110 is ClearState.

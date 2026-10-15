@@ -4,7 +4,7 @@
 // a later inventory lookup cannot attach an old palette to a replacement gun.
 bool OdstCaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon) noexcept
 {
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle) || !g_odstMuzzleBindingsReady.load(std::memory_order_acquire) ||
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle()) || !g_odstMuzzleBindingsReady.load(std::memory_order_acquire) ||
         player!=0 || slot<0 || slot>1 || !g_odstEngineTlsIndex || !g_odstPlayerUnitGetter ||
         !g_odstUnitInVehicle)return false;
     __try
@@ -26,7 +26,7 @@ bool OdstCaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon)
 void OdstPublishMuzzlePalette(uint16_t tag,const FpInterpolationContext& context,
     const BoneMatrix* destination,uint32_t generation) noexcept
 {
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle) || !g_odstMuzzleBindingsReady.load(std::memory_order_acquire) ||
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle()) || !g_odstMuzzleBindingsReady.load(std::memory_order_acquire) ||
         !context.valid || context.player!=0 || context.slot<0 || context.slot>1 ||
         !generation || context.generation!=generation || generation!=g_odstRuntimeGeneration.load() ||
         !destination || !g_fpStereoSolveScope.armed)return;

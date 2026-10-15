@@ -542,8 +542,38 @@ void TestFeedForward()
 }
 } // namespace
 
+// The pitch check's quiet axis: held while an attempt collects evidence, bounded per attempt, held again on a retry.
+void TestCheckHold()
+{
+    CheckHold h;
+    const uint32_t seat = 0x1234;
+    Check(!h.step(0, true, true, 0, 1000), "no seat: nothing is held");
+    Check(!h.step(seat, true, false, 0, 1000), "not checking (proven or failed): the servo keeps the pitch");
+    Check(!h.step(seat, false, true, 0, 1010), "no fresh occupant aim: nothing is held");
+    Check(h.step(seat, true, true, 0, 1020), "an attempt collecting evidence holds the pitch stick");
+    Check(h.step(seat, true, true, 0, 1020 + kCheckHoldMs), "held through the whole bound");
+    Check(!h.step(seat, true, true, 0, 1021 + kCheckHoldMs), "past the bound the servo takes the pitch back");
+    Check(!h.step(seat, true, true, 0, 9000), "and the same attempt is never held again");
+    // The attempt failed (the count of failed attempts stepped) and waits for its retry: not checking.
+    Check(!h.step(seat, true, false, 1, 9100), "a failed attempt waiting for its retry is not held");
+    Check(h.step(seat, true, true, 1, 14100), "the retry is a new attempt: held from its own first poll");
+    Check(h.step(seat, true, true, 1, 14100 + kCheckHoldMs) && !h.step(seat, true, true, 1, 14101 + kCheckHoldMs),
+          "the retry's bound counts from the retry, not from the failure");
+    // A stale poll inside an attempt neither holds nor restarts the bound.
+    CheckHold g;
+    Check(g.step(seat, true, true, 0, 100), "held");
+    Check(!g.step(seat, false, true, 0, 600), "a stale poll is not held");
+    Check(g.step(seat, true, true, 0, 1100) && !g.step(seat, true, true, 0, 101 + kCheckHoldMs),
+          "the bound still counts from the attempt's first held poll");
+    // Another seat starts afresh; no seat forgets everything.
+    Check(g.step(seat + 1, true, true, 0, 5000), "another seat's first attempt is held");
+    Check(!g.step(0, true, true, 0, 5010) && g.step(seat + 1, true, true, 0, 9000),
+          "leaving the seat forgets the attempt: the same seat entered again is held again");
+}
+
 int main()
 {
+    TestCheckHold();
     TestSeatFlag();
     TestBinding();
     TestAngles();

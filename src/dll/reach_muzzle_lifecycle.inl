@@ -143,7 +143,7 @@ bool InstallReachMuzzle(uintptr_t base,size_t size,uint32_t generation)
         if(MH_EnableHook(target)!=MH_OK)
         {LOG("Reach muzzle StockFallback: hook enable failed");(void)RemoveReachMuzzle();return false;}
     feature.enabled.store(true,std::memory_order_release);g_reachBarrelBindingsReady.store(true,std::memory_order_release);
-    LOG("Reach muzzle Installed: optional committed FP barrel with native targeting/obstruction; option=%d",g_config.gun_barrel_aim?1:0);
+    LOG("Reach muzzle Installed: optional committed FP barrel with native targeting/obstruction; option=%d",Sight_GunBarrelAim()?1:0);
     return true;
 }
 void ReportReachMuzzle()
@@ -151,7 +151,7 @@ void ReportReachMuzzle()
     auto& feature=g_reachBarrel;if(!feature.targets[0])return;
     LOG("Reach barrel trajectory: enabled=%d fault=%d applied=%llu refused=%llu queries=%llu restoreRefused=%llu option=%d",
         feature.enabled.load()?1:0,feature.faulted.load()?1:0,feature.applied.exchange(0),feature.refused.exchange(0),
-        feature.queries.exchange(0),feature.restoreRefused.exchange(0),g_config.gun_barrel_aim?1:0);
+        feature.queries.exchange(0),feature.restoreRefused.exchange(0),Sight_GunBarrelAim()?1:0);
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // Dev: why the window's barrel shots were refused, and whether the lane's query context can reach the fire.
     auto& why=g_reachBarrelWhy;

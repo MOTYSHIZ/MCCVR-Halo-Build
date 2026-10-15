@@ -19,6 +19,10 @@ static struct {std::atomic<uint32_t> generation{7};std::atomic<bool> armed{true}
 static struct {std::atomic<bool> ready{true};} g_halo4VehicleInput;
 static std::atomic<bool> g_vrAim{true},g_enabled{true};
 static struct {bool gun_barrel_aim=true,left_handed=false,shots_from_muzzle=false;} g_config;
+// The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
+[[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
+[[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
+[[maybe_unused]] static bool Sight_IndependentDualAim(){return false;}
 static thread_local bool g_halo4MuzzleOwnedQuery=false;
 static alignas(8) uint8_t tlsBytes[0x700]{},users[0x5F48]{},unitBytes[0x700]{},replacementBytes[0x700]{},
     primaryBytes[0x700]{},secondaryBytes[0x700]{},targetBytes[0x700]{},table[0x80]{},entries[6*0x18]{};
@@ -76,12 +80,41 @@ void PublishShotDiagnostic(GameTitle,uint32_t,uint32_t,uint32_t,uint8_t,uint8_t,
 #include "../src/dll/halo4_muzzle_shots.inl"
 #undef __readgsqword
 #undef _ReturnAddress
-static bool expectMuzzle=true,queryFault=false,preflightFault=false,fireFault=false,markerFault=false,nested=false,
+// The seated convergence lane's three calls from the view detour (halo4_seat_converge.inl), stood in for here:
+// before the native view with the detour's caller, after it with the GAME's own outputs (before any barrel
+// substitution), and at the detour's unwind. The stand-down is held here as the lane holds it: asked before the
+// call, undone at the call's end, and undone by the unwind when the call raised and its end was never reached.
+static unsigned seatBefore=0,seatAfter=0,seatUnwound=0,seatStockAsked=0,seatUnwoundUndid=0;
+static bool seatStockNow=false;
+Halo4SeatConvergeCall Halo4SeatConvergeBeforeView(uintptr_t at,uint32_t unit)
+{
+    ++seatBefore;Check(unit==owner,"the seat lane is handed the view's own unit");
+    Halo4SeatConvergeCall call{};
+    call.sample=at==imageBase+0x1DB9A6||at==imageBase+0x1DBDB6;call.fire=at==imageBase+0x1DC8C4;
+    Check(call.sample||call.fire,"the seat lane is handed the detour's own caller");
+    call.stock=call.sample;if(call.stock){++seatStockAsked;seatStockNow=true;}
+    return call;
+}
+void Halo4SeatConvergeAfterView(Halo4SeatConvergeCall& call,uint32_t unit,const float* origin,const float* dir,
+    const float* camera)
+{
+    ++seatAfter;
+    Check(unit==owner&&origin[0]==21&&dir[0]==1&&camera[0]==22,
+        "the seat lane sees the game's own view outputs, before any barrel substitution");
+    if(call.stock){seatStockNow=false;call.stock=false;}
+}
+void Halo4SeatConvergeViewUnwound(Halo4SeatConvergeCall& call)
+{++seatUnwound;if(call.stock){++seatUnwoundUndid;seatStockNow=false;call.stock=false;}}
+static bool expectMuzzle=true,queryFault=false,preflightFault=false,fireFault=false,markerFault=false,viewFault=false,nested=false,
     omitView=false,replaceStorage=false,changeGeneration=false,changeOwner=false,nativeChangesTarget=false,invalidTarget=false,nonfiniteTarget=false;
 static unsigned fireCalls=0,queryCalls=0,markerCalls=0,aimCalls=0,viewCalls=0;
 static int16_t markerCount=1;
 static void __fastcall NativeView(uint32_t unit,uint8_t flags,uintptr_t,float* point,float* direction,float* camera)
-{++viewCalls;Check(unit==owner&&flags==0,"six-argument Halo4 native view");point[0]=21;direction[0]=1;camera[0]=22;}
+{
+    ++viewCalls;Check(unit==owner&&flags==0,"six-argument Halo4 native view");
+    if(viewFault)RaiseException(0xE0425555,0,0,nullptr);
+    point[0]=21;direction[0]=1;camera[0]=22;
+}
 static void __fastcall NativeQuery(int32_t input,uint8_t flags,float* direction,int16_t zoom,float* control,void* out)
 {
     ++queryCalls;Check(input==2&&zoom==3,"native input/zoom context retained");
@@ -168,6 +201,13 @@ static void Reset(bool dual=false)
 }
 static void Shoot(){Halo4MuzzleFireDetour(primary,0,reinterpret_cast<void*>(0x1234),0xFA);}
 static bool FaultingShot(){__try{Shoot();}__except(EXCEPTION_EXECUTE_HANDLER){return true;}return false;}
+// The control pass's targeting call into the view detour, with a native view that raises.
+static bool FaultingView()
+{
+    float point[3]{},view[3]{},camera[3]{};
+    __try{Halo4MuzzleViewDetour(owner,0,0,point,view,camera);}__except(EXCEPTION_EXECUTE_HANDLER){return true;}
+    return false;
+}
 static void ShotTests()
 {
     Reset();Shoot();Check(fireCalls==1&&queryCalls==1&&markerCalls==1&&aimCalls==2&&*reinterpret_cast<uint32_t*>(unitBytes+0x5B0)==0x44440007,"single native fire and exact target restoration");
@@ -425,5 +465,19 @@ static void OwnerEvidenceTests()
 int main()
 {
     ShotTests();PublicationTests();OwnerEvidenceTests();LifecycleTests();
+    Check(seatBefore>0&&seatBefore==seatAfter,"every native view call is bracketed by the seat lane's two calls");
+    Check(seatUnwound>=seatBefore&&seatStockAsked>0&&!seatStockNow&&seatUnwoundUndid==0,
+        "a stand-down asked for a view call is over by the call's end, and the unwind finds none left");
+    {
+        // A NATIVE VIEW THAT RAISES: the call's end is never reached, so the unwind is what undoes the stand-down.
+        Reset();caller=imageBase+0x1DB9A6;viewFault=true;
+        const unsigned before=seatBefore,after=seatAfter,asked=seatStockAsked;
+        Check(FaultingView(),"a native view that raises is not swallowed by the detour");
+        Check(seatBefore==before+1&&seatStockAsked==asked+1&&seatAfter==after,
+            "the raised call was asked for a stand-down and never reached its end");
+        Check(seatUnwoundUndid==1&&!seatStockNow,"...and the detour's unwind undid the stand-down");
+        Check(g_halo4Barrel.callbacks==0,"...and released the detour's own count");
+        viewFault=false;caller=0;
+    }
     std::printf("PASS: %u production Halo4 muzzle checks (native services stubbed)\n",checks);
 }

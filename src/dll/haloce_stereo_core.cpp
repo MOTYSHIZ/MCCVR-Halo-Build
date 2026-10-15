@@ -1240,10 +1240,11 @@ bool HaloCE_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActive,bool allo
             ce_resolution::rebuilds.load(),ce_resolution::failures.load(),ce_resolution::lastFailure.load());
         LOG("CE DIAG gen=%u installed=%d armed=%d built=%llu pairs=%llu dropped=%llu stock=%llu descriptorMiss=%llu previewFolded=%llu stage=%u sceneRefresh=%llu",
             gen,installed.load(),armed.load(),built.load(),captured.load(),dropped.load(),stock.load(),descriptorMiss.load(),previewFolded.load(),lastPairStage.load(),sceneVisibilityRefreshes.load());
-        LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u sourceFailure=%u",
+        LOG("CE CLASSIC gen=%u installed=%d pairs=%llu drops=%llu stock=%llu outputs=%llu sourceMiss=%llu failure=%u sourceFailure=%u mono=%llu monoDrops=%llu passes=%llu",
             gen,classicInstalled.load(),classicPairs.load(),classicDrops.load(),classicStock.load(),
             classicOutputs.load(),classicSourceMiss.load(),static_cast<unsigned>(classicLastFailure.load()),
-            static_cast<unsigned>(classicSourceFailure.load()));
+            static_cast<unsigned>(classicSourceFailure.load()),classicMonoFrames.load(),classicMonoDrops.load(),
+            classicPasses.load());
         LOG("CE CLASSIC PREP stage=%u cache=%d raster=%ux%u output=%ux%u",
             classicPairStage.load(),classicCacheBegan.load(),classicRasterWidth.load(),
             classicRasterHeight.load(),classicOutputWidth.load(),classicOutputHeight.load());
@@ -1350,6 +1351,10 @@ bool HaloCE_AcquirePair(ID3D11DeviceContext* context,uint64_t currentSerial,uint
     return cache.AcquireCompleted(key,context,pair);
 }
 void HaloCE_ReleasePair(uint64_t borrowId) noexcept { cache.ReleaseCompleted(borrowId); }
+int32_t HaloCE_ObservedRenderer() noexcept
+{ return ceObservedRenderer.load(std::memory_order_acquire); }
+uint64_t HaloCE_TakeMonoDrops() noexcept
+{ return classicMonoDropsUnreported.exchange(0,std::memory_order_acq_rel); }
 bool HaloCE_RenderContextCurrent(const halo_ce::RenderContext& context) noexcept
 {
     Tracking tracking{};

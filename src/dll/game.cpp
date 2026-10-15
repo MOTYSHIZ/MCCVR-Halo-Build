@@ -75,6 +75,7 @@
 #include "title_reentry_probe.h"
 #include "roomscale.h"
 #include "sight_layer.h"
+#include "../common/session_read_logic.h"
 #include "seat_limit_publication.h"
 #include "telemetry_recorder.h"
 #include "../common/support_diagnostics.h"
@@ -85,6 +86,7 @@
 #include "../common/physical_crouch_cached_witnesses.h"
 #include "d3d11_hook.h"
 #include "sigscan.h"
+#include "sim_tick_reader.h"
 #include "mcc_frame_clock.h"
 #include "seat_frame_reader.h"
 #include "vr.h"
@@ -103,6 +105,10 @@
 #include "../common/reach_hand_shot_logic.h"
 #include "../common/aim_no_unit_logic.h"
 #include "../common/title_runtime_state.h"
+// Where the direct drives' code is in the loaded game DLL: the tables and their resolution, and the DLL's side.
+#include "../common/drive_sites.h"
+#include "drive_cascade.h"
+#include "drive_install.h"
 // THE FREE CAMERA WITH NO PLAYER UNIT (src/common/aim_no_unit_logic.h). Each servo title's own vehicle/seat
 // sampler already reads its local player's unit through the output-user getter on an engine thread; it also
 // publishes Present / Absent here, one word per title, with the time it read it. Game_ComputeAimStick (the input
@@ -170,6 +176,9 @@ static std::atomic<bool>               g_reachDriveSeated{false};
 // Whether that seat's latch may read pitch limits (ReachSeatPitchLatches): false for a look-steered driver,
 // whose pitch the game levels as the vehicle moves (autolevel is not a limit). Part of the same seqlock.
 static std::atomic<bool>               g_reachDrivePitchLatch{true};
+// The prepared tracking frame the setpoint's hand pose came from (0: unknown): the written aim's lead takes one
+// sample per frame, however many polls publish it (Sight_LeadWrittenAim). Part of the same seqlock.
+static std::atomic<uint64_t>           g_reachDriveSerial{0};
 static std::atomic<unsigned>           g_reachApplyLimited{0};   // updates written held at a seat limit
 static std::atomic<unsigned>           g_reachApplyPitchFree{0}; // seated updates whose pitch was not latched
 // Seqlock over the setpoint (yaw, pitch, converged, seated, pitch latch, publish time): the sim-thread hook must never pair
@@ -208,6 +217,9 @@ static std::atomic<unsigned>           g_reachDriveResetSeq{0};
 static std::atomic<int>                g_reachUnitCrouchState{-1};
 static std::atomic<unsigned long long> g_reachUnitCrouchMs{0};
 static void* g_reachPcTarget = nullptr;
+static uint32_t g_reachPcEntryRva = 0;   // where the install found the control update in this module
+static uint32_t g_reachPcInstalls = 0;   // how many times that hook has been installed (worker)
+static void ReachDriveForgetCalls();     // ... each of which is watched afresh (the hook watchdog)
 // The seat's frame for the Reach direct drive (seat_frame_reader.h): what the vehicle-tilt rebase 0x48ADB8 will do
 // to a seated record, read by ReachPcApplyForUser on the sim thread. Bound with the hook (ReachSeatFrameBind),
 // unbound when it is removed.
@@ -220,23 +232,29 @@ static std::atomic<unsigned long long> g_reachSeatFrameUnknownMs{0};
 static void ReachSeatFrameBind(uintptr_t base, size_t size);
 static void ReachRecordDesiredAim(float gameYaw, float gamePitch);
 extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp);
+// What the control update's install resolves in the loaded module (drive_sites.h: PlanReachControl): the update
+// itself, its callers and, in a dev build, the sim tick counter the census reads.
+using ReachControlFound = drive_sites::ReachControlPlan;
 // Which caller ran the accumulator (aim_caller_logic.h; defined beside ReachPcApplyForUser). Built at install,
-// before the hook is enabled.
-static bool ReachBuildCallerMap(uintptr_t base, size_t size);
+// before the hook is enabled, from what that resolution found.
+static bool ReachBuildCallerMap(uintptr_t base, size_t size, const ReachControlFound& resolved);
 // player_control through the engine TLS, exactly as 0x6375C does it (mov edi,0xD8; lea rbx,[rsi+rsi*2];
 // shl rbx,7): globals = *(TLS + 0xD8); user entry = globals + user * 0x180. Both constants are verified
 // in place by the install's exact-byte anchors before the hook exists.
 static constexpr size_t kReachPlayerControlTlsOffset = 0xD8;
 static constexpr size_t kReachPlayerControlStride    = 0x180;
-#if HALOMCCVR_DEV_DIAGNOSTICS
-// DEV BUILDS ONLY: the log-only hook on Reach's type-13 pilot controller haloreach+0x64828 (the Sabre; defined
-// in type13_flight_log.inl). Declared here because the Reach teardown (DisableAndRemoveReachHooks and
-// ScanForReachDetourIngress) retires it with every other Reach detour. The target is worker-owned like
-// g_reachPcTarget; the trampoline is forgotten only after MH_RemoveHook.
+// The hook on Reach's type-13 pilot controller haloreach+0x64828 (the Sabre; reach_type13_drive.inl): the game's
+// own controller, then the direct drive's apply. Declared here because the Reach teardown
+// (DisableAndRemoveReachHooks and ScanForReachDetourIngress) retires it with every other Reach detour. The target is
+// worker-owned like g_reachPcTarget; the trampoline is forgotten only after MH_RemoveHook.
 void ReachType13Detour(int user, uint32_t vehicle, float yawD, float pitchD, const void* input, float dtA, float dtB);
 static void* g_reachT13Target = nullptr;
 static void* g_reachT13Orig = nullptr;
 static std::atomic<bool> g_reachT13Enabled{false};
+bool ReachType13Install(uintptr_t base, size_t size, uint32_t generation);
+void ReachSabreDriveReport();
+#if HALOMCCVR_DEV_DIAGNOSTICS
+// DEV BUILDS ONLY: the log-only observer that detour feeds when type13_log = 1 (type13_flight_log.inl).
 bool ReachType13LogInstall(uintptr_t base, size_t size, uint32_t generation);
 #endif
 #endif
@@ -251,6 +269,18 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size);
 bool LegacyDriveRemove(GameTitle title);
 bool LegacyDriveLive(GameTitle title);
 void LegacyDriveReport();
+// THE PLAYER IS IN CONTROL OF `title`, as the direct drives' hook watchdogs ask it (drive_cascade.h: HookWatch):
+// it is the active title, in the Gameplay runtime mode, and its camera hook's cinematic-control publication of
+// this generation, no older than a second, says the player has control (not an authored camera, not unread).
+// Nothing here is produced by a direct-drive hook, which is what lets it say when such a hook SHOULD be running.
+static bool DriveWatchPlayerInControl(GameTitle title, uint64_t nowMs)
+{
+    if (TitleAdapter_GetActiveTitle() != title || TitleAdapter_GetRuntimeMode() != RuntimeMode::Gameplay)
+        return false;
+    const CinematicControlPublication cine = TitleAdapter_GetCinematicControlPublication(title);
+    return cine.generation == TitleAdapter_GetGeneration(title) && cine.heartbeatMs && nowMs >= cine.heartbeatMs &&
+           nowMs - cine.heartbeatMs <= 1000 && cine.state == CinematicControlState::PlayerControlled;
+}
 // The Halo 4 tracker lane's run-time proof (halo4_head_relative.inl) compares the game's heading with this: the aim
 // yaw this mod's direct drive is WRITING into the game's own aim, on foot. False when the drive is not live or
 // nothing that fresh was published. Defined after legacy_direct_drive.inl.
@@ -278,13 +308,22 @@ void AimTraceDev_Flush();   // a seat's aim, poll by poll (defined beside the ai
 #endif
 void Halo3SeatViewArm(int32_t unit);
 void Halo3SeatViewDisarm();
+// The hook on Halo 4's type-13 pilot controller halo4+0xAA524 (the Broadsword; halo4_type13_drive.inl): the game's
+// own controller, then the hand's aim written to the direct drive's record. Installed and removed inside Halo 4's
+// camera core. Halo4FlightPilotLive: the input thread's word that this craft's pilot is being written.
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+bool Halo4Type13Install(uintptr_t base, size_t size, uint32_t generation);
+bool Halo4Type13Remove();
+bool Halo4Type13HookEnabled();
+bool Halo4FlightPilotLive(uint32_t vehicle);
+#endif
+void Halo4FlightDriveReport();
 #if HALOMCCVR_DEV_DIAGNOSTICS
-// DEV BUILDS ONLY: the log-only hooks on the type-13 pilot controllers (type13_flight_log.inl): the cold
-// worker's report, and Halo 4's install/remove inside its camera core.
+// DEV BUILDS ONLY: the log-only observers of the type-13 pilot controllers (type13_flight_log.inl), which the
+// controllers' detours feed when type13_log = 1: the cold worker's report, and Halo 4's own readiness.
 void Type13LogReport();
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
 bool Halo4Type13LogInstall(uintptr_t base, size_t size, uint32_t generation);
-bool Halo4Type13LogRemove();
 #endif
 #endif
 #include "../common/aim_servo_logic.h"
@@ -303,6 +342,7 @@ bool Halo4Type13LogRemove();
 // [assess-only end]
 #endif
 #include "../common/halo4_seat_aim_logic.h"
+#include "../common/halo4_seat_converge_logic.h"
 #include "../common/log.h"
 #include "../common/config.h"
 #include "../common/cutscene_theater_logic.h"
@@ -351,52 +391,9 @@ bool Halo4Type13LogRemove();
 #include "gesture_melee_bindings.inl"
 
 // AIM CALLER SPLIT (aim_caller_logic.h), engine side, shared by the Halo 3 / ODST / Halo 4 accumulator hook
-// (legacy_direct_drive.inl) and Reach's (ReachPcApplyForUser).
-//
-// The dispatcher-frame proof: the .pdata entry that contains the dispatcher, then the engine-free proof over
-// it (the entry begins at the dispatcher and contains the accumulator's call past the prolog; the unwind
-// info and the prologue's own instructions decode to one fixed frame). `entryFrame`: where the dispatcher's
-// return sits relative to the accumulator's entry rsp. `why`: the first failing proof.
-static bool AimCallerProveDispatcher(uintptr_t base, size_t size, uint32_t dispatcherRva, uint32_t accCallRva,
-                                     uint32_t& entryFrame, const char*& why)
-{
-    entryFrame = 0;
-    why = nullptr;
-    DWORD64 imageBase = 0;
-    const PRUNTIME_FUNCTION function =
-        RtlLookupFunctionEntry(static_cast<DWORD64>(base + dispatcherRva), &imageBase, nullptr);
-    if (!function || imageBase != static_cast<DWORD64>(base))
-    {
-        why = "dispatcher .pdata entry";
-        return false;
-    }
-    return aim_caller::ProveDispatcherFrame(reinterpret_cast<const uint8_t*>(base), size, dispatcherRva,
-                                           function->BeginAddress, function->EndAddress, function->UnwindData,
-                                           accCallRva, entryFrame, why);
-}
-
-// The pattern matches at exactly base + rva and nowhere else in the module.
-static bool AimCallerUniqueAt(uintptr_t base, size_t size, uint32_t rva, const char* pattern)
-{
-    const uintptr_t first = sig::Find(base, size, pattern);
-    if (first != base + rva)
-        return false;
-    const uintptr_t next = first + 1;
-    return next >= base + size || !sig::Find(next, static_cast<size_t>(base + size - next), pattern);
-}
-
-// The `call` (E8 rel32) at `callRva` lands on `targetRva`: its return address, or 0.
-static uintptr_t AimCallerCallReturn(uintptr_t base, size_t size, uint32_t callRva, uint32_t targetRva)
-{
-    if (!callRva || static_cast<size_t>(callRva) + 5 > size)
-        return 0;
-    const auto* call = reinterpret_cast<const uint8_t*>(base + callRva);
-    int32_t rel = 0;
-    memcpy(&rel, call + 1, sizeof(rel));
-    if (call[0] != 0xE8 || static_cast<int64_t>(callRva) + 5 + rel != static_cast<int64_t>(targetRva))
-        return 0;
-    return base + callRva + 5;
-}
+// (legacy_direct_drive.inl) and Reach's (ReachPcApplyForUser). The proofs an install makes on the loaded module
+// -- a call that lands on its target, the dispatcher's frame out of the system's function table -- are
+// drive_install.h's (CallReturn, ProveDispatcher), which the offline check runs too.
 
 // The put-back slot's safety cap runs on QPC (monotonic, sub-millisecond), not GetTickCount64 (~16 ms steps).
 static uint64_t AimCallerClockNow()
@@ -428,32 +425,30 @@ constexpr uint64_t kAimCallerPutBackCapMs = 250;
 // field disp8 at +0x1E are read from it) and by the per-tick incrementer (unique; the same slot, where its
 // bytes carry one, and the same field). Any failure: the census reports the tick as unreadable.
 // ADDR-HYGIENE: dev-only (census; nothing reads it to decide anything).
-struct AimCallerTickAnchors
-{
-    uint32_t getterRva;
-    const char* getter;
-    uint32_t incRva;
-    const char* inc;
-    uint8_t incSlotOff;    // 0xFF: the slot is set earlier, not in these bytes
-    uint8_t incFieldOff;
-};
-
-static bool AimCallerTickProof(uintptr_t base, size_t size, uintptr_t tlsIndexAddress, const AimCallerTickAnchors& a,
-                               uint32_t& slot, uint32_t& field)
+// The proof over the getter and the incrementer as the install's resolution FOUND them in this module
+// (drive_sites::ResolveTick: each by its own signature, once; 0: not found).
+static bool AimCallerTickProofAt(uintptr_t base, size_t size, uintptr_t tlsIndexAddress,
+                                 const drive_sites::TickAnchors& a, const drive_sites::Tick& found, uint32_t& slot,
+                                 uint32_t& field)
 {
     slot = field = 0;
-    if (!AimCallerUniqueAt(base, size, a.getterRva, a.getter) || !AimCallerUniqueAt(base, size, a.incRva, a.inc))
+    if (!found.getter || !found.increment || static_cast<size_t>(found.getter) + 0x20 > size ||
+        static_cast<size_t>(found.increment) + 0x20 > size)
         return false;
-    const auto* g = reinterpret_cast<const uint8_t*>(base + a.getterRva);
+    // Both anchors' bytes, read under a guard (drive_install.h) though the plan found them.
+    uint8_t g[0x20], inc[0x20];
+    if (!drive_install::Read(base + found.getter, g, sizeof(g)) || !drive_install::Read(base + found.increment, inc, sizeof(inc)))
+        return false;
     int32_t disp = 0;
     memcpy(&disp, g + 2, sizeof(disp));
     if (g[0] != 0x8B || g[1] != 0x0D ||
-        base + a.getterRva + 6 + static_cast<intptr_t>(disp) != tlsIndexAddress)
+        base + found.getter + 6 + static_cast<intptr_t>(disp) != tlsIndexAddress)
         return false;
     uint32_t getterSlot = 0;
     memcpy(&getterSlot, g + 0x10, sizeof(getterSlot));
     const uint8_t getterField = g[0x1E];
-    const auto* inc = reinterpret_cast<const uint8_t*>(base + a.incRva);
+    if ((a.incSlotOff != 0xFF && a.incSlotOff + sizeof(uint32_t) > sizeof(inc)) || a.incFieldOff >= sizeof(inc))
+        return false;
     uint32_t incSlot = getterSlot;
     if (a.incSlotOff != 0xFF)
         memcpy(&incSlot, inc + a.incSlotOff, sizeof(incSlot));
@@ -2553,6 +2548,8 @@ namespace
         std::atomic<bool> queryActive{false};
         std::atomic<uint64_t> engineCalls{0};
         std::atomic<uint64_t> queryTicks{0};
+        // Turns passed over because the game's call came from inside a simulation tick (a shared simulation, Reach).
+        std::atomic<uint64_t> insideTick{0};
         std::atomic<uint64_t> targetMisses{0};
         std::atomic<uint64_t> seeds{0};
         LegacyCollisionPublication targetPublication[2]{};
@@ -2626,6 +2623,8 @@ namespace
         const BoneMatrix& root, const BoneMatrix* solved, float output[][3],
         uint64_t& shapeId);
     int32_t LegacyCollisionIgnoredObject(GameTitle title);
+    // Reach: the calling thread is known to be outside a simulation tick (defined with the Reach camera core).
+    bool ReachOutsideTheSimulation();
     bool Halo3ContactMeleeReady();
     bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation);
     bool InstallHalo3WeaponHaptics(uintptr_t base,size_t size,uint32_t generation);
@@ -2700,8 +2699,14 @@ namespace
         int32_t ignoredA,int32_t ignoredB,int32_t ignoredC,void* result,uint8_t& returned);
     bool ReachContactMeleeReady();
     void ReportReachContactMelee();
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    void ReachSimTraceFlush();   // reach_sim_trace.inl
+    void ReachSimProbeFrame(int32_t unit, uintptr_t caller);
+    void ReachSimMinimalInstall(uintptr_t base, size_t size);
+#endif
     // Reach trace-and-reaim (reach_sight_trace.inl).
     void ReachSightTraceTick(uint32_t unit);
+    void ReachSightTraceControlPass();
     void ReachNoteCollisionCensus(uintptr_t caller, uint64_t flags, int32_t mode,
         const float* vector, int32_t ignoredA);
     void ReachSightNoteEngineTrace(uint64_t flags, const float* start, const float* vector,
@@ -3766,6 +3771,12 @@ namespace
     std::atomic<uint32_t> g_safeFrameBaseCurvatureBits[kMaxSafeFrameHits]{};
     std::atomic<int> g_safeFrameHitCount{-1}; // -1 none, -2 scanning, >0 verified
     std::atomic<uint32_t> g_hudAppliedBits{0};
+    // How many times the safe-frame pair every layout slot holds has changed (g_hudAppliedSafeFrameHBits / VBits
+    // going from one value to another, the first time on a map included): the scale the HUD's art is drawn at.
+    // The crosshair's kept picture is of the art at one scale (AuthoredReticleKeyAtScale). Counted on the pair as
+    // applied, not per write: Reach restores its own record between passes and is rewritten on every pass with
+    // the same pair, which is no change of scale.
+    std::atomic<uint32_t> g_hudLayoutScaleEpoch{0};
     std::atomic<uint32_t> g_hudAppliedAspectBits{0};
     std::atomic<uint32_t> g_hudAppliedCurvatureBits{0};
     // The safe-frame pair in the title's slots while every slot holds it (0 otherwise): the crosshair capture
@@ -4775,6 +4786,9 @@ namespace
                 wantAspectBits, std::memory_order_relaxed);
             g_hudAppliedCurvatureBits.store(
                 wantCurvatureBits, std::memory_order_relaxed);
+            if (g_hudAppliedSafeFrameHBits.load(std::memory_order_relaxed) != wantHBits ||
+                g_hudAppliedSafeFrameVBits.load(std::memory_order_relaxed) != wantVBits)
+                g_hudLayoutScaleEpoch.fetch_add(1, std::memory_order_relaxed);
             g_hudAppliedSafeFrameHBits.store(wantHBits, std::memory_order_relaxed);
             g_hudAppliedSafeFrameVBits.store(wantVBits, std::memory_order_relaxed);
         }
@@ -6255,6 +6269,14 @@ namespace
             !g_enabled.load(std::memory_order_acquire) ||
             !VR_IsStereoEnabled())
             return;
+        // A SHARED SIMULATION, Reach (ReachOutsideTheSimulation): the hands' own collision tests are calls of the
+        // game's own, so there they are made only from a game call that came from outside a simulation tick. The
+        // game makes collision tests between ticks and on its other threads too, so the work still gets its turns.
+        if(feature.title==GameTitle::HaloReach && !Sight_FireTimeChangesAllowed() && !ReachOutsideTheSimulation())
+        {
+            feature.insideTick.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
         const uint64_t now=GetTickCount64();
         uint64_t due=feature.nextQueryAtMs.load(std::memory_order_relaxed);
         if(now<due || !feature.nextQueryAtMs.compare_exchange_strong(
@@ -6465,6 +6487,15 @@ namespace
         uint8_t nativeResult=0;
         const uintptr_t caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
         __try {
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            if (g_config.dev_sim_bisect & 2)
+            {
+                if (const auto plain = reinterpret_cast<LegacyCollisionTestVectorFn>(g_reachWorldCollision.original))
+                    nativeResult = plain(flags, mode, start, vector, ignoredObjectA, ignoredObjectB, ignoredObjectC,
+                                         result);
+                __leave;
+            }
+#endif
             // Reach's crosshair query, re-aimed through the intent point from its own start
             // (ReachSightReaimCrosshairQuery: every build, fail closed). The census and the engine-trace witness
             // see the query as the game built it; the shot-lag witness sees what was traced.
@@ -7817,7 +7848,7 @@ namespace
     {
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature || !solved || !context.valid || !generation ||
-            (!g_config.world_collision && !((title==GameTitle::HaloReach || title==GameTitle::Halo3 || title==GameTitle::Halo3ODST) && g_config.physical_melee)) ||
+            (!g_config.world_collision && !((title==GameTitle::HaloReach || title==GameTitle::Halo3 || title==GameTitle::Halo3ODST) && Sight_PhysicalMelee())) ||
             (!feature->installed.load(std::memory_order_acquire) &&
                 !(title==GameTitle::HaloReach && ReachContactMeleeReady()) &&
                 !(title==GameTitle::Halo3 && Halo3ContactMeleeReady()) &&
@@ -12189,9 +12220,16 @@ namespace
         g_fpStereoSolveScope.twoHandAimActive = VR_IsTwoHandAiming();
         (void)VR_GetContactTrackingSnapshot(g_fpStereoSolveScope.anatomicalTracking);
         BeginHalo3AvatarPair(saved);
+        // MONO RENDERING (mono_view_logic.h): the world once, from between the eyes, for both of them. The one
+        // pass is drawn as the eye the eye-order setting draws first, so what is done once a frame in that pass
+        // (the crosshair's capture) is done in it; its camera has no eye offset and no cant, and its frustum
+        // covers either eye's.
+        float monoFov[4]{};
+        const bool monoFrame = VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) && !cutsceneTheater;
+        bool monoCaptured = false;
         __try {
         const int firstEye = g_config.right_eye_first ? 1 : 0;
-        for (int pass = 0; pass < 2; ++pass)
+        for (int pass = 0; pass < (monoFrame ? 1 : 2); ++pass)
         {
             const int eye = pass == 0 ? firstEye : 1 - firstEye;
             g_stereoEye = eye;
@@ -12207,8 +12245,14 @@ namespace
             // 67.5 mm baseline only as a safe fallback before views are valid.
             float eyePosition[3]={sign*0.5f*0.0675f,0.0f,0.0f};
             float eyeOrientation[4]{};
-            const bool haveEyeView =
+            bool haveEyeView =
                 VR_GetEyeViewOffset(eye,eyePosition,eyeOrientation);
+            if (monoFrame)
+            {
+                // The midpoint of the eyes, looking the way the head looks.
+                eyePosition[0] = eyePosition[1] = eyePosition[2] = 0.0f;
+                haveEyeView = false;
+            }
             ApplyCutsceneTheaterEyeTransform(
                 cutsceneTheater,
                 g_config.cutscene_theater_depth,
@@ -12259,7 +12303,12 @@ namespace
                 float eyeFov[4];
                 float immersiveTangentX = tanf(1.07338f);
                 float immersiveTangentY = tanf(0.92502f);
-                if (VR_GetEyeFov(eye, eyeFov))
+                if (monoFrame)
+                {
+                    immersiveTangentX = tanf(monoFov[1]);
+                    immersiveTangentY = tanf(monoFov[2]);
+                }
+                else if (VR_GetEyeFov(eye, eyeFov))
                 {
                     immersiveTangentX =
                         tanf(fmaxf(-eyeFov[0], eyeFov[1]));
@@ -12432,9 +12481,14 @@ namespace
                 g_prepareView(view, 0);
             g_origRenderView(view);
             g_eyeFpView.store(nullptr, std::memory_order_release);
-            VR_CaptureRenderedEye(eye);
+            monoCaptured = VR_CaptureRenderedEye(eye);
             VR_EndRasterEye();
         }
+        // A capture that missed keeps the last picture, mono or a pair, as it was.
+        if (monoFrame && monoCaptured)
+            VR_NoteMonoFrameRendered(GameTitle::Halo3, firstEye);
+        else if (!monoFrame)
+            VR_NoteStereoFrameRendered(GameTitle::Halo3);
         } __finally {
             EndHalo3AvatarPair();
             g_fpStereoSolveScope.armed = false;
@@ -13438,6 +13492,13 @@ namespace
         const uintptr_t firingReturn = g_odstFiringOriginReturn;
         if (!firingReturn || caller != firingReturn)
             return;                       // not the shot line; leave it alone
+        if (!Sight_FireTimeChangesAllowed())
+        {
+            // Co-op safe shots: the origin stays the game's own, reported as stock.
+            if (telemetryAccepting)
+                PublishOdstShotDiagnostic(unitIndex, out, false);
+            return;
+        }
         if (g_odstCinematicLocked.load(std::memory_order_relaxed))
         {
             // Authored camera owns the view; the engine's own shot origin is
@@ -15890,6 +15951,10 @@ namespace
             OdstHalo3FovMatch fovMatch{};
         } eyeInputs[2];
         const bool cutsceneTheater = VR_IsCutsceneTheaterActive();
+        // MONO RENDERING (mono_view_logic.h): one pass, drawn as the first eye, by a camera at the midpoint of the
+        // eyes with no cant and a frustum that covers either eye's. Both eyes' inputs are that camera's.
+        float monoFov[4]{};
+        const bool monoFrame = VR_MonoRenderThisFrame(GameTitle::Halo3ODST, monoFov) && !cutsceneTheater;
         bool eyeInputsValid = true;
         for (int eye = 0; eye < 2; ++eye)
         {
@@ -15897,6 +15962,15 @@ namespace
             eyeInputsValid = VR_GetEyeViewOffset(
                 eye, eyeInputs[eye].position, eyeInputs[eye].orientation) &&
                 VR_GetEyeFov(eye, fov) && eyeInputsValid;
+            if (monoFrame)
+            {
+                for (float& component : eyeInputs[eye].position)
+                    component = 0.0f;
+                eyeInputs[eye].orientation[0] = eyeInputs[eye].orientation[1] =
+                    eyeInputs[eye].orientation[2] = 0.0f;
+                eyeInputs[eye].orientation[3] = 1.0f;
+                memcpy(fov, monoFov, sizeof(fov));
+            }
             ApplyCutsceneTheaterEyeTransform(
                 cutsceneTheater,
                 g_config.cutscene_theater_depth,
@@ -15998,7 +16072,7 @@ namespace
         g_fpStereoSolveScope.twoHandAimActive = VR_IsTwoHandAiming();
         (void)VR_GetContactTrackingSnapshot(g_fpStereoSolveScope.anatomicalTracking);
         const int firstEye = g_config.right_eye_first ? 1 : 0;
-        for (int pass = 0; pass < 2; ++pass)
+        for (int pass = 0; pass < (monoFrame ? 1 : 2); ++pass)
         {
             const int eye = pass == 0 ? firstEye : 1 - firstEye;
             g_stereoEye.store(eye, std::memory_order_release);
@@ -16127,6 +16201,12 @@ namespace
             }
             g_odstRenderHalfFovX[eye].store(halfX, std::memory_order_relaxed);
             g_odstRenderHalfFovY[eye].store(halfY, std::memory_order_relaxed);
+            if (monoFrame)
+            {
+                // The one picture is the other eye's too: so is the frustum it was drawn with.
+                g_odstRenderHalfFovX[1 - eye].store(halfX, std::memory_order_relaxed);
+                g_odstRenderHalfFovY[1 - eye].store(halfY, std::memory_order_relaxed);
+            }
 
             memcpy(bytes + layout.rootSecondaryCompact, camera,
                    layout.compactSize);
@@ -16155,6 +16235,11 @@ namespace
         g_fpStereoSolveScope.armed = false;
         g_stereoEye.store(-1, std::memory_order_release);
         g_odstCamera.eyeView.store(nullptr, std::memory_order_release);
+        // A capture that missed keeps the last picture, mono or a pair, as it was.
+        if (monoFrame && capturesOk)
+            VR_NoteMonoFrameRendered(GameTitle::Halo3ODST, firstEye);
+        else if (!monoFrame)
+            VR_NoteStereoFrameRendered(GameTitle::Halo3ODST);
         memcpy(camera, savedCompact, layout.compactSize);
         memcpy(bytes + layout.rootCurrentDerived, savedDerived, layout.derivedSize);
         memcpy(bytes + layout.rootSecondaryCompact, savedSecondaryCompact,
@@ -17048,7 +17133,88 @@ namespace
         return true;
     }
 
+    // ONE INSTALL OF A TITLE'S HOOKS, INSIDE THE SCANNER'S MEMORY OF THIS LOAD OF ITS DLL (sigscan.h, ImageMemoScope).
+    //
+    // A title whose hooks are installed more than once in one load of its DLL asks the same searches of the same
+    // image at every install, and about half of them are "is there a second match", which read the image to its
+    // end. While one of these lives, the scanner answers a search it has already made in this load of the DLL from
+    // what it found then: the first install pays for the searches and the later ones for a compare at each place.
+    // install_search_memory = 0 makes every install search again.
+    //
+    // One line per install says what it asked of the image and how long the install took, so a session's log holds
+    // the first install and the later ones side by side. An install that neither searched nor finished writes
+    // nothing: a title that is asked again until it is ready does not fill the log. `memo` is the title's own, one
+    // for the life of the process. The worker thread's alone, as the installs are.
+    class InstallSearches
+    {
+    public:
+        InstallSearches(const char* title, sig::ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation)
+            : title_(title), use_(g_config.install_search_memory != 0), check_(Checking()),
+              scope_(memo, base, size, generation, use_, check_)
+        {
+            QueryPerformanceCounter(&begun_);
+        }
+        InstallSearches(const InstallSearches&) = delete;
+        InstallSearches& operator=(const InstallSearches&) = delete;
+        // The install came to its end: its line is written even when every answer was a remembered one.
+        void Finished() { finished_ = true; }
+        ~InstallSearches()
+        {
+            const sig::ImageMemoCounts& counts = scope_.Counts();
+            const uint32_t made = counts.searched + counts.searchedAgain;
+            if (!made && !finished_)
+                return;
+            LARGE_INTEGER frequency{}, ended{};
+            QueryPerformanceFrequency(&frequency);
+            QueryPerformanceCounter(&ended);
+            const double elapsedMs = frequency.QuadPart > 0
+                ? static_cast<double>(ended.QuadPart - begun_.QuadPart) * 1000.0 /
+                      static_cast<double>(frequency.QuadPart)
+                : 0.0;
+            char checked[96]{};
+            if (check_)
+                snprintf(checked, sizeof(checked), "; CHECK: %u remembered answers were NOT confirmed by a search",
+                         counts.disagreed);
+            LOG("%s install: %u searches of the game's DLL were made and %u were answered from this load's earlier "
+                "searches (%u remembered places no longer stood and were searched for again, %u could not be "
+                "kept); the install took %.1f ms%s; install_search_memory = %d%s",
+                title_, made, counts.remembered, counts.searchedAgain, counts.notHeld, elapsedMs,
+                finished_ ? "" : " and did not finish", use_ ? 1 : 0, checked);
+        }
+
+    private:
+        static bool Checking()
+        {
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            return g_config.dev_install_search_check != 0;
+#else
+            return false;
+#endif
+        }
+        const char* title_;
+        bool use_;
+        bool check_;
+        bool finished_ = false;
+        LARGE_INTEGER begun_{};
+        sig::ImageMemoScope scope_;
+    };
+
+    bool InstallHookBody(uintptr_t base, size_t size, uint32_t runtimeGeneration);
+
+    // Halo 3's hooks are retired when the game stops copying its camera for two seconds (a level ending, a
+    // loading screen; the pause menu keeps the camera running) and installed again when the next level is live,
+    // within one load of halo3.dll: a campaign session meets this at every new level.
     bool InstallHook(uintptr_t base, size_t size, uint32_t runtimeGeneration)
+    {
+        static sig::ImageMemo s_searches;
+        InstallSearches searches("Halo 3", s_searches, base, size, runtimeGeneration);
+        const bool prepared = InstallHookBody(base, size, runtimeGeneration);
+        if (prepared)
+            searches.Finished();
+        return prepared;
+    }
+
+    bool InstallHookBody(uintptr_t base, size_t size, uint32_t runtimeGeneration)
     {
         if (!runtimeGeneration)
             return false;
@@ -20586,6 +20752,9 @@ namespace
         FpExplicitPoseTargets fpTargets{};
         alignas(16) unsigned char headCenter[kReachCompactCameraBytes]{};
         ReachEyeRenderInput eyes[2]{};
+        // MONO RENDERING (mono_view_logic.h): this frame's snapshot is one camera for both `eyes`; one pass is
+        // drawn with it.
+        bool mono = false;
         ReachScopeFrame scope{};
     };
 
@@ -20693,6 +20862,58 @@ namespace
             static_cast<uint8_t>(
                 ReachVehicleCameraBindingState::StockFallback)};
     } g_reachCamera;
+
+    // REACH'S IN-TICK BYTE (sim_tick_reader.h), bound when the core installs and forgotten when it goes. The index
+    // is published last and withdrawn first, so a reader holds the whole binding or none.
+    struct ReachSimTickBinding
+    {
+        std::atomic<const uint32_t*> tlsIndex{nullptr};
+        std::atomic<uint32_t> slot{0}, byte{0};
+    } g_reachSimTick;
+
+    // Inside a simulation tick as the calling thread reads it (1), outside one (0), or not known (-1).
+    int ReachInSimulationTick()
+    {
+        const uint32_t* const index = g_reachSimTick.tlsIndex.load(std::memory_order_acquire);
+        if (!index)
+            return -1;
+        return sim_tick::InTick(sim_tick::Reader{index, g_reachSimTick.slot.load(std::memory_order_relaxed),
+                                                 g_reachSimTick.byte.load(std::memory_order_relaxed)});
+    }
+
+    // WHAT THE SIMULATION READS STAYS THE GAME'S OWN. A co-op campaign is one simulation, run on every machine from
+    // the same inputs: a thing moved, or a call of the game's own made, inside a tick on this machine alone can
+    // part this machine's simulation from the others', and the session ends
+    // (docs/COOP-SHARED-SIMULATION-2026-10-13.md: one saved co-op film replayed with and without each of the mod's
+    // in-tick acts). So while one-machine changes are not allowed (sight_layer.h Sight_FireTimeChangesAllowed) a
+    // lane that would act asks this first: true only where the call is known to be outside a simulation tick. Where
+    // the tick cannot be read nothing is known, and the answer is no.
+    bool ReachOutsideTheSimulation()
+    {
+        return ReachInSimulationTick() == 0;
+    }
+
+    void ReachSimTickBind(uintptr_t base, size_t size)
+    {
+        sim_tick::Reader reader{};
+        const bool bound = sim_tick::Resolve(base, size, reader);
+        g_reachSimTick.slot.store(reader.slot, std::memory_order_relaxed);
+        g_reachSimTick.byte.store(reader.byte, std::memory_order_relaxed);
+        g_reachSimTick.tlsIndex.store(bound ? reader.tlsIndex : nullptr, std::memory_order_release);
+        if (bound)
+            LOG("Reach simulation tick: readable (the tick loop's own mark: engine TLS +0x%X, byte %u). With Co-op "
+                "safe on, the mod asks nothing of the game and moves nothing it reads inside a tick",
+                reader.slot, reader.byte);
+        else
+            LOG("Reach simulation tick: NOT readable in this haloreach.dll (the tick loop's mark was not found "
+                "exactly once). With Co-op safe on, whatever must stay outside a tick is off: effects keep the "
+                "game's own places and the aim does not converge");
+    }
+
+    void ReachSimTickForget()
+    {
+        g_reachSimTick.tlsIndex.store(nullptr, std::memory_order_release);
+    }
 
     uint32_t ReachRetainedRuntimeGeneration()
     {
@@ -21375,6 +21596,9 @@ namespace
         ReachUnitCameraPositionFn original = g_origReachUnitCameraPosition;
         const uint64_t stockResult =
             original ? original(unitIndex, out) : 0;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        ReachSimProbeFrame(unitIndex, caller);   // dev: one of the mod's own calls between ticks (dev_sim_probe 4)
+#endif
         if (!out)
             return stockResult;
         const uintptr_t returnA = g_reachFiringOriginReturnA.load(
@@ -21383,6 +21607,8 @@ namespace
             std::memory_order_relaxed);
         if (caller != returnA && caller != returnB)
             return stockResult;           // not the shot line; leave it alone
+        if (!Sight_FireTimeChangesAllowed())
+            return stockResult;           // co-op safe shots: the origin stays the game's own
         if (g_reachCinematicLocked.load(std::memory_order_relaxed))
             return stockResult;           // authored camera owns the view
         ReachShotOccupationSnapshot occupation{};
@@ -21527,6 +21753,14 @@ namespace
             GetTickCount64(), std::memory_order_release);
         __try
         {
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            if (g_config.dev_sim_bisect & 4)
+            {
+                if (const ReachUnitCameraPositionFn plain = g_origReachUnitCameraPosition)
+                    result = plain(unitIndex, out);
+                __leave;
+            }
+#endif
             result = ReachUnitCameraPositionBody(unitIndex, out, caller);
         }
         __finally
@@ -21661,6 +21895,15 @@ namespace
             unitIndex, origin, direction, basisForward, barrelOffset,
             optionalCameraPoint, firesFromCamera, useUnitAim, collision,
             simulation);
+        // Co-op safe shots: the shot stays as Reach built it -- no re-aim through the intent point, no hand ray
+        // on foot and no redirect in a seat.
+        if (!Sight_FireTimeChangesAllowed())
+        {
+            if (origin && direction && unitIndex != -1 &&
+                unitIndex == LegacyCollisionIgnoredObject(GameTitle::HaloReach))
+                Sight_NoteFireTimeStoodDown(GameTitle::HaloReach);
+            return;
+        }
         // The same HREK-proven weapon transaction handles on-foot shots. Own
         // only the exact current local unit and a completed, fresh on-foot ray.
         // Reuse native world clipping from the already-safe stock origin to
@@ -21909,6 +22152,15 @@ namespace
             1, std::memory_order_acq_rel);
         __try
         {
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            if (g_config.dev_sim_bisect & 8)
+            {
+                if (const ReachUnitAdjustFn plain = g_origReachUnitAdjust)
+                    plain(unitIndex, origin, direction, basisForward, barrelOffset, optionalCameraPoint,
+                          firesFromCamera, useUnitAim, collision, simulation);
+                __leave;
+            }
+#endif
             // The projectile transaction names its shooter here, before its aim_assist traces the crosshair: the
             // local player's fire only from here (shot_lag::FireMark; ReachMuzzleFireDetour opens the fire). Seated,
             // unitIndex is the occupant (the seated redirect below matches it to the occupation's unit).
@@ -22813,7 +23065,74 @@ namespace
     // stacking the next candidate onto it.
     constexpr bool kReachEffectOwnerGateEnabled = false;
     std::atomic<uint32_t> g_reachMuzzleReparented{0};
+    // Places near the stock weapon that were left where the game put them (ReachEffectMoveAllowed).
+    std::atomic<uint32_t> g_reachMuzzleLeft{0};
     std::atomic<uint32_t> g_reachMuzzleOutOfRange{0};
+
+    // AN EFFECT'S PLACE IS THE SIMULATION'S AS WELL AS THE FRAME'S. A place asked for inside a tick is where the
+    // effect makes its objects and does its damage; moved on this machine alone, what it makes lands somewhere
+    // else here than on every other machine (a piece knocked off a punched Grunt landed 0.2 world units away:
+    // docs/COOP-SHARED-SIMULATION-2026-10-13.md). So in a shared simulation a place is moved onto the gun only when
+    // it is asked for outside a simulation tick -- the frame's own -- and not at all where the tick cannot be read.
+    // Alone in the game every place near the gun is moved, as before. `ownWeapon`: the effect carries the local
+    // player's first-person weapon mark.
+    bool ReachEffectMoveAllowed(bool ownWeapon)
+    {
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        switch (g_config.reach_effect_move_rule)   // an A/B override (dev): logged at load as a DEV OVERRIDE
+        {
+        case 0: return true;
+        case 1: return ReachOutsideTheSimulation();
+        case 2: return false;
+        case 3: return ownWeapon;
+        default: break;
+        }
+#else
+        (void)ownWeapon;
+#endif
+        return Sight_FireTimeChangesAllowed() || ReachOutsideTheSimulation();
+    }
+
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    // WHO ASKS FOR AN EFFECT'S PLACE, AND WHEN (dev census). Seven call sites reach the resolver; each call is
+    // counted by its caller and by where it was made, and again when its place lay near the stock weapon (the ones a
+    // move touches), the player's own weapon effects apart from the rest.
+    // ADDR-HYGIENE: dev-only (the returns of the resolver's seven direct call sites in the pinned haloreach.dll; a
+    // call from anywhere else is counted under "other", so a build they do not fit shows itself).
+    inline constexpr uint32_t kReachEffectCallerReturns[] = {0x1181A6, 0x11A79C, 0x11BF8B, 0x11FBB7,
+                                                             0x1200D3, 0x1210C3, 0x1220D8};
+    inline constexpr int kReachEffectCallers = static_cast<int>(_countof(kReachEffectCallerReturns)) + 1;
+    // 0 the simulation's thread inside a tick, 1 that thread outside one, 2 another thread while the mark is set,
+    // 3 another thread while it is clear, 4 the mark unreadable.
+    inline constexpr int kReachEffectWheres = 5;
+    struct ReachEffectCensus
+    {
+        std::atomic<uint32_t> calls[kReachEffectCallers][kReachEffectWheres]{};
+        std::atomic<uint32_t> nearOwn[kReachEffectCallers][kReachEffectWheres]{};
+        std::atomic<uint32_t> nearOther[kReachEffectCallers][kReachEffectWheres]{};
+    } g_reachEffectCensus;
+    // The thread the simulation runs on, as the per-unit update last saw it (0 until it has run once).
+    std::atomic<uint32_t> g_reachSimThread{0};
+
+    int ReachEffectCensusCaller(uintptr_t caller)
+    {
+        const uintptr_t rva = caller - g_reachCamera.base;
+        for (int i = 0; i < kReachEffectCallers - 1; ++i)
+            if (rva == kReachEffectCallerReturns[i])
+                return i;
+        return kReachEffectCallers - 1;
+    }
+
+    int ReachEffectCensusWhere()
+    {
+        const int inTick = ReachInSimulationTick();
+        if (inTick < 0)
+            return 4;
+        const uint32_t sim = g_reachSimThread.load(std::memory_order_relaxed);
+        const bool simThread = !sim || GetCurrentThreadId() == sim;
+        return simThread ? (inTick ? 0 : 1) : (inTick ? 2 : 3);
+    }
+#endif
     std::atomic<uint32_t> g_reachMuzzleNearestMilli{0xFFFFFFFFu};
 
     // R * v and R^T * v for the row-major 3x3 in a BoneMatrix.
@@ -22834,8 +23153,10 @@ namespace
     // controller-aligned weapon instead, preserving its exact local offset and
     // orientation. Guarded; leaves the matrix untouched on any fault or if it
     // is not on the stock weapon.
-    __declspec(noinline) bool ReachReparentEffectMatrix(
-        float* matrix, const BoneMatrix& stock, const BoneMatrix& moved)
+    // Returns 0 when the place is not on the stock weapon (or cannot be read), 1 when it was moved, 2 when it is on
+    // the stock weapon and was left there (ReachEffectMoveAllowed said no).
+    __declspec(noinline) int ReachReparentEffectMatrix(
+        float* matrix, const BoneMatrix& stock, const BoneMatrix& moved, bool ownWeapon)
     {
         __try
         {
@@ -22868,6 +23189,11 @@ namespace
                 g_reachMuzzleOutOfRange.fetch_add(
                     1, std::memory_order_relaxed);
                 return false;
+            }
+            if (!ReachEffectMoveAllowed(ownWeapon))
+            {
+                g_reachMuzzleLeft.fetch_add(1, std::memory_order_relaxed);
+                return 2;
             }
             // Translation only, and deliberately so. The anchor is now
             // head -> gun, not weapon -> weapon, so rotating by
@@ -22983,6 +23309,16 @@ namespace
             ReachEffectLocationFn original = g_reachOrigEffectLocation;
             if (!original)
                 return;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            if (g_config.dev_sim_bisect & 16)
+            {
+                original(effect, nodeDesignator, outMatrix);
+                return;
+            }
+            const int censusCaller = ReachEffectCensusCaller(reinterpret_cast<uintptr_t>(_ReturnAddress()));
+            const int censusWhere = ReachEffectCensusWhere();
+            g_reachEffectCensus.calls[censusCaller][censusWhere].fetch_add(1, std::memory_order_relaxed);
+#endif
             ReachEffectFpMarkerFn fpQuery = g_reachEffectFpMarkerQuery;
             if (!fpQuery || !effect || !outMatrix ||
                 !g_reachCamera.armed.load(std::memory_order_acquire) ||
@@ -23137,8 +23473,15 @@ namespace
                     g_enabled.load(std::memory_order_acquire) &&
                     ReachReadWeaponAnchor(stockWeapon, movedWeapon))
                 {
-                    ReachReparentEffectMatrix(resolved, stockWeapon,
-                                              movedWeapon);
+                    const bool ownWeapon = (fpUserByte & 0x0Fu) != 0u;
+                    const int outcome = ReachReparentEffectMatrix(resolved, stockWeapon, movedWeapon, ownWeapon);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+                    if (outcome)
+                        (ownWeapon ? g_reachEffectCensus.nearOwn : g_reachEffectCensus.nearOther)
+                            [censusCaller][censusWhere].fetch_add(1, std::memory_order_relaxed);
+#else
+                    (void)outcome;
+#endif
                 }
             }
 
@@ -25694,6 +26037,10 @@ namespace
         const uint8_t originalLastWindow =
             *reinterpret_cast<uint8_t*>(playerView + kReachLastWindowFlagOffset);
         const bool rightFirst = g_config.right_eye_first;
+        // MONO RENDERING (mono_view_logic.h): the snapshot's two eyes are one camera, and one pass is drawn with
+        // it: as the first eye, and as the engine's final window. The theatre keeps its two eyes.
+        const bool monoFrame = g_reachOwnerScope.mono && !g_reachOwnerScope.cutsceneTheater;
+        const uint32_t eyePasses = monoFrame ? 1u : 2u;
         bool completed = false;
         bool transactionValid = true;
         uint32_t capturedEyes = 0;
@@ -25705,10 +26052,11 @@ namespace
             g_reachCamera.decoratorWindState : nullptr;
         __try
         {
-            for (uint32_t pass = 0; pass < 2; ++pass)
+            for (uint32_t pass = 0; pass < eyePasses; ++pass)
             {
-                const ReachStereoPassPolicy policy = SelectReachStereoPassPolicy(
-                    pass, rightFirst, originalLastWindow);
+                const ReachStereoPassPolicy policy = monoFrame
+                    ? SelectReachMonoPassPolicy(rightFirst, originalLastWindow)
+                    : SelectReachStereoPassPolicy(pass, rightFirst, originalLastWindow);
                 if (!policy.valid)
                 {
                     transactionValid = false;
@@ -25866,7 +26214,8 @@ namespace
                 __try
                 {
                     fpCameraScope.active = true;
-                    if (windState)
+                    // One pass advances the wind once, as the stock frame does: nothing to replay.
+                    if (windState && !monoFrame)
                     {
                         if (pass == 0) windReplay.Begin(windState, ReachWindCopy);
                         else if (windReplay.Replay(windState, ReachWindCopy))
@@ -25904,7 +26253,16 @@ namespace
                 g_reachRenderFovSerial[policy.eye].store(
                     access.preparedSerial, std::memory_order_release);
                 ++capturedEyes;
-                if (pass == 0)
+                if (monoFrame)
+                {
+                    // The one picture is the other eye's too: so are the frustum it was drawn with and, for the
+                    // present's pair check, its frame serial.
+                    const int otherEye = 1 - policy.eye;
+                    g_reachRenderHalfFovX[otherEye].store(rasterFov.horizontal, std::memory_order_relaxed);
+                    g_reachRenderHalfFovY[otherEye].store(rasterFov.vertical, std::memory_order_relaxed);
+                    g_reachRenderFovSerial[otherEye].store(access.preparedSerial, std::memory_order_release);
+                }
+                else if (pass == 0)
                 {
                     memcpy(reinterpret_cast<void*>(workspace), savedWorkspace,
                            kReachRenderScopeSnapshotSize);
@@ -25913,10 +26271,15 @@ namespace
                            savedPv, kReachPvSnapshotBytes);
                 }
             }
-            completed = transactionValid && capturedEyes == 2 &&
-                (committedOuterCameraEyes & 0x3u) == 0x3u;
+            const uint32_t requiredEyes = monoFrame ? (rightFirst ? 0x2u : 0x1u) : 0x3u;
+            completed = transactionValid && capturedEyes == eyePasses &&
+                (committedOuterCameraEyes & requiredEyes) == requiredEyes;
             if (completed)
             {
+                if (monoFrame)
+                    VR_NoteMonoFrameRendered(GameTitle::HaloReach, rightFirst ? 1 : 0);
+                else
+                    VR_NoteStereoFrameRendered(GameTitle::HaloReach);
                 const uint32_t completedGeneration =
                     g_reachCamera.generation.load(std::memory_order_relaxed);
                 PublishReachOuterCameraCommitPair(
@@ -26036,6 +26399,8 @@ namespace
         }
         if (!handled)
         {
+            if (g_reachOwnerScope.mono)
+                VR_NoteMonoFrameRejected(GameTitle::HaloReach);
             // Skip this frame, keep the core. ReachStereoTransaction restores
             // the workspace and player view in its own __finally, so an
             // incomplete attempt leaves no partial engine state behind, and the
@@ -26329,7 +26694,7 @@ namespace
         LegacyWorldCollisionFeature* feature=LegacyCollisionForTitle(title);
         if(!feature || !generation || feature->generation!=generation)
             return false;
-        if (!g_config.world_collision && !g_config.physical_melee) return false;
+        if (!g_config.world_collision && !Sight_PhysicalMelee()) return false;
         // Observe the body even when its checksum is unfamiliar. Only the
         // native appended held graph can authorize an unknown weapon model.
         const bool mappedWeapon=feature->runtimeBoundsProven.load(std::memory_order_acquire) &&
@@ -26667,6 +27032,9 @@ namespace
         const uint64_t now=GetTickCount64();
         if(now-lastLogMs<2000) return;
         lastLogMs=now;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
+#endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
         if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); }
         if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();}
@@ -26674,7 +27042,7 @@ namespace
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
                 "%u polls / %u unavailable, %u missing velocity, peak %.2f m/s, "
                 "%u crossings / %u native-input pulses / %u cooldown blocks; native range/target/damage",
-                static_cast<int>(title),g_config.physical_melee?1:0,g_config.world_collision?1:0,
+                static_cast<int>(title),Sight_PhysicalMelee()?1:0,g_config.world_collision?1:0,
                 g_config.physical_melee_swing_speed,melee->polls.exchange(0),
                 melee->unavailable.exchange(0),melee->invalidVelocity.exchange(0),
                 melee->peakCmPerSecond.exchange(0)/100.0f,melee->crossings.exchange(0),
@@ -26687,6 +27055,7 @@ namespace
             "authored bounds %llu published / %llu hand-only fallback, "
             "visible corrections %llu/%llu, callbacks %u, isolated "
             "failures %llu; scheduling %llu engine calls / %llu ticks / "
+            "%llu passed over inside a simulation tick (Co-op safe) / "
             "%llu target misses / %llu seeds, mapped gun root %d",
             name,
             feature->installed.load(std::memory_order_acquire)?1:0,
@@ -26712,6 +27081,7 @@ namespace
                 std::memory_order_relaxed)),
             static_cast<unsigned long long>(feature->engineCalls.exchange(0)),
             static_cast<unsigned long long>(feature->queryTicks.exchange(0)),
+            static_cast<unsigned long long>(feature->insideTick.exchange(0)),
             static_cast<unsigned long long>(feature->targetMisses.exchange(0)),
             static_cast<unsigned long long>(feature->seeds.exchange(0)),
             feature->weaponObservation[0].root.load(std::memory_order_relaxed));
@@ -28152,6 +28522,8 @@ namespace
     #include "reach_sight_trace.inl"
     #include "reach_fire_eye.inl"
     #include "legacy_sight_trace.inl"
+    // Dev builds only: every object's state per simulation tick, to a file (the file compiles to nothing otherwise).
+    #include "reach_sim_trace.inl"
     #include "reach_contact_melee_runtime.inl"
     #include "halo3_contact_melee_runtime.inl"
     #include "halo3_vehicle_gun_band.inl"
@@ -30998,7 +31370,10 @@ namespace
         // camera bit buys nothing and the 7235d8d headset run reported it
         // breaking every turret. Those seats keep exactly the behavior the user
         // called "a better state" one build earlier.
-        if (!frame.active || !g_config.vehicle_first_person ||
+        // Co-op safe: the seat's flags are data the simulation reads too, so clearing the camera bit changes the
+        // game on this machine only. While one-machine changes are not allowed the passenger seat is left as the
+        // game built it (and keeps the game's own camera).
+        if (!frame.active || !g_config.vehicle_first_person || !Sight_FireTimeChangesAllowed() ||
             (frame.seatFlags & kReachSeatAllowsWeaponsBit) == 0 ||
             g_reachCamera.teardownRequested.load(std::memory_order_acquire) ||
             g_reachCamera.vehicleCameraBindingState.load(
@@ -32454,9 +32829,13 @@ namespace
                 observedPrimary.renderBounds, tracking,
                 candidate.eyes, cullCover))
         {
+            // The eye inputs are where a mono frame differs: one refused here is a single pass turned down.
+            if (tracking.mono)
+                VR_NoteMonoFrameRejected(GameTitle::HaloReach);
             return g_reachOrigMainRenderView(
                 workspace, playerView, windowIndex);
         }
+        candidate.mono = tracking.mono;
 
         ReachVrRenderAccess access{};
         if (!VR_ReachBeginRenderAccess(epoch, prepared, access))
@@ -32491,6 +32870,8 @@ namespace
             currentPrepared.Serial() != candidate.preparedSerial ||
             access.preparedSerial != candidate.preparedSerial)
         {
+            if (candidate.mono)
+                VR_NoteMonoFrameRejected(GameTitle::HaloReach);
             VR_ReachEndRenderAccess(access);
             return g_reachOrigMainRenderView(
                 workspace, playerView, windowIndex);
@@ -33045,8 +33426,7 @@ namespace
     {
         g_reachIngressScanWhy = "";
         static bool rangesResolved = false;
-        // Dev builds add the log-only type-13 controller detour (type13_flight_log.inl) as the last entry.
-        static ReachDetourCodeRange ranges[20 + (HALOMCCVR_DEV_DIAGNOSTICS ? 1 : 0)]{};
+        static ReachDetourCodeRange ranges[21]{};
         if (!rangesResolved)
         {
             const void* functions[] = {
@@ -33074,9 +33454,8 @@ namespace
                 // ResolveReachDetourCodeRange needs (without one, every Reach teardown would fail).
                 reinterpret_cast<const void*>(&ReachPlayerControlHook),
                 reinterpret_cast<const void*>(&ReachFirstPersonRenderGateEnter),
-#if HALOMCCVR_DEV_DIAGNOSTICS
+                // The type-13 pilot controller's detour (reach_type13_drive.inl).
                 reinterpret_cast<const void*>(&ReachType13Detour),
-#endif
             };
             static_assert(_countof(functions) == _countof(ranges));
             bool resolved = true;
@@ -33113,9 +33492,7 @@ namespace
             g_reachHudAnchorBasisTarget,
             g_reachPcTarget,
             g_reachFirstPersonRenderGateTarget,   // its C++ entry (ranges, after direct drive's)
-#if HALOMCCVR_DEV_DIAGNOSTICS
             g_reachT13Target,
-#endif
         };
         void* const trampolines[] = {
             reinterpret_cast<void*>(g_reachOrigMainRenderView),
@@ -33138,9 +33515,7 @@ namespace
             reinterpret_cast<void*>(g_reachOrigHudAnchorBasis),
             g_reachPcOrig,
             reinterpret_cast<void*>(g_origReachFirstPersonRenderGate),
-#if HALOMCCVR_DEV_DIAGNOSTICS
             g_reachT13Orig,
-#endif
         };
         static_assert(_countof(targets) == _countof(ranges));
         static_assert(_countof(trampolines) == _countof(ranges));
@@ -33286,15 +33661,11 @@ namespace
         g_reachHeldAtLimitMs.store(0, std::memory_order_release);
         ReachDriveDisarm();
         g_reachDriveResetSeq.fetch_add(1, std::memory_order_acq_rel);
-#if HALOMCCVR_DEV_DIAGNOSTICS
-        // The log-only type-13 controller detour becomes a pure pass-through before any disable.
+        // The type-13 pilot controller's detour only runs the game's controller from here on, before any disable.
         g_reachT13Enabled.store(false, std::memory_order_release);
-#endif
         bool disabledAll = true;
         void* const targets[] = {
-#if HALOMCCVR_DEV_DIAGNOSTICS
             g_reachT13Target,
-#endif
             g_reachPcTarget,
             g_reachHudAnchorBasisTarget,
             g_reachWorldCollision.target,
@@ -33331,7 +33702,6 @@ namespace
             return false;
 
         bool removedAll = true;
-#if HALOMCCVR_DEV_DIAGNOSTICS
         if (g_reachT13Target)
         {
             // Quiescence is proven above (callbacks and the ingress scan cover the detour and its trampoline);
@@ -33345,10 +33715,10 @@ namespace
             else
             {
                 removedAll = false;
-                LOG("REACH SF cleanup: type-13 log hook remove failed (%d)", static_cast<int>(status));
+                LOG("Reach Sabre direct drive cleanup: the pilot controller's hook remove failed (%d)",
+                    static_cast<int>(status));
             }
         }
-#endif
         if (g_reachPcTarget)
         {
             // Clearing the target lets the next title session reinstall on ITS module; the install
@@ -33850,6 +34220,7 @@ namespace
         g_reachCamera.observerCameraTarget = nullptr;
         g_reachCamera.effectLocationTarget = nullptr;
         g_reachCamera.rainRenderTarget = nullptr;
+        ReachSimTickForget();
         g_reachCamera.playerUnitByOutputUser = nullptr;
         g_reachCamera.unitInVehicle = nullptr;
         g_reachCamera.vehicleInputBindingState.store(
@@ -35652,6 +36023,7 @@ namespace
                 base + kReachCameraStackCallbackRva);
         g_reachCamera.base = base;
         g_reachCamera.size = size;
+        ReachSimTickBind(base, size);
         g_reachCamera.decoratorWindState = ResolveReachDecoratorWind(base, size);
         g_reachWindReplayFaults.store(0, std::memory_order_relaxed);
         g_reachWindReplayPairs.store(0, std::memory_order_relaxed);
@@ -36027,10 +36399,13 @@ namespace
         // haloreach+0x6375C -- the ACCUMULATOR of player_control.desired_angles (a one-shot write there
         // moves the aim) -- and, after it runs on the sim thread, overwrite desired
         // yaw+0x94 / pitch+0x98 with the VR aim: upstream of the derived aim vector AND of replication.
-        // ADDR-HYGIENE: guarded. The RVA is a measurement of this build; three unique exact-byte anchors
-        // must all match before a hook exists: the entry prologue (so MinHook relocates known
-        // instructions), the TLS/stride block (mov edi,0xD8 ... lea rbx,[rsi+rsi*2] ... mov r14,
-        // [rax+rcx*8]) and the accumulator itself (addss/movss [rdi+rbx+0x94]). Any mismatch = no hook,
+        // ADDR-HYGIENE: resolved (src/common/drive_sites.h, ResolveReachControl). The recorded RVAs say where
+        // nothing is: three exact-byte anchors are FOUND by signature anywhere in the module's code before a hook
+        // exists, each exactly once -- the entry prologue (so MinHook relocates known instructions; it must be
+        // where a function starts), and inside that function the TLS/stride block (mov edi,0xD8 ... lea
+        // rbx,[rsi+rsi*2] ... mov r14,[rax+rcx*8]) and the accumulator itself (addss/movss [rdi+rbx+0x94]). The
+        // engine TLS index must be the module's own (its PE TLS directory), loaded by the TLS block's own
+        // instruction, AND the one this lane's readers use (kReachEngineTlsIndexRva). Anything not found = no hook,
         // said loudly; the stick servo keeps aiming. Installed DISARMED: the engine-thread arm-gate
         // (ReachDriveArmGate_OnEngineTick) validates the player_control address before the first write.
         // 0x1E0834 is not a substitute target: a hook there installs but never runs on foot.
@@ -36038,35 +36413,46 @@ namespace
         // validates the record in mode 3, and the gate disarms it again the moment the mode leaves 3.
         if (!g_reachPcTarget)
         {
-            // (The prologue alone also occurs at +0x6AA488; the frame size and the first xmm saves make it
-            // unique -- verified offline against the mapped image.)
-            const bool entryOk = ReachColdExactSignatureAt(base, size, 0x6375C,
-                "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D 6C 24 80 "
-                "48 81 EC 80 01 00 00 0F 29 70 C8 0F 29 78 B8");
-            const bool tlsOk = ReachColdExactSignatureAt(base, size, 0x637FA,
-                "8B 0D ?? ?? ?? ?? BF D8 00 00 00 F3 0F 11 5C 24 50 48 8D 1C 76 4C 8B 34 C8");
-            const bool accOk = ReachColdExactSignatureAt(base, size, 0x63AF9,
-                "0F 28 D0 F3 0F 58 94 1F 94 00 00 00 41 83 CB FF B8 10 00 00 00 F3 0F 11 94 1F 94 00 00 00");
-            if (entryOk && tlsOk && accOk)
+            drive_cascade::Resolution<ReachControlFound> resolution;
+            const drive_cascade::Drive drive{GameTitle::HaloReach, "control-update"};
+            // The plan is drive_sites.h's own function, the one the tests and the offline check run: with the sim
+            // tick's two anchors in a dev build, without them in a player build.
+            const bool opened = drive_cascade::Resolve(base, size, drive, resolution, [](drive_resolve::Resolver& r) {
+                return drive_sites::PlanReachControl<HALOMCCVR_DEV_DIAGNOSTICS != 0>(r);
+            });
+            const drive_sites::ReachControl& found = resolution.found.control;
+            if (opened)
+                drive_cascade::Announce(drive_cascade::kReachName, resolution);
+            // THE DECISION (drive_install.h; the offline check runs the same function on haloreach.dll as the
+            // loader maps it): each anchor on a page of code, and the module's TLS index the one this lane's
+            // readers use -- the hook, the arm gate and the Sabre's controller all read it through that constant.
+            const drive_install::ReachControlDecision decision =
+                drive_install::DecideReachControl(base, opened, found, static_cast<uint32_t>(kReachEngineTlsIndexRva));
+            const bool entryOk = decision.entryOk, tlsOk = decision.tlsOk, accOk = decision.accOk,
+                       indexOk = decision.indexOk;
+            if (decision.hook)
             {
                 // Which caller ran it (the dispatcher's return): built while no hook can run, logged inside.
-                (void)ReachBuildCallerMap(base, size);
+                (void)ReachBuildCallerMap(base, size, resolution.found);
                 // The seat's frame (the vehicle-tilt rebase, read by the hook itself): bound while no hook can run.
                 ReachSeatFrameBind(base, size);
-                void* target = reinterpret_cast<void*>(base + 0x6375C);
+                void* target = reinterpret_cast<void*>(base + found.entry);
+                ++g_reachPcInstalls;
+                ReachDriveForgetCalls();
                 const MH_STATUS created = MH_CreateHook(
                     target, reinterpret_cast<void*>(&ReachPlayerControlHook),
                     reinterpret_cast<void**>(&g_reachPcOrig));
                 if (created == MH_OK && MH_EnableHook(target) == MH_OK)
                 {
                     g_reachPcTarget = target;
+                    g_reachPcEntryRva = found.entry;
                     // A fresh hook starts disarmed with a released gate (the reset is applied on the
                     // engine thread), and only then may the gate run again.
                     ReachDriveDisarm();
                     g_reachDriveResetSeq.fetch_add(1, std::memory_order_acq_rel);
                     g_reachDriveTearingDown.store(false, std::memory_order_release);
-                    LOG("Reach direct-drive: control-update hook INSTALLED at haloreach.dll+0x6375C (disarmed "
-                        "until the arm-gate validates player_control)");
+                    LOG("Reach direct-drive: control-update hook INSTALLED at haloreach.dll+0x%X (disarmed "
+                        "until the arm-gate validates player_control)", found.entry);
                 }
                 else
                 {
@@ -36082,16 +36468,31 @@ namespace
             }
             else
             {
-                LOG("Reach direct-drive: anchors did not match this build (entry=%d tls=%d accumulator=%d) -- "
-                    "NO hook; the stick servo keeps aiming", entryOk ? 1 : 0, tlsOk ? 1 : 0, accOk ? 1 : 0);
+                char first[280] = "";
+                if (opened)
+                    drive_cascade::FirstFailure(resolution.report, first, sizeof(first));
+                LOG("Reach direct-drive: anchors did not resolve in this build (%s; entry=%d tls=%d accumulator=%d "
+                    "tls-index=%d: the module's is +0x%X, this lane reads +0x%llX) -- NO hook; the stick servo keeps "
+                    "aiming", opened ? first : (resolution.why ? resolution.why : "the module did not open"),
+                    entryOk ? 1 : 0, tlsOk ? 1 : 0, accOk ? 1 : 0, indexOk ? 1 : 0, found.tlsIndex,
+                    static_cast<unsigned long long>(kReachEngineTlsIndexRva));
+                // NOT FOLLOWED, and said as what it is: the code may all have been found.
+                if (opened && found.tlsIndex && !indexOk)
+                    LOG("Reach direct-drive: NOT FOLLOWED. This game DLL keeps its engine TLS index at +0x%X, and "
+                        "this lane's run-time readers read it at the recorded +0x%llX: Reach's data moved. The drive "
+                        "is not hooked, even where every code site was found, until that constant is the module's",
+                        found.tlsIndex, static_cast<unsigned long long>(kReachEngineTlsIndexRva));
             }
         }
 #if HALOMCCVR_DEV_DIAGNOSTICS
-        // DEV BUILDS ONLY: the log-only observer on the type-13 pilot controller +0x64828, which the dispatcher
-        // calls INSTEAD of the accumulator above for a Sabre/Seraph pilot (type13_flight_log.inl). Its own
-        // anchors decide; a miss leaves only that lane off, and it writes nothing to the game either way.
+        // DEV BUILDS ONLY: the log-only observer of the type-13 pilot controller (type13_flight_log.inl), made ready
+        // before that controller's hook, below, can run. Its own anchors decide; a miss leaves only the observer off.
         (void)ReachType13LogInstall(base, size, generation);
 #endif
+        // The type-13 pilot controller +0x64828, which the dispatcher calls INSTEAD of the accumulator above for a
+        // Sabre/Seraph pilot (reach_type13_drive.inl). Its own anchors decide; a miss leaves that pilot on the
+        // stick servo and nothing else changes.
+        (void)ReachType13Install(base, size, generation);
 
         // Reach game brightness. The exact homologue of the Halo 3/ODST screen
         // colour/gamma publisher, pinned by RVA inside the already whole-image-
@@ -36236,6 +36637,7 @@ namespace
         for (auto& slot : g_reachChudMaxCollection)
             slot.store(0, std::memory_order_relaxed);
         g_reachMuzzleOutOfRange.store(0, std::memory_order_relaxed);
+        g_reachMuzzleLeft.store(0, std::memory_order_relaxed);
         g_reachMuzzleNearestMilli.store(0xFFFFFFFFu, std::memory_order_relaxed);
         g_reachMuzzleIdentityNoSibling.store(0, std::memory_order_relaxed);
         g_reachMuzzleReadFailures.store(0, std::memory_order_relaxed);
@@ -37385,6 +37787,67 @@ namespace
     // Worker-side only. Reports what the effect-location hook actually saw, so
     // one short headset run decides the muzzle mechanism instead of a fourth
     // guess. Silent until something happens, then rate-limited to 30 s.
+    // Worker-side: the effect places left where the game put them (a shared simulation), said when the count has
+    // moved and at most every 30 s; and (dev) who asked for a place, and when.
+    void ReachEffectMoveReport()
+    {
+        static uint32_t s_left = 0, s_moved = 0;
+        static uint64_t s_at = 0;
+        const uint64_t now = GetTickCount64();
+        const uint32_t left = g_reachMuzzleLeft.load(std::memory_order_relaxed);
+        const uint32_t moved = g_reachMuzzleReparented.load(std::memory_order_relaxed);
+        if (left < s_left || moved < s_moved)   // the counters were reset with the core
+        {
+            s_left = left;
+            s_moved = moved;
+        }
+        if (left != s_left && (!s_at || now - s_at >= 30000))
+        {
+            LOG("Reach effects (Co-op safe): %u effect place(s) near the gun left where the game put them since the "
+                "last report (asked for inside a simulation tick, where every machine must be given the same "
+                "place); %u moved onto the gun (asked for outside one)",
+                left - s_left, moved - s_moved);
+            s_left = left;
+            s_moved = moved;
+            s_at = now;
+        }
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        static uint64_t s_censusAt = 0;
+        if (s_censusAt && now - s_censusAt < 10000)
+            return;
+        s_censusAt = now;
+        static const char* const kWhere[kReachEffectWheres] = {"sim thread in a tick", "sim thread between ticks",
+                                                               "another thread, mark set",
+                                                               "another thread, mark clear", "mark unreadable"};
+        for (int c = 0; c < kReachEffectCallers; ++c)
+        {
+            char line[900]{};
+            size_t used = 0;
+            uint32_t total = 0;
+            for (int w = 0; w < kReachEffectWheres; ++w)
+            {
+                const uint32_t calls = g_reachEffectCensus.calls[c][w].exchange(0, std::memory_order_relaxed);
+                const uint32_t own = g_reachEffectCensus.nearOwn[c][w].exchange(0, std::memory_order_relaxed);
+                const uint32_t other = g_reachEffectCensus.nearOther[c][w].exchange(0, std::memory_order_relaxed);
+                total += calls;
+                if (!calls)
+                    continue;
+                const int n = snprintf(line + used, sizeof(line) - used,
+                                       "%s%s: %u (near the gun: %u of the player's own weapon, %u of anything else)",
+                                       used ? "; " : "", kWhere[w], calls, own, other);
+                if (n > 0)
+                    used = (std::min)(sizeof(line) - 1, used + static_cast<size_t>(n));
+            }
+            if (!total)
+                continue;
+            if (c < kReachEffectCallers - 1)
+                LOG("REACH EFFECT PLACES (dev): asked from +0x%X: %s", kReachEffectCallerReturns[c], line);
+            else
+                LOG("REACH EFFECT PLACES (dev): asked from another call site: %s", line);
+        }
+#endif
+    }
+
     void ReachMuzzleLogTick()
     {
         static uint32_t lastTotal = 0;
@@ -38022,6 +38485,7 @@ namespace
         ReachSsaoLogTick();
         ReachObserverCameraLogTick();
         ReachMuzzleLogTick();
+        ReachEffectMoveReport();
         ReachWorldWristWriteLogTick();
         ReachCineProbeLogTick();
         LogReachOuterCameraCommitIfReady();
@@ -38127,6 +38591,15 @@ namespace
             // already-running proof (captured 2026-08-06: proof PASS
             // 08:54:38, gate open 6078 ms later, ~9 s of flat cinematic;
             // versus ~2 s on the same session's early-proof load).
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            // The sim trace's reference mode: the recorder alone, in place of everything else (reach_sim_trace.inl).
+            if (g_config.dev_sim_minimal)
+            {
+                if (levelRunning)
+                    ReachSimMinimalInstall(base, size);
+                return;
+            }
+#endif
             if (ready && levelRunning)
                 InstallReachCameraCore(base, size, generation);
             return;
@@ -39116,6 +39589,9 @@ namespace
 
     std::atomic<bool> g_halo4RuntimeWeaponBoundsProven{false};
     std::atomic<bool> g_halo4VehicleIdentityProven{false};
+    // GetTickCount64 of Halo 4's last owned frame, or of the last worker pass that found it paused (a pause draws
+    // stock windows, and a paused game has not ended). For the unload gate (Game_TitleCoreState).
+    std::atomic<uint64_t> g_halo4LastFrameMs{0};
     std::atomic<uint64_t> g_halo4RuntimeWeaponBoundsReads{0};
     std::atomic<uint64_t> g_halo4RuntimeWeaponBoundsRefusals{0};
     uintptr_t g_halo4RenderModelTagIndexPointerSlot=0;
@@ -40270,7 +40746,7 @@ namespace
         g_halo4WorldCollision.configured.store(
             g_config.world_collision, std::memory_order_release);
         g_halo4WorldCollision.physicalMeleeConfigured.store(
-            g_config.physical_melee,
+            Sight_PhysicalMelee(),
             std::memory_order_release);
         g_halo4WorldCollision.physicalMeleeRequiredSpeed.store(
             g_config.physical_melee_swing_speed, std::memory_order_release);
@@ -40327,7 +40803,7 @@ namespace
         if (previous != requested)
             g_halo4WorldCollision.configurationResetPending.store(
                 true, std::memory_order_release);
-        const bool meleeRequested = g_config.physical_melee;
+        const bool meleeRequested = Sight_PhysicalMelee();
         const bool previousMelee =
             g_halo4WorldCollision.physicalMeleeConfigured.exchange(
                 meleeRequested, std::memory_order_acq_rel);
@@ -40440,7 +40916,7 @@ namespace
         const BoneMatrix* solved, int32_t ignoredObjectIndex)
     {
         if ((!g_halo4WorldCollision.configured.load(
-                std::memory_order_acquire) && !(Halo4ContactMeleeReady() && g_config.physical_melee)) ||
+                std::memory_order_acquire) && !(Halo4ContactMeleeReady() && Sight_PhysicalMelee())) ||
             !solved || !g_halo4FloatingPair.targetsValid ||
             !g_halo4FloatingPair.generation)
             return;
@@ -40494,7 +40970,7 @@ namespace
         uint32_t shapeId)
     {
         if ((!g_halo4WorldCollision.configured.load(
-                std::memory_order_acquire) && !(Halo4ContactMeleeReady() && g_config.physical_melee)))
+                std::memory_order_acquire) && !(Halo4ContactMeleeReady() && Sight_PhysicalMelee())))
             return;
         const uint32_t handCount =
             g_halo4FloatingPair.handCollisionSampleCount[1];
@@ -41953,7 +42429,10 @@ namespace
     #include "halo4_head_relative.inl"
     // The sound listener follows the head instead of the aim (the same evidence class, the same head sample).
     #include "halo4_sound_listener.inl"
-    // Dev builds only: Halo 4 seated convergence, stages 0-1 (the file compiles to nothing otherwise).
+    // Halo 4 seated convergence (every build; the player key halo4_seat_converge): the aim-camera sample, the
+    // seated trace and the solve's start.
+    #include "halo4_seat_converge.inl"
+    // Dev builds only: the Halo 4 seat witnesses (the file compiles to nothing otherwise).
     #include "halo4_seat_sight.inl"
     // Flat parity's fire eye, Halo 4 on foot: measured, proven at rest (every build).
     #include "halo4_fire_eye.inl"
@@ -42752,7 +43231,7 @@ namespace
         }
         Halo4WeaponCollisionBounds runtimeBounds{};
         const bool needsBounds=g_halo4WorldCollision.configured.load(
-            std::memory_order_acquire) || (Halo4ContactMeleeReady() && g_config.physical_melee);
+            std::memory_order_acquire) || (Halo4ContactMeleeReady() && Sight_PhysicalMelee());
         const bool readBounds=needsBounds && Halo4ReadRuntimeWeaponBounds(
             renderModelDescriptor,runtimeImportChecksum,runtimeBounds);
         if (needsBounds) (readBounds ? g_halo4RuntimeWeaponBoundsReads :
@@ -45085,6 +45564,81 @@ namespace
 
     #include "halo4_scope.inl"
 
+    // THE BROADSWORD'S VIEW RIDES ITS COCKPIT, location only. In a seat the observer the eyes are built from is the
+    // game's camera director following the point the seat camera was placed at, and the director's position lags:
+    // under the Broadsword's boost the view falls behind the cockpit and catches up once the boost ends. For the
+    // Broadsword's seats the render camera stands on the point placed this frame (the pilot's head as drawn plus
+    // the seat's trims; native_vehicle_first_person.cpp). Its direction stays the observer's, and the hands and
+    // the aim keep the game's camera (`controllerRoot`). Every other vehicle keeps the director's camera: a
+    // Banshee's tricks would carry the view through them.
+    constexpr uint64_t kHalo4BroadswordModel = 0x0000001d1a19101eull;   // render model identity (halo4_vehicle_identity.inl)
+    // The placed point is the frame's own: the evaluator places it for the frame's camera just before the render.
+    constexpr uint64_t kHalo4PlacedPointMaxAgeUs = 50000;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    std::atomic<bool> g_devBroadswordRideOff{false};   // dev pad broadsword_ride 0: measure, change nothing
+    struct BroadswordRideWindow
+    {
+        uint64_t startMs = 0;
+        unsigned frames = 0, applied = 0;
+        float alongMin = 0.0f, alongMax = 0.0f, alongSum = 0.0f, offMax = 0.0f, ageMaxMs = 0.0f;
+    };
+#endif
+    void Halo4BroadswordRideCockpit(Halo4CameraBasis& camera) noexcept
+    {
+        NativeVehicleSeatPoint placed{};
+        if (!NativeVehicleFirstPerson_PlacedPoint(GameTitle::Halo4, placed) ||
+            placed.vehicleIdentity != kHalo4BroadswordModel)
+            return;
+        const uint64_t now = Sight_NowUs();
+        if (now < placed.us || now - placed.us > kHalo4PlacedPointMaxAgeUs ||
+            !NativeVehicleFirstPerson_SeatViewOwned(GameTitle::Halo4, placed.parent, placed.seat))
+            return;
+        for (float value : placed.point)
+            if (!std::isfinite(value))
+                return;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        // How far the observer trails the placed point, along the view's forward (negative = behind), per second.
+        {
+            static BroadswordRideWindow w;
+            const uint64_t ms = now / 1000;
+            if (!w.startMs)
+                w.startMs = ms;
+            const float d[3]{camera.position[0] - placed.point[0], camera.position[1] - placed.point[1],
+                             camera.position[2] - placed.point[2]};
+            const float along = d[0] * camera.forward[0] + d[1] * camera.forward[1] + d[2] * camera.forward[2];
+            const float off = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            if (!w.frames || along < w.alongMin) w.alongMin = along;
+            if (!w.frames || along > w.alongMax) w.alongMax = along;
+            w.alongSum += along;
+            w.offMax = (std::max)(w.offMax, off);
+            w.ageMaxMs = (std::max)(w.ageMaxMs, float(now - placed.us) * 0.001f);
+            ++w.frames;
+            const bool apply = !g_devBroadswordRideOff.load(std::memory_order_relaxed);
+            if (apply) ++w.applied;
+            if (ms - w.startMs >= 1000)
+            {
+                LOG("Halo 4 Broadsword view (dev): %u frames, %u on the placed point; the observer stood %.3f..%.3f "
+                    "(mean %.3f) wu along the view from the point (negative = behind), %.3f wu away at most; the "
+                    "point was %.1f ms old at most",
+                    w.frames, w.applied, double(w.alongMin), double(w.alongMax),
+                    double(w.alongSum / float(w.frames)), double(w.offMax), double(w.ageMaxMs));
+                w = BroadswordRideWindow{};
+                w.startMs = ms;
+            }
+            if (!apply)
+                return;
+        }
+#endif
+        memcpy(camera.position, placed.point, sizeof(camera.position));
+        static uint32_t saidFor = UINT32_MAX;
+        if (saidFor != placed.parent)
+        {
+            saidFor = placed.parent;
+            LOG("Halo 4 Broadsword: the view stands on the seat camera's own point (the camera director's lag behind "
+                "the cockpit is left out); its direction is the game's");
+        }
+    }
+
     // C-H4-7: stock-projection geometry on C-H4-5's sustained wrapper scope.
     // The snapshot, camera basis, and both eye transforms are validated before
     // the first mutation. Once mutation begins, any failure drops this frame;
@@ -45093,9 +45647,10 @@ namespace
     // the eye/observer cleanup below.
     Halo4StereoResult Halo4StereoTransaction(
         uintptr_t element, uintptr_t view, uint32_t window,
-        const Halo4SetupArgs& args, bool& frameStarted)
+        const Halo4SetupArgs& args, bool& frameStarted, bool& monoFrameOut)
     {
         frameStarted = false;
+        monoFrameOut = false;
         Halo4VrRenderSnapshot snapshot{};
         if (!VR_Halo4GetRenderSnapshot(snapshot))
         {
@@ -45116,6 +45671,13 @@ namespace
         // OpenXR cover.  Sampling this once keeps both eyes in one camera mode
         // for the complete transaction and preserves the existing transition.
         const bool authoredTheater = VR_IsCutsceneTheaterActive();
+        // MONO RENDERING (mono_view_logic.h): the snapshot's two eyes are one camera, and one pass is drawn with
+        // it, as the eye the eye-order setting draws first. The theatre keeps its two eyes.
+        const bool monoFrame = snapshot.mono && !authoredTheater;
+        const int eyePasses = monoFrame ? 1 : 2;
+        // Read once: the pass below and what is published for it name the same eye.
+        const int firstEye = g_config.right_eye_first ? 1 : 0;
+        monoFrameOut = monoFrame;
 
         unsigned char savedObserver[kHalo4ObserverSnapshotBytes];
         if (!Halo4SafeRead(reinterpret_cast<const void*>(args.observer),
@@ -45147,6 +45709,7 @@ namespace
         // controller-owned in this frame; `stock` below becomes the HMD-owned
         // render camera and must not be reused for their placement.
         const Halo4CameraBasis controllerRoot = stock;
+        Halo4BroadswordRideCockpit(stock);
 
         // C-H4-9: publish the ENGINE's own look pitch, taken before any of our
         // head transform touches it. This observer forward is the ray Halo
@@ -45552,8 +46115,7 @@ namespace
             // inside each eye's current ordered record sequence.
             Halo4BeginFloatingPair();
             if(!authoredTheater)Halo4RenderScope(element,view,window,args,savedObserver,controllerRoot,stock,calibration);
-            const int firstEye = g_config.right_eye_first ? 1 : 0;
-            for (int pass = 0; pass < 2; ++pass)
+            for (int pass = 0; pass < eyePasses; ++pass)
             {
                 const int eye = pass == 0 ? firstEye : 1 - firstEye;
                 unsigned char eyeObserver[kHalo4ObserverSnapshotBytes];
@@ -45783,12 +46345,24 @@ namespace
         if (!restoreSucceeded)
             rejection = Halo4StereoRejection::RestoreFailed;
         else if (rejection == Halo4StereoRejection::None &&
-                 completedEyes == 2 && uncapturedEyes != 0)
+                 completedEyes == eyePasses && uncapturedEyes != 0)
             rejection = Halo4StereoRejection::EyeCaptureMissing;
 
-        if (restoreSucceeded && completedEyes == 2 && uncapturedEyes == 0 &&
+        if (restoreSucceeded && completedEyes == eyePasses && uncapturedEyes == 0 &&
             rejection == Halo4StereoRejection::None)
         {
+            if (monoFrame)
+            {
+                // The one picture is the other eye's too: so are the frustum it was drawn with and, for the
+                // present's pair check, its image and its frame serial.
+                halfFovX[1 - firstEye] = halfFovX[firstEye];
+                halfFovY[1 - firstEye] = halfFovY[firstEye];
+                VR_NoteMonoFrameRendered(GameTitle::Halo4, firstEye);
+            }
+            else
+            {
+                VR_NoteStereoFrameRendered(GameTitle::Halo4);
+            }
             for (int eye = 0; eye < 2; ++eye)
             {
                 g_halo4RenderHalfFovX[eye].store(
@@ -45910,11 +46484,12 @@ namespace
 
         Halo4StereoResult result = Halo4StereoResult::NotStarted;
         bool frameStarted = false;
+        bool monoFrame = false;
         bool transactionException = false;
         __try
         {
             result = Halo4StereoTransaction(
-                element, view, window, args, frameStarted);
+                element, view, window, args, frameStarted, monoFrame);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -45929,6 +46504,10 @@ namespace
             Halo4NoteRejection(
                 Halo4StereoRejection::TransactionException, frameStarted);
         }
+        // A mono frame that did not complete, whether its checks failed, its pass faulted or it never started, is
+        // a single pass turned down (mono_view::MonoRejections sorts out whether mono was the reason).
+        if (monoFrame && result != Halo4StereoResult::Complete)
+            VR_NoteMonoFrameRejected(GameTitle::Halo4);
         if (result == Halo4StereoResult::NotStarted)
         {
             // Ownership never began, so the untouched stock wrapper is safe.
@@ -46917,6 +47496,9 @@ namespace
         if(!RemoveHalo4SeatSight())
         { LOG("Halo 4 teardown: the dev seat witnesses need cleanup retry; retaining native dependencies");return false; }
 #endif
+        // Seated convergence owns no hook: it stops sampling now, and the muzzle and direct-drive detours that
+        // call into it are drained below.
+        RemoveHalo4SeatConverge();
 #if HALOMCCVR_DEV_DIAGNOSTICS
         if(!RemoveHalo4ImpactWitness())
         { LOG("Halo 4 teardown: the dev AS SEEN witness needs cleanup retry; retaining native dependencies");return false; }
@@ -46940,10 +47522,8 @@ namespace
             false, std::memory_order_release);
         g_halo4Camera.teardownRequested.store(true, std::memory_order_release);
         g_halo4Camera.armed.store(false, std::memory_order_release);
-#if HALOMCCVR_DEV_DIAGNOSTICS
-        if(!Halo4Type13LogRemove())
-        { LOG("Halo 4 teardown: the type-13 log hook needs cleanup retry; retaining native module"); return false; }
-#endif
+        if(!Halo4Type13Remove())
+        { LOG("Halo 4 teardown: the Broadsword pilot controller's hook needs cleanup retry; retaining native module"); return false; }
         if(!RemoveHalo4VehicleInput())
         { LOG("Halo 4 teardown: vehicle input readers need cleanup retry; retaining native module"); return false; }
         if(!LegacyDriveRemove(GameTitle::Halo4))
@@ -47357,16 +47937,21 @@ namespace
         (void)LegacyDriveInstall(GameTitle::Halo4,base,size);
         (void)InstallHalo4VehicleInput(base,size,generation);
 #if HALOMCCVR_DEV_DIAGNOSTICS
-        // DEV BUILDS ONLY: the log-only observer on the Broadsword's pilot controller +0xAA524, called by the
-        // dispatcher instead of the accumulator legacy drive hooks (type13_flight_log.inl). Writes nothing.
+        // DEV BUILDS ONLY: the log-only observer of the Broadsword's pilot controller (type13_flight_log.inl), made
+        // ready before that controller's hook, below, can run. Writes nothing.
         (void)Halo4Type13LogInstall(base,size,generation);
 #endif
+        // The Broadsword's pilot controller +0xAA524, which the dispatcher calls instead of the accumulator the
+        // direct drive hooks (halo4_type13_drive.inl). Its own anchors decide; a miss leaves that pilot on the stick
+        // servo and nothing else changes.
+        (void)Halo4Type13Install(base,size,generation);
         (void)InstallHalo4Muzzle(base,size,generation);
         // Optional and feature-local: a refusal leaves the game's own tracker and nothing else changes.
         (void)InstallHalo4HeadRelative(base,size,generation);
         // The same for the sound listener: it binds or refuses on its own, and neither gates the other.
         (void)InstallHalo4SoundListener(base,size,generation);
         InstallHalo4FireEye(base,size,generation);   // flat parity's measured fire eye (halo4_fire_eye.inl)
+        InstallHalo4SeatConverge(base,size,generation);   // after the muzzle lane: its view detour carries the sample
 #if HALOMCCVR_DEV_DIAGNOSTICS
         InstallHalo4SeatSight(base,size,generation);   // after the muzzle lane: its bindings and view detour
         (void)InstallHalo4ImpactWitness(base,size);    // AS SEEN (dev): after the muzzle lane, whose aim names the shooter
@@ -47571,6 +48156,8 @@ namespace
             if (heartbeatPaused && !paused)
                 pauseExitMs = nowMs;
             heartbeatPaused = paused;
+            if (paused || generation != heartbeatGeneration || serial != heartbeatSerial)
+                g_halo4LastFrameMs.store(nowMs, std::memory_order_release);
             if (generation != heartbeatGeneration)
             {
                 heartbeatGeneration = generation;
@@ -47691,7 +48278,7 @@ namespace
             "HUD=%s (%llu native affine writes, curvature=%s), pause=%s, "
             "helmet=%s/config-%s (%llu exact shaders, %llu suppressed binds; "
             "full frontend root), screen-fx=%s (%llu motion-suck shaders, "
-            "%llu suppressed binds); "
+            "%llu suppressed binds; %llu frame copies taken from the eye being drawn); "
             "every unavailable feature stays stock",
             g_halo4Restoration.effectsInstalled.load(
                 std::memory_order_acquire) ?
@@ -47712,7 +48299,8 @@ namespace
             D3D_Halo4ScreenEffectShaderPathAvailable() ?
                 "exact-bridge-LIVE" : "StockFallback",
             static_cast<unsigned long long>(motionSuckShaders),
-            static_cast<unsigned long long>(motionSuckSuppressions));
+            static_cast<unsigned long long>(motionSuckSuppressions),
+            static_cast<unsigned long long>(VR_TakeHalo4SceneCopyCount()));
 
         const uint64_t collisionQueries =
             g_halo4WorldCollision.queries.exchange(
@@ -48378,10 +48966,14 @@ namespace
 #endif
             Sight_ReportEngineRays();
             Sight_ReportShots();
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+            Halo4SeatConvergeReport();   // SIGHT Halo 4 seat converge: solved polls, and why not
+#endif
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA && HALOMCCVR_DEV_DIAGNOSTICS
-            Halo4SeatSightReport();   // SIGHT Halo 4 seat eye / seated trace, SHOT Halo 4 seated
+            Halo4SeatSightReport();   // SIGHT Halo 4 seat eye, SHOT Halo 4 seated
 #endif
             LegacyDriveReport();
+            Halo4FlightDriveReport();   // the Broadsword pilot's own line
             GunAimReport();   // DRIVE Halo 3 gun-slaved seat (the gun camera's offset), SEAT LIMIT Halo 3 gun band
             Halo3HeadRelativeReport();   // TRACKER HEAD Halo 3: the switch, by the head / the game's own
             Halo3TrackerHudHeightReport();   // TRACKER HUD HEIGHT Halo 3: the blips moved with the HUD height / not
@@ -49717,7 +50309,8 @@ uint64_t Game_GetAuthoredCrosshairKey()
         return 0x0a9b60d8f40268f6ULL;
     }
 #endif
-    return g_authoredCrosshairKey.load(std::memory_order_acquire);
+    return AuthoredReticleKeyAtScale(g_authoredCrosshairKey.load(std::memory_order_acquire),
+                                     g_hudLayoutScaleEpoch.load(std::memory_order_relaxed));
 }
 uint32_t Game_GetAuthoredCrosshairDrawCount()
 {
@@ -49976,7 +50569,11 @@ uint32_t Game_GestureMeleeInput(uint64_t nowMs)
     telemetry.polls.fetch_add(1,std::memory_order_relaxed);
     // With both modes selected, contact owns melee. The gesture must never
     // add a second native target/animation to the same physical strike.
-    if (exclusive_input::Active() || !g_config.gesture_melee || g_config.physical_melee || !transport ||
+    // Co-op safe: contact melee applies its damage on this machine only, so there it stands down and its swing
+    // takes this lane instead -- the game's own melee binding, which is input every machine shares.
+    const bool contactOwns = Sight_PhysicalMelee();
+    const bool gesture = g_config.gesture_melee || (g_config.physical_melee && !contactOwns);
+    if (exclusive_input::Active() || !gesture || contactOwns || !transport ||
         TitleAdapter_GetRuntimeMode()!=RuntimeMode::Gameplay ||
         !g_enabled.load(std::memory_order_acquire) ||
         !VR_IsStereoEnabled())
@@ -52739,6 +53336,7 @@ void Game_ReachDirectDrivePublish(float gameYaw, float gamePitch, bool converged
     g_reachDriveConverged.store(converged, std::memory_order_relaxed);
     g_reachDriveSeated.store(seated, std::memory_order_relaxed);
     g_reachDrivePitchLatch.store(pitchLatch, std::memory_order_relaxed);
+    g_reachDriveSerial.store(VR_CurrentPreparedSerial(), std::memory_order_relaxed);
     g_reachDriveMs.store(GetTickCount64(), std::memory_order_relaxed);
     g_reachDriveSeq.fetch_add(1, std::memory_order_release);    // even: one coherent setpoint
     g_reachDriveValid.store(true, std::memory_order_release);
@@ -52934,14 +53532,22 @@ bool Game_ReachSightReticleRange(float& outRangeM, bool& outHit)
 // at the accumulator's entry rsp + 0x100 (0x6350C keeps a fixed 0xF8-byte frame, 7 pushes + 0xC0, no frame
 // register). Only the stick call is the update: counted as one, the impulse call steps the seat-limit
 // latch (a false limit whenever the vehicle is hit, which also clears the converged stamp) and the counters.
-// ADDR-HYGIENE: guarded. The accumulator's call site, the dispatcher prologue and each caller site are exact
-// byte patterns that must be unique and match at their RVAs, every E8 must land on its target, and the frame
-// is proven from the dispatcher's .pdata/unwind info and its prologue (AimCallerProveDispatcher). Rung 1 is the
-// stick site: without it every call counts as the update (no split by caller). A missing impulse
-// or no-unit site only reads as unknown (put back). Measured on the retail Steam module.
+// ADDR-HYGIENE: resolved (src/common/drive_sites.h, kReachCallerAnchors and ResolveCallers). The accumulator's
+// call site, the dispatcher prologue and each caller site are exact byte patterns FOUND by signature in the module
+// (each exactly once), every E8 must land on its found target, the dispatcher must be the function that holds the
+// accumulator's call, and the frame is proven from the dispatcher's .pdata/unwind info and its prologue
+// (drive_install::ProveDispatcher). Rung 1 is the stick site: without it every call counts as the update (no split by
+// caller). A missing impulse or no-unit site only reads as unknown (put back).
 static aim_caller::CallerMap g_reachCallerMap;            // written at install, before the hook is enabled
 static std::atomic<uint8_t>  g_reachCallerMode{0};        // for the cold worker: 0 not proven, 2 by dispatcher
 static std::atomic<unsigned> g_reachRoleCalls[aim_caller::kCallerCount]{};
+// A new install of the control-update hook: nothing counted before it may read as a call of this one (the hook
+// watchdog, Game_ReachDirectDriveReport).
+static void ReachDriveForgetCalls()
+{
+    for (auto& role : g_reachRoleCalls)
+        role.store(0, std::memory_order_relaxed);
+}
 static std::atomic<unsigned> g_reachPutBacks{0}, g_reachPutBacksRefused{0};
 static std::atomic<uintptr_t> g_reachLastUnknownRet{0};
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -52952,77 +53558,39 @@ static uint32_t g_reachTickSlot = 0, g_reachTickField = 0;   // proven at instal
 static std::atomic<uint32_t> g_reachCensusPutBacks{0};
 static std::atomic<uint32_t> g_reachRefusals[aim_caller::kRefusalCount]{};
 static std::atomic<uint32_t> g_reachExtraDeltaMax[2][2]{}, g_reachStickDriftMax[2][2]{};
-static constexpr AimCallerTickAnchors kReachTickAnchors{
-    0x5C410, "8B 0D ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BA A0 00 00 00 48 8B 04 C8 48 8B 0C 10 8B 41 0C C3",
-    0x57A4C, "F6 44 24 7C 01 4C 89 3D ?? ?? ?? ?? 74 0C B8 A0 00 00 00 48 8B 04 18 FF 40 0C", 15, 25};
 #endif
 
-static bool ReachBuildCallerMap(uintptr_t base, size_t size)
+// Builds the caller map from the call sites the install's resolution FOUND in this module (drive_sites.h,
+// kReachCallerAnchors) and logs what it proved. Each found call is proven again here, on the loaded image: its
+// rel32 must land on its target, and the dispatcher's frame is taken from the loaded module's own function table
+// (drive_install::ProveDispatcher) and must be the one the resolution proved from the module's .pdata.
+static bool ReachBuildCallerMap(uintptr_t base, size_t size, const ReachControlFound& resolved)
 {
-    constexpr uint32_t kEntry = 0x6375C, kAccCallPat = 0x63651, kAccCall = 0x6365E, kDispatcher = 0x6350C;
-    struct ReachCallerSite { uint32_t patRva; const char* pat; uint8_t callOff; aim_caller::Caller role; };
-    static constexpr ReachCallerSite kSites[] = {
-        {0x6244A, "F3 0F 10 55 88 4C 8D 4C 24 70 F3 0F 10 4D 84 8B CF F3 0F 11 7C 24 28 F3 0F 11 74 24 20 "
-                  "E8 ?? ?? ?? ??", 0x1D, aim_caller::Caller::Stick},
-        {0x5EE1C, "4C 8D 0D ?? ?? ?? ?? F3 0F 10 55 34 41 0F 57 CE F3 44 0F 10 74 24 50 8B CB F3 44 0F 11 74 24 28 "
-                  "F3 44 0F 11 6C 24 20 E8 ?? ?? ?? ??", 0x27, aim_caller::Caller::Impulse},
-        {0x62885, "F3 0F 10 55 88 4C 8D 4C 24 70 F3 0F 10 4D 84 41 8B CD F3 0F 11 7C 24 28 F3 0F 11 74 24 20 "
-                  "E8 ?? ?? ?? ??", 0x1E, aim_caller::Caller::NoUnit},
-    };
+    const drive_sites::CallerAnchors& anchors = drive_sites::kReachCallerAnchors;
+    const drive_sites::Callers& found = resolved.callers;
+    const uint32_t entry = resolved.control.entry;
+    // THE PROOF (drive_install.h; the offline check runs the same function on haloreach.dll as the loader maps it).
     aim_caller::CallerMap map;
-    const char* why = nullptr;
-    const uintptr_t accRet =
-        AimCallerUniqueAt(base, size, kAccCallPat,
-                          "F3 0F 10 5D 77 0F 28 D7 0F 28 CE 8B CF E8 ?? ?? ?? ?? F2 0F 10 43 14")
-            ? AimCallerCallReturn(base, size, kAccCall, kEntry) : 0;
-    uint32_t frame = 0;
-    if (!accRet)
-        why = "the accumulator's call site";
-    else if (!AimCallerUniqueAt(base, size, kDispatcher,
-                                "48 8B C4 55 53 57 41 54 41 55 41 56 41 57 48 8D 68 B1 48 81 EC C0 00 00 00 0F 29 70 B8 "
-                                "0F 29 78 A8"))
-        why = "the dispatcher prologue";
-    else
-        (void)AimCallerProveDispatcher(base, size, kDispatcher, kAccCall, frame, why);
+    const drive_install::CallerMapProof proof = drive_install::BuildCallerMap(base, size, entry, found, anchors, map);
+    const bool proven = proof.proven;
+    const char* const why = proof.why;
+    const uint32_t frame = map.dispatcher_frame;
     char sites[200] = "";
-    size_t used = 0;
-    if (frame)
-    {
-        map.acc_ret = accRet;
-        map.dispatcher_frame = frame;
-        map.no_unit_action = aim_caller::Action::EndUpdate;
-        for (const auto& s : kSites)
-        {
-            const uintptr_t ret = AimCallerUniqueAt(base, size, s.patRva, s.pat)
-                ? AimCallerCallReturn(base, size, s.patRva + s.callOff, kDispatcher) : 0;
-            const bool ok = ret && map.add(ret, s.role);
-            const int n = ok
-                ? snprintf(sites + used, sizeof(sites) - used, "%s%s +0x%llX", used ? ", " : "",
-                           aim_caller::CallerName(s.role), static_cast<unsigned long long>(ret - base))
-                : snprintf(sites + used, sizeof(sites) - used, "%s%s NOT verified (reads unknown)", used ? ", " : "",
-                           aim_caller::CallerName(s.role));
-            if (n > 0)
-                used = (std::min)(sizeof(sites) - 1, used + static_cast<size_t>(n));
-        }
-        if (!map.stick_proven())
-            why = "the stick update's call";
-    }
-    const bool proven = frame && map.stick_proven();
-    if (!proven)
-        map.clear();
+    drive_install::CallerMapText(base, anchors, proof, sites, sizeof(sites));
     g_reachCallerMap = map;
     g_reachCallerMode.store(proven ? 2 : 0, std::memory_order_release);
     if (proven)
         LOG("REACHDRIVE: caller map proven by the dispatcher's return (accumulator call +0x%X in dispatcher +0x%X, "
             "frame 0x%X from its unwind info and prologue): %s. Only the stick call is the update; the impulse has "
-            "the last stick write put back, the no-unit call ends the update", kAccCall, kDispatcher, frame, sites);
+            "the last stick write put back, the no-unit call ends the update", found.accumulatorCall, found.dispatcher,
+            frame, sites);
     else
         LOG("REACHDRIVE: caller map NOT proven (%s); every call counts as the update (as before)",
             why ? why : "dispatcher frame");
 #if HALOMCCVR_DEV_DIAGNOSTICS
     uint32_t tickSlot = 0, tickField = 0;
-    const bool tickOk = AimCallerTickProof(base, size, base + kReachEngineTlsIndexRva, kReachTickAnchors, tickSlot,
-                                           tickField);
+    const bool tickOk = AimCallerTickProofAt(base, size, base + kReachEngineTlsIndexRva, drive_sites::kReachTickAnchors,
+                                             resolved.tick, tickSlot, tickField);
     g_reachTickSlot = tickOk ? tickSlot : 0;
     g_reachTickField = tickOk ? tickField : 0;
     LOG("REACHDRIVE (dev census): the sim tick %s",
@@ -53049,13 +53617,27 @@ static void ReachSeatFrameBind(uintptr_t base, size_t size)
             "every seat on the stick servo: why 0x400)", why ? why : "unknown", seat_frame::kReachReader.gateRva);
 }
 
+// A caller of the apply that is not the accumulator's hook: the type-13 pilot's controller (reach_type13_drive.inl),
+// which the dispatcher runs instead of the accumulator. The accumulator's caller map does not see it, so it names
+// the update's action itself. Its record is that controller's own Euler output, in world angles at any roll, which
+// the caller proves per flight against the facing the craft steers by: no seat frame is applied, there is no seat
+// limit to latch and none to publish, and the angles written are never claimed as converged ones (what a craft's
+// guns follow is not measured).
+struct ReachApplySite
+{
+    aim_caller::Action action = aim_caller::Action::StepAndWrite;
+    float maxStepRad = 0.0f;                    // > 0: the written direction moves at most this far per update
+    std::atomic<uint32_t>* capped = nullptr;    // counts the writes that limit shortened
+};
+
 // Runs on the SIM thread from the naked detour, AFTER native 0x6375C updated desired_angles (stick
-// delta + clamps). Overwrites the pair with the published VR aim, but only for the first local player,
+// delta + clamps) -- or, with a `site`, after the type-13 pilot's controller did. Overwrites the pair with the
+// published VR aim, but only for the first local player,
 // only while armed, only for a fresh aim, and only when THIS thread's TLS resolves to the MASTER
 // address the engine-thread arm-gate validated. SEH-guarded; skips on stale/NaN/out-of-range.
 // Only the STICK call writes (g_reachCallerMap): the impulse call has the last stick write put back, and the
 // no-unit call ends the update; every call, whatever its caller, stamps the heartbeat first.
-extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
+static void ReachPcApply(int user, const uint8_t* entryRsp, const ReachApplySite* site)
 {
     // Sim thread, first local player only: the seat-limit guard's memory of what it wrote last update, the
     // last stick write (put back over an impulse) and the stick sequence. Reset whenever the drive is reset
@@ -53069,6 +53651,7 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
     float yaw = 0.0f, pitch = 0.0f; unsigned long long age = 0;
     uintptr_t pc = 0;
     aim_caller::Action action = aim_caller::Action::StepAndWrite;
+    bool led = false;   // this update's on-foot write went through the written aim's lead (its motion is kept)
     __try
     {
         unsigned char* tls = nullptr;
@@ -53079,6 +53662,13 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
             tls = (slots && index < 0x200) ? reinterpret_cast<unsigned char*>(slots[index]) : nullptr;
             const uintptr_t globals = tls ? *reinterpret_cast<const uintptr_t*>(tls + kReachPlayerControlTlsOffset) : 0;
             pc = globals ? globals + static_cast<uintptr_t>(user) * kReachPlayerControlStride : 0;
+            // The session as the game holds it, for the log (src/common/session_read_logic.h).
+            if (tls)
+            {
+                const session_read::Session session =
+                    session_read::ReadTls(tls, session_read::kReachSlots, session_read::kReach);
+                Sight_NoteSession(GameTitle::HaloReach, session.type, session.players, session.others);
+            }
         }
         armed = g_reachPcArmed.load(std::memory_order_acquire) ? 1 : 0;   // flag first, then the address
         const uintptr_t expected = g_reachPcExpected.load(std::memory_order_acquire);
@@ -53106,6 +53696,7 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
         // writes nothing and the game keeps the last angles.
         bool coherent = false, drivenConverged = false, drivenSeated = false, drivenPitchLatch = true;
         unsigned long long publishedMs = 0;
+        uint64_t drivenSerial = 0;
         for (int attempt = 0; attempt < 2 && !coherent; ++attempt)
         {
             const uint32_t before = g_reachDriveSeq.load(std::memory_order_acquire);
@@ -53116,6 +53707,7 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
             drivenConverged = g_reachDriveConverged.load(std::memory_order_relaxed);
             drivenSeated = g_reachDriveSeated.load(std::memory_order_relaxed);
             drivenPitchLatch = g_reachDrivePitchLatch.load(std::memory_order_relaxed);
+            drivenSerial = g_reachDriveSerial.load(std::memory_order_relaxed);
             publishedMs = g_reachDriveMs.load(std::memory_order_relaxed);
             coherent = g_reachDriveSeq.load(std::memory_order_acquire) == before;
         }
@@ -53133,23 +53725,29 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
                 s_putBack = aim_caller::PutBack{};
                 s_putBack.max_age = AimCallerClockFromMs(kAimCallerPutBackCapMs);
                 s_stickSeq = 0;
+                Sight_ForgetAimLead(GameTitle::HaloReach);
                 g_reachSeatFrameUnknownMs.store(0, std::memory_order_release);
 #if HALOMCCVR_DEV_DIAGNOSTICS
                 g_reachCensus.restart(g_reachCallerMap.dispatcher_mode());
 #endif
             }
-            const uintptr_t ret = entryRsp ? *reinterpret_cast<const uintptr_t*>(entryRsp) : 0;
-            const uintptr_t dispatcherRet = aim_caller::DispatcherReturn(g_reachCallerMap, entryRsp, ret);
-            const aim_caller::Caller caller = g_reachCallerMap.classify(ret, dispatcherRet);
-            action = aim_caller::ActionFor(g_reachCallerMap, caller);
-            g_reachRoleCalls[static_cast<int>(caller)].fetch_add(1, std::memory_order_relaxed);
-            if (caller == aim_caller::Caller::Unknown && g_reachCallerMap.stick_proven())
-                g_reachLastUnknownRet.store(dispatcherRet, std::memory_order_relaxed);
+            if (site)
+                action = site->action;
+            else
+            {
+                const uintptr_t ret = entryRsp ? *reinterpret_cast<const uintptr_t*>(entryRsp) : 0;
+                const uintptr_t dispatcherRet = aim_caller::DispatcherReturn(g_reachCallerMap, entryRsp, ret);
+                const aim_caller::Caller caller = g_reachCallerMap.classify(ret, dispatcherRet);
+                action = aim_caller::ActionFor(g_reachCallerMap, caller);
+                g_reachRoleCalls[static_cast<int>(caller)].fetch_add(1, std::memory_order_relaxed);
+                if (caller == aim_caller::Caller::Unknown && g_reachCallerMap.stick_proven())
+                    g_reachLastUnknownRet.store(dispatcherRet, std::memory_order_relaxed);
 #if HALOMCCVR_DEV_DIAGNOSTICS
-            uint32_t simTick = 0;
-            const bool tickOk = AimCallerReadTick(tls, g_reachTickSlot, g_reachTickField, simTick);
-            g_reachCensus.note(tickOk, simTick, caller, drivenSeated);
+                uint32_t simTick = 0;
+                const bool tickOk = AimCallerReadTick(tls, g_reachTickSlot, g_reachTickField, simTick);
+                g_reachCensus.note(tickOk, simTick, caller, drivenSeated);
 #endif
+            }
         }
         const aim_caller::Context context{drivenSeated != false, 0u, 0u, true};
         if (user == 0 && action == aim_caller::Action::RestoreOnly)
@@ -53227,7 +53825,7 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
             // to the state write, freezing for an update and handing back again.
             seat_frame_rt::Live seatFrame{};
             bool seatFrameRead = false;
-            if (user == 0 && armed && same &&
+            if (user == 0 && armed && same && !site &&
                 (drivenSeated ||
                  g_reachVehicleInputSnapshot.load(std::memory_order_acquire) ==
                      ReachVehicleInputSnapshot(TitleAdapter_GetGeneration(GameTitle::HaloReach),
@@ -53280,7 +53878,11 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
                 // left hands the seat to the stick servo from the next poll (Game_ReachDirectDriveAimWhy 0x400).
                 float target[2]{yaw, pitch};
                 bool frameOk = true;
-                if (drivenSeated && user == 0)
+                if (site)
+                {
+                    // A flight controller's record is in world angles (ReachApplySite): no seat frame applies.
+                }
+                else if (drivenSeated && user == 0)
                     frameOk = seatFrameRead && seat_frame_rt::ToRecord(seatFrame, target[0], target[1], pair[0]);
                 else if (drivenSeated)
                     frameOk = false;   // only the first local player's seat frame is read
@@ -53292,7 +53894,7 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
                 // the hand -- so that axis is written as the hand's; its yaw still latches.
                 if (!frameOk)
                     s_seatLimit.reset();
-                else if (drivenSeated)
+                else if (drivenSeated && !site)
                 {
                     const float native[2]{pair[0], pair[1]};
                     const bool latch[2]{true, drivenPitchLatch};
@@ -53306,6 +53908,37 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
                 }
                 else
                     s_seatLimit.reset();
+                // THE WRITTEN AIM, LED (sight_layer.h Sight_LeadWrittenAim; the player key aim_lead_ticks): on foot
+                // the setpoint is carried ahead by its own rate, to the tick that will fire along it. Never a
+                // seat's (its latch and stops read the record back). Not while the zoom lens looks along the game's
+                // aim -- it does unless the converged ray is in effect (reach_scope.inl) -- because the lens is
+                // drawn, and nothing drawn is led.
+                if (frameOk && !drivenSeated && !site && user == 0 && Sight_AimLeadOn())
+                {
+                    const bool lensOnRecord = VR_IsScopeActive() &&
+                        !(g_config.scope_converge && g_config.converged_aim && drivenConverged);
+                    Sight_LeadWrittenAim(GameTitle::HaloReach, drivenSerial,
+                                         Sight_TickPeriodUs(GameTitle::HaloReach, 16667), lensOnRecord, target[0],
+                                         target[1]);
+                    led = true;
+                }
+                // A SITE'S TURN RATE (ReachApplySite): the written direction moves at most maxStepRad from the
+                // record as the game's controller left it this update, along the straight line to the target.
+                if (site && site->maxStepRad > 0.0f)
+                {
+                    const float dy = std::remainder(target[0] - pair[0], 6.28318531f);
+                    const float dp = target[1] - pair[1];
+                    const float across = dy * std::cos(pair[1]);
+                    const float angle = std::sqrt(across * across + dp * dp);
+                    if (std::isfinite(angle) && angle > site->maxStepRad)
+                    {
+                        const float part = site->maxStepRad / angle;
+                        target[0] = pair[0] + dy * part;
+                        target[1] = pair[1] + dp * part;
+                        if (site->capped)
+                            site->capped->fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
                 // Keep yaw on the branch the game's value is on, then inside the game's own [0, 2*pi]: Reach
                 // packs the yaw into its player action as 13 bits over [0, 2*pi] and CLAMPS an out-of-range
                 // value (0x3C7033), so a branch-matched write just past the seam would arrive as 0 or 2*pi -- a
@@ -53317,7 +53950,7 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
                     pair[0] = y;
                     pair[1] = aim_write::clamp_pitch(target[1], 1.45f);
                     wrote = 1;
-                    if (drivenSeated)
+                    if (drivenSeated && !site)
                     {
                         const float written[2]{pair[0], pair[1]};
                         s_seatLimit.wrote(written);
@@ -53357,13 +53990,13 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
             if (user == 0)
             {
                 const converge::ReachUpdateStamps stamps =
-                    converge::ReachStampUpdate(wrote != 0, drivenConverged, limited != 0);
+                    converge::ReachStampUpdate(wrote != 0, drivenConverged && !site, limited != 0);
                 g_reachWrittenConvergedMs.store(stamps.converged ? tick : 0, std::memory_order_release);
                 g_reachHeldAtLimitMs.store(stamps.heldAtLimit ? tick : 0, std::memory_order_release);
-                if (!(wrote && drivenSeated))
+                if (!(wrote && drivenSeated) || site)
                     g_reachSeatStops.clear();
 #if HALOMCCVR_DEV_DIAGNOSTICS
-                if (wrote && drivenSeated)
+                if (wrote && drivenSeated && !site)
                 {
                     // Reach's "polls" are its seated stick updates (two atomics each, dev builds only).
                     converge::NaturalEvents natural;
@@ -53378,7 +54011,13 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
     {
         if (user == 0)
             s_putBack.invalidate();
+        led = false;
     }
+    // The written aim's lead keeps its motion only across consecutive on-foot writes: an update that led none -- a
+    // seat, nothing written, not armed, the no-unit call, a fault -- ends it, and the next on-foot write starts
+    // afresh. An impulse call is not an update and leaves it alone.
+    if (user == 0 && action != aim_caller::Action::RestoreOnly && !led)
+        Sight_ForgetAimLead(GameTitle::HaloReach);
     // Counted here, logged by the cold worker (Game_ReachDirectDriveReport): no file I/O or log lock on
     // the simulation thread. Stick calls only: "calls" are the updates, one per rendered frame.
     if (user == 0 && action == aim_caller::Action::StepAndWrite)
@@ -53391,6 +54030,16 @@ extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
         g_reachApplyYaw.store(yaw, std::memory_order_relaxed);
         g_reachApplyPitch.store(pitch, std::memory_order_relaxed);
     }
+    // The aim trace's control-pass site (reach_sight_trace.inl ReachSightTraceSite): this is the validated record's
+    // own stick update, between ticks, where the game makes its own collision tests for this player.
+    if (user == 0 && action == aim_caller::Action::StepAndWrite && armed && same)
+        ReachSightTraceControlPass();
+}
+
+// The accumulator's naked detour (reach_player_control_hook.asm) calls this.
+extern "C" void ReachPcApplyForUser(int user, const uint8_t* entryRsp)
+{
+    ReachPcApply(user, entryRsp, nullptr);
 }
 
 // Input thread: the stops Reach's last seated write knew (the seat-limit latch's), under 100 ms old, while the drive is
@@ -53406,8 +54055,24 @@ static bool ReachSeatStops(seat_limit::Stops& stops, float& recordYaw)
 // stick calls -- the updates, one per rendered frame (~120 at 120 fps), not the sim's 60 Hz ticks.
 void Game_ReachDirectDriveReport()
 {
+    ReachSabreDriveReport();   // the type-13 pilot's own line, on its own two seconds
     static unsigned long long s_last = 0;
     const unsigned long long now = GetTickCount64();
+    {
+        // "INSTALLED" IS NOT "RUNNING" (drive_cascade.h: HookWatch), on every loop, before the counters below are
+        // read and cleared. Possible: fresh on-foot, player-controlled Reach (Game_ReachDirectDriveOnFoot -- the
+        // camera lane's publications, nothing this hook produces), where the game runs the control update on every
+        // frame. Called: any call the detour itself counted (a pilot's update handed on by the Sabre's hook is not).
+        static drive_cascade::HookWatch s_watch;
+        const void* target = g_reachPcTarget;
+        bool called = false;
+        for (int r = 0; r < aim_caller::kCallerCount && !called; ++r)
+            called = g_reachRoleCalls[r].load(std::memory_order_relaxed) != 0;
+        if (s_watch.Pass(drive_cascade::HookWatch::Install(target, g_reachPcInstalls),
+                         target && Game_ReachDirectDriveOnFoot(), called, now))
+            drive_cascade::SayNeverCalled("REACHDRIVE", "the control update", g_reachPcEntryRva,
+                                          "the player was in control and on foot, where the game runs it every frame");
+    }
     if (now - s_last < 1000) return;
     s_last = now;
     unsigned roles[aim_caller::kCallerCount]{};
@@ -53551,6 +54216,8 @@ bool Halo4TrackerAimReference(float& yaw) noexcept
 #if HALOMCCVR_DEV_DIAGNOSTICS
 #include "type13_flight_log.inl"
 #endif
+#include "reach_type13_drive.inl"
+#include "halo4_type13_drive.inl"
 
 // THE FIRE-TICK EYE, Halo 3 on foot (sight_layer.h Sight_SetFireEyeSource; in every build:
 // the dev key shot_point_transport, default 1, is the A/B): the eye the shot leaves from at this fire, from the unit's
@@ -54331,6 +54998,18 @@ void Game_DevNoteFireTrigger(bool pressed)
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo3)
         Halo3ImpactNoteTrigger(pressed);
 }
+void Game_DevSetBroadswordRide(bool ride)
+{
+    g_devBroadswordRideOff.store(!ride, std::memory_order_relaxed);
+    LOG("Halo 4 Broadsword view (dev): %s", ride ? "on the seat camera's point" : "the observer's, as the game makes it");
+}
+static std::atomic<bool> g_devSeatPitchCheckHoldOff{false};
+void Game_DevSetSeatPitchCheckHold(bool hold)
+{
+    g_devSeatPitchCheckHoldOff.store(!hold, std::memory_order_relaxed);
+    LOG("DRIVE gun-slaved seats (dev): the pitch stick is %s while a seat's pitch check collects its evidence",
+        hold ? "held still" : "NOT held (the stick servo runs through the check)");
+}
 #endif
 
 // THE FREE CAMERA WITH NO PLAYER UNIT (src/common/aim_no_unit_logic.h): the input thread's half. The decision
@@ -54795,13 +55474,26 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     // reason; converge_policy.h). Every one is our code's or a state convergence does not apply to: no natural
     // in-game limit is among them. Nothing below decides on it.
     converge::ConvergeOff convergeWhy = converge::ConvergeOff::None;
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    // Halo 4 seated convergence (halo4_seat_converge.inl): this poll's seat, its rendered eye, and the point of
+    // the simulation's own aim line the solve starts from.
+    Halo4SeatConvergePoll halo4Seat{};
+    if (halo4Aim && aimFrame.traceReaim)
+    {
+        const float cosIntentPitch = cosf(intentPitch);
+        const float seatRayDir[3]{cosIntentPitch * cosf(intentYaw), cosIntentPitch * sinf(intentYaw),
+                                  sinf(intentPitch)};
+        (void)Halo4SeatConvergePrepare(halo4Seat, seatRayDir);
+    }
+    float halo4SeatPoint[3]{};
+    bool halo4SeatPointValid = false;
+#endif
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA && HALOMCCVR_DEV_DIAGNOSTICS
-    // Halo 4 seated convergence (dev; halo4_seat_sight.inl): this poll's seat, eyes and proofs.
+    // The dev seat witnesses (halo4_seat_sight.inl): the render eye against the simulation's, the seat's class and
+    // the shot's line. They decide nothing.
     Halo4SeatSightPoll halo4SeatSight{};
     if (halo4Aim && aimFrame.traceReaim)
         (void)Halo4SeatSightPrepare(halo4SeatSight, halo4AimForward);
-    float halo4SeatPoint[3]{};
-    bool halo4SeatPointValid = false;
 #endif
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
@@ -54836,8 +55528,9 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
         {
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
             // Halo 4: the rendered centre camera and the body/aim frame before the HMD pose is composed
-            // onto it (the frame the engine aims from). On foot only: the trace itself refuses a seated
-            // unit (Halo4SightTraceTick), so a seat never has a fresh range.
+            // onto it (the frame the engine aims from). These are the ON-FOOT eyes: the on-foot trace refuses a
+            // seated unit (Halo4SightTraceTick), so with them a seat has no range and keeps the fixed-distance
+            // steer -- what a seat does while halo4_seat_converge is off.
             BoneMatrix center{}, body{};
             sightEyes = sightTitle == GameTitle::Halo4 &&
                 LegacySight(sightTitle).flags.load(std::memory_order_acquire) &&
@@ -54850,27 +55543,26 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             else if (sightTitle == GameTitle::Halo4)
                 convergeWhy = LegacySight(sightTitle).flags.load(std::memory_order_acquire)
                     ? converge::ConvergeOff::RayStale : converge::ConvergeOff::NoTraceFlags;
-#if HALOMCCVR_DEV_DIAGNOSTICS
-            // SEATED (dev): never the on-foot eyes -- in a seat the controller root is the placed head, not the
-            // point the game's aim line starts from. The seated intent ray (the rendered head, the game's own
-            // seat eye, the vehicle named) lets the seated trace run; it bends nothing until every proof holds.
-            if (halo4SeatSight.seated)
+            // SEATED, with halo4_seat_converge on: never the on-foot eyes. The seated intent ray starts at the
+            // rendered head and names the vehicle, so the seated trace runs (halo4_seat_converge.inl); its engine
+            // eye is the point of the simulation's own aim line for the seat that the aim is solved from. It bends
+            // nothing until every fact of the poll holds (halo4_seat_converge::DecidePoll).
+            if (halo4Seat.seated)
             {
-                sightEyes = halo4SeatSight.ray && sightTitle == GameTitle::Halo4 &&
+                sightEyes = halo4Seat.ray && sightTitle == GameTitle::Halo4 &&
                     LegacySight(sightTitle).flags.load(std::memory_order_acquire);
                 sightSeated = true;
-                sightSolve = halo4SeatSight.solve;
+                sightSolve = halo4Seat.solve;
+                // (Every fact holding with nothing bent is a dev build measuring with the key off.)
                 convergeWhy = sightSolve ? converge::ConvergeOff::None
-                                         : Halo4SeatSightOffReason(halo4SeatSight.why);
-                if (!sightEyes && sightSolve)
-                    convergeWhy = converge::ConvergeOff::NoTraceFlags;
-                sightVehicle = static_cast<int32_t>(halo4SeatSight.parent);
-                sightUnit = static_cast<int32_t>(halo4SeatSight.unit);
-                memcpy(sightHead, halo4SeatSight.head, sizeof(sightHead));
-                memcpy(sightEye, halo4SeatSight.eye, sizeof(sightEye));
-                sightEyeStampUs = 0;   // the seat's eye, not the controller root's
+                    : halo4Seat.why == halo4_seat_converge::Why::Solved ? converge::ConvergeOff::SeatNotImplemented
+                    : halo4_seat_converge::OffReason(halo4Seat.why);
+                sightVehicle = static_cast<int32_t>(halo4Seat.parent);
+                sightUnit = static_cast<int32_t>(halo4Seat.unit);
+                memcpy(sightHead, halo4Seat.head, sizeof(sightHead));
+                memcpy(sightEye, halo4Seat.eye, sizeof(sightEye));
+                sightEyeStampUs = 0;   // the seat's own start, not the controller root's
             }
-#endif
 #endif
         }
         else
@@ -55026,7 +55718,7 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
                                                       toPoint[2] * toPoint[2]);
                     if (std::isfinite(toPointWu) && toPointWu > 0.0f)
                         limitTargetRangeWu = toPointWu;
-#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA && HALOMCCVR_DEV_DIAGNOSTICS
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
                     // The point the aim was bent through, for the Halo 4 seat's claim below.
                     if (sightTitle == GameTitle::Halo4)
                     {
@@ -55051,20 +55743,26 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             }
         }
     }
-#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA && HALOMCCVR_DEV_DIAGNOSTICS
-    // HALO 4 SEATED CLAIM (stage 1, halo4_seat_sight.inl). The aim is bent so the game's seat eye line passes
-    // through the point, and the converged aim is claimed exactly as a Halo 3 seat's is: whether the
-    // SHOT follows is the native seated assist's -- it turns the shot from the barrel by at most 21 deg, and only
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    // HALO 4 SEATED CLAIM (halo4_seat_converge.inl). The aim is bent so the simulation's own aim line for the
+    // seat passes through the point, and the converged aim is claimed exactly as a Halo 3 seat's is: whether the
+    // SHOT follows is the native seated assist's -- it turns the shot from its own line by at most 21 deg, and only
     // for an aiming unit that carries the player -- and a gun the assist cannot bring onto the point fires where
-    // it can, as in flat Halo, with the game's tracers showing it. The assist's verdict (capped, unassisted,
-    // unknown, a slaved turret) is COUNTED for the dev line only (Halo4SeatSightClaimWitness); the claim is
-    // withheld only when the point itself is not a finite position (our code: SeatedClaimFacts::pointFinite).
-    if (sightSeatedConverged && sightSeatedTitle == GameTitle::Halo4 && halo4SeatSight.seated)
-    {
+    // it can, as in flat Halo, with the game's tracers showing it. The claim is withheld only when the point
+    // itself is not a finite position (our code: SeatedClaimFacts::pointFinite).
+    const bool halo4SeatBent = sightSeatedConverged && sightSeatedTitle == GameTitle::Halo4 && halo4Seat.seated;
+    if (halo4SeatBent)
         sightSeatedPointFinite = halo4SeatPointValid;
-        if (halo4SeatPointValid)
-            Halo4SeatSightClaimWitness(halo4SeatSight, halo4SeatPoint);
-    }
+    // What became of this seated poll, for the lane's own line; and the point, for its fire witness.
+    Halo4SeatConvergeEndPoll(halo4Seat, halo4SeatBent && halo4SeatPointValid,
+                             halo4SeatBent ? converge::ConvergeOff::NoRange : convergeWhy,
+                             halo4SeatPointValid ? halo4SeatPoint : nullptr);
+#endif
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA && HALOMCCVR_DEV_DIAGNOSTICS
+    // The assist's verdict on the converged aim (capped, unassisted, unknown, a slaved turret), COUNTED for the dev
+    // line only (Halo4SeatSightClaimWitness), where the dev proofs of the render eye hold: it decides nothing.
+    if (halo4SeatBent && halo4SeatPointValid && halo4SeatSight.seated && halo4SeatSight.solve)
+        Halo4SeatSightClaimWitness(halo4SeatSight, halo4SeatPoint);
     // [assess-only begin]
     // DEV ASSESSMENT ONLY (honest_reticle_assess = 2): where the shot really goes for a seat whose proofs hold,
     // composed from the shot's own line toward the point on the game's aim (Halo4SeatSightHonestAlongAim);
@@ -55445,6 +56143,9 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             uint32_t seatKey = 0;
             // An air vehicle has no rotational limit: its seats never clamp the reticle.
             bool seatAircraft = false;
+            // Halo 4: this seat is the pilot's of a craft whose flight controller the drive is writing
+            // (halo4_type13_drive.inl).
+            bool halo4FlightPilot = false;
             if (!halo4Aim)
             {
                 driveSeated = followedVehicleFrame || Halo3VehicleFpActive();
@@ -55546,6 +56247,8 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
                     seatFacts.driver = true;
                     seatFacts.look_steered = true;
                     seatKey = seat_drive::SeatKey(static_cast<int>(seat.parent), seat.seat, false);
+                    halo4FlightPilot = Halo4FlightPilotLive(seat.parent);
+                    seatAircraft = halo4FlightPilot;
                 }
             }
 #endif
@@ -55555,8 +56258,10 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             // Halo 4: with the roles unmapped, a gunner's or passenger's pitch stop cannot be told from a driver's
             // autolevel, so nothing could hold a written pitch at the stop (the latch must stay off a driver's
             // pitch). Its seats write the heading only; the pitch stays on the servo, which steers through the
-            // accumulator and so keeps every limit.
-            if (halo4Aim)
+            // accumulator and so keeps every limit. THE EXCEPTION is the pilot of a craft with its own flight
+            // controller (the Broadsword): that controller has no pitch stop and never runs the accumulator, so
+            // while the flight drive is writing that pilot both axes are the hand's.
+            if (halo4Aim && !halo4FlightPilot)
                 seatAxes.pitch = false;
             // A seat the right stick aims (vehicle_control = stick): the hand's aim is not written into it on
             // either axis. The stick is passed through, and the reticle placed, where the poll ends.
@@ -55809,12 +56514,24 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
 #if HALOMCCVR_DEV_DIAGNOSTICS
     int servoFeedback[2]{-1, -1};   // per axis: 1 the occupant, 0 the gun, -1 not steered (dev witness)
 #endif
+    // The pitch stick is held still while this stint's pitch check collects its evidence (gun_slaved::CheckHold).
+    bool holdPitchForCheck = false;
+    static gun_slaved::CheckHold s_pitchCheckHold;
+    if (!gunSlavedServo)
+        s_pitchCheckHold.reset();
     if (gunSlavedServo)
     {
         float occupantYaw = 0.0f, occupantPitch = 0.0f;
         unsigned agreeing[2]{};
+        uint32_t pitchCheck = 0;
         const bool occupantFresh = LegacyDriveOccupantAim(TitleAdapter_GetActiveTitle(), gunSlavedKey, occupantYaw,
-                                                          occupantPitch, agreeing);
+                                                          occupantPitch, agreeing, &pitchCheck);
+        holdPitchForCheck = s_pitchCheckHold.step(gunSlavedKey, occupantFresh, (pitchCheck & 0x80000000u) != 0,
+                                                  pitchCheck & 0x7FFFFFFFu, GetTickCount64());
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        if (g_devSeatPitchCheckHoldOff.load(std::memory_order_relaxed))
+            holdPitchForCheck = false;
+#endif
         if (gun_slaved::ServoFeedback(true, occupantFresh, agreeing[0]) == gun_slaved::Feedback::Occupant)
             servoAimYaw = occupantYaw;
         if (gun_slaved::ServoFeedback(true, occupantFresh, agreeing[1]) == gun_slaved::Feedback::Occupant)
@@ -55833,11 +56550,11 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     // OccupiedTurretSeat's state is another title's.
     // (No seat at all in the free-camera frame: a seat state left over from the death must not count.)
     bool turretSeat = !halo4Aim && !freeCamera && (OccupiedTurretSeat() || gunSlavedServo);
-#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA && HALOMCCVR_DEV_DIAGNOSTICS
-    // Stage 1 (dev key halo4_seat_converge): a Halo 4 slaved-turret seat (seat flag bit 7, whose aim camera IS
-    // the turret marker's line) is a turret here too -- for the servo's PARKING only (its pitch is on this servo);
-    // its reticle stays on the converged point like every other seat's.
-    if (halo4Aim && halo4SeatSight.turret)
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    // With halo4_seat_converge on: a Halo 4 seat whose camera is on its gun (seat flag bit 7: the frame's aim, which
+    // this servo closes on, is the gun's own marker line) is a turret here too -- for the servo's PARKING only
+    // (its pitch is on this servo); its reticle stays on the converged point like every other seat's.
+    if (halo4Aim && halo4Seat.turret)
         turretSeat = true;
 #endif
 
@@ -55954,7 +56671,7 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     static float servoLastPitchCommand = 0.0f;
     static float servoLastYawCommand = 0.0f;
     static bool servoWasTurret = false;
-    static uint32_t servoFrames = 0, servoParkedFrames = 0;
+    static uint32_t servoFrames = 0, servoParkedFrames = 0, servoCheckHeldFrames = 0;
     if (s_turretServoStale || g_aimFreeCameraServoReset)
     {
         // The drive aimed for the servo since its last frame, or the free-camera frame began or ended (the camera
@@ -55976,6 +56693,7 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             servoLastYawCommand = 0.0f;
             servoFrames = 0;
             servoParkedFrames = 0;
+            servoCheckHeldFrames = 0;
             LOG("Turret seat: aim servo armed. The gun is a rate-capped "
                 "machine (H3EK: shade 15 deg/s both axes, warthog turret "
                 "60 deg/s yaw and NO pitch cap), so the loop parks instead "
@@ -55988,10 +56706,11 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     else if (servoWasTurret)
     {
         LOG("Turret seat: aim servo released after %u frames, %u parked "
-            "(%u%%); measured stick quantum pitch %.4f rad, yaw %.4f rad",
+            "(%u%%); measured stick quantum pitch %.4f rad, yaw %.4f rad; the pitch stick was held still for "
+            "the seat's pitch check on %u frames",
             servoFrames, servoParkedFrames,
             servoFrames ? servoParkedFrames * 100u / servoFrames : 0u,
-            servoPitch.minStep, servoYaw.minStep);
+            servoPitch.minStep, servoYaw.minStep, servoCheckHeldFrames);
         AimServoReset(servoPitch);
         AimServoReset(servoYaw);
         servoLastPitchCommand = 0.0f;
@@ -56014,7 +56733,12 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
                           gunSlavedServo ? servoPacerPitch.exit(kAimServoRestExitRadians) : kAimServoRestExitRadians)
         : Clamp(errPitch * k, -1.0f, 1.0f);
     if (gunSlavedServo)
-        outRy = servoPacerPitch.pace(servoAimPitch, errPitch, seatWritten.pitch ? 0.0f : outRy, kAimServoStickFloor);
+    {
+        if (holdPitchForCheck && !seatWritten.pitch)
+            ++servoCheckHeldFrames;
+        outRy = servoPacerPitch.pace(servoAimPitch, errPitch,
+                                     (seatWritten.pitch || holdPitchForCheck) ? 0.0f : outRy, kAimServoStickFloor);
+    }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     if (gunSlavedServo)
     {
@@ -57017,6 +57741,26 @@ bool WaitForNativeDetourQuiescence(const void* const* functions,
         "were frozen and scanned %u times: a thread stood in a detour or its trampoline in %u of those, and the "
         "counter had become non-zero again by the end of %u (the cleanup line that follows names the hooks)",
         count,count==1?"":"s",looks,counterLooks,scans,threadScans,counterAfterScans);
+    return false;
+}
+
+bool Game_TitleCoreState(GameTitle title, GameTitleCoreState& out) noexcept
+{
+    out = {};
+    if (title == GameTitle::Halo4)
+    {
+        out.installed = g_halo4Camera.installed.load(std::memory_order_acquire);
+        out.tearingDown = &g_halo4Camera.teardownRequested;
+        out.lastFrameMs = &g_halo4LastFrameMs;
+        return true;
+    }
+    if (title == GameTitle::Halo2)
+    {
+        // Halo 2's game end has not been measured: the gate only waits for a teardown its core began itself.
+        out.installed = Halo2Observer6Dof_Installed();
+        out.tearingDown = Halo2Observer6Dof_TeardownRequested();
+        return true;
+    }
     return false;
 }
 

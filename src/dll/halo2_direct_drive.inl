@@ -27,11 +27,13 @@
 // it. A write here therefore reaches the network and the body. After the control update it would be too
 // late: the action is already built.
 //
-// ADDR-HYGIENE: guarded. Five exact-byte anchors, each unique in the module and at its RVA: the entry
-// prologue (it also carries the record slot's disp32), the stride block, the yaw and the pitch
-// accumulators, and the call site, whose rel32 must land on the entry (its return address is the only one
-// written after). The slot must resolve inside the module. Any mismatch: no hook, said once, and Halo 2
-// keeps its unit aim (the shot follows the hand; the body and the network do not).
+// ADDR-HYGIENE: resolved (src/common/drive_sites.h: kHalo2ControlAnchors, ResolveHalo2Control). No recorded RVA
+// says where anything is. Five exact-byte anchors are FOUND by signature anywhere in the module's code, each
+// exactly once: the entry prologue (where a function starts; it also carries the record slot's disp32), the stride
+// block and the yaw and the pitch accumulators (all inside that function), and the control update's call site,
+// whose rel32 must land on the found entry (its return address is the only one written after). The slot must
+// resolve inside the module. Anything not found: no hook, said once, and Halo 2 keeps its unit aim (the shot
+// follows the hand; the body and the network do not).
 // ARM GATE (ValueAgreement): installed disarmed. It writes only after the record has held the stock
 // camera's direction (the game builds that camera from the record) within 1.7 deg for 30 updates -- both
 // axes on foot, yaw in a seat -- and only while each later update resolves the same record. On foot it
@@ -49,27 +51,6 @@
 // the arm gate) and the hand's aim (for the write) into the record's frame; the yaw latch and the record's own eased
 // pitch limits then work in that frame too, as the accumulator's do. A frame that does not read writes nothing.
 
-constexpr uint32_t kHalo2PcEntryRva = 0x6C3DF0;
-constexpr char kHalo2PcEntryPattern[] =
-    "48 8B C4 F3 0F 11 50 18 89 48 08 55 53 57 48 8D A8 C8 FE FF FF 48 81 EC 20 02 00 00 "
-    "48 8B 3D ?? ?? ?? ??";
-constexpr uint32_t kHalo2PcSlotLoadOffset = 0x1C;   // `mov rdi, [rip+disp32]`, 7 bytes
-constexpr uint32_t kHalo2PcStrideRva = 0x6C3E5E;
-constexpr char kHalo2PcStridePattern[] =
-    "48 63 C1 48 69 D8 B8 00 00 00 48 8B 05 ?? ?? ?? ?? 48 63 90 F4 00 00 00";
-constexpr uint32_t kHalo2PcYawRva = 0x6C3FF8;
-constexpr char kHalo2PcYawPattern[] =
-    "4C 8D 34 3B F3 44 0F 10 05 ?? ?? ?? ?? 45 0F 57 E4 F2 44 0F 10 0D ?? ?? ?? ?? F3 41 0F 58 76 38 "
-    "F3 0F 10 3D ?? ?? ?? ?? 44 0F 29 94 24 B0 01 00 00 44 0F 29 9C 24 A0 01 00 00 F3 41 0F 11 76 38";
-constexpr uint32_t kHalo2PcPitchRva = 0x6C4740;
-constexpr char kHalo2PcPitchPattern[] =
-    "F3 0F 10 8D 50 01 00 00 F3 0F 58 D0 44 0F 28 AC 24 80 01 00 00 F3 0F 11 94 3B AC 00 00 00 "
-    "F3 0F 58 4C 3B 3C 0F 2F D9 76 11 F3 0F 11 5C 3B 3C";
-constexpr uint32_t kHalo2PcCallSiteRva = 0x6C0A27;
-constexpr char kHalo2PcCallSitePattern[] =
-    "41 0F BF 4F 28 E8 ?? ?? ?? ?? 84 C0 75 16 41 0F BF 4F 28 F3 0F 10 54 24 44 F3 0F 10 4C 24 40 "
-    "E8 ?? ?? ?? ??";
-constexpr uint32_t kHalo2PcCallOffset = 0x1F;       // the E8 that calls the accumulator
 // ValueAgreement, as the other titles.
 constexpr float kHalo2DriveAgreeRad = 0.03f;
 constexpr uint32_t kHalo2DriveAgreeUpdates = 30;
@@ -1101,31 +1082,33 @@ bool InstallHalo2Drive(uintptr_t base, size_t size) noexcept
     auto& st = g_halo2Drive;
     if (st.target)
         return true;
-    const auto at = [&](const char* pattern, uint32_t rva) {
-        uintptr_t match = 0;
-        uint32_t count = 0;
-        return CountPatternMatches(base, size, pattern, match, count) && count == 1 && match == base + rva;
-    };
-    const bool entryOk = at(kHalo2PcEntryPattern, kHalo2PcEntryRva);
-    const bool strideOk = at(kHalo2PcStridePattern, kHalo2PcStrideRva);
-    const bool yawOk = at(kHalo2PcYawPattern, kHalo2PcYawRva);
-    const bool pitchOk = at(kHalo2PcPitchPattern, kHalo2PcPitchRva);
-    const bool callSiteOk = at(kHalo2PcCallSitePattern, kHalo2PcCallSiteRva);
-    // The call site's rel32 must land on the entry; the instruction after it is the return address the drive
-    // writes after. The record slot comes from the prologue's rip load and must lie inside the module.
-    uintptr_t callTarget = 0, slot = 0;
-    const uintptr_t call = base + kHalo2PcCallSiteRva + kHalo2PcCallOffset;
-    const bool callOk = callSiteOk && *reinterpret_cast<const uint8_t*>(call) == 0xE8 &&
-        DecodeRipRelative(call, 1, 5, callTarget) && callTarget == base + kHalo2PcEntryRva;
-    const uintptr_t load = base + kHalo2PcEntryRva + kHalo2PcSlotLoadOffset;
-    const bool slotOk = entryOk && DecodeRipRelative(load, 3, 7, slot) && slot >= base &&
-        slot + sizeof(uintptr_t) <= base + size;
-    if (!entryOk || !strideOk || !yawOk || !pitchOk || !callOk || !slotOk)
+    // WHERE EVERYTHING IS IN THIS MODULE (drive_sites.h, by the rungs of drive_known.h): verified at the addresses
+    // it is known to stand at, or found by search; every proof is made on those addresses either way. Nothing
+    // below trusts a recorded RVA.
+    drive_cascade::Resolution<drive_sites::Halo2Control> resolution;
+    const bool opened = drive_cascade::Resolve(
+        base, size, drive_cascade::Drive{GameTitle::Halo2, "control-update"}, resolution,
+        [](drive_resolve::Resolver& r) { return drive_sites::ResolveHalo2Control(r); });
+    const drive_sites::Halo2Control& found = resolution.found;
+    if (opened)
+        drive_cascade::Announce(drive_cascade::kHalo2Name, resolution);
+    // THE DECISION (drive_install.h; the offline check runs the same function on the game DLL as the loader maps
+    // it): every anchor found, the call site's rel32 landing on the entry, the record slot inside the module --
+    // the last two read again from the loaded image at the places the resolution found.
+    const drive_install::Halo2Decision decision = drive_install::DecideHalo2(base, size, opened, found);
+    const bool entryOk = decision.entryOk, strideOk = decision.strideOk, yawOk = decision.yawOk,
+               pitchOk = decision.pitchOk, callOk = decision.callOk, slotOk = decision.slotOk;
+    const uintptr_t call = decision.call, slot = decision.slot;
+    if (!decision.hook)
     {
-        LOG("Halo 2 DRIVE: control update NOT hooked (anchors entry=%d stride=%d yaw=%d pitch=%d call=%d "
-            "slot=%d at +0x%X); Halo 2 keeps its unit aim (the shot follows the hand; the body and the "
-            "network do not)", entryOk ? 1 : 0, strideOk ? 1 : 0, yawOk ? 1 : 0, pitchOk ? 1 : 0,
-            callOk ? 1 : 0, slotOk ? 1 : 0, kHalo2PcEntryRva);
+        char first[280] = "";
+        if (opened)
+            drive_cascade::FirstFailure(resolution.report, first, sizeof(first));
+        LOG("Halo 2 DRIVE: control update NOT hooked (%s; found entry=%d stride=%d yaw=%d pitch=%d call=%d slot=%d; "
+            "recorded at +0x%X); Halo 2 keeps its unit aim (the shot follows the hand; the body and the network do "
+            "not)", opened ? first : (resolution.why ? resolution.why : "the module did not open"), entryOk ? 1 : 0,
+            strideOk ? 1 : 0, yawOk ? 1 : 0, pitchOk ? 1 : 0, callOk ? 1 : 0, slotOk ? 1 : 0,
+            drive_sites::kHalo2ControlAnchors[0].rva);
         return false;
     }
     st.armed.store(false, std::memory_order_release);
@@ -1156,7 +1139,7 @@ bool InstallHalo2Drive(uintptr_t base, size_t size) noexcept
     else
         LOG("Halo 2 DRIVE: seat frame reader NOT bound (%s at +0x%X); seats are never written (the stick servo keeps "
             "every seat)", frameWhy ? frameWhy : "unknown", seat_frame::kHalo2Reader.gateRva);
-    void* const target = reinterpret_cast<void*>(base + kHalo2PcEntryRva);
+    void* const target = reinterpret_cast<void*>(base + found.entry);
     const MH_STATUS created = MH_CreateHook(target, reinterpret_cast<void*>(&Halo2PcHook), &g_halo2PcOrig);
     if (created != MH_OK || MH_EnableHook(target) != MH_OK)
     {
@@ -1168,12 +1151,12 @@ bool InstallHalo2Drive(uintptr_t base, size_t size) noexcept
         return false;
     }
     st.target = target;
+    st.entryRva = found.entry;
     st.installed.store(true, std::memory_order_release);
     LOG("Halo 2 DRIVE: control-update hook INSTALLED at +0x%X (player control globals slot +0x%llX, stride "
         "0x%X, desired angles +0x%X; written after the call at +0x%X only); disarmed until the record agrees "
-        "with the game's camera", kHalo2PcEntryRva, static_cast<unsigned long long>(slot - base),
-        static_cast<unsigned>(kHalo2PcStride), static_cast<unsigned>(kHalo2PcDesiredYaw),
-        kHalo2PcCallSiteRva + kHalo2PcCallOffset);
+        "with the game's camera", found.entry, static_cast<unsigned long long>(slot - base),
+        static_cast<unsigned>(kHalo2PcStride), static_cast<unsigned>(kHalo2PcDesiredYaw), found.call);
     return true;
 }
 
@@ -1216,6 +1199,12 @@ bool RemoveHalo2Drive() noexcept
 }
 
 // Cold worker, with the observer's telemetry.
+//
+// NO HOOK WATCHDOG HERE (drive_cascade.h: HookWatch), deliberately. A watchdog may count only time in which the
+// hooked code must have been called. Halo 2 skips this update while its director holds the player (a cinematic),
+// and the only word this mod has of that is this hook's own heartbeat (controlMs): nothing independent says when
+// the game must be calling it, so a level's opening cinematic would be counted against a healthy address. A hook
+// that is never called shows as no "Halo 2 DRIVE: armed=" line while playing on foot.
 void ReportHalo2Drive() noexcept
 {
     auto& st = g_halo2Drive;

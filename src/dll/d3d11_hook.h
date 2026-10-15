@@ -27,6 +27,10 @@ void D3D_GetHalo4HelmetTelemetry(
 // independently gated and suppresses only the incompatible full-screen draw
 // while Halo 4 stereo is active.
 bool D3D_Halo4ScreenEffectShaderPathAvailable();
+#if HALOMCCVR_DEV_DIAGNOSTICS
+// The pixel shader census (dev_ps_census.inl): bind no pixel shader in place of the numbered one; 0 = none.
+void D3D_DevSetBlankPixelShader(int number);
+#endif
 void D3D_GetHalo4ScreenEffectTelemetry(
     uint64_t& shadersRegistered, uint64_t& suppressions);
 void D3D_GetHalo2HudTelemetry(

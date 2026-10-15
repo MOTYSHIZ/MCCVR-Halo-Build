@@ -244,7 +244,9 @@ namespace sig
                 observer(newFirst, n, throughPatch);
     }
 
-    uintptr_t Find(uintptr_t base, size_t size, const char* pattern)
+    // The search itself: the first match of `pattern` in [base, base + size)
+    // of the image with this mod's enabled hooks undone, or 0.
+    static uintptr_t Search(uintptr_t base, size_t size, const char* pattern)
     {
         std::vector<uint8_t> bytes;
         std::vector<uint8_t> wild;
@@ -343,6 +345,191 @@ namespace sig
                     g_proofThroughHookObserver.load(std::memory_order_acquire))
                 observer(base + best, n, patch->address);
         return base + best;
+    }
+
+    namespace
+    {
+        // The calling thread's innermost scope.
+        thread_local ImageMemoScope* t_imageMemoScope = nullptr;
+
+        // The pattern's text, hashed (FNV-1a). Two searches are the same
+        // search when their ranges and their patterns' texts are the same.
+        uint64_t PatternKey(const char* pattern)
+        {
+            uint64_t hash = 14695981039346656037ull;
+            for (const char* p = pattern; *p; ++p)
+            {
+                hash ^= static_cast<uint8_t>(*p);
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        }
+
+        // How many bytes the pattern spans, counted as ParsePattern reads it;
+        // 0 for a pattern it would refuse.
+        size_t PatternBytes(const char* pattern)
+        {
+            size_t n = 0;
+            for (const char* p = pattern; *p;)
+            {
+                if (*p == ' ')
+                {
+                    ++p;
+                    continue;
+                }
+                if (p[0] == '?')
+                {
+                    ++p;
+                    if (*p == '?')
+                        ++p;
+                }
+                else
+                {
+                    const auto hex = [](char c) {
+                        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                    };
+                    if (!hex(p[0]) || !hex(p[1]))
+                        return 0;
+                    p += 2;
+                }
+                ++n;
+            }
+            return n;
+        }
+    }
+
+    ImageMemoScope::ImageMemoScope(ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation, bool use,
+                                   bool check)
+    {
+        if (!base || !size || size > 0xFFFFFFFFull)
+            return;
+        base_ = base;
+        size_ = size;
+        if (use && generation)
+        {
+            if (memo.base != base || memo.size != size || memo.generation != generation)
+            {
+                memo.base = base;
+                memo.size = size;
+                memo.generation = generation;
+                memo.count = 0;
+            }
+            memo_ = &memo;
+            check_ = check;
+        }
+        outer_ = t_imageMemoScope;
+        t_imageMemoScope = this;
+        registered_ = true;
+    }
+
+    ImageMemoScope::~ImageMemoScope()
+    {
+        if (registered_)
+            t_imageMemoScope = outer_;
+    }
+
+    bool ImageMemoScope::Covers(uintptr_t base, size_t size) const
+    {
+        return registered_ && size && base >= base_ && size <= size_ && base - base_ <= size_ - size;
+    }
+
+    uintptr_t ImageMemoScope::Answer(uintptr_t base, size_t size, const char* pattern)
+    {
+        if (!memo_)
+        {
+            ++counts_.searched;
+            return Search(base, size, pattern);
+        }
+        ImageMemo& memo = *memo_;
+        const uint64_t key = PatternKey(pattern);
+        const uint32_t start = static_cast<uint32_t>(base - memo.base);
+        const uint32_t length = static_cast<uint32_t>(size);
+        ImageMemo::Entry* entry = nullptr;
+        for (uint32_t i = 0; i < memo.count; ++i)
+            if (memo.entries[i].pattern == key && memo.entries[i].start == start &&
+                memo.entries[i].length == length)
+            {
+                entry = &memo.entries[i];
+                break;
+            }
+        const auto keep = [&](uintptr_t found) {
+            const uint32_t match = found ? static_cast<uint32_t>(found - memo.base) : ImageMemo::kNoMatch;
+            if (entry)
+            {
+                entry->match = match;
+            }
+            else if (memo.count < ImageMemo::kCapacity)
+            {
+                memo.entries[memo.count++] = ImageMemo::Entry{key, start, length, match};
+            }
+            else
+            {
+                ++counts_.notHeld;
+            }
+        };
+        if (!entry)
+        {
+            ++counts_.searched;
+            const uintptr_t found = Search(base, size, pattern);
+            keep(found);
+            return found;
+        }
+
+        uintptr_t remembered = 0;
+        if (entry->match != ImageMemo::kNoMatch)
+        {
+            // The compare a search makes at that place, and nothing more.
+            const size_t n = PatternBytes(pattern);
+            remembered = memo.base + entry->match;
+            const bool stands = n && entry->match <= memo.size && n <= memo.size - entry->match &&
+                Search(remembered, n, pattern) == remembered;
+            if (!stands)
+            {
+                ++counts_.searchedAgain;
+                const uintptr_t found = Search(base, size, pattern);
+                keep(found);
+                return found;
+            }
+        }
+        else
+        {
+            // "No match" is taken as found only as the answer to "is there a second match": this range begins
+            // right after a remembered match of the same pattern and runs to the image's end.
+            bool second = start != 0 && static_cast<size_t>(start) + length == memo.size;
+            if (second)
+            {
+                second = false;
+                for (uint32_t i = 0; i < memo.count && !second; ++i)
+                    second = memo.entries[i].pattern == key && memo.entries[i].match == start - 1;
+            }
+            if (!second)
+            {
+                ++counts_.searched;
+                const uintptr_t found = Search(base, size, pattern);
+                keep(found);
+                return found;
+            }
+        }
+        ++counts_.remembered;
+        if (check_)
+        {
+            const uintptr_t found = Search(base, size, pattern);
+            if (found != remembered)
+            {
+                ++counts_.disagreed;
+                keep(found);
+            }
+            return found;
+        }
+        return remembered;
+    }
+
+    uintptr_t Find(uintptr_t base, size_t size, const char* pattern)
+    {
+        ImageMemoScope* const scope = t_imageMemoScope;
+        if (scope && pattern && scope->Covers(base, size))
+            return scope->Answer(base, size, pattern);
+        return Search(base, size, pattern);
     }
 
     bool ModuleRange(const wchar_t* moduleName, uintptr_t& base, size_t& size)

@@ -13,12 +13,37 @@ struct NativeVehicleCameraOwner
 };
 
 // Optional CE/H2/H4 camera feature. Existing H3/ODST/Reach paths are independent.
+// The seat's camera also answers the simulation (the player's targeting, a fire's crosshair line). While
+// one-machine changes are not allowed (sight_layer.h Sight_FireTimeChangesAllowed) the override answers the frame
+// only: in Halo 4 by the engine's own in-tick byte, in Halo 2 through SetStockOnThisThread below, and in Halo CE,
+// whose tick is not read, not at all.
 void NativeVehicleFirstPerson_Poll();
 bool NativeVehicleFirstPerson_TrimTarget(GameTitle title,uint64_t& identity,int& seat) noexcept;
 // This override placed the camera in exactly this seat within 250 ms: the seat's view is the occupant's own
 // head, not the native chase camera (which orbits with the aim).
 bool NativeVehicleFirstPerson_SeatViewOwned(GameTitle title,uint32_t parent,int seat) noexcept;
+// While set on the calling thread this override answers nothing there: the title's own camera selector and
+// evaluator run as built. For a call whose answer feeds the simulation and not the view -- Halo 2's fire asks the
+// seat camera for the line its crosshair test starts on, and every other machine computes that from the game's
+// own chase camera.
+void NativeVehicleFirstPerson_SetStockOnThisThread(bool stock) noexcept;
+// The calling thread is inside a simulation tick (1), outside one (0), or that cannot be told (-1): the title's own
+// in-tick byte, where this override resolved it (Halo 4). A read; nothing else.
+int NativeVehicleFirstPerson_InSimulationTick(GameTitle title) noexcept;
 bool Game_ReadVehicleCameraOwner(GameTitle title, NativeVehicleCameraOwner& owner) noexcept;
+// Halo 4: the point this override last placed the seat camera at (world units, the occupant's head as drawn this
+// frame plus the seat's trims), with its seat, the vehicle's model, and when (Sight_NowUs). Written by the camera
+// evaluator for the frame's camera, read by the render transaction of the same frame; a seqlock, any thread.
+// False while there is none for the active generation.
+struct NativeVehicleSeatPoint
+{
+    uint32_t generation{}, parent{UINT32_MAX};
+    int16_t seat{-1};
+    uint64_t vehicleIdentity{};
+    float point[3]{};
+    uint64_t us{};
+};
+bool NativeVehicleFirstPerson_PlacedPoint(GameTitle title, NativeVehicleSeatPoint& out) noexcept;
 #if HALOMCCVR_DEV_DIAGNOSTICS
 void Game_Halo4CameraOwnerReport() noexcept;   // dev: why Game_ReadVehicleCameraOwner refused Halo 4 seats
 

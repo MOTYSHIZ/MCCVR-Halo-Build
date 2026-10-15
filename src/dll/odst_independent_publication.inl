@@ -4,7 +4,7 @@ void PublishOdstIndependentAimBody()
 {
     if constexpr(!kEnableOdstIndependentAim)return;
     auto& feature=g_odstMuzzle;
-    if(!feature.enabled.load()||feature.faulted.load()||!g_config.independent_dual_aim||
+    if(!feature.enabled.load()||feature.faulted.load()||!Sight_IndependentDualAim()||
         !g_vrAim.load()||!g_enabled.load()||!g_baseCamValid.load()||
         feature.generation!=g_odstRuntimeGeneration.load())return;
     __try

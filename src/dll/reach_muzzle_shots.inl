@@ -79,6 +79,9 @@ __declspec(noinline) void __fastcall ReachMuzzleViewDetour(uint32_t unit,uint8_t
     {
         if(!feature.viewOriginal)__leave;
         feature.viewOriginal(unit,flags,direction,origin,cameraDirection,camera);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        if(g_config.dev_sim_bisect&32)__leave;
+#endif
         const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
         const bool query=caller==feature.base+0x10EACD||caller==feature.base+0x10EEF1;
         const bool assist=caller==feature.base+0x10F954;
@@ -101,7 +104,15 @@ __declspec(noinline) void __fastcall ReachMuzzleQueryDetour(int32_t inputUser,ui
 {
     auto& feature=g_reachBarrel;feature.callbacks.fetch_add(1,std::memory_order_acq_rel);
     const auto previous=g_reachBarrelCapture;g_reachBarrelCapture={};
-    const bool capture=feature.enabled.load()&&!feature.faulted.load()&&(g_config.gun_barrel_aim||Sight_MuzzleShotsConverge())&&
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    if(g_config.dev_sim_bisect&32)
+    {
+        __try {if(feature.queryOriginal)feature.queryOriginal(inputUser,flags,direction,zoom,control,targeting);}
+        __finally {g_reachBarrelCapture=previous;feature.callbacks.fetch_sub(1,std::memory_order_acq_rel);}
+        return;
+    }
+#endif
+    const bool capture=feature.enabled.load()&&!feature.faulted.load()&&(Sight_GunBarrelAim()||Sight_MuzzleShotsConverge())&&
         inputUser>=0&&inputUser<4&&!(flags&1)&&direction&&control&&targeting;
     g_reachBarrelCapture.active=capture;
     __try
@@ -162,7 +173,7 @@ bool ApplyReachMuzzleMarker(uint32_t object,uint64_t count,void* markers,int16_t
 {
     auto& feature=g_reachBarrel;const auto request=g_reachBarrelRequest;
     if(!feature.enabled.load()||feature.faulted.load())return ReachMuzzleRefused(kReachWhyDisabled);
-    if(!(g_config.gun_barrel_aim||Sight_MuzzleShotsConverge()))return ReachMuzzleRefused(kReachWhyOptionOff);
+    if(!(Sight_GunBarrelAim()||Sight_MuzzleShotsConverge()))return ReachMuzzleRefused(kReachWhyOptionOff);
     if(exclusive_input::Active())return ReachMuzzleRefused(kReachWhyExclusiveInput);
     if(!g_vrAim.load()||!g_enabled.load()||!VR_IsStereoEnabled())return ReachMuzzleRefused(kReachWhyVrOff);
     if(TitleAdapter_GetActiveTitle()!=GameTitle::HaloReach||feature.generation!=g_reachCamera.generation.load())
@@ -218,7 +229,7 @@ bool ApplyReachMuzzleMarker(uint32_t object,uint64_t count,void* markers,int16_t
     // SHOTS FROM THE MUZZLE (sight_layer.h): keep the origin the obstruction check left, but fly through the
     // converged point instead of along the barrel. A refusal refuses the barrel shot: it leaves the eye.
     // Reach's converged point is the one its direct drive last wrote (ReachAimMuzzleShot).
-    if(!g_config.gun_barrel_aim&&!ReachAimMuzzleShot(context.unit,before,muzzle.ray.position,muzzle.ray.direction,muzzle.ray.up))
+    if(!Sight_GunBarrelAim()&&!ReachAimMuzzleShot(context.unit,before,muzzle.ray.position,muzzle.ray.direction,muzzle.ray.up))
         return ReachMuzzleRefused(kReachWhyNoConvergedPoint);
     if(!AcquireReachMuzzleTarget(muzzle,*request.lease))return ReachMuzzleRefused(kReachWhyTargeting);
     const auto& ray=muzzle.ray;auto* bytes=static_cast<uint8_t*>(markers);
@@ -235,6 +246,9 @@ __declspec(noinline) int16_t __fastcall ReachMuzzleMarkersDetour(uint32_t object
     {
         if(!feature.markersOriginal)__leave;
         result=feature.markersOriginal(object,name,markers,capacity,originalObject,interpolated);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        if(g_config.dev_sim_bisect&32)__leave;
+#endif
         if(reinterpret_cast<uintptr_t>(_ReturnAddress())!=feature.base+0x4C2AA0||!g_reachBarrelRequest.lease)__leave;
         const auto previous=g_reachBarrelShot;bool applied=false;
         __try {applied=ApplyReachMuzzleMarker(object,result,markers,capacity);}
@@ -263,6 +277,14 @@ bool ReachApplyBarrelAim(int32_t unit,float* origin,float* direction,const float
 __declspec(noinline) void __fastcall ReachMuzzleFireDetour(uint32_t weapon,int16_t barrel,void* data,uint8_t simulation)
 {
     auto& feature=g_reachBarrel;feature.callbacks.fetch_add(1,std::memory_order_acq_rel);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    if(g_config.dev_sim_bisect&32)
+    {
+        __try {if(feature.fireOriginal)feature.fireOriginal(weapon,barrel,data,simulation);}
+        __finally {feature.callbacks.fetch_sub(1,std::memory_order_acq_rel);}
+        return;
+    }
+#endif
     const auto previousShot=g_reachBarrelShot;const auto previousRequest=g_reachBarrelRequest;
     // The shooter is unknown until the unit-adjust (ReachUnitAdjustHook, from 0x4C303A) names it: shot_lag::FireMark.
     const int8_t previousFire=t_reachFire;t_reachFire=shot_lag::kFireOther;

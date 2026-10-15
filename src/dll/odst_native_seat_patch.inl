@@ -118,6 +118,23 @@
     bool OdstEnsureFirstPersonSeatFlag(uint32_t definitionIndex, int seatIndex,
                                        uint32_t generation)
     {
+        // Co-op safe: the seat's flags are data the simulation reads too (the firing assist, target acquisition, a
+        // seated-eye function), so clearing the camera bit changes the game on this machine only and a shared
+        // session ends at the first shot from the seat. While one-machine changes are not allowed the seat is left
+        // as the game built it and keeps the game's own camera.
+        if (!Sight_FireTimeChangesAllowed())
+        {
+            static uint32_t s_loggedGeneration = 0;
+            if (s_loggedGeneration != generation)
+            {
+                s_loggedGeneration = generation;
+                LOG("ODST first-person seat: not taken while co-op safe shots is on. The seat's data would have to "
+                    "be edited on this machine only, which ends a shared session at the first shot from the seat; "
+                    "seats keep the game's own camera");
+            }
+            OdstRestoreNativeSeatPatch();
+            return false;
+        }
         if (!g_config.vehicle_first_person || !g_config.vehicle_hide_body)
         {
             OdstRestoreNativeSeatPatch();

@@ -12,6 +12,8 @@
 #include "game.h"
 #include "native_fault_probe.h"
 #include "dev_pad.h"
+#include "drive_cascade.h"
+#include "title_adapter.h"
 #include "telemetry_recorder.h"
 
 #ifndef HALOMCCVR_BUILD_COMMIT
@@ -163,6 +165,11 @@ static DWORD WINAPI InitThread(LPVOID)
     LOG("MCC edition: %s (%ls)", DetectMccEdition(hostExe), hostExe);
     LOG("Native fault evidence: %s (HaloMCCVR-native-faults.log; observe only, exceptions retain native handling)",
         NativeFaultProbe_Init(dir.c_str(),HALOMCCVR_BUILD_COMMIT)?"enabled":"unavailable");
+    // The direct drives' address cache lives beside the log and the settings (drive_cascade.h).
+    drive_cascade::SetCacheFolder(dir.c_str());
+    // What a drive resolved in a module is remembered for that image of it only: the title adapter's module
+    // generation changes when MCC unloads a game DLL and loads it again, even at the same base.
+    drive_cascade::SetModuleGenerationSource(&TitleAdapter_GetGeneration);
     const std::wstring primaryConfig = dir + L"halomccvr.cfg";
     const std::wstring legacyConfig = dir + L"halo3xr.cfg";
     ConfigLoadMigrating(primaryConfig.c_str(), legacyConfig.c_str());
@@ -184,6 +191,21 @@ static DWORD WINAPI InitThread(LPVOID)
         LOG("DEV OVERRIDE: reach_sight_trace_flags = 0x%llX mode %d replaces the resolved crosshair-trace "
             "flags (Reach aim trace)",
             g_config.reach_sight_trace_flags, g_config.reach_sight_trace_mode);
+    if (g_config.reach_sight_trace_site >= 0)
+        LOG("DEV OVERRIDE: reach_sight_trace_site = %d: Reach's aim trace is always made %s, whatever Co-op safe says",
+            g_config.reach_sight_trace_site,
+            g_config.reach_sight_trace_site ? "at the control pass" : "inside the unit's update");
+    if (g_config.reach_effect_move_rule >= 0)
+        LOG("DEV OVERRIDE: reach_effect_move_rule = %d: Reach moves an effect's place onto the gun %s, whatever "
+            "Co-op safe says",
+            g_config.reach_effect_move_rule,
+            g_config.reach_effect_move_rule == 0 ? "always"
+            : g_config.reach_effect_move_rule == 1 ? "only outside a simulation tick"
+            : g_config.reach_effect_move_rule == 2 ? "never" : "only for the player's own weapon effects");
+    if (g_config.dev_sim_trace || g_config.dev_sim_probe)
+        LOG("DEV OVERRIDE: dev_sim_trace = %d, dev_sim_probe = %d (Reach: every object's state per tick to a file; "
+            "the probe makes the mod's own calls for the local unit while a film replays)",
+            g_config.dev_sim_trace, g_config.dev_sim_probe);
     if (g_config.dev_synthetic_pad)
         DevPad_Start(dir.c_str());
 #endif

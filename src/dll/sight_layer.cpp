@@ -3,6 +3,8 @@
 
 #include "sight_layer.h"
 #include "title_adapter.h"
+#include "../common/aim_lead_logic.h"
+#include "../common/session_read_logic.h"
 #include "../common/aim_solve_logic.h"
 #include "../common/config.h"
 #include "../common/log.h"
@@ -61,6 +63,8 @@ struct ConvergedStamp
     std::atomic<uint32_t> writtenGeneration{0};
 };
 
+constexpr int kSessionUnread = -2;   // no simulation thread has reported a session type yet
+
 struct Stats
 {
     std::atomic<uint64_t> rays{0}, traces{0}, hits{0}, misses{0}, faults{0}, converged{0}, declined{0}, written{0};
@@ -69,7 +73,33 @@ struct Stats
     // without a point; and (defensive) held off because the gun points elsewhere, naturally -- a seat held at its
     // stop, a turret.
     std::atomic<uint64_t> muzzleAimed{0}, muzzleUnconverged{0}, muzzleHeld{0};
+    // Local shots a fire-time change was stood down for (coop_safe_shots).
+    std::atomic<uint64_t> fireTimeStoodDown{0};
+    // The session as the game holds it (Sight_NoteSession; the type is kSessionUnread until a simulation thread
+    // reports), and what the report last logged (the reporting thread's own).
+    std::atomic<int> sessionType{kSessionUnread}, sessionPlayers{-1}, sessionOthers{-1};
+    int sessionTypeLogged = kSessionUnread, sessionPlayersLogged = -1, sessionOthersLogged = -1;
+    // Of those, the re-aims that would have applied, and by how much (milli-degrees): what the stand-down costs.
+    // [0] on foot, [1] seated; `through`: the re-aims that would have left the shot alone (already through the point).
+    struct StoodDownBends
+    {
+        std::atomic<uint64_t> count{0}, sumMilliDeg{0}, through{0};
+        std::atomic<uint32_t> maxMilliDeg{0};
+    } fireTimeBends[2];
     std::atomic<uint64_t> muzzleRefused[static_cast<size_t>(aim_solve::MuzzleShot::Count)]{};
+};
+
+// THE WRITTEN AIM'S LEAD, per title (Sight_LeadWrittenAim). The filter and `seenEpoch` belong to the title's
+// simulation thread; the counters are one report window's, swapped out by the cold worker.
+struct LeadLane
+{
+    aim_lead::Filter filter;
+    uint32_t seenEpoch = 0;
+    std::atomic<uint32_t> epoch{0};   // Sight_ResetTitle: a new title generation starts afresh
+    std::atomic<uint64_t> outcomes[static_cast<size_t>(aim_lead::Outcome::Count)]{};
+    std::atomic<uint64_t> restarts[static_cast<size_t>(aim_lead::Restart::Count)]{};
+    std::atomic<uint64_t> capped{0}, repeated{0}, drawn{0}, leadSumMicroDeg{0};
+    std::atomic<uint32_t> leadMaxMilliDeg{0}, leadUs{0};
 };
 
 RayPublication g_rays[kTitleSlots];
@@ -80,6 +110,7 @@ std::atomic_flag g_eyeTrackBusy[kTitleSlots] = {};
 TracePublication g_traces[kTitleSlots];
 ConvergedStamp g_converged[kTitleSlots];
 Stats g_stats[kTitleSlots];
+LeadLane g_leads[kTitleSlots];
 
 size_t Slot(GameTitle title) { return static_cast<size_t>(title) % kTitleSlots; }
 
@@ -351,6 +382,7 @@ void Sight_ResetTitle(GameTitle title)
     t.stance.store(0, std::memory_order_relaxed);
     g_converged[Slot(title)].atMs.store(0, std::memory_order_release);
     g_converged[Slot(title)].writtenMs.store(0, std::memory_order_release);
+    g_leads[Slot(title)].epoch.fetch_add(1, std::memory_order_release);
 }
 
 void Sight_SetStance(GameTitle title, uint32_t stance)
@@ -459,9 +491,102 @@ bool Sight_ConvergedDirection(GameTitle title, uint32_t generation, const float 
     return true;
 }
 
+void Sight_NoteSession(GameTitle title, int type, int players, int otherMachines)
+{
+    auto& s = g_stats[Slot(title)];
+    s.sessionType.store(type, std::memory_order_relaxed);
+    s.sessionPlayers.store(players, std::memory_order_relaxed);
+    s.sessionOthers.store(otherMachines, std::memory_order_relaxed);
+}
+
+bool Sight_FireTimeChangesAllowed()
+{
+    return !g_config.coop_safe_shots;
+}
+
+void Sight_NoteFireTimeStoodDown(GameTitle title)
+{
+    g_stats[Slot(title)].fireTimeStoodDown.fetch_add(1, std::memory_order_relaxed);
+}
+
+bool Sight_AimLeadOn()
+{
+    return aim_lead::ClampTicks(g_config.aim_lead_ticks, 0.0f) > 0.0f;
+}
+
+void Sight_ForgetAimLead(GameTitle title)
+{
+    g_leads[Slot(title)].filter.Reset();
+}
+
+void Sight_LeadWrittenAim(GameTitle title, uint64_t sampleKey, uint32_t tickUs, bool drawnFromRecord, float& yaw,
+                          float& pitch)
+{
+    auto& lane = g_leads[Slot(title)];
+    const uint32_t epoch = lane.epoch.load(std::memory_order_acquire);
+    if (epoch != lane.seenEpoch)
+    {
+        lane.seenEpoch = epoch;
+        lane.filter.Reset();
+    }
+    const float leadS = aim_lead::LeadSeconds(g_config.aim_lead_ticks, tickUs);
+    if (!(leadS > 0.0f))
+    {
+        lane.filter.Reset();
+        return;
+    }
+    if (drawnFromRecord)
+    {
+        // Something drawn looks along the record: it is written as the hand's, and the motion so far is forgotten
+        // (the lead starts again from its third sample once nothing does).
+        lane.filter.Reset();
+        lane.drawn.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    const aim_lead::Result r = lane.filter.Step(Sight_NowUs(), sampleKey, yaw, pitch, leadS);
+    lane.leadUs.store(static_cast<uint32_t>(leadS * 1.0e6f + 0.5f), std::memory_order_relaxed);
+    lane.outcomes[static_cast<size_t>(r.outcome) % static_cast<size_t>(aim_lead::Outcome::Count)].fetch_add(
+        1, std::memory_order_relaxed);
+    lane.restarts[static_cast<size_t>(r.restart) % static_cast<size_t>(aim_lead::Restart::Count)].fetch_add(
+        1, std::memory_order_relaxed);
+    if (r.repeated)
+        lane.repeated.fetch_add(1, std::memory_order_relaxed);
+    if (r.outcome != aim_lead::Outcome::Led)
+        return;
+    if (r.capped)
+        lane.capped.fetch_add(1, std::memory_order_relaxed);
+    const float leadDeg = r.leadRad * aim_lead::kRadToDeg;
+    lane.leadSumMicroDeg.fetch_add(static_cast<uint64_t>(leadDeg * 1.0e6f), std::memory_order_relaxed);
+    const uint32_t milli = static_cast<uint32_t>(leadDeg * 1000.0f);
+    uint32_t prior = lane.leadMaxMilliDeg.load(std::memory_order_relaxed);
+    while (milli > prior && !lane.leadMaxMilliDeg.compare_exchange_weak(prior, milli, std::memory_order_relaxed)) {}
+    yaw = r.yaw;
+    pitch = r.pitch;
+}
+
+bool Sight_ShotsFromMuzzle()
+{
+    return g_config.shots_from_muzzle && Sight_FireTimeChangesAllowed();
+}
+
+bool Sight_GunBarrelAim()
+{
+    return g_config.gun_barrel_aim && Sight_FireTimeChangesAllowed();
+}
+
+bool Sight_IndependentDualAim()
+{
+    return g_config.independent_dual_aim && Sight_FireTimeChangesAllowed();
+}
+
+bool Sight_PhysicalMelee()
+{
+    return g_config.physical_melee && Sight_FireTimeChangesAllowed();
+}
+
 bool Sight_MuzzleShotsConverge()
 {
-    return g_config.shots_from_muzzle && !g_config.gun_barrel_aim && Sight_AimEnabled();
+    return Sight_ShotsFromMuzzle() && !Sight_GunBarrelAim() && Sight_AimEnabled();
 }
 
 void Sight_NoteMuzzleShotUnconverged(GameTitle title)
@@ -478,6 +603,11 @@ bool Sight_AimMuzzleShotThrough(GameTitle title, const float point[3], const flo
                                 const float before[3], const float position[3], float direction[3], float up[3])
 {
     auto& refused = g_stats[Slot(title)].muzzleRefused;
+    if (!Sight_FireTimeChangesAllowed())
+    {
+        Sight_NoteFireTimeStoodDown(title);
+        return false;
+    }
     if (!point || !rayDir || !before || !position || !direction || !up)
     {
         refused[static_cast<size_t>(aim_solve::MuzzleShot::NonFinite)].fetch_add(1, std::memory_order_relaxed);
@@ -612,6 +742,27 @@ bool Sight_ReaimThroughPoint(GameTitle title, SightShotSite site, const float st
     float out[3]{};
     float bend = 0.0f;
     const shot_lag::Reaim why = shot_lag::ReaimThroughPoint(start, vector, point, shot_lag::ReaimRails{}, out, &bend);
+    if (!Sight_FireTimeChangesAllowed())
+    {
+        // Stood down: `vector` stays as the game built it. The bend it would have had is kept for the log, on foot
+        // apart from seated (the written aim's lead acts on foot only), with the shots that needed none.
+        auto& stood = g_stats[Slot(title)];
+        stood.fireTimeStoodDown.fetch_add(1, std::memory_order_relaxed);
+        auto& bends = stood.fireTimeBends[seated ? 1 : 0];
+        if (why == shot_lag::Reaim::Applied)
+        {
+            const uint32_t milli = static_cast<uint32_t>(std::min(bend * 1000.0f, 1.0e9f));
+            bends.count.fetch_add(1, std::memory_order_relaxed);
+            bends.sumMilliDeg.fetch_add(milli, std::memory_order_relaxed);
+            uint32_t prior = bends.maxMilliDeg.load(std::memory_order_relaxed);
+            while (milli > prior && !bends.maxMilliDeg.compare_exchange_weak(prior, milli, std::memory_order_relaxed)) {}
+        }
+        else if (why == shot_lag::Reaim::AlreadyThrough)
+        {
+            bends.through.fetch_add(1, std::memory_order_relaxed);
+        }
+        return false;
+    }
     if (why == shot_lag::Reaim::AlreadyThrough)
     {
         stats.through.fetch_add(1, std::memory_order_relaxed);
@@ -695,6 +846,11 @@ bool Sight_TransportWanted(GameTitle title, bool seated)
     if (title == GameTitle::HaloReach && seated)
         return false;
     return g_config.shot_point_transport != 0 && (!seated || g_config.shot_point_transport_seated != 0);
+}
+
+bool Sight_FireEyeAsked(GameTitle title)
+{
+    return Sight_TransportWanted(title, false) && Sight_FireTimeChangesAllowed();
 }
 
 namespace
@@ -817,8 +973,10 @@ bool Sight_LastShotPoint(SightLastShotPoint& out)
 const float* Sight_ShotPoint(GameTitle title, SightTransportSite site, const SightIntent& intent, bool seated,
                              const float* reference, float storage[3], const float* siteEye)
 {
-    // Every build (flat parity; the dev key shot_point_transport, default 1, is the A/B).
-    if (!reference || !storage || !Sight_TransportWanted(title, seated))
+    // Every build (flat parity; the dev key shot_point_transport, default 1, is the A/B). Never in a shared
+    // simulation: the shot stays the game's own there, and the transport's fire eye is not asked for
+    // (Sight_FireEyeAsked).
+    if (!reference || !storage || !Sight_TransportWanted(title, seated) || !Sight_FireTimeChangesAllowed())
         return reference;
     return Sight_ShotPointSample(title, site, SampleFromIntent(intent, seated), seated, reference, storage, siteEye);
 }
@@ -826,7 +984,7 @@ const float* Sight_ShotPoint(GameTitle title, SightTransportSite site, const Sig
 const float* Sight_ShotPointSample(GameTitle title, SightTransportSite site, const SightPointSample& sample,
                                    bool seated, const float* reference, float storage[3], const float* siteEye)
 {
-    if (!reference || !storage || !Sight_TransportWanted(title, seated))
+    if (!reference || !storage || !Sight_TransportWanted(title, seated) || !Sight_FireTimeChangesAllowed())
         return reference;
     float shift[3]{};
     shot_lag::FireEye fire = shot_lag::FireEye::Count;
@@ -1759,6 +1917,48 @@ void Sight_NoteSeatShot(GameTitle title, SightSeatLine line, const float origin[
 #endif
 }
 
+namespace
+{
+// Cold worker (Sight_Report): what the written aim's lead did in the window, for a title whose on-foot writes were
+// offered to it (the key on). The residual it leaves is on the SHOT REAIM line, or with co-op safe shots on the
+// CO-OP SAFE SHOTS line's "on foot" part.
+void ReportLead(size_t slot)
+{
+    using aim_lead::Outcome;
+    using aim_lead::Restart;
+    auto& lane = g_leads[slot];
+    uint64_t outcomes[static_cast<size_t>(Outcome::Count)]{}, total = 0;
+    for (size_t o = 0; o < static_cast<size_t>(Outcome::Count); ++o)
+        total += (outcomes[o] = lane.outcomes[o].exchange(0, std::memory_order_relaxed));
+    const uint64_t drawn = lane.drawn.exchange(0, std::memory_order_relaxed);
+    const uint64_t jumps = lane.restarts[static_cast<size_t>(Restart::Jump)].exchange(0, std::memory_order_relaxed);
+    const uint64_t gaps = lane.restarts[static_cast<size_t>(Restart::Gap)].exchange(0, std::memory_order_relaxed);
+    lane.restarts[static_cast<size_t>(Restart::None)].store(0, std::memory_order_relaxed);
+    lane.restarts[static_cast<size_t>(Restart::First)].store(0, std::memory_order_relaxed);
+    const uint64_t capped = lane.capped.exchange(0, std::memory_order_relaxed);
+    const uint64_t repeated = lane.repeated.exchange(0, std::memory_order_relaxed);
+    const uint64_t sumMicroDeg = lane.leadSumMicroDeg.exchange(0, std::memory_order_relaxed);
+    const uint32_t maxMilliDeg = lane.leadMaxMilliDeg.exchange(0, std::memory_order_relaxed);
+    total += drawn;
+    if (!total)
+        return;
+    const uint64_t led = outcomes[static_cast<size_t>(Outcome::Led)];
+    LOG("AIM LEAD %s on foot: %llu of %llu written aims led by a mean of %.2f deg (max %.2f), %.1f ms ahead "
+        "(aim_lead_ticks %.2f); written unchanged: %llu at rest, %llu starting, %llu stopping or turning back, %llu "
+        "while a scope lens showed the game's aim; %llu led ones capped at %.1f deg; started afresh after %llu "
+        "jumps and %llu gaps; %llu passes met a sample already seen",
+        TitleName(static_cast<GameTitle>(slot)), (unsigned long long)led, (unsigned long long)total,
+        led ? double(sumMicroDeg) / double(led) / 1.0e6 : 0.0, double(maxMilliDeg) / 1000.0,
+        double(lane.leadUs.load(std::memory_order_relaxed)) / 1000.0,
+        double(aim_lead::ClampTicks(g_config.aim_lead_ticks, 0.0f)),
+        (unsigned long long)outcomes[static_cast<size_t>(Outcome::Resting)],
+        (unsigned long long)outcomes[static_cast<size_t>(Outcome::Priming)],
+        (unsigned long long)outcomes[static_cast<size_t>(Outcome::Stopping)], (unsigned long long)drawn,
+        (unsigned long long)capped, double(aim_lead::Rails{}.maxLeadRad * aim_lead::kRadToDeg),
+        (unsigned long long)jumps, (unsigned long long)gaps, (unsigned long long)repeated);
+}
+} // namespace
+
 void Sight_Report()
 {
     static uint64_t s_last = 0;
@@ -1802,6 +2002,52 @@ void Sight_Report()
 #if HALOMCCVR_DEV_DIAGNOSTICS
         ReportHitClasses(i);
 #endif
+        {
+            const int session = s.sessionType.load(std::memory_order_relaxed);
+            const int players = s.sessionPlayers.load(std::memory_order_relaxed);
+            const int others = s.sessionOthers.load(std::memory_order_relaxed);
+            if (session != s.sessionTypeLogged || players != s.sessionPlayersLogged ||
+                others != s.sessionOthersLogged)
+            {
+                s.sessionTypeLogged = session;
+                s.sessionPlayersLogged = players;
+                s.sessionOthersLogged = others;
+                if (session < 0)
+                    LOG("SESSION %s: no game in progress", TitleName(static_cast<GameTitle>(i)));
+                else
+                    LOG("SESSION %s: the game's simulation type is %d (%s), players in the game %d, machines "
+                        "other than this one %d (-1: not read). A solo campaign level is a sync-server with 1 "
+                        "player; a co-op joiner is a sync-client",
+                        TitleName(static_cast<GameTitle>(i)), session, session_read::TypeName(session), players,
+                        others);
+            }
+        }
+        if (const uint64_t stoodDown = s.fireTimeStoodDown.exchange(0, std::memory_order_relaxed))
+        {
+            // The re-aims that would have applied: all of them, then on foot ([0], what the written aim's lead is
+            // there to shrink) apart from seated ([1]), each with the shots that needed no re-aim.
+            uint64_t count[2]{}, sum[2]{}, through[2]{};
+            uint32_t peak[2]{};
+            for (int k = 0; k < 2; ++k)
+            {
+                count[k] = s.fireTimeBends[k].count.exchange(0, std::memory_order_relaxed);
+                sum[k] = s.fireTimeBends[k].sumMilliDeg.exchange(0, std::memory_order_relaxed);
+                through[k] = s.fireTimeBends[k].through.exchange(0, std::memory_order_relaxed);
+                peak[k] = s.fireTimeBends[k].maxMilliDeg.exchange(0, std::memory_order_relaxed);
+            }
+            const uint64_t bends = count[0] + count[1];
+            const auto mean = [](uint64_t total, uint64_t n) { return n ? double(total) / double(n) / 1000.0 : 0.0; };
+            LOG("CO-OP SAFE SHOTS %s: %llu fire-time changes stood down; each shot left as the game built it. "
+                "%llu of them were re-aims that would have turned the shot by a mean of %.2f deg (max %.2f): on foot "
+                "%llu (mean %.2f deg, max %.2f) beside %llu already through the point, seated %llu (mean %.2f deg, "
+                "max %.2f) beside %llu",
+                TitleName(static_cast<GameTitle>(i)), (unsigned long long)stoodDown, (unsigned long long)bends,
+                mean(sum[0] + sum[1], bends), double((std::max)(peak[0], peak[1])) / 1000.0,
+                (unsigned long long)count[0], mean(sum[0], count[0]), double(peak[0]) / 1000.0,
+                (unsigned long long)through[0], (unsigned long long)count[1], mean(sum[1], count[1]),
+                double(peak[1]) / 1000.0, (unsigned long long)through[1]);
+        }
+        ReportLead(i);
         if (muzzleAimed || muzzleRefused || muzzleUnconverged || muzzleHeld)
             LOG("SHOTS FROM THE MUZZLE %s: %llu aimed through the converged point, %llu refused%s%s%s, "
                 "%llu without a converged point, %llu held off (a seat held at its stop, or a turret: the gun "

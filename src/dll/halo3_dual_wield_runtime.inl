@@ -72,7 +72,7 @@ void PublishHalo3DualAimBody()
     auto& feature = g_halo3Dual;
     if (!feature.enabled.load(std::memory_order_acquire) ||
         feature.faulted.load(std::memory_order_acquire) || !g_vrAim.load() ||
-        !g_config.independent_dual_aim ||
+        !Sight_IndependentDualAim() ||
         !g_enabled.load() || !g_baseCamValid.load() ||
         feature.generation != g_halo3RuntimeGeneration.load()) return;
     __try

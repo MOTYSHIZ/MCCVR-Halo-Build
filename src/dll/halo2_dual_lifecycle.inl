@@ -109,6 +109,6 @@ bool InstallHalo2DualAim(uintptr_t base,size_t size)
 #if HALOMCCVR_DEV_DIAGNOSTICS
     (void)InstallHalo2ImpactWitness(base,size);
 #endif
-    LOG("Halo 2 dual aim Installed: optional per-hand native acquisition and firing assist; option=%d",g_config.independent_dual_aim?1:0);
+    LOG("Halo 2 dual aim Installed: optional per-hand native acquisition and firing assist; option=%d",Sight_IndependentDualAim()?1:0);
     return true;
 }

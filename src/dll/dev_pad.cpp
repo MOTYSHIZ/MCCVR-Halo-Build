@@ -8,12 +8,18 @@
 // window, which is why the harness holds the foreground (through the polite gate) while a script runs.
 
 #include "dev_pad.h"
+#include "d3d11_hook.h"
 
 #if HALOMCCVR_DEV_DIAGNOSTICS
 #include "../common/dev_pad_script.h"
+#include "../common/aim_lead_logic.h"
 #include "../common/config.h"
 #include "../common/roomscale_recenter_logic.h"
 #include "../common/log.h"
+#include "vr.h"
+#include "game.h"
+#include "native_vehicle_first_person.h"
+#include "title_adapter.h"
 
 #include <algorithm>
 #include <atomic>
@@ -106,15 +112,56 @@ bool SetLive(const std::string& name, int value)
     else if (name == "seat_direct_drive") g_config.seat_direct_drive = value ? 1 : 0;
     else if (name == "seat_aim_through_barrel") g_config.seat_aim_through_barrel = value != 0;
     else if (name == "seat_fire_from_eye") g_config.seat_fire_from_eye = value != 0;
+    else if (name == "halo4_seat_converge") g_config.halo4_seat_converge = value ? 1 : 0;
     else if (name == "reach_vehicle_aim") g_config.reach_vehicle_aim = value < 0 ? 0 : (value > 2 ? 2 : value);
     else if (name == "shots_from_muzzle") g_config.shots_from_muzzle = value != 0;
+    else if (name == "coop_safe_shots") g_config.coop_safe_shots = value != 0;
+    // The aim lead as a whole number of hundredths of a tick (100 = one tick, 0 = off).
+    else if (name == "aim_lead_ticks_x100")
+        g_config.aim_lead_ticks = aim_lead::ClampTicks(float(value) * 0.01f, Config{}.aim_lead_ticks);
     else if (name == "gun_barrel_aim") g_config.gun_barrel_aim = value != 0;
     else if (name == "vehicle_cam_smoothing") g_config.vehicle_cam_smoothing = value != 0;
+    // A gun-slaved seat's pitch check: 1 the pitch stick is held while it collects (what a player build does),
+    // 0 the stick servo runs through it.
+    else if (name == "seat_pitch_check_hold") Game_DevSetSeatPitchCheckHold(value != 0);
+    // Halo 4's Broadsword view: 1 on the seat camera's point (what a player build does), 0 the observer.
+    else if (name == "broadsword_ride") Game_DevSetBroadswordRide(value != 0);
     // The first-person ladder's fault bits (config.h): the ladders read the value at every evaluation, so
     // bits 0-2 take effect on the next camera frame and one launch can walk 0 -> 1 -> 3 -> 5 -> 0. Bit 3
     // needs a level the camera rung has not been proven in (the value agreement never withdraws a proven
     // rung), so it still wants the key set before the level loads.
     else if (name == "first_person_rung_fault") g_config.first_person_rung_fault = value & 0xF;
+    else if (name == "dev_sim_trace") g_config.dev_sim_trace = value ? 1 : 0;
+    // 0 inside the unit's update, 1 the control pass, anything else by the rule (-1).
+    else if (name == "reach_sight_trace_site") g_config.reach_sight_trace_site = value == 0 ? 0 : (value == 1 ? 1 : -1);
+    // 0 always, 1 only outside a tick, 2 never, 3 the player's own weapon effects only, anything else by the rule.
+    else if (name == "reach_effect_move_rule")
+        g_config.reach_effect_move_rule = value >= 0 && value <= 3 ? static_cast<int>(value) : -1;
+    else if (name == "dev_sim_probe") g_config.dev_sim_probe = static_cast<int>(value & 0xFF);
+    // Halo 4's reticle capture (vr.h, VrHalo4ReticleDrawScope): 0 as the game draws it, 1 alpha only from draws
+    // that write coverage (what a player build does), 2 no draw writes alpha. Takes effect at the next capture.
+    else if (name == "reticle_capture_alpha") VR_DevSetHalo4ReticleAlphaMode(value);
+    // The seat camera's offsets for the vehicle model and seat the camera is in now, in centimetres plus 500
+    // (a script's numbers are unsigned): 500 is zero, 650 is +1.5 m. What the Vehicles page's sliders write.
+    else if (name == "seat_cam_forward" || name == "seat_cam_up" || name == "seat_cam_right")
+    {
+        const GameTitle title = TitleAdapter_GetActiveTitle();
+        uint64_t identity = 0;
+        int seat = -1;
+        if (!NativeVehicleFirstPerson_TrimTarget(title, identity, seat)) return false;
+        const int slot = ConfigEnsureVehicleModelTrim(g_config, title, identity, seat);
+        if (slot < 0) return false;
+        const unsigned axis = name == "seat_cam_forward" ? 0u : (name == "seat_cam_up" ? 1u : 2u);
+        g_config.vehicle_model_trims[slot].value[axis] = static_cast<float>(value - 500) / 100.0f;
+        g_config.vehicle_model_trims[slot].set[axis] = true;
+    }
+    // The pixel shader census (dev_ps_census.inl): pause or resume it, and bind no pixel shader in place of
+    // the numbered one (0 = none).
+    else if (name == "dev_ps_census") g_config.dev_ps_census = value ? 1 : 0;
+    // Halo 4's copies of its finished picture (halo4_scene_copy_logic.h): 1 taken from the eye being drawn
+    // (what every build does), 0 left as the game makes them.
+    else if (name == "halo_four_scene_copy") VR_DevSetHalo4SceneCopy(value != 0);
+    else if (name == "dev_ps_blank") D3D_DevSetBlankPixelShader(value);
     else return false;
     return true;
 }

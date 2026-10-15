@@ -223,7 +223,7 @@ __declspec(noinline) void Halo2ContactTick(uint32_t unit)
         {
             const uint64_t now=GetTickCount64();
             const auto* biped=Halo2ContactBiped(unit);
-            const bool admit=!exclusive_input::Active() && g_config.physical_melee && Game_Halo2ControllerAimActive() &&
+            const bool admit=!exclusive_input::Active() && Sight_PhysicalMelee() && Game_Halo2ControllerAimActive() &&
                 Halo2Observer6Dof_DirectWeaponAimArmed() && biped &&
                 g_vehicleSeatVerified.load(std::memory_order_acquire) &&
                 *reinterpret_cast<const int16_t*>(biped+kHalo2UnitParentSeatOffset)==-1 &&
@@ -289,7 +289,7 @@ void Halo2PrepareContactFrames(const Halo2ObserverPosePublication& publication,
 void Halo2PublishContactSamples(int hand,const Halo2VisibleConsumerContext& context,
     const float points[][3],uint32_t count)
 {
-    if(!Halo2ContactMeleeReady() || !g_config.physical_melee || hand<0 || hand>1 ||
+    if(!Halo2ContactMeleeReady() || !Sight_PhysicalMelee() || hand<0 || hand>1 ||
         !points || !count || count>contact_melee::kMaxPoints) return;
     ContactMeleePacket packet{};
     packet.generation=g_generation.load(std::memory_order_acquire);

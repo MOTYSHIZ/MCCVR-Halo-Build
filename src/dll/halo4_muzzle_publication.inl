@@ -9,7 +9,7 @@ Halo4MuzzlePending Halo4PrepareMuzzlePalette(uint32_t weapon,uint16_t renderMode
     uint32_t checksum,int count,const BoneMatrix* palette)
 {
     Halo4MuzzlePending pending{};
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle)||count<=0||count>kHalo4FirstPersonBankTransforms||
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle())||count<=0||count>kHalo4FirstPersonBankTransforms||
         !Halo4FloatingPairMatchesCurrent())return pending;
     __try
     {

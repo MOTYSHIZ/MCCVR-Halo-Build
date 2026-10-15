@@ -531,10 +531,37 @@ uint64_t ReachSightActiveFlags(int32_t& mode)
     return flags;
 }
 
-void ReachSightTraceTick(uint32_t unit)
+// WHERE THE TRACE RUNS. Alone in the game it is made in the unit's own update, inside the tick: there is one
+// simulation and it is the game. In a game whose simulation another machine shares (sight_layer.h
+// Sight_FireTimeChangesAllowed is false) nothing of the mod's is asked of the game inside a tick
+// (game.cpp ReachOutsideTheSimulation; docs/COOP-SHARED-SIMULATION-2026-10-13.md), so there the trace is made from
+// the control pass instead: the per-frame update, between ticks on this same thread, in which the game makes its own
+// collision tests for the local player (0x61A38 -> 0x5DF80 -> 0x4EAFF4 -> collision_test_vector), each machine for
+// its own. (A replay of a saved co-op film with this trace made inside the tick did not part from the game's own;
+// it is moved on the rule, not on a measured fault of its own.)
+enum class ReachSightSite : uint8_t { UnitUpdate, ControlPass };
+
+ReachSightSite ReachSightTraceSite()
 {
-    // Every unit comes through this hook on every sim tick, so the cheapest gate comes first: plain config
-    // loads. Only direct drive (mode 3) consumes the trace, and only with F1's Converged aim on.
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    if (g_config.reach_sight_trace_site == 0)   // an A/B override (dev): logged at load as a DEV OVERRIDE
+        return ReachSightSite::UnitUpdate;
+    if (g_config.reach_sight_trace_site == 1)
+        return ReachSightSite::ControlPass;
+#endif
+    return Sight_FireTimeChangesAllowed() ? ReachSightSite::UnitUpdate : ReachSightSite::ControlPass;
+}
+
+// Traces made at each site since the last report (every build: the site line reads them), and the control-pass
+// visits that made none because the game's own mark did not say "outside a tick".
+std::atomic<uint32_t> g_reachSightSiteTraces[2]{};
+std::atomic<uint32_t> g_reachSightControlNotOutside{0};
+
+// Both sites run this on the simulation thread, never at once. `unit`: the unit being updated (UnitUpdate only).
+void ReachSightTraceAt(uint32_t unit, ReachSightSite site)
+{
+    // Every unit comes through the unit-update site on every sim tick, so the cheapest gate comes first: plain
+    // config loads. Only direct drive (mode 3) consumes the trace, and only with F1's Converged aim on.
     if (g_config.reach_direct_drive != 3 || !g_config.converged_aim)
         return;
     auto& trace = g_reachSightTrace;
@@ -575,8 +602,10 @@ void ReachSightTraceTick(uint32_t unit)
     // lookup per unit.
     static uint64_t s_lastTraceMs = 0, s_localAtMs = 0;
     static int32_t s_localUnit = -1;
-    if (s_localUnit != -1 && unit == static_cast<uint32_t>(s_localUnit))
+    if (site == ReachSightSite::UnitUpdate && s_localUnit != -1 && unit == static_cast<uint32_t>(s_localUnit))
         Sight_NoteSimTick(GameTitle::HaloReach);   // dev: the SHOT LAG line's measured tick
+    if (site != ReachSightTraceSite())
+        return;   // the other site's turn
     if (s_lastTraceMs && now >= s_lastTraceMs && now - s_lastTraceMs < kReachSightTraceIntervalMs)
     {
         REACH_SIGHT_DEV_COUNT(trace.blockedRate);
@@ -588,9 +617,10 @@ void ReachSightTraceTick(uint32_t unit)
         s_localAtMs = now;
     }
     const int32_t localUnit = s_localUnit;
-    if (localUnit == -1 || unit != static_cast<uint32_t>(localUnit))
+    if (localUnit == -1 || (site == ReachSightSite::UnitUpdate && unit != static_cast<uint32_t>(localUnit)))
         return;
     s_lastTraceMs = now;
+    g_reachSightSiteTraces[static_cast<int>(site)].fetch_add(1, std::memory_order_relaxed);
     const auto original = reinterpret_cast<LegacyCollisionTestVectorFn>(g_reachWorldCollision.original);
     if (!original)
     {
@@ -787,6 +817,37 @@ void ReachSightTraceTick(uint32_t unit)
 #endif
 }
 
+// The unit-update site: from the per-unit update the contact-melee lane hooks, for every unit on every tick.
+void ReachSightTraceTick(uint32_t unit)
+{
+    ReachSightTraceAt(unit, ReachSightSite::UnitUpdate);
+}
+
+// The control-pass site: from the control update's stick call (ReachPcApplyForUser), once a rendered frame. The
+// core's callback count is held across it, as the per-unit hook holds it, so the teardown waits for a trace in
+// flight before the collision trampoline it calls is freed.
+void ReachSightTraceControlPass()
+{
+    if (ReachSightTraceSite() != ReachSightSite::ControlPass)
+        return;
+    // Between ticks by construction (the control pass is the frame's); the game's own mark is the check, and where
+    // it says otherwise or cannot be read the trace is not made (the aim then does not converge: fail closed).
+    if (!ReachOutsideTheSimulation())
+    {
+        g_reachSightControlNotOutside.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    g_reachCamera.activeCallbacks.fetch_add(1, std::memory_order_acq_rel);
+    __try
+    {
+        ReachSightTraceAt(0, ReachSightSite::ControlPass);
+    }
+    __finally
+    {
+        g_reachCamera.activeCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
+}
+
 // ---- shot check (dev): does the native shot actually pass through the traced point? ---------------
 #if HALOMCCVR_DEV_DIAGNOSTICS
 struct ReachSightShotStats
@@ -950,7 +1011,9 @@ bool ReachSightReaimCrosshairQuery(uint64_t flags, const float* start, const flo
     const float* point = Sight_ShotPointSample(GameTitle::HaloReach, SightTransportSite::CrosshairAssist, sample,
                                                seated, sample.point, moved);
     memcpy(out, vector, sizeof(float) * 3);
-    return Sight_ReaimThroughPoint(GameTitle::HaloReach, SightShotSite::CrosshairAssist, start, out, point);
+    // `seated` only sorts the count: a seat's bend is reported apart from the on-foot one the written aim's lead
+    // acts on.
+    return Sight_ReaimThroughPoint(GameTitle::HaloReach, SightShotSite::CrosshairAssist, start, out, point, seated);
 }
 
 // The dev SHOT LAG line for Reach: the shot (origin, direction) against the provider's intent point.
@@ -1333,6 +1396,31 @@ void ReportReachSightTrace()
             static_cast<unsigned long long>(flags), mode & 0xFF, !flags && why ? "; " : "",
             !flags && why ? why : "");
         s_lastState = state;
+    }
+    // Where it is made (ReachSightTraceSite): said when it changes, and once it has traced there.
+    {
+        static int s_lastSite = -1;
+        static bool s_saidTraced = false;
+        const int site = static_cast<int>(ReachSightTraceSite());
+        const uint32_t inUpdate = g_reachSightSiteTraces[0].exchange(0, std::memory_order_relaxed);
+        const uint32_t atControl = g_reachSightSiteTraces[1].exchange(0, std::memory_order_relaxed);
+        const uint32_t notOutside = g_reachSightControlNotOutside.exchange(0, std::memory_order_relaxed);
+        const bool traced = (site ? atControl : inUpdate) != 0;
+        static bool s_saidNotOutside = false;
+        if (site != s_lastSite || (traced && !s_saidTraced) || (notOutside && !s_saidNotOutside))
+        {
+            LOG("REACHSIGHT aim trace site: %s; traces since the last report: %u at the control pass, %u inside "
+                "the unit's update; %u control-pass visit(s) made none because the game did not say it was "
+                "outside a simulation tick%s",
+                site ? "the control pass, between ticks (the simulation is shared: Co-op safe is on, so nothing "
+                       "of the mod's is asked of the game inside a tick)"
+                     : "inside the unit's own update (Co-op safe is off: this machine's simulation is the game)",
+                atControl, inUpdate, notOutside,
+                notOutside ? " (the aim does not converge while that lasts)" : "");
+            s_saidTraced = traced && site == s_lastSite ? true : traced;
+            s_saidNotOutside = notOutside != 0;
+            s_lastSite = site;
+        }
     }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     if (flags || trace.faulted.load(std::memory_order_acquire) || g_config.reach_sight_fault)

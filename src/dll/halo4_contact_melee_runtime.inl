@@ -95,7 +95,7 @@ void Halo4ContactTick(uint32_t unit,void* instance)
         if(unit==g_halo4Contact.owner.load(std::memory_order_acquire) && biped==instance)
         {
             const uint64_t now=GetTickCount64();
-            const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load() && VR_IsStereoEnabled() &&
+            const bool admit=!exclusive_input::Active() && Sight_PhysicalMelee() && g_enabled.load() && VR_IsStereoEnabled() &&
                 g_halo4Camera.armed.load() && !g_halo4Camera.teardownRequested.load() &&
                 g_halo4Contact.generation==g_halo4Camera.generation.load() &&
                 g_halo4Contact.playbackMode && g_halo4Contact.playbackMode()==0 &&
@@ -206,7 +206,8 @@ const char* Halo4ResolveShotFlags(uintptr_t base,size_t size,uint64_t meleeValue
 // and the SHOT's own flags (above) when they resolve, else the melee collision flags the contact install
 // pinned from their own call site (the query the contact lane issues itself), and ignores the unit.
 // The unit is the one whose first-person body the render thread last solved (g_halo4SightUnit), and a
-// seated unit (parent != -1) is not traced.
+// seated unit (parent != -1) is not traced here: a seat's ray is traced from the seat's control update
+// (halo4_seat_converge.inl), under the seat's own stance.
 void Halo4SightTraceTick(uint32_t unit,void* instance)
 {
     constexpr GameTitle kTitle=GameTitle::Halo4;
@@ -292,6 +293,8 @@ void Halo4SightTraceTick(uint32_t unit,void* instance)
     }
     if(!onFoot) return;
     const bool hit=returned && std::isfinite(output.fraction) && output.fraction>=0.0f && output.fraction<=1.0f;
+    // The on-foot stance: a range a seat's trace left is withdrawn before this one is published.
+    Sight_SetStance(kTitle,0);
     Sight_PublishTrace(kTitle,generation,hit,hit ? kSightTraceSkipWu+output.fraction*length : 0.0f,
         static_cast<uint64_t>(after.QuadPart-before.QuadPart));
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -318,12 +321,6 @@ void Halo4SightTraceTick(uint32_t unit,void* instance)
     // [assess-only end]
 #endif
 }
-
-#if HALOMCCVR_DEV_DIAGNOSTICS
-// The SEATED trace (halo4_seat_sight.inl, dev builds only: stage 0 counts, the dev key halo4_seat_converge
-// publishes). Its own cheap pre-gate, before the shared 30 ms rate limit, keeps every other unit out.
-void Halo4SightTraceSeated(uint32_t unit,void* instance);
-#endif
 
 // Flat parity's fire-eye proof (halo4_fire_eye.inl), fed from our unit's own update: only for the render's
 // first-person unit (a cheap atomic test first: every unit comes through), on foot by the same biped test the trace uses.
@@ -357,11 +354,6 @@ __declspec(noinline) uint8_t __fastcall Halo4ContactUpdateDetour(void* instance)
         __except(EXCEPTION_EXECUTE_HANDLER) { unit=UINT32_MAX; }
         if(g_halo4Contact.updateOriginal) result=g_halo4Contact.updateOriginal(instance);
         if(unit!=UINT32_MAX) Halo4ContactTick(unit,instance);
-#if HALOMCCVR_DEV_DIAGNOSTICS
-        // Seated first: its pre-gate passes only for the seated local unit, which the on-foot trace would refuse
-        // only after taking the rate limit's slot.
-        if(unit!=UINT32_MAX) Halo4SightTraceSeated(unit,instance);
-#endif
         if(unit!=UINT32_MAX) Halo4SightTraceTick(unit,instance);
         if(unit!=UINT32_MAX) Halo4FireEyeTickFromUpdate(unit,instance);
     }
@@ -552,9 +544,9 @@ bool InstallHalo4ContactMelee(uintptr_t base,size_t size,uint32_t generation)
                 "PhysicsRayCast, profile 0x1A",
                 shotWhy ? "the melee query's flags, a proxy: the shot's own did not resolve"
                         : "the engine's own shot aim-assist query, resolved and value-checked",
-                "on foot it ignores the unit (the engine skips the held weapon with it); a seated unit is not "
-                "traced in a player build (dev halo4_seat_converge: the vehicle's root, the occupant, the seat's "
-                "parent and the controlled unit, and the engine skips the rest of that vehicle but a boarder)");
+                "on foot it ignores the unit (the engine skips the held weapon with it); a seat is traced only "
+                "with halo4_seat_converge = 1, from the seat's control update: the vehicle's root, the occupant and "
+                "the seat's parent ignored, and the engine skips the rest of that vehicle but a boarder");
     }
     return true;
 }
@@ -562,7 +554,7 @@ bool InstallHalo4ContactMelee(uintptr_t base,size_t size,uint32_t generation)
 void Halo4PublishContactHand(int hand,const float points[][3],uint32_t count,
     int32_t unit,uint64_t shape)
 {
-    if(!Halo4ContactMeleeReady() || !g_config.physical_melee || hand<0 || hand>1 ||
+    if(!Halo4ContactMeleeReady() || !Sight_PhysicalMelee() || hand<0 || hand>1 ||
         !points || !count || count>contact_melee::kMaxPoints || unit==-1 ||
         g_halo4FloatingPair.generation!=g_halo4Contact.generation) return;
     ContactMeleePacket packet{};

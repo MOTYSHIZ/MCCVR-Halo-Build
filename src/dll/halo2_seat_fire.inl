@@ -66,7 +66,7 @@ void Halo2SeatFireReaim(uint32_t unit,float* position,float* direction)
     // Counted from the engine's own start, whichever line is then used.
     float line[3]{direction[0],direction[1],direction[2]};
     const bool bent=Sight_ReaimThroughPoint(GameTitle::Halo2,SightShotSite::CrosshairAssist,position,line,point,true);
-    if(g_config.seat_fire_from_eye&&shot_lag::Finite3(head))
+    if(g_config.seat_fire_from_eye&&Sight_FireTimeChangesAllowed()&&shot_lag::Finite3(head))
     {
         const float toPoint[3]{point[0]-head[0],point[1]-head[1],point[2]-head[2]};
         const float range=shot_lag::Length(toPoint),length=shot_lag::Length(direction);

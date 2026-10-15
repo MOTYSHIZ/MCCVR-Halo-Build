@@ -19,12 +19,15 @@
 // the pair with the servo's target (the converged aim when trace-and-reaim resolves) on the SIM thread,
 // through that thread's own TLS: exactly the record the native just updated.
 //
-// ADDR-HYGIENE: guarded. Each RVA is a measurement of one build. Three exact-byte anchors must match at
-// their RVAs before a hook exists -- the entry prologue (so MinHook relocates known instructions), the
-// TLS/stride block (the slot and stride constants above) and the accumulator itself -- and the TLS/stride
-// block and the accumulator must each be unique in the module (Halo 4's prologue is shared by two other
-// functions, so it is matched at its address only). The engine TLS index is read from the update's own
-// `mov e?x, [rip+disp32]`, never assumed. Any mismatch: no hook, said once; the servo keeps aiming.
+// ADDR-HYGIENE: resolved (src/common/drive_sites.h, ResolveLegacyControl). Each recorded RVA is a measurement of
+// one build and says where nothing is: three exact-byte anchors are FOUND by signature anywhere in the module's
+// code before a hook exists -- the entry prologue (so MinHook relocates known instructions), the TLS/stride block
+// (the slot and stride constants above) and the accumulator itself -- each must match exactly once, the entry must
+// be where a function starts (.pdata) and the other two must lie inside that function (Halo 4's prologue is shared
+// by two other functions, so its entry is the start of the function that holds its accumulator, and must begin
+// with those bytes). The engine TLS index is the module's own (its PE TLS directory), and the update's own
+// `mov e?x, [rip+disp32]` must load it. The recorded RVAs are only the cross-check: the log says when the game's
+// code has moved from them. Anything not found, or ambiguous: no hook, said once; the servo keeps aiming.
 // ARM GATE (ValueAgreement): installed disarmed; the hook writes only after the record it resolved has
 // held the game's own aim (the camera forward the servo closes on) within 1.7 deg for 30 consecutive
 // updates, and only while every later update resolves the same record. A different record disarms it.
@@ -103,140 +106,23 @@
 
 namespace
 {
-struct LegacyDriveSite
-{
-    GameTitle title;
-    const char* name;
-    uint32_t entryRva;
-    const char* prologue;
-    bool prologueUnique;
-    uint32_t tlsRva;
-    const char* tlsPattern;
-    uint32_t accRva;
-    const char* accPattern;
-    uint32_t tlsIndexLoadRva;   // `mov e?x, [rip+disp32]` (8B 0D / 8B 15) loading the engine TLS index
-    uint32_t tlsSlot;
-    uint32_t stride;
-    uint32_t angles;
-    // The `call entry` (E8 rel32) of the stick update (Halo 3, ODST), or of the dispatcher that every Halo 4
-    // caller goes through (its one call site). ADDR-HYGIENE: guarded (the rel32 must land on entryRva, and it
-    // is the first rung of the caller map below; otherwise every caller counts as the update).
-    uint32_t primaryCallRva;
-};
-
-constexpr LegacyDriveSite kLegacyDriveSites[3] = {
-    {GameTitle::Halo3, "Halo 3", 0xF7DF0,
-     "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 F3 0F 11 58 20 55 41 54 41 55 41 56 41 57 48 8D 6C 24 80 "
-     "48 81 EC 80 01 00 00 8B 15 ?? ?? ?? ??", true,
-     0xF7E65, "65 48 8B 04 25 58 00 00 00 4C 63 E1 49 69 DC 10 01 00 00 48 8B 34 D0 B8 C0 00 00 00 "
-              "48 89 74 24 30 48 8B 3C 30",
-     0xF8146, "F3 0F 58 B4 3B D4 00 00 00 4C 8B 3D ?? ?? ?? ?? 41 83 C8 FF 4C 8B 35 ?? ?? ?? ?? "
-              "B8 38 00 00 00 F3 0F 11 B4 3B D4 00 00 00",
-     0xF7E19, 0xC0, 0x110, 0xD4, 0xF6D11},
-    {GameTitle::Halo3ODST, "ODST", 0x113AB8,
-     "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 F3 0F 11 58 20 55 41 54 41 55 41 56 41 57 48 8D A8 48 FF "
-     "FF FF 48 81 EC 90 01 00 00 8B 15 ?? ?? ?? ??", true,
-     0x113B2F, "65 48 8B 04 25 58 00 00 00 4C 63 E1 BF D8 00 00 00 49 69 DC C0 02 00 00 4C 8B 2C D0 "
-               "48 8B 05 ?? ?? ?? ?? 4A 8B 3C 2F",
-     0x113E0A, "F3 0F 58 B4 1F D4 00 00 00 4C 8B 3D ?? ?? ?? ?? 83 CE FF 4C 8B 35 ?? ?? ?? ?? "
-               "B8 20 00 00 00 F3 0F 11 B4 1F D4 00 00 00",
-     0x113AE3, 0xD8, 0x2C0, 0xD4, 0x112890},
-    {GameTitle::Halo4, "Halo 4", 0xA8B34,
-     "48 8B C4 48 89 58 10 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 08 FF FF FF "
-     "48 81 EC D0 01 00 00", false,
-     0xA8BD0, "4C 63 F1 44 0F 28 D9 8B 0D ?? ?? ?? ?? 49 69 DE F0 01 00 00 F3 0F 11 5D 88 4C 8B 3C C8 "
-              "48 8B 05 ?? ?? ?? ?? BF B0 00 00 00",
-     0xA92A6, "F3 0F 58 84 1F 38 01 00 00 41 0F 28 CD E8 ?? ?? ?? ?? 44 0F 2F D0 F3 0F 11 84 1F 38 01 00 00",
-     0xA8BD7, 0xB0, 0x1F0, 0x138, 0xA8988},
-};
-
-// THE CALLER MAP (aim_caller_logic.h). Each site is an exact-byte pattern that must be UNIQUE in the module
-// and match at its RVA, and whose E8 at callOff must land on the accumulator (direct mode: Halo 3, ODST) or
-// on the dispatcher (Halo 4); the caller's return address is patRva + callOff + 5. Halo 4's dispatcher mode
-// also needs the accumulator's one call site (accCallPat: its E8 is primaryCallRva and lands on the entry),
-// the dispatcher's prologue (unique) and its frame, proven from its .pdata/unwind info and its prologue
-// (AimCallerProveDispatcher). ADDR-HYGIENE: guarded. The PROOF LADDER: the stick site (Halo 3 / ODST: the
-// primaryCallRva check above) is rung 1, and without it every call counts as the update; each
-// other site is its own proof, and one that fails is simply absent (its calls read "unknown", put back).
-// Measured on the retail Steam modules; the Store modules are byte-identical (MCC-EDITIONS-EVIDENCE).
-struct LegacyCallerSite
-{
-    uint32_t patRva;
-    const char* pat;
-    uint8_t callOff;
-    aim_caller::Caller role;
-};
-
-struct LegacyCallerAnchors
-{
-    uint32_t accCallPatRva;          // dispatcher mode only (0: direct mode)
-    const char* accCallPat;
-    uint8_t accCallOff;
-    uint32_t dispatcherRva;
-    const char* dispatcherPrologue;
-    LegacyCallerSite sites[4];
-    aim_caller::Action noUnitAction;
-};
-
-constexpr LegacyCallerAnchors kLegacyCallerAnchors[3] = {
-    // Halo 3: the stick update in the dispatcher 0xF66AC; the no-unit path (exclusive with it, 0xF6938);
-    // a weapon's pitch kick from 0x366858 during the tick. Only the census and the counters read the last two:
-    // every caller that is not the stick is put back.
-    {0, nullptr, 0, 0, nullptr,
-     {{0xF6D00, "F3 0F 10 54 24 5C 0F 28 DE F3 0F 10 4C 24 58 8B CB E8 ?? ?? ?? ??", 0x11, aim_caller::Caller::Stick},
-      {0xF6F59, "F3 0F 10 54 24 5C 0F 28 DE F3 0F 10 4C 24 58 41 8B CF E8 ?? ?? ?? ??", 0x12,
-       aim_caller::Caller::NoUnit},
-      {0x3675A4, "41 0F 28 C8 F3 0F 5C C6 8B CE F3 0F 59 D0 F3 0F 58 D6 E8 ?? ?? ?? ??", 0x12, aim_caller::Caller::Kick},
-      {}},
-     aim_caller::Action::RestoreOnly},
-    // ODST: the same shape (stick update in 0x112184, no-unit path, the weapon's pitch kick).
-    {0, nullptr, 0, 0, nullptr,
-     {{0x112881, "F3 0F 10 55 8B 0F 28 DE F3 0F 10 4D 87 8B CB E8 ?? ?? ?? ?? 41 83 CA FF", 0x0F,
-       aim_caller::Caller::Stick},
-      {0x112B12, "8B 7D 67 0F 28 DE F3 0F 10 55 8B 8B CF F3 0F 10 4D 87 E8 ?? ?? ?? ??", 0x12,
-       aim_caller::Caller::NoUnit},
-      {0x3ADA90, "41 0F 28 C8 F3 0F 5C C6 8B CF F3 0F 59 D0 F3 0F 58 D6 E8 ?? ?? ?? ??", 0x12, aim_caller::Caller::Kick},
-      {}},
-     aim_caller::Action::RestoreOnly},
-    // Halo 4: the accumulator's one call 0xA8988 in the dispatcher 0xA8828 (frame 0xF8: 5 pushes + 0xD0, no
-    // frame register), and the dispatcher's four callers, all in the per-user pass 0xA6BA8 / 0xA2670:
-    //   0xA7774 the stick update (the real input &[rbp-0x20]);
-    //   0xA349E an effect camera impulse (INFERRED from 0x1456EC's per-player effect slots: damage, explosions);
-    //   0xA7751 the weapon's aim SWAY -- not a recoil kick: 0xA5B90 advances two phases from the weapon tag's
-    //           per-zoom table (+0x408/+0x40C) and returns sin(phase) x amplitude, every pass it is non-zero;
-    //   0xA7A01 the no-unit path (exclusive with the stick, `cmp [pc],-1` at 0xA6FF4).
-    {0xA897C, "0F 28 DE 41 0F 28 D0 0F 28 CF 8B CE E8 ?? ?? ?? ?? F2 0F 10 43 18 0F 57 ED", 0x0C, 0xA8828,
-     "48 8B C4 48 89 58 20 55 56 41 54 41 56 41 57 48 8D 68 B1 48 81 EC D0 00 00 00 0F 29 70 C8 0F 29 78 B8 "
-     "44 0F 29 40 A8",
-     {{0xA7756, "F3 0F 10 55 F8 4C 8D 4D E0 F3 0F 10 4D F4 8B 4C 24 60 F3 0F 11 7C 24 28 F3 0F 11 74 24 20 "
-                "E8 ?? ?? ?? ??", 0x1E, aim_caller::Caller::Stick},
-      {0xA348D, "4C 8D 0D ?? ?? ?? ?? F3 0F 10 95 94 00 00 00 8B CE E8 ?? ?? ?? ??", 0x11, aim_caller::Caller::Impulse},
-      {0xA7733, "0F 57 0D ?? ?? ?? ?? 4C 8D 0D ?? ?? ?? ?? 8B 4C 24 60 F3 0F 11 7C 24 28 F3 0F 11 74 24 20 "
-                "E8 ?? ?? ?? ??", 0x1E, aim_caller::Caller::Sway},
-      {0xA79E5, "F3 0F 10 55 F8 4C 8D 4D E0 F3 0F 10 4D F4 8B CB F3 0F 11 7C 24 28 F3 0F 11 74 24 20 "
-                "E8 ?? ?? ?? ??", 0x1C, aim_caller::Caller::NoUnit}},
-     aim_caller::Action::EndUpdate},
-};
-
-#if HALOMCCVR_DEV_DIAGNOSTICS
-// Dev census: each title's sim tick counter (AimCallerTickProof). Halo 3 / ODST [[TLS+0xC8]]+0xC, Halo 4
-// [[TLS+0x90]]+0xC: the getter, then the increment inside the per-tick function.
-constexpr AimCallerTickAnchors kLegacyTickAnchors[3] = {
-    {0xF33B0, "8B 0D ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BA C8 00 00 00 48 8B 04 C8 48 8B 0C 10 8B 41 0C C3",
-     0xEF60B, "48 8D 54 24 38 48 8D 4C 24 50 E8 ?? ?? ?? ?? 44 84 64 24 54 74 08 48 8B 14 3E 44 01 62 0C", 0xFF, 29},
-    {0x10EB40, "8B 0D ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BA C8 00 00 00 48 8B 04 C8 48 8B 0C 10 8B 41 0C C3",
-     0x10A34A, "48 8D 54 24 38 48 8D 4C 24 50 E8 ?? ?? ?? ?? 8A 44 24 54 24 01 74 07 49 8B 14 1E FF 42 0C", 0xFF, 29},
-    {0xA0438, "8B 0D ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BA 90 00 00 00 48 8B 04 C8 48 8B 0C 10 8B 41 0C C3",
-     0x9ADB9, "44 84 7D 44 74 0D B8 90 00 00 00 48 8B 0C 38 44 01 79 0C", 7, 18},
-};
-#endif
-
-// Halo 4: the record's own unit, player_control +0x120 (0xA8C15 `mov ecx, [rdi+rbx+0x120]`, rdi = TLS+0xB0,
-// rbx = user * 0x1F0), from which the hook tells on foot from seated on the sim thread itself.
-// ADDR-HYGIENE: guarded (the exact load must sit at its RVA, or Halo 4 seats are never written).
-constexpr uint32_t kHalo4RecordUnitOffset = 0x120;
-constexpr uint32_t kHalo4RecordUnitLoadRva = 0xA8C15;
-constexpr const char* kHalo4RecordUnitLoad = "8B 8C 1F 20 01 00 00";
+// What each title's drive needs to find in its game DLL, and the resolution that finds it, are in
+// src/common/drive_sites.h (shared with the offline check, tools/drive_address_check.cpp): the control update's
+// three anchors and its TLS index load (kLegacyDriveSites, ResolveLegacyControl), the caller map's sites
+// (kLegacyCallerAnchors, ResolveCallers), Halo 4's record unit load and the accumulator's pitch clamp. Nothing
+// below uses a recorded RVA to decide where anything is: only what the install's resolution found.
+using drive_sites::LegacyDriveSite;
+using drive_sites::kLegacyDriveSites;
+using drive_sites::kLegacyCallerAnchors;
+using drive_sites::kLegacyPitchLimitSites;
+// Halo 4: the record's own unit, player_control +0x120, from which the hook tells on foot from seated on the sim
+// thread itself. ADDR-HYGIENE: guarded (the load `mov ecx, [rdi+rbx+0x120]` must stand at its place in the found
+// control update -- LegacyControl::recordUnitLoad -- or Halo 4 seats are never written).
+using drive_sites::kHalo4RecordUnitOffset;
+// The engine TLS index RVAs the tables record are the ones the rest of each title's lane reads through.
+static_assert(kLegacyDriveSites[0].tlsIndexRva == kHalo3EngineTlsIndexRva &&
+              kLegacyDriveSites[1].tlsIndexRva == kOdstEngineTlsIndexRva &&
+              kLegacyDriveSites[2].tlsIndexRva == kHalo4EngineTlsIndexRva);
 
 // THE OCCUPANT'S AIM VECTOR, Halo 3 and ODST (gun_slaved_seat_logic.h). Two consumers, each a pattern that must be
 // UNIQUE in the module (found anywhere: the offsets are decoded from the matched instructions, never assumed):
@@ -288,36 +174,18 @@ constexpr uint64_t kLegacyOccupantAimFreshMs = 100;
 // THE RECORD'S EASED PITCH LIMITS, Halo 3 and ODST (seat_limit::ResolvePitchLimits). The accumulator eases
 // two record fields toward the seat's pitch range every update and clamps the pitch to them; read after the update,
 // they are a look-steered driver's pitch stops (that driver's pitch is never latched: the accumulator levels it).
-// Each site is the clamp's exact bytes -- the eased low's store, the eased high's load and store, the pitch's
-// add/max/store -- UNIQUE in the module and matched at its RVA; the six offsets are DECODED from it (`?? ?? 00 00`)
-// and must agree (ResolvePitchLimits). Measured on the retail Steam modules (Halo 3 +0x190/+0x194 at
-// 0xF86F1, ODST +0x344/+0x348 at 0x114381; the Store modules are byte-identical, MCC-EDITIONS-EVIDENCE).
-// ADDR-HYGIENE: resolved (a unique pinned signature, offsets decoded and cross-checked) and guarded per read (finite,
+// The clamp's exact bytes (drive_sites::kLegacyPitchLimitSites) are found by signature, once, inside the control
+// update; the six offsets are DECODED from where they were found and must agree (ResolvePitchLimits).
+// ADDR-HYGIENE: resolved (a unique signature, offsets decoded and cross-checked) and guarded per read (finite,
 // ordered, inside the pole: seat_limit::RecordPitchInterval). Not bound: a look-steered driver's reticle is never
 // clamped in pitch; logged once.
-struct LegacyPitchLimitSite
-{
-    uint32_t rva;
-    const char* pattern;
-    uint8_t loStore, hiLoad, hiStore, pitchAdd, loMax, pitchStore;   // disp32 positions in the pattern
-};
-constexpr LegacyPitchLimitSite kLegacyPitchLimitSites[2] = {
-    {0xF86F1,
-     "F3 0F 11 8C 3B ?? ?? 00 00 F3 0F 10 8C 3B ?? ?? 00 00 F3 0F 5C C1 F3 0F 5F C2 44 0F 2F E0 77 04 41 0F 28 C4 "
-     "F3 0F 58 C8 41 0F 28 D6 F3 0F 11 8C 3B ?? ?? 00 00 0F 28 C1 F3 0F 58 94 3B ?? ?? 00 00 F3 0F 5F 94 3B ?? ?? 00 00 "
-     "0F 2F C2 77 03 0F 28 D1 45 0F 2E F3 F3 0F 11 94 3B ?? ?? 00 00",
-     5, 14, 49, 61, 70, 91},
-    {0x114381,
-     "F3 0F 11 8C 1F ?? ?? 00 00 F3 0F 10 8C 1F ?? ?? 00 00 F3 0F 5C C1 F3 0F 5F C2 0F 2F D8 77 03 0F 28 C3 "
-     "F3 0F 58 C8 41 0F 28 D4 F3 0F 11 8C 1F ?? ?? 00 00 0F 28 C1 F3 0F 58 94 1F ?? ?? 00 00 F3 0F 5F 94 1F ?? ?? 00 00 "
-     "0F 2F C2 77 03 0F 28 D1 45 0F 2E E3 F3 0F 11 94 1F ?? ?? 00 00",
-     5, 14, 47, 59, 68, 89},
-};
 
 struct LegacyDriveState
 {
     void* target = nullptr;
     uintptr_t base = 0;
+    uint32_t entryRva = 0;                  // where the install found the control update in this module
+    uint32_t installs = 0;                  // how many times the hook has been installed (worker)
     uintptr_t tlsIndexAddress = 0;
     // Which caller ran the accumulator (aim_caller_logic.h): written at install before the hook is enabled,
     // rewritten only after LegacyDriveRemove's quiescence. Not proven = every caller counts as the update.
@@ -335,6 +203,7 @@ struct LegacyDriveState
     std::atomic<uint32_t> seq{0};
     std::atomic<float> yaw{0.0f}, pitch{0.0f}, aimYaw{0.0f}, aimPitch{0.0f};
     std::atomic<uint64_t> setMs{0};
+    std::atomic<uint64_t> setSerial{0};      // the tracking frame the setpoint was solved from (0: unknown)
     std::atomic<bool> setValid{false};
     std::atomic<bool> setSeated{false};      // the setpoint is a seat's (seat_direct_drive)
     std::atomic<bool> setGunSlaved{false};   // seated: the simulation aims the seat from its gun camera (flag bit 7)
@@ -363,6 +232,9 @@ struct LegacyDriveState
     std::atomic<float> occYaw{0.0f}, occPitch{0.0f};
     std::atomic<uint64_t> occMs{0};
     std::atomic<uint32_t> occKey{0}, occAgree{0};
+    // The occupant's pitch check for the servo's hold (gun_slaved::CheckHold): bit 31 set while it collects
+    // evidence, the low bits its attempt (its count of failed ones). Inside the same seqlock.
+    std::atomic<uint32_t> occPitchCheck{0};
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // Gun-slaved seats, per report window (deg as float bits): the largest |record - occupant's aim| and
     // |record - gun| this stint's updates saw, in the record's frame.
@@ -383,6 +255,10 @@ struct LegacyDriveState
     uint32_t stintKey = 0;
     bool stintPitchFailCounted = false;
     std::atomic<uint64_t> seatYawWriteMs{0}, seatPitchWriteMs{0}, seatLimitedMs{0};
+    // Halo 4: when the Broadsword pilot's flight controller last had its record written, or held for the game's own
+    // steering, by halo4_type13_drive.inl. That seat is written on that file's own proof of the record, armed here
+    // or not (LegacyDriveSeatAxes).
+    std::atomic<uint64_t> flightMs{0};
     // THE SEAT'S STOPS for the reticle (seat_limit_publication.h): after each seat write, the latch's stops on the axes
     // it read, in the record's frame, with that frame. Cleared by every update that did not end in a seat write.
     SeatStopsPublication stops{};
@@ -407,7 +283,7 @@ struct LegacyDriveState
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // Dev census (aim_caller::TickCensus): calls per sim tick and per caller, on foot vs seated.
     aim_caller::TickCensus census{};
-    uint32_t tickSlot = 0, tickField = 0;    // proven at install (AimCallerTickProof); 0 = unreadable
+    uint32_t tickSlot = 0, tickField = 0;    // proven at install (AimCallerTickProofAt); 0 = unreadable
     std::atomic<uint32_t> censusPutBacks{0};
     std::atomic<uint32_t> refusals[aim_caller::kRefusalCount]{};
     // Max |what an extra call added| (put back) and max |native - last write| on a stick call, deg as float
@@ -559,27 +435,6 @@ uint32_t LegacyDriveSeatUnit(int slot, const LegacyDriveState& st, uintptr_t pc)
     return seat_frame::kNone;
 }
 
-// The pattern matches at exactly base + rva (not merely somewhere).
-bool LegacyDriveBytesAt(uintptr_t base, size_t size, uint32_t rva, const char* pattern)
-{
-    size_t bytes = 0;
-    for (const char* p = pattern; *p; ++p)
-        if (*p != ' ' && (p == pattern || p[-1] == ' '))
-            ++bytes;
-    if (!bytes || rva + bytes > size)
-        return false;
-    return sig::Find(base + rva, bytes, pattern) == base + rva;
-}
-
-bool LegacyDriveUniqueAt(uintptr_t base, size_t size, uint32_t rva, const char* pattern)
-{
-    const uintptr_t first = sig::Find(base, size, pattern);
-    if (first != base + rva)
-        return false;
-    const uintptr_t next = first + 1;
-    return next >= base + size || !sig::Find(next, static_cast<size_t>(base + size - next), pattern);
-}
-
 // The unique match of `pattern` anywhere in the module, or 0 (none, or more than one).
 uintptr_t LegacyDriveUniqueAnywhere(uintptr_t base, size_t size, const char* pattern)
 {
@@ -699,9 +554,10 @@ bool LegacyDriveLocalOnFoot(int slot)
     return false;
 }
 
-// Install thread: bind the record's eased pitch limits (kLegacyPitchLimitSites). Returns the low's offset, 0 when not
-// bound (`why` names the first proof that failed).
-uint32_t LegacyDriveBindPitchLimits(int slot, uintptr_t base, size_t size, const char*& why)
+// Install thread: bind the record's eased pitch limits from the accumulator's pitch clamp (kLegacyPitchLimitSites),
+// which the install's resolution found at `clampRva` in this module (0: missing, ambiguous or outside the control
+// update). Returns the low's offset, 0 when not bound (`why` names the first proof that failed).
+uint32_t LegacyDriveBindPitchLimits(int slot, uintptr_t base, uint32_t clampRva, const char*& why)
 {
     why = nullptr;
     if (slot < 0 || slot > 1)
@@ -710,14 +566,17 @@ uint32_t LegacyDriveBindPitchLimits(int slot, uintptr_t base, size_t size, const
         return 0;
     }
     const auto& site = kLegacyPitchLimitSites[slot];
-    if (!LegacyDriveUniqueAt(base, size, site.rva, site.pattern))
+    if (!clampRva)
     {
-        why = "the accumulator's pitch clamp is missing, moved or ambiguous";
+        why = "the accumulator's pitch clamp is missing, ambiguous or outside the control update";
         return 0;
     }
+    // The clamp's own bytes, which the plan found; read under a guard all the same (drive_install.h).
+    bool unread = false;
     const auto i32 = [&](uint8_t at) {
         int32_t v = 0;
-        memcpy(&v, reinterpret_cast<const void*>(base + site.rva + at), sizeof(v));
+        if (!drive_install::Read(base + clampRva + at, &v, sizeof(v)))
+            unread = true;
         return v;
     };
     seat_limit::PitchLimitSite s{};
@@ -727,89 +586,50 @@ uint32_t LegacyDriveBindPitchLimits(int slot, uintptr_t base, size_t size, const
     s.pitchAdd = i32(site.pitchAdd);
     s.loMax = i32(site.loMax);
     s.pitchStore = i32(site.pitchStore);
+    if (unread)
+    {
+        why = "the pitch clamp's bytes could not be read";
+        return 0;
+    }
     return seat_limit::ResolvePitchLimits(s, static_cast<int32_t>(kLegacyDriveSites[slot].angles),
                                           static_cast<int32_t>(kLegacyDriveSites[slot].stride), why);
 }
 
-// Builds the title's caller map (kLegacyCallerAnchors) and logs what it proved. Returns rung 1: the stick
-// site is proven. Otherwise the map stays empty and every caller counts as the update.
-bool LegacyDriveBuildCallerMap(int slot, uintptr_t base, size_t size, aim_caller::CallerMap& map)
+// Builds the title's caller map from the call sites the install's resolution FOUND in this module (`found`;
+// `entryRva`: the found control update) and logs what it proved. Each found call is proven again here, on the
+// loaded image: its rel32 must land on its target, and in dispatcher mode the dispatcher's frame is taken from the
+// loaded module's own function table (drive_install::ProveDispatcher) and must be the one the resolution proved from the
+// module's .pdata. Returns rung 1: the stick site is proven. Otherwise the map stays empty and every caller counts
+// as the update.
+bool LegacyDriveBuildCallerMap(int slot, uintptr_t base, size_t size, uint32_t entryRva,
+                               const drive_sites::Callers& found, aim_caller::CallerMap& map)
 {
     const auto& site = kLegacyDriveSites[slot];
     const auto& anchors = kLegacyCallerAnchors[slot];
-    map.clear();
-    const char* why = nullptr;
-    uint32_t callTarget = site.entryRva;
-    if (anchors.accCallPat)
+    // THE PROOF (drive_install.h; the offline check runs the same function on the game DLL as the loader maps it).
+    const drive_install::CallerMapProof proof = drive_install::BuildCallerMap(base, size, entryRva, found, anchors, map);
+    if (!proof.proven)
     {
-        // DISPATCHER MODE: the accumulator's one call site, the dispatcher around it, and its frame.
-        const uint32_t accCall = anchors.accCallPatRva + anchors.accCallOff;
-        const uintptr_t accRet = (accCall == site.primaryCallRva &&
-                                  LegacyDriveUniqueAt(base, size, anchors.accCallPatRva, anchors.accCallPat))
-            ? AimCallerCallReturn(base, size, accCall, site.entryRva) : 0;
-        uint32_t frame = 0;
-        if (!accRet)
-            why = "the accumulator's call site";
-        else if (!LegacyDriveUniqueAt(base, size, anchors.dispatcherRva, anchors.dispatcherPrologue))
-            why = "the dispatcher prologue";
-        else
-            (void)AimCallerProveDispatcher(base, size, anchors.dispatcherRva, accCall, frame, why);
-        if (!frame)
-        {
-            map.clear();
-            LOG("DRIVE %s: caller map NOT proven (%s); every call counts as the update (as before)", site.name,
-                why ? why : "dispatcher frame");
-            return false;
-        }
-        map.acc_ret = accRet;
-        map.dispatcher_frame = frame;
-        callTarget = anchors.dispatcherRva;
-    }
-    else
-    {
-        // DIRECT MODE: rung 1 is the stick update's own call (primaryCallRva).
-        const uintptr_t primary = AimCallerCallReturn(base, size, site.primaryCallRva, site.entryRva);
-        if (primary)
-            map.add(primary, aim_caller::Caller::Stick);
-    }
-    map.no_unit_action = anchors.noUnitAction;
-    char sites[256] = "";
-    size_t used = 0;
-    for (const auto& s : anchors.sites)
-    {
-        if (!s.pat)
-            continue;
-        const uintptr_t ret = LegacyDriveUniqueAt(base, size, s.patRva, s.pat)
-            ? AimCallerCallReturn(base, size, s.patRva + s.callOff, callTarget) : 0;
-        const bool ok = ret && map.add(ret, s.role);
-        // Direct mode already holds the stick from primaryCallRva; its pattern is then a cross-check only.
-        const bool stickStands = !ok && s.role == aim_caller::Caller::Stick && map.has(aim_caller::Caller::Stick);
-        const int n = ok
-            ? snprintf(sites + used, sizeof(sites) - used, "%s%s +0x%llX", used ? ", " : "",
-                       aim_caller::CallerName(s.role), static_cast<unsigned long long>(ret - base))
-            : snprintf(sites + used, sizeof(sites) - used, "%s%s NOT verified (%s)", used ? ", " : "",
-                       aim_caller::CallerName(s.role),
-                       stickStands ? "the update's own call stands" : "reads unknown");
-        if (n > 0)
-            used = (std::min)(sizeof(sites) - 1, used + static_cast<size_t>(n));
-    }
-    if (!map.stick_proven())
-    {
-        map.clear();
-        LOG("DRIVE %s: caller map NOT proven (the stick update's call); every call counts as the update (as "
-            "before)", site.name);
+        LOG("DRIVE %s: caller map NOT proven (%s); every call counts as the update (as before)", site.name,
+            proof.why ? proof.why : "dispatcher frame");
         return false;
     }
+    char sites[256] = "";
+    drive_install::CallerMapText(base, anchors, proof, sites, sizeof(sites));
     if (map.dispatcher_mode())
         LOG("DRIVE %s: caller map proven by the dispatcher's return (accumulator call +0x%X in dispatcher +0x%X, "
             "frame 0x%X from its unwind info and prologue): %s. Only the stick call is the update; an extra call "
             "has the last stick write put back, the no-unit call ends the update",
-            site.name, site.primaryCallRva, anchors.dispatcherRva, map.dispatcher_frame, sites);
+            site.name, found.accumulatorCall, found.dispatcher, map.dispatcher_frame, sites);
     else
         LOG("DRIVE %s: caller map proven by the return address: %s. Only the stick call is the update; any other "
             "caller has the last stick write put back (as before)", site.name, sites);
     return true;
 }
+
+// What one title's install resolves in its module (drive_sites.h: PlanLegacyControl): the control update, its
+// callers and, in a dev build, the sim tick counter the census reads.
+using LegacyDriveFound = drive_sites::LegacyControlPlan;
 } // namespace
 
 bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size)
@@ -823,44 +643,52 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size)
     const auto& site = kLegacyDriveSites[slot];
     if (st.target)
         return true;
-    const bool entryOk = site.prologueUnique
-        ? LegacyDriveUniqueAt(base, size, site.entryRva, site.prologue)
-        : LegacyDriveBytesAt(base, size, site.entryRva, site.prologue);
-    const bool tlsOk = LegacyDriveUniqueAt(base, size, site.tlsRva, site.tlsPattern);
-    const bool accOk = LegacyDriveUniqueAt(base, size, site.accRva, site.accPattern);
-    const auto* load = reinterpret_cast<const uint8_t*>(base + site.tlsIndexLoadRva);
-    const bool loadOk = site.tlsIndexLoadRva + 6 <= size && load[0] == 0x8B && (load[1] == 0x0D || load[1] == 0x15);
-    if (!entryOk || !tlsOk || !accOk || !loadOk)
+    // WHERE EVERYTHING IS IN THIS MODULE (drive_sites.h, by the rungs of drive_known.h): verified at the addresses
+    // it is known to stand at, or found by search; every proof is made on those addresses either way. Nothing
+    // below trusts a recorded RVA.
+    drive_cascade::Resolution<LegacyDriveFound> resolution;
+    const drive_cascade::Drive drive{site.title, "control-update"};
+    // The plan is drive_sites.h's own function, the one the tests and the offline check run: with the sim tick's
+    // two anchors in a dev build, without them in a player build.
+    const bool opened = drive_cascade::Resolve(base, size, drive, resolution, [slot](drive_resolve::Resolver& r) {
+        return drive_sites::PlanLegacyControl<HALOMCCVR_DEV_DIAGNOSTICS != 0>(r, slot);
+    });
+    const drive_sites::LegacyControl& found = resolution.found.control;
+    char driveName[32];
+    drive_cascade::LegacyName(site.name, driveName, sizeof(driveName));
+    if (opened)
+        drive_cascade::Announce(driveName, resolution);
+    if (!drive_install::DecideLegacyControl(opened, found))
     {
-        LOG("DRIVE %s: control update NOT hooked (anchors entry=%d tls=%d accumulator=%d index-load=%d at "
-            "+0x%X); the stick servo keeps aiming", site.name, entryOk, tlsOk, accOk, loadOk, site.entryRva);
+        char first[280] = "";
+        if (opened)
+            drive_cascade::FirstFailure(resolution.report, first, sizeof(first));
+        LOG("DRIVE %s: control update NOT hooked (%s; found entry=%d tls=%d accumulator=%d index-load=%d "
+            "tls-index=%d; recorded at +0x%X); the stick servo keeps aiming",
+            site.name, opened ? first : (resolution.why ? resolution.why : "the module did not open"),
+            found.entry ? 1 : 0, found.tlsBlock ? 1 : 0, found.accumulator ? 1 : 0, found.tlsIndexLoad ? 1 : 0,
+            found.tlsIndex ? 1 : 0, site.entryRva);
         return false;
     }
-    int32_t disp = 0;
-    memcpy(&disp, load + 2, sizeof(disp));
-    const uintptr_t indexAddress = base + site.tlsIndexLoadRva + 6 + static_cast<intptr_t>(disp);
-    if (indexAddress < base || indexAddress + sizeof(uint32_t) > base + size)
-    {
-        LOG("DRIVE %s: the engine TLS index is outside the module; not hooked", site.name);
-        return false;
-    }
+    // The engine TLS index: the module's own, which the update's own load names (both proven by the resolution).
+    const uintptr_t indexAddress = base + found.tlsIndex;
     // Which caller ran the accumulator (the caller map). Not proven: every caller counts as the update (the
     // old behaviour), and the log says so.
     aim_caller::CallerMap callers;
-    (void)LegacyDriveBuildCallerMap(slot, base, size, callers);
+    (void)LegacyDriveBuildCallerMap(slot, base, size, found.entry, resolution.found.callers, callers);
 #if HALOMCCVR_DEV_DIAGNOSTICS
     uint32_t tickSlot = 0, tickField = 0;
-    const bool tickOk = AimCallerTickProof(base, size, indexAddress, kLegacyTickAnchors[slot], tickSlot, tickField);
+    const bool tickOk = AimCallerTickProofAt(base, size, indexAddress, drive_sites::kLegacyTickAnchors[slot],
+                                             resolution.found.tick, tickSlot, tickField);
     LOG("DRIVE %s (dev census): the sim tick %s", site.name,
         tickOk ? "is proven (getter, TLS index and incrementer agree)" : "did NOT verify; the census reads it unreadable");
 #endif
-    const bool recordUnit = slot == 2 &&
-        LegacyDriveBytesAt(base, size, kHalo4RecordUnitLoadRva, kHalo4RecordUnitLoad);
+    const bool recordUnit = slot == 2 && found.recordUnitLoad != 0;
     void* detour = slot == 0 ? reinterpret_cast<void*>(&Halo3PcHook)
                  : slot == 1 ? reinterpret_cast<void*>(&OdstPcHook)
                              : reinterpret_cast<void*>(&Halo4PcHook);
     void** orig = slot == 0 ? &g_halo3PcOrig : slot == 1 ? &g_odstPcOrig : &g_halo4PcOrig;
-    void* target = reinterpret_cast<void*>(base + site.entryRva);
+    void* target = reinterpret_cast<void*>(base + found.entry);
     st.armed.store(false, std::memory_order_release);
     st.expected.store(0, std::memory_order_release);
     st.agree = 0;
@@ -884,6 +712,7 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size)
     st.tickField = tickOk ? tickField : 0;
 #endif
     st.base = base;
+    st.entryRva = found.entry;
     st.halo4RecordUnit = recordUnit;
     st.tlsIndexAddress = indexAddress;
     // The seat's frame: what the title's vehicle-tilt rebase reads, proven here (seat_frame_reader.h). Unbound,
@@ -899,7 +728,13 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size)
                                 : 0;
     // A look-steered driver's pitch stops: the record's eased limits (Halo 3 and ODST).
     const char* pitchLimitWhy = nullptr;
-    st.pitchLimitOffset = slot < 2 ? LegacyDriveBindPitchLimits(slot, base, size, pitchLimitWhy) : 0;
+    st.pitchLimitOffset = slot < 2 ? LegacyDriveBindPitchLimits(slot, base, found.pitchLimit, pitchLimitWhy) : 0;
+    // A NEW INSTALL is watched afresh (drive_cascade::HookWatch): nothing counted before it -- a moment ago, by
+    // the hook this one replaces -- may read as a call of this one.
+    ++st.installs;
+    st.calls.store(0, std::memory_order_relaxed);
+    for (auto& role : st.byRole)
+        role.store(0, std::memory_order_relaxed);
     const MH_STATUS created = MH_CreateHook(target, detour, orig);
     if (created != MH_OK || MH_EnableHook(target) != MH_OK)
     {
@@ -913,11 +748,12 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size)
     st.installed.store(true, std::memory_order_release);
     LOG("DRIVE %s: control-update hook INSTALLED at +0x%X (TLS index +0x%llX, player_control TLS+0x%X, "
         "stride 0x%X, desired angles +0x%X); disarmed until the record agrees with the game's aim",
-        site.name, site.entryRva, static_cast<unsigned long long>(indexAddress - base), site.tlsSlot, site.stride,
+        site.name, found.entry, static_cast<unsigned long long>(indexAddress - base), site.tlsSlot, site.stride,
         site.angles);
     if (slot == 2)
-        LOG("DRIVE Halo 4: the record's unit load at +0x%X %s", kHalo4RecordUnitLoadRva,
-            recordUnit ? "verified (seats may be written)" : "did NOT verify; seats keep the stick servo");
+        LOG("DRIVE Halo 4: the record's unit load %s",
+            recordUnit ? "is verified in the control update (seats may be written)"
+                       : "did NOT verify in the control update; seats keep the stick servo");
     if (frameBound)
         LOG("DRIVE %s: seat frame reader bound (the rebase +0x%X: its gate +0x%X and up getter +0x%X proven): a seated "
             "write follows the vehicle-tilt rebase (world / a / b)", site.name, kLegacyFrameSites[slot]->rebaseRva,
@@ -936,10 +772,10 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size)
     if (slot < 2 && st.pitchLimitOffset)
         LOG("DRIVE %s: the record's eased pitch limits are +0x%X / +0x%X (the accumulator's clamp at +0x%X stores, reads "
             "and bounds the pitch +0x%X by them): a look-steered driver's reticle stops at them",
-            site.name, st.pitchLimitOffset, st.pitchLimitOffset + 4, kLegacyPitchLimitSites[slot].rva, site.angles + 4);
+            site.name, st.pitchLimitOffset, st.pitchLimitOffset + 4, found.pitchLimit, site.angles + 4);
     else if (slot < 2)
-        LOG("DRIVE %s: the record's eased pitch limits are NOT bound (%s at +0x%X); a look-steered driver's reticle is "
-            "not clamped in pitch, as before", site.name, pitchLimitWhy ? pitchLimitWhy : "unknown",
+        LOG("DRIVE %s: the record's eased pitch limits are NOT bound (%s; recorded at +0x%X); a look-steered driver's "
+            "reticle is not clamped in pitch, as before", site.name, pitchLimitWhy ? pitchLimitWhy : "unknown",
             kLegacyPitchLimitSites[slot].rva);
     return true;
 }
@@ -996,6 +832,9 @@ void LegacyDrivePublish(GameTitle title, float yaw, float pitch, float aimYaw, f
     st.aimYaw.store(aimYaw, std::memory_order_relaxed);
     st.aimPitch.store(aimPitch, std::memory_order_relaxed);
     st.setMs.store(GetTickCount64(), std::memory_order_relaxed);
+    // The prepared tracking frame this poll's hand pose came from: the written aim's lead takes one sample per
+    // frame, however many polls publish it (Sight_LeadWrittenAim).
+    st.setSerial.store(VR_CurrentPreparedSerial(), std::memory_order_relaxed);
     st.setValid.store(valid && std::isfinite(yaw) && std::isfinite(pitch), std::memory_order_relaxed);
     st.setSeated.store(seated, std::memory_order_relaxed);
     st.setAxes.store(seated ? (axes.yaw ? kLegacyDriveAxisYaw : 0u) | (axes.pitch ? kLegacyDriveAxisPitch : 0u)
@@ -1007,6 +846,48 @@ void LegacyDrivePublish(GameTitle title, float yaw, float pitch, float aimYaw, f
     st.setGunCamera.store(seated && gunCamera, std::memory_order_relaxed);
     st.seq.fetch_add(1, std::memory_order_release);
 }
+
+namespace
+{
+// "INSTALLED" IS NOT "RUNNING" (drive_cascade.h: HookWatch): one watch per title's control-update hook, passed over
+// by the cold worker on every loop (LegacyDriveReport).
+drive_cascade::HookWatch g_legacyDriveWatch[3];
+
+// Cold worker: the game must be calling this title's control update right now. The player is in control of the
+// title (DriveWatchPlayerInControl), and the aim provider's publication for the drive -- made on the input thread
+// from the game's own camera and aim, nothing this hook produces -- is no older than 250 ms, valid and on foot: a
+// live unit whose look the stick moves, which the game runs this update for once per rendered frame.
+bool LegacyDriveCallPossible(int slot, uint64_t nowMs)
+{
+    const auto& st = g_legacyDrive[slot];
+    if (!DriveWatchPlayerInControl(kLegacyDriveSites[slot].title, nowMs))
+        return false;
+    const uint64_t setMs = st.setMs.load(std::memory_order_relaxed);
+    return st.setValid.load(std::memory_order_relaxed) && !st.setSeated.load(std::memory_order_relaxed) && setMs &&
+           nowMs >= setMs && nowMs - setMs <= 250;
+}
+
+// Cold worker, every loop: the watch on each title's hook. Any call the detour counted, whatever its caller.
+void LegacyDriveWatchPass(uint64_t nowMs)
+{
+    for (int slot = 0; slot < 3; ++slot)
+    {
+        auto& st = g_legacyDrive[slot];
+        const void* target = st.installed.load(std::memory_order_acquire) ? st.target : nullptr;
+        bool called = st.calls.load(std::memory_order_relaxed) != 0;
+        for (int r = 0; r < aim_caller::kCallerCount && !called; ++r)
+            called = st.byRole[r].load(std::memory_order_relaxed) != 0;
+        if (g_legacyDriveWatch[slot].Pass(drive_cascade::HookWatch::Install(target, st.installs),
+                                          target && LegacyDriveCallPossible(slot, nowMs), called, nowMs))
+        {
+            char drive[32];
+            snprintf(drive, sizeof(drive), "DRIVE %s", kLegacyDriveSites[slot].name);
+            drive_cascade::SayNeverCalled(drive, "the control update", st.entryRva,
+                                          "the player was in control and on foot, where the game runs it every frame");
+        }
+    }
+}
+} // namespace
 
 // Input thread: the hook is armed on a validated record and ran within 150 ms -- the servo stands down.
 bool LegacyDriveLive(GameTitle title)
@@ -1029,10 +910,11 @@ seat_drive::Axes LegacyDriveSeatAxes(GameTitle title)
     if (slot < 0)
         return axes;
     const auto& st = g_legacyDrive[slot];
-    if (!st.armed.load(std::memory_order_acquire))
-        return axes;
     const uint64_t now = GetTickCount64();
     const auto fresh = [now](uint64_t at) { return at && now >= at && now - at <= 150; };
+    // A flight controller's pilot (flightMs) is written on its own proof of the record, armed here or not.
+    if (!st.armed.load(std::memory_order_acquire) && !fresh(st.flightMs.load(std::memory_order_acquire)))
+        return axes;
     axes.yaw = fresh(st.seatYawWriteMs.load(std::memory_order_acquire));
     axes.pitch = fresh(st.seatPitchWriteMs.load(std::memory_order_acquire));
     return axes;
@@ -1078,8 +960,10 @@ bool LegacyDriveSeatLimited(GameTitle title)
 // Input thread, a gun-slaved seat (Halo 3 / ODST): the occupant's own aim in WORLD angles, as the hook last read it
 // for seat `seatKey`, and how many judged samples in a row it has agreed with the record per axis ([0] yaw, [1]
 // pitch). False when unbound, torn, stale (kLegacyOccupantAimFreshMs) or another seat's: the servo then closes on the
-// camera's forward.
-bool LegacyDriveOccupantAim(GameTitle title, uint32_t seatKey, float& yaw, float& pitch, unsigned agreeing[2])
+// camera's forward. `pitchCheck` (optional): the occupant's pitch check as published -- bit 31 while it collects
+// evidence, the low bits its attempt.
+bool LegacyDriveOccupantAim(GameTitle title, uint32_t seatKey, float& yaw, float& pitch, unsigned agreeing[2],
+                            uint32_t* pitchCheck = nullptr)
 {
     const int slot = LegacyDriveSlot(title);
     if (slot < 0 || slot > 1 || !seatKey)
@@ -1093,6 +977,7 @@ bool LegacyDriveOccupantAim(GameTitle title, uint32_t seatKey, float& yaw, float
         const uint64_t at = st.occMs.load(std::memory_order_relaxed);
         const uint32_t key = st.occKey.load(std::memory_order_relaxed);
         const uint32_t agree = st.occAgree.load(std::memory_order_relaxed);
+        const uint32_t check = st.occPitchCheck.load(std::memory_order_relaxed);
         const float y = st.occYaw.load(std::memory_order_relaxed);
         const float p = st.occPitch.load(std::memory_order_relaxed);
         std::atomic_thread_fence(std::memory_order_acquire);
@@ -1106,6 +991,8 @@ bool LegacyDriveOccupantAim(GameTitle title, uint32_t seatKey, float& yaw, float
         pitch = p;
         agreeing[0] = agree & 0xFFFFu;
         agreeing[1] = agree >> 16;
+        if (pitchCheck)
+            *pitchCheck = check;
         return true;
     }
     return false;
@@ -1178,6 +1065,25 @@ bool LegacyDriveSeatStops(GameTitle title, seat_limit::Stops& out, uint32_t& sea
 
 namespace
 {
+// The session as the game holds it, for the log (Sight_NoteSession; src/common/session_read_logic.h says what is
+// read, where, and what guards it): Halo 3, ODST and Halo 4 keep it behind this thread's engine TLS block. The
+// caller's handler guards the reads.
+void LegacyDriveNoteSession(GameTitle title, const uint8_t* tls)
+{
+    if (!tls)
+        return;
+    session_read::Session s{};
+    if (title == GameTitle::Halo3)
+        s = session_read::ReadTls(tls, session_read::kHalo3Slots, session_read::kHalo3);
+    else if (title == GameTitle::Halo3ODST)
+        s = session_read::ReadTls(tls, session_read::kOdstSlots, session_read::kOdst);
+    else if (title == GameTitle::Halo4)
+        s = session_read::ReadTls(tls, session_read::kHalo4Slots, session_read::kHalo4);
+    else
+        return;
+    Sight_NoteSession(title, s.type, s.players, s.others);
+}
+
 // This (sim) thread's TLS -> the record the native update just wrote. 0 when any link is missing.
 uintptr_t LegacyDriveRecord(const LegacyDriveState& st, const LegacyDriveSite& site, int user, const uint8_t** tlsOut)
 {
@@ -1190,12 +1096,43 @@ uintptr_t LegacyDriveRecord(const LegacyDriveState& st, const LegacyDriveSite& s
     return globals ? globals + static_cast<uintptr_t>(user) * site.stride : 0;
 }
 
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+// Halo 4, the stick call: a record whose own unit is seated reaches the seated convergence lane
+// (halo4_seat_converge.inl) -- its heartbeat, the seat's live flags word (the frame reader's own read, no native
+// call) and the seated trace. It runs ahead of every direct-drive gate, so a seat the stick still steers is
+// traced too. Guarded on its own: a fault here costs that lane this update and nothing else.
+void LegacyDriveHalo4SeatConverge(const LegacyDriveState& st, const LegacyDriveSite& site, int user)
+{
+    if (!Halo4SeatConvergeMeasures())
+        return;
+    __try
+    {
+        if (!st.installed.load(std::memory_order_acquire) || !st.tlsIndexAddress || !st.halo4RecordUnit)
+            return;
+        const uint8_t* tls = nullptr;
+        const uintptr_t pc = LegacyDriveRecord(st, site, user, &tls);
+        if (!pc || !tls)
+            return;
+        const uint32_t unit = *reinterpret_cast<const uint32_t*>(pc + kHalo4RecordUnitOffset);
+        Halo4VehicleInputState seat{};
+        if (!Halo4ReadVehicleInputMemory(tls, unit, seat) || !seat.seated)
+            return;
+        const seat_frame_rt::Live frame = seat_frame_rt::Read(st.frame, nullptr, unit);
+        Halo4SeatConvergeControlUpdate(tls, seat, frame.flagsKnown, frame.flags);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+#endif
+
 // The input thread's latest publication (seqlock): one coherent read, retried once. Torn twice: `coherent`
 // false, and the fields hold the last attempt (as the hook always read them).
 struct LegacyDrivePublication
 {
     float yaw = 0.0f, pitch = 0.0f, aimYaw = 0.0f, aimPitch = 0.0f;
     uint64_t setMs = 0;
+    uint64_t serial = 0;   // the tracking frame the setpoint was solved from (0: unknown)
     uint32_t axesBits = 0, seatKey = 0;
     bool valid = false, seated = false, pitchLatch = true, coherent = false, gunSlaved = false, gunCamera = false;
     // What a stick write was made under, for the put-back (aim_caller::Context).
@@ -1215,6 +1152,7 @@ LegacyDrivePublication LegacyDriveReadPublication(const LegacyDriveState& st)
         p.aimYaw = st.aimYaw.load(std::memory_order_relaxed);
         p.aimPitch = st.aimPitch.load(std::memory_order_relaxed);
         p.setMs = st.setMs.load(std::memory_order_relaxed);
+        p.serial = st.setSerial.load(std::memory_order_relaxed);
         p.valid = st.setValid.load(std::memory_order_relaxed);
         p.seated = st.setSeated.load(std::memory_order_relaxed);
         p.axesBits = st.setAxes.load(std::memory_order_relaxed);
@@ -1971,10 +1909,15 @@ extern "C" void LegacyPcApplyForUser(int slot, int user, uintptr_t ret, const ui
     const aim_caller::PutBack previousWrite = st.putBack;
 #endif
     st.putBack.invalidate();  // this update writes afresh, or nothing is put back after it
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+    if (slot == 2)
+        LegacyDriveHalo4SeatConverge(st, site, user);
+#endif
     bool seatWrote = false;   // this update ended in a seat write (the latch keeps its last value only then)
     bool seatKept = false;    // this update continued a seat stint (its checks survive)
     bool wroteAxis[2]{};      // which axes this update's seat write wrote
     bool latchRead[2]{};      // which axes the seat-limit latch read this update (their stops go to the reticle)
+    bool leadStepped = false; // this update's on-foot write went through the written aim's lead (its motion is kept)
     seat_frame_rt::Live seatFrame{};   // the seat's frame this update (World unless read)
     // What record this call leaves in effect, in world angles, for the seated gain learner's pairing (Halo 3).
     bool noteKnown = false;
@@ -1998,6 +1941,8 @@ extern "C" void LegacyPcApplyForUser(int slot, int user, uintptr_t ret, const ui
                 break;
             const uint8_t* tls = nullptr;
             const uintptr_t pc = LegacyDriveRecord(st, site, user, &tls);
+            if (user == 0)
+                LegacyDriveNoteSession(site.title, tls);
             LEGACY_DRIVE_WITNESS(ds.outcome = seat_witness::DriveNoRecord);
             if (!pc)
                 break;
@@ -2252,6 +2197,13 @@ extern "C" void LegacyPcApplyForUser(int slot, int user, uintptr_t ret, const ui
                     st.occPitch.store(occupantWorldPitch, std::memory_order_relaxed);
                     st.occKey.store(seatKey, std::memory_order_relaxed);
                     st.occAgree.store(yawAgree | pitchAgree << 16, std::memory_order_relaxed);
+                    // The pitch check as the servo's hold needs it: collecting evidence (not passed, not failed,
+                    // not revoked), and which attempt of the stint this is.
+                    const bool pitchChecking = !st.occWatch[1].revoked && !st.stintOccupant.pitch_ok &&
+                                               !st.stintOccupant.pitch_failed;
+                    st.occPitchCheck.store((pitchChecking ? 0x80000000u : 0u) |
+                                               (st.stintOccupant.pitch_fails & 0x7FFFFFFFu),
+                                           std::memory_order_relaxed);
                     st.occMs.store(now, std::memory_order_relaxed);
                     st.occSeq.fetch_add(1, std::memory_order_release);
                 }
@@ -2352,6 +2304,21 @@ extern "C" void LegacyPcApplyForUser(int slot, int user, uintptr_t ret, const ui
                         y = aim_write::unwrap_to_branch(held[0], nativeYaw);
                     if (latch[1])
                         p = aim_write::clamp_pitch(held[1], 1.45f);
+                }
+                // THE WRITTEN AIM, LED (sight_layer.h Sight_LeadWrittenAim; the player key aim_lead_ticks). On foot
+                // in Halo 3 and ODST the setpoint -- after Halo 3's recomposition -- is carried ahead by its own
+                // rate, to the tick that will fire along it. Never a seat's: its checks, latch and stops read the
+                // record back. Halo 4, which shares this hook, is written as before. And not while the zoom lens
+                // looks along the game's aim instead of along the converged ray: the lens is drawn, and nothing
+                // drawn is led.
+                if (!seatWrite && slot != 2 && Sight_AimLeadOn())
+                {
+                    const bool lensOnRecord = VR_IsScopeActive() && !Sight_ScopeConvergedLive(site.title);
+                    Sight_LeadWrittenAim(site.title, pub.serial,
+                                         g_legacyTickPeriodUs[slot].load(std::memory_order_relaxed), lensOnRecord, y,
+                                         p);
+                    p = aim_write::clamp_pitch(p, 1.45f);
+                    leadStepped = true;
                 }
                 // All three titles pack the control yaw into the per-tick player action as 13 bits over
                 // [0, 2*pi], and keep their own record in [0, 2*pi). The branch-matched value above can lie up
@@ -2479,9 +2446,14 @@ extern "C" void LegacyPcApplyForUser(int slot, int user, uintptr_t ret, const ui
         seatKept = false;
         wroteAxis[0] = wroteAxis[1] = false;
         noteKnown = false;
+        leadStepped = false;
         st.faults.fetch_add(1, std::memory_order_relaxed);
         LEGACY_DRIVE_WITNESS(ds.outcome = seat_witness::DriveFault);
     }
+    // The written aim's lead keeps its motion only across consecutive on-foot writes: an update that led none -- a
+    // seat, nothing written, not armed, switched off, a fault -- ends it, and the next on-foot write starts afresh.
+    if (!leadStepped && slot != 2)
+        Sight_ForgetAimLead(site.title);
     // The seated gain learner's pairing (Halo 3): the record this stick call leaves for the ticks that follow it.
     if (slot == 0)
         LegacySeatUpstreamNoteCall(noteKey, noteKnown ? noteDir : nullptr);
@@ -2528,6 +2500,7 @@ void LegacyDriveReport()
 {
     static uint64_t s_last = 0;
     const uint64_t now = GetTickCount64();
+    LegacyDriveWatchPass(now);   // every loop, before the counters below are read and cleared
     if (now - s_last < 2000)
         return;
     s_last = now;

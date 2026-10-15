@@ -144,6 +144,14 @@ bool SeatAimFrameWanted(int slot)
 #else
     const bool key = true;   // the A/B key exists in dev builds only
 #endif
+    // A SHARED SIMULATION (sight_layer.h Sight_FireTimeChangesAllowed false): no seat patch of ours clears a seat's
+    // camera flag there (ODST's C20 and Reach's R-V27 stand down), so the skip has nothing to undo -- and left in
+    // place it would keep the game from rebasing a seat that natively lacks the flag while every other machine
+    // rebases it: the local player's for the ticks before the sampler has seen the seat, a peer's for as long as
+    // they sit in it (docs/COOP-SHARED-SIMULATION-2026-10-13.md). The game's own rebase stays, and the seat drive
+    // reads what it will do every update (seat_frame_reader.h).
+    if (!Sight_FireTimeChangesAllowed())
+        return false;
     if (slot == 2)
         return seat_aim_frame::ReachWanted(g_config.vehicle_first_person, key, SeatAimFrameSamplerBound(slot),
                                            SeatAimFrameNativeNoThirdPerson(slot) != 0);
@@ -270,6 +278,8 @@ SeatAimFrameSwap SeatAimFrameSwapBytes(uint8_t* at, const uint8_t* expected, con
 
 const char* SeatAimFrameWhyOff(int slot)
 {
+    if (!Sight_FireTimeChangesAllowed())
+        return "Co-op safe is on: no seat's camera flag is cleared, so the game's own rebase is every machine's";
     if (slot == 2 && !g_config.vehicle_first_person)
         return "vehicle_first_person off: R-V27 leaves every seat's third-person flag stock";
     if (slot != 2 && (!g_config.vehicle_first_person || !g_config.vehicle_hide_body))

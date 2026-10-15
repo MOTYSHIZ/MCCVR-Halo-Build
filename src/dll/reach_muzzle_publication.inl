@@ -1,6 +1,6 @@
 bool ReachCaptureMuzzleOwner(int view,int slot,uint32_t& unit,uint32_t& weapon) noexcept
 {
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle)||!g_reachBarrelBindingsReady.load(std::memory_order_acquire)||view!=0||slot<0||slot>1||
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle())||!g_reachBarrelBindingsReady.load(std::memory_order_acquire)||view!=0||slot<0||slot>1||
         !g_reachCamera.playerUnitByOutputUser||!g_reachCamera.unitInVehicle)return false;
     __try
     {
@@ -42,7 +42,7 @@ void ReachPublishMuzzlePalette(uint16_t tag,const ReachFpInterpolationContext& c
 #if HALOMCCVR_DEV_DIAGNOSTICS
     g_reachMuzzlePublishWhy.calls.fetch_add(1,std::memory_order_relaxed);
 #endif
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle)||!g_reachBarrelBindingsReady.load(std::memory_order_acquire))
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle())||!g_reachBarrelBindingsReady.load(std::memory_order_acquire))
     {ReachMuzzleNotPublished(kReachPublishOptionOff);return;}
     if(!context.valid||context.interpolationView!=0||context.interpolationSlot!=0||!destination)
     {ReachMuzzleNotPublished(kReachPublishContext);return;}

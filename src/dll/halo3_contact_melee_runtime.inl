@@ -263,7 +263,7 @@ void Halo3ContactTick(uint32_t unit)
     {
         const uint64_t now=GetTickCount64();
         int32_t scene=-1,shot=-1;
-        const bool admit=!exclusive_input::Active() && g_config.physical_melee && g_enabled.load(std::memory_order_acquire) &&
+        const bool admit=!exclusive_input::Active() && Sight_PhysicalMelee() && g_enabled.load(std::memory_order_acquire) &&
             VR_IsStereoEnabled() && g_halo3Contact.generation==g_halo3RuntimeGeneration.load() &&
             g_halo3Contact.playback && !g_halo3Contact.playback() &&
             ReadCinematicControl(scene,shot)==CinematicControlState::PlayerControlled &&
@@ -390,7 +390,7 @@ void Halo3PublishContactHand(int hand,const FpInterpolationContext& context,
     const BoneMatrix& root,const BoneMatrix* solved,const float points[][3],
     int count,int32_t unit,uint32_t generation)
 {
-    if(!Halo3ContactMeleeReady() || !g_config.physical_melee || hand<0 || hand>1 ||
+    if(!Halo3ContactMeleeReady() || !Sight_PhysicalMelee() || hand<0 || hand>1 ||
         unit==-1 || !points || !solved || count<=0 || count>64 ||
         generation!=g_halo3Contact.generation || !g_baseCamValid.load()) return;
     const uint64_t now=GetTickCount64();

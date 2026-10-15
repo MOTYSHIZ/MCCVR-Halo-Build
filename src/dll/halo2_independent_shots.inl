@@ -17,7 +17,7 @@ thread_local Halo2IndependentShotScope g_halo2IndependentShot;
 
 void RecordHalo2IndependentQuery()
 {
-    if(g_config.independent_dual_aim || g_config.gun_barrel_aim || g_config.shots_from_muzzle)
+    if(Sight_IndependentDualAim() || Sight_GunBarrelAim() || Sight_ShotsFromMuzzle())
         g_halo2IndependentQueryContext={Halo2OwnedUnit(),g_generation.load(),GetTickCount64()};
 }
 
@@ -55,7 +55,17 @@ __declspec(noinline) int32_t __fastcall Halo2IndependentCameraDetour(
     __try
     {
         if(!feature.cameraOriginal)__leave;
-        result=feature.cameraOriginal(unit,position,direction);
+        // Co-op safe: at a fire the evaluator answers the line the crosshair test starts on, from the unit's seat
+        // camera. The first-person seat override places that camera on this machine only, so for this call it
+        // stands down and the line is the one every machine computes.
+        if(reinterpret_cast<uintptr_t>(_ReturnAddress())==feature.base+0x7597BD&&!Sight_FireTimeChangesAllowed())
+        {
+            NativeVehicleFirstPerson_SetStockOnThisThread(true);
+            __try {result=feature.cameraOriginal(unit,position,direction);}
+            __finally {NativeVehicleFirstPerson_SetStockOnThisThread(false);}
+        }
+        else
+            result=feature.cameraOriginal(unit,position,direction);
         // Flat parity (halo2_fire_eye.inl): the firing assist's own call for our unit, before anything below
         // replaces its outputs, is a free sample of the evaluator against the publication's engine eye.
         if(position&&reinterpret_cast<uintptr_t>(_ReturnAddress())==feature.base+0x7597BD&&unit==Halo2OwnedUnit())
@@ -117,7 +127,7 @@ bool AcquireHalo2IndependentShot(uint32_t weapon,NativeShotTargetLease<0x24>& le
 {
     auto& feature=g_halo2Dual;
     const auto query=reinterpret_cast<Halo2AimAssistCalculateFn>(g_aimAssistOriginal.load());
-    if(!feature.enabled.load() || feature.faulted.load() || (!muzzle&&!g_config.independent_dual_aim) ||
+    if(!feature.enabled.load() || feature.faulted.load() || (!muzzle&&!Sight_IndependentDualAim()) ||
         !Game_Halo2ControllerAimActive() || !Halo2Observer6Dof_FinalPaletteArmed() ||
         !Halo2Observer6Dof_DirectWeaponAimArmed() || !query ||
         !g_aimAssistViewDirectionOriginal.load() || feature.generation!=g_generation.load())return false;

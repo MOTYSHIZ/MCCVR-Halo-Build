@@ -26,6 +26,10 @@ static std::atomic<uint32_t> g_halo3RuntimeGeneration{7};
 static std::atomic<bool> g_vrAim{true},g_enabled{true};
 static struct {float crosshair_distance_m=10;bool independent_dual_aim=true,gun_barrel_aim=false,left_handed=false,
     shots_from_muzzle=false;} g_config;
+// The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
+[[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
+[[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
+[[maybe_unused]] static bool Sight_IndependentDualAim(){return g_config.independent_dual_aim;}
 struct VrContactTrackingSnapshot
 {uint64_t referenceEpoch=3;int64_t timeNs=1000000000;struct {bool valid=true;} hands[2];};
 static VrContactTrackingSnapshot tracking;

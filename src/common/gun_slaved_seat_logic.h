@@ -181,6 +181,52 @@ constexpr Feedback ServoFeedback(bool gunSlaved, bool occupantFresh, unsigned ag
     return gunSlaved && occupantFresh && agreeingSamples >= kServoTrustSamples ? Feedback::Occupant : Feedback::Gun;
 }
 
+// THE PITCH CHECK'S QUIET AXIS. Until a stint's pitch check passes, the pitch is steered by the stick servo, and
+// the check (seat_drive::StintCheck) needs a run of samples in which the record and the occupant's aim agree. On an
+// axis with no rate cap -- a Warthog turret's pitch -- the servo's smallest step swings the record past its target
+// and back, the two never agree for a whole run, the check uses up its budget and fails, and the pitch then stays
+// on that same servo until the retry: the gun nods up and down for as long as it takes one attempt to pass by
+// luck. So while an attempt is collecting evidence the stick's pitch is held at zero: the record stands still, the
+// occupant's aim settles on it, and the check passes in its own run of samples (half a second), after which the
+// pitch is written directly. The hold is bounded per attempt: a record that does not agree at rest is not the
+// seat's aim, and that seat goes back to the servo for the rest of the attempt, as it always has.
+// `attempt` names the attempt (the check's count of failed ones): a retry is a new attempt and is held again.
+inline constexpr unsigned long long kCheckHoldMs = 1200;
+struct CheckHold
+{
+    uint32_t key = 0, attempt = 0;
+    bool have = false, started = false;
+    unsigned long long sinceMs = 0;
+
+    void reset() { *this = CheckHold{}; }
+
+    // One input poll. `fresh`: the occupant's aim publication is this seat's and recent. `checking`: its pitch
+    // check is collecting evidence (neither passed nor failed). True: command no pitch this poll.
+    bool step(uint32_t seatKey, bool fresh, bool checking, uint32_t attemptIndex, unsigned long long nowMs) noexcept
+    {
+        if (!seatKey)
+        {
+            reset();
+            return false;
+        }
+        if (!have || key != seatKey || attempt != attemptIndex)
+        {
+            have = true;
+            key = seatKey;
+            attempt = attemptIndex;
+            started = false;
+        }
+        if (!fresh || !checking)
+            return false;
+        if (!started)
+        {
+            started = true;
+            sinceMs = nowMs;
+        }
+        return nowMs >= sinceMs && nowMs - sinceMs <= kCheckHoldMs;
+    }
+};
+
 // THE PACER: a servo in a gun-slaved seat (whichever feedback it closes on) commands in PULSES. The stick moves the
 // record, and the feedback answers only after the input path, the control update, the tick and -- for the gun --
 // its slew: polls later. A continuous command keeps pushing through that latency, the record runs past the target,

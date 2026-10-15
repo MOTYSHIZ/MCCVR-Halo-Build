@@ -157,6 +157,10 @@ struct Tracking
     HudSettings hud;
     bool motionBlur{};
     bool disableAnniversaryLensFlares{};
+    // MONO RENDERING (mono_view_logic.h): this frame's world is drawn once, from the midpoint of the eyes looking
+    // the way the head looks, and shown to both. Only Classic draws it (StageClassicViewPair); the eyes above stay
+    // the real ones, for everything that is submitted or laid into the picture.
+    bool mono{};
 };
 struct Reference
 {

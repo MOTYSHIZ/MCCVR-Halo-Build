@@ -65,6 +65,7 @@
 #include "../common/haloce_reticle_logic.h"
 #include "../common/vr_blit_shader.h"
 #include "../common/reticle_tint_shader.h"
+#include "../common/mono_view_logic.h"
 #include "haloce_controls.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
@@ -115,7 +116,9 @@
 #include "../common/cutscene_theater_logic.h"
 #include "../common/frame_pacing_logic.h"
 #include "../common/halo4_render_logic.h"
+#include "../common/halo4_scene_copy_logic.h"
 #include "../common/halo4_cui_reticle_logic.h"
+#include "../common/halo4_reticle_alpha_logic.h"
 #include "../common/halo4_world_collision_logic.h"
 #include "../common/input_logic.h"
 #include "../common/weapon_haptic_pulses.h"
@@ -513,6 +516,19 @@ namespace
     std::atomic<bool> g_stereoEnabled{false};
     int g_renderEye = 0;
     bool g_eyeHasImage[2] = {false, false};
+    // MONO RENDERING (mono_view_logic.h). The latest picture of the world was drawn once, from between the eyes, as
+    // this eye (-1: the latest picture is a pair): it is shown to both eyes, and the layers registered to the world
+    // are parked far. It stays so for every present until a pass for the other eye begins again (or, in a title
+    // whose eyes are drawn outside the raster-eye scope, until a pair is complete), so a frame presented without a
+    // new render shows the same one picture and never an old second eye. It counts only in the title that drew
+    // it. The render thread.
+    std::atomic<int> g_monoPictureEye{-1};
+    std::atomic<int> g_monoPictureTitle{-1};
+    // Per title: what its renderer has made of single passes (mono_view::MonoRejections), the module generation
+    // that belongs to, and the setting as last seen (off and on again gives every title a new try).
+    mono_view::MonoRejections g_monoRejections[kTitleRuntimeSlotCount];
+    uint32_t g_monoRejectionsGeneration[kTitleRuntimeSlotCount]{};
+    bool g_monoRejectionsAsked = false;
 #if HALOMCCVR_HALO2_STEREO6DOF
     constexpr uint64_t kHalo2SynchronousReservationBit = uint64_t{1} << 63;
     // One eye is complete when the engine's FINISHED frame for it has been
@@ -641,6 +657,9 @@ namespace
     // Stage 3AM: full-resolution GPU->CPU validation is bounded capture-source
     // discovery, never steady-state telemetry. A source fallback rearms it.
     std::atomic<bool> g_halo2HeavyValidationRetired{false};
+    // The eye images are in a format the pixel check cannot read, so the capture source is never learned for them:
+    // it stays on its default, for stereo and mono alike (VR_Halo2CaptureSourceSettled).
+    std::atomic<bool> g_halo2HeavyValidationUnreadable{false};
     std::atomic<int> g_halo2HeavyValidationSource{-1};
     std::atomic<unsigned> g_halo2HeavyValidationChecks{0};
     std::atomic<bool> g_halo2PrePairHasImage{false};
@@ -849,11 +868,20 @@ namespace
     ID3D11RenderTargetView* g_h4PreviousEyeCandidate = nullptr;
     unsigned g_h4CandidatesThisEye = 0;
     unsigned g_h4LearningEyes = 0;
+    // The texture behind the latched scene colour target, to know a copy out of it (VR_RedirectSceneCopySource).
+    // A comparison pointer like the ones above: g_sceneColorRtv keeps the texture alive, and both are dropped
+    // together. Written on the render thread; read by whichever thread copies.
+    std::atomic<ID3D11Resource*> g_h4SceneColorTexture{nullptr};
+    std::atomic<uint64_t> g_h4SceneCopiesFromEye{0};
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    std::atomic<bool> g_devH4SceneCopy{true};
+#endif
 
     // Only ever holds raw comparison pointers, never a reference: the latched
     // target is the one that gets AddRef'd, and it lives in g_sceneColorRtv.
     void Halo4ResetSceneTargetDiscovery()
     {
+        g_h4SceneColorTexture.store(nullptr, std::memory_order_release);
         g_h4LastCandidate = nullptr;
         g_h4LastCandidateDesc = {};
         g_h4LastCandidateViewFormat = DXGI_FORMAT_UNKNOWN;
@@ -7520,10 +7548,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         {
             return;
         }
-        if (g_eyeCacheDesc.Format != DXGI_FORMAT_R8G8B8A8_UNORM &&
-            g_eyeCacheDesc.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB &&
-            g_eyeCacheDesc.Format != DXGI_FORMAT_B8G8R8A8_UNORM &&
-            g_eyeCacheDesc.Format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+        const bool readableFormat =
+            g_eyeCacheDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+            g_eyeCacheDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+            g_eyeCacheDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+            g_eyeCacheDesc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        g_halo2HeavyValidationUnreadable.store(!readableFormat, std::memory_order_release);
+        if (!readableFormat)
         {
             static bool loggedFormat = false;
             if (!loggedFormat)
@@ -9385,6 +9416,24 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         s.drawnAlphaPeak, s.inkTexels,
                         s.alphaBelowColourTexels);
                 }
+            }
+        }
+        // Halo 4: what the capture's alpha plane holds beside its colour. Art the game only adds leaves alpha
+        // at zero; alpha with little colour under it is what the headset shows as a dark box.
+        if (TitleAdapter_GetActiveTitle() == GameTitle::Halo4)
+        {
+            static uint64_t lastHalo4AlphaLogMs = 0;
+            const uint64_t nowMs = GetTickCount64();
+            if (nowMs - lastHalo4AlphaLogMs >= 2000)
+            {
+                lastHalo4AlphaLogMs = nowMs;
+                const AuthoredReticleAlphaSummary s =
+                    SummarizeAuthoredReticleAlpha(
+                        rows, mapped.RowPitch, kAuthoredReticleProbeSize);
+                LOG("H4 RETICLE ALPHA (dev; 8x8 mip means, 0-255): alpha ink %u, colour ink %u | captured "
+                    "alpha mean %u peak %u | brightest colour %u | ink texels %u, alpha below colour in %u",
+                    alphaInk, colorInk, s.capturedAlphaMean, s.capturedAlphaPeak, s.addedColourPeak,
+                    s.inkTexels, s.alphaBelowColourTexels);
             }
         }
 #endif
@@ -15773,6 +15822,24 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 return false;
             }
         }
+        // MONO RENDERING (mono_view_logic.h): one pass, by a camera at the midpoint of the eyes with a frustum
+        // that covers either. Both eyes' inputs are that camera's, so the title builds it by its own eye path.
+        // This snapshot is published in every title; only Reach's own frames ask.
+        if (TitleAdapter_GetActiveTitle() == GameTitle::HaloReach)
+        {
+            float monoFov[4]{};
+            if (VR_MonoRenderThisFrame(GameTitle::HaloReach, monoFov))
+            {
+                next.mono = true;
+                for (ReachVrEyeSnapshot& eye : next.eyes)
+                {
+                    eye.position[0] = eye.position[1] = eye.position[2] = 0.0f;
+                    eye.orientation[0] = eye.orientation[1] = eye.orientation[2] = 0.0f;
+                    eye.orientation[3] = 1.0f;
+                    memcpy(eye.fov, monoFov, sizeof(eye.fov));
+                }
+            }
+        }
 
         const uint32_t current =
             g_reachRenderSnapshotIndex.load(std::memory_order_seq_cst);
@@ -15958,6 +16025,24 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     }
 #endif
 
+    // MONO RENDERING (mono_view_logic.h): Halo CE's Anniversary renderer has no single-pass path (its Classic one
+    // and both of Halo 2's do). Said once, the first time a frame of it is prepared with the setting on, so the
+    // setting never looks ignored.
+    void NoteMonoAskedInTitleWithoutIt() noexcept
+    {
+        if (!g_config.mono_rendering ||
+            TitleAdapter_GetActiveTitle() != GameTitle::HaloCE ||
+            HaloCE_ObservedRenderer() != 1)
+            return;
+        static bool said = false;
+        if (said)
+            return;
+        said = true;
+        LOG("mono rendering (%s): asked for, and not available with the Anniversary graphics: that renderer has no "
+            "single-pass path, so it is drawn in stereo (the Classic graphics draw it once)",
+            DlssTitleName(GameTitle::HaloCE));
+    }
+
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     bool PublishHalo4RenderSnapshot(
         uint64_t preparedSerial, bool padFresh) noexcept
@@ -15982,6 +16067,23 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             // renders at Halo 4's stock FOV instead of dropping the frame.
             next.eyes[eye].fovValid =
                 VR_GetEyeFov(eye, next.eyes[eye].fov);
+        }
+        // MONO RENDERING (mono_view_logic.h): one pass, by a camera at the midpoint of the eyes with a frustum
+        // that covers either. Both eyes' inputs are that camera's, so the title builds it by its own eye path.
+        {
+            float monoFov[4]{};
+            if (VR_MonoRenderThisFrame(GameTitle::Halo4, monoFov))
+            {
+                next.mono = true;
+                for (Halo4VrEyeSnapshot& eye : next.eyes)
+                {
+                    eye.position[0] = eye.position[1] = eye.position[2] = 0.0f;
+                    eye.orientation[0] = eye.orientation[1] = eye.orientation[2] = 0.0f;
+                    eye.orientation[3] = 1.0f;
+                    memcpy(eye.fov, monoFov, sizeof(eye.fov));
+                    eye.fovValid = true;
+                }
+            }
         }
         // Same frame as the eye offsets above. Head tracking degrades to the
         // engine's own camera if this is unavailable; it never fails the pair.
@@ -16742,7 +16844,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 rig.visualRightHandOffset[1]=g_config.right_hand_mesh_y_m;
                 rig.visualRightHandOffset[2]=g_config.right_hand_mesh_z_m;
                 rig.visualPitchDeg=g_config.barrel_pitch_deg;
-                rig.gunBarrelAim=g_config.gun_barrel_aim;
+                rig.gunBarrelAim=Sight_GunBarrelAim();
                 rig.muzzleShots=Sight_MuzzleShotsConverge();
                 rig.visualYawDeg=g_config.barrel_yaw_deg;
                 rig.visualRollDeg=g_config.barrel_roll_deg;
@@ -16814,6 +16916,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     ce.eyes[eye].fov[0]=fov.angleLeft; ce.eyes[eye].fov[1]=fov.angleRight;
                     ce.eyes[eye].fov[2]=fov.angleUp; ce.eyes[eye].fov[3]=fov.angleDown;
                 }
+                // MONO RENDERING: asked once for this prepared frame. Only the Classic renderer has a single pass;
+                // its cover is CE's own (BuildCover), so the one VR_MonoRenderThisFrame offers is not used.
+                float monoFov[4]{};
+                ce.mono=HaloCE_ObservedRenderer()==0&&VR_MonoRenderThisFrame(GameTitle::HaloCE,monoFov);
             }
             HaloCE_PublishTracking(ce,enabled);
         }
@@ -16851,6 +16957,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             PublishReachRenderSnapshot(
                 g_preparedFrame.serial, upcomingPadFresh);
 #endif
+
+        NoteMonoAskedInTitleWithoutIt();
 
         PublishContactTrackingSnapshot(g_preparedFrame.serial,
             upcomingPadFresh && upcomingHeadValid && upcomingViewsValid);
@@ -16988,6 +17096,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 previousSerial=ceLease.pair.key.serial;previousEpoch=ceLease.pair.depthHistoryEpoch;
                 previousSpace=ceLease.pair.key.spaceEpoch;previousGeneration=ceLease.pair.key.generation;
             }
+            // MONO RENDERING (mono_view::MonoRejections): the mono frames Classic dropped, then what the latest
+            // frame CE completed is, once for each new one. A pair re-presented from an earlier frame is not news.
+            static uint64_t monoReportedSerial=0;
+            for(uint64_t drops=std::min<uint64_t>(HaloCE_TakeMonoDrops(),mono_view::kMonoDropsBeforeProbe);
+                drops;--drops)
+                VR_NoteMonoFrameRejected(GameTitle::HaloCE);
+            if(ceImages&&ceLease.pair.key.serial!=monoReportedSerial) {
+                monoReportedSerial=ceLease.pair.key.serial;
+                if(ceLease.pair.monoEye>=0) VR_NoteMonoFrameRendered(GameTitle::HaloCE,ceLease.pair.monoEye);
+                else VR_NoteStereoFrameRendered(GameTitle::HaloCE);
+            }
         }
         float comfortFadeAlpha = UpdatePauseTransition();
 
@@ -17048,6 +17167,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         static std::vector<XrCompositionLayerBaseHeader*> layers;
         projectionViews.clear();
         layers.clear();
+        // The world's latest picture was drawn once, from between the eyes, as eye `monoEye`
+        // (mono_view_logic.h). Only in the title that drew it: a picture left from one title is never taken
+        // for another's. Halo CE's pair says itself what it is (EyeCache::Completed::monoEye), so a pair it
+        // re-presents from an earlier frame is shown as what it was drawn as.
+        const int monoEye = ceTitle ? (ceImages ? ceLease.pair.monoEye : -1)
+                                    : g_monoPictureEye.load(std::memory_order_acquire);
+        const bool monoFrame = (monoEye == 0 || monoEye == 1) &&
+            (ceTitle || g_monoPictureTitle.load(std::memory_order_acquire) ==
+                static_cast<int>(TitleAdapter_GetActiveTitle()));
         g_nativeTheatreCaptionReady=false;
         const bool nativeSubtitleReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
             !Menu_IsOpen() && PrepareNativeSubtitle(nativeSubtitleQuad);
@@ -17604,10 +17732,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     // Halo 2 has its own bounded source-learning validator;
                     // running the generic full-resolution check as well is a
                     // redundant synchronous GPU stall.
-                    if (!reachTitle && !halo2Title && !ceTitle)
+                    // (A mono frame has one picture: there is no pair to compare.)
+                    if (!reachTitle && !halo2Title && !ceTitle && !monoFrame)
                         ValidateStereoImagesOnce();
 #if HALOMCCVR_HALO2_STEREO6DOF
-                    if (halo2Title && halo2LiveExactPair)
+                    // (A mono frame has one picture: comparing it with the other eye's older image would teach
+                    // the capture source from nothing.)
+                    if (halo2Title && halo2LiveExactPair && !monoFrame)
                         ValidateHalo2EyePairPeriodic();
 #endif
                     // Once per frame, but it only writes a line every two
@@ -17738,11 +17869,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         HRESULT accessoryPairResult=S_FALSE;
                         for (uint32_t targetEye = 0; targetEye < 2; ++targetEye)
                         {
+                            // A mono frame's one picture goes to both eyes; each eye's own frustum is then
+                            // cropped out of it by the views' image rectangles, as from an eye's own raster.
                             const uint32_t sourceEye = theaterProjectionAttempted
                                 ? CutsceneTheaterImageIndex(
                                       targetEye,
                                       g_config.cutscene_theater_flip_depth)
-                                : targetEye;
+                                : (monoFrame ? static_cast<uint32_t>(monoEye) : targetEye);
                             const bool haveImage = ceImages || reachImages ||
                                 (!reachTitle && (!halo4Title || halo4Images) &&
                                  (!halo2Title || halo2Images) &&
@@ -17850,7 +17983,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         if(g_weaponAccessory.model==&weapon_model::kGenericReloadModel &&
                                             !g_config.weapon_unknown_reload_visual) g_weaponAccessory={};
                                         const auto& view=projectionViews[targetEye];
-                                        const auto& p=view.pose.position;const auto& q=view.pose.orientation;
+                                        XrVector3f p=view.pose.position;const auto& q=view.pose.orientation;
+                                        // A mono frame's picture was drawn from the midpoint of the eyes. What is
+                                        // laid into it is drawn from there too, or it alone would have disparity
+                                        // and double beside the hand it belongs to.
+                                        if(monoFrame&&projectionViews.size()==2)
+                                        {
+                                            const XrVector3f& a=projectionViews[0].pose.position;
+                                            const XrVector3f& b=projectionViews[1].pose.position;
+                                            p={(a.x+b.x)*0.5f,(a.y+b.y)*0.5f,(a.z+b.z)*0.5f};
+                                        }
                                         weapon_accessory::Constants constants{};
                                         if(weapon_accessory::Projection(g_weaponAccessory,
                                             {{p.x,p.y,p.z},{q.x,q.y,q.z,q.w}},view.fov.angleLeft,
@@ -18685,7 +18827,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             weapon_muzzle::Ray committedPrimary{},committedSecondary{};
                             VrContactTrackingSnapshot reticleTracking{};
                             bool primaryBarrel=false,secondaryBarrel=false;
-                            if(g_config.gun_barrel_aim && dual_reticle::Supported(reticleTitle) &&
+                            if(Sight_GunBarrelAim() && dual_reticle::Supported(reticleTitle) &&
                                 VR_GetContactTrackingSnapshot(reticleTracking)) {
                                 for(unsigned slot=0;slot<2;++slot) {
                                     dual_reticle::ProjectedRay projected{};
@@ -19587,6 +19729,31 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeSubtitleQuad));
         // Evaluate against this frame's actual native quad before composition.
         // The cursor follows the last successfully delivered smoothed mouse UV.
+        // MONO: nothing in the one picture has disparity, so a layer left at its true distance would be the only
+        // thing that has, and would double over what it marks. The crosshairs and the scope's pane slide out along
+        // their own rays from the midpoint of the eyes (mono_view::FlattenQuad). The panels keep their depth.
+        if (monoFrame && projection.viewCount == 2 && projectionViews.size() == 2)
+        {
+            const XrVector3f& leftEye = projectionViews[0].pose.position;
+            const XrVector3f& rightEye = projectionViews[1].pose.position;
+            const float centre[3]{(leftEye.x + rightEye.x) * 0.5f, (leftEye.y + rightEye.y) * 0.5f,
+                                  (leftEye.z + rightEye.z) * 0.5f};
+            for (XrCompositionLayerQuad* quad : {&reticleQuad, &secondaryReticleQuad, &scopeQuad})
+            {
+                // Only a quad queued this frame has been filled in.
+                if (std::find(layers.begin(), layers.end(),
+                              reinterpret_cast<XrCompositionLayerBaseHeader*>(quad)) == layers.end() ||
+                    quad->space != g_localSpace)
+                    continue;
+                float position[3]{quad->pose.position.x, quad->pose.position.y, quad->pose.position.z};
+                float size[2]{quad->size.width, quad->size.height};
+                if (mono_view::FlattenQuad(centre, position, size))
+                {
+                    quad->pose.position = {position[0], position[1], position[2]};
+                    quad->size = {size[0], size[1]};
+                }
+            }
+        }
         if (comfortFadeAlpha <= 0.01f &&
             std::find(layers.begin(),layers.end(),
                 reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end()) {
@@ -20436,6 +20603,120 @@ bool VR_Halo2CompleteSynchronousPair(
     return PublishHalo2SynchronousPresentation(
         generation, preparedSerial,
         Halo2SynchronousFrameDisposition::Complete);
+}
+
+bool VR_Halo2CompleteSynchronousMonoPair(
+    uint32_t generation, uint64_t preparedSerial, int eye,
+    const float* otherPosition, const float* otherOrientation)
+{
+    if (eye != 0 && eye != 1)
+        return false;
+    const int other = 1 - eye;
+    const uint64_t reserved =
+        Halo2ReservedSynchronousSerial(preparedSerial);
+    const uint32_t resourceEpoch =
+        g_halo2SynchronousPairResourceEpoch.load(std::memory_order_relaxed);
+    if (g_halo2SynchronousPairToken.load(std::memory_order_acquire) !=
+            reserved ||
+        g_halo2SynchronousPairGeneration.load(std::memory_order_relaxed) !=
+            generation ||
+        !Halo2SynchronousContextCurrent(
+            generation, preparedSerial, resourceEpoch) ||
+        g_halo2SynchronousEyeSerial[eye].load(std::memory_order_acquire) !=
+            preparedSerial ||
+        g_halo2SynchronousEyeGeneration[eye].load(std::memory_order_relaxed) !=
+            generation ||
+        g_halo2SynchronousEyeResourceEpoch[eye].load(
+            std::memory_order_relaxed) != resourceEpoch ||
+        !g_eyeHasImage[eye])
+    {
+        return false;
+    }
+    // A core that submits the poses it rendered from gives the other eye its own; one that does not, none.
+    const bool poseOwned =
+        g_halo2SynchronousEyePoseOwned[eye].load(std::memory_order_relaxed);
+    float pose[7]{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    if (poseOwned)
+    {
+        if (!otherPosition || !otherOrientation)
+            return false;
+        float lengthSquared = 0.0f;
+        for (int i = 0; i < 3; ++i)
+            pose[i] = otherPosition[i];
+        for (int i = 0; i < 4; ++i)
+        {
+            pose[3 + i] = otherOrientation[i];
+            lengthSquared += otherOrientation[i] * otherOrientation[i];
+        }
+        for (float value : pose)
+            if (!std::isfinite(value))
+                return false;
+        if (std::fabs(lengthSquared - 1.0f) > 0.05f)
+            return false;
+    }
+    g_halo2SynchronousEyeGeneration[other].store(
+        generation, std::memory_order_relaxed);
+    g_halo2SynchronousEyeResourceEpoch[other].store(
+        resourceEpoch, std::memory_order_relaxed);
+    g_halo2SynchronousEyeHalfFovX[other].store(
+        g_halo2SynchronousEyeHalfFovX[eye].load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+    g_halo2SynchronousEyeHalfFovY[other].store(
+        g_halo2SynchronousEyeHalfFovY[eye].load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+    for (int i = 0; i < 7; ++i)
+        g_halo2SynchronousEyePose[other][i].store(pose[i], std::memory_order_relaxed);
+    g_halo2SynchronousEyePoseOwned[other].store(poseOwned, std::memory_order_relaxed);
+    g_halo2SynchronousCaptureCount[other].store(
+        g_halo2SynchronousCaptureCount[eye].load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
+    g_halo2SynchronousCaptureSerial[other].store(
+        preparedSerial, std::memory_order_release);
+    g_halo2SynchronousEyeSerial[other].store(
+        preparedSerial, std::memory_order_release);
+    g_eyeHasImage[other] = true;
+    // The present takes this eye's picture for both before the frame can be seen, so it never pairs it with the
+    // other eye's older image.
+    const int previousTitle = g_monoPictureTitle.load(std::memory_order_acquire);
+    const int previousEye = g_monoPictureEye.load(std::memory_order_acquire);
+    g_monoPictureTitle.store(static_cast<int>(GameTitle::Halo2), std::memory_order_release);
+    g_monoPictureEye.store(eye, std::memory_order_release);
+    uint64_t expected = reserved;
+    if (!g_halo2SynchronousPairToken.compare_exchange_strong(
+            expected, preparedSerial, std::memory_order_release,
+            std::memory_order_acquire))
+    {
+        g_monoPictureEye.store(previousEye, std::memory_order_release);
+        g_monoPictureTitle.store(previousTitle, std::memory_order_release);
+        return false;
+    }
+    if (!PublishHalo2SynchronousPresentation(
+            generation, preparedSerial,
+            Halo2SynchronousFrameDisposition::Complete))
+    {
+        return false;
+    }
+    VR_NoteMonoFrameRendered(GameTitle::Halo2, eye);
+    return true;
+}
+
+bool VR_Halo2CaptureSourceSettled()
+{
+    const bool settled =
+        (g_halo2HeavyValidationRetired.load(std::memory_order_acquire) ||
+         g_halo2HeavyValidationUnreadable.load(std::memory_order_acquire)) &&
+        !g_halo2EyeDumpDueMs.load(std::memory_order_acquire);
+    // Said once each time mono starts waiting, so the setting never looks ignored. The render thread.
+    static bool saidWaiting = false;
+    if (settled || !g_config.mono_rendering)
+        saidWaiting = false;
+    else if (!saidWaiting)
+    {
+        saidWaiting = true;
+        LOG("mono rendering (Halo 2): waiting until the mod has learned where the game leaves each eye's picture "
+            "(it compares the two eyes); drawn in stereo until then");
+    }
+    return settled;
 }
 
 bool VR_Halo2ClaimSynchronousPairForPresentation(
@@ -22008,6 +22289,93 @@ void VR_InvalidateHalo4PreparedFrame()
 }
 #endif
 
+#if HALOMCCVR_DEV_DIAGNOSTICS
+int VR_DevResourceRole(ID3D11Resource* resource)
+{
+    if (!resource)
+        return 0;
+    if (resource == g_eyeCache[0])
+        return 2;
+    if (resource == g_eyeCache[1])
+        return 3;
+    if (resource == g_authoredReticleTexture)
+        return 4;
+    if (g_sceneColorRtv)
+    {
+        ID3D11Resource* scene = nullptr;
+        g_sceneColorRtv->GetResource(&scene);
+        const bool same = scene == resource;
+        if (scene)
+            scene->Release();
+        if (same)
+            return 1;
+    }
+    return 0;
+}
+
+void VR_DevDescribeResource(ID3D11Resource* resource, char* out, size_t outSize)
+{
+    static const char* const names[] = {"other", "THE GAME'S SCENE COLOUR", "EYE IMAGE 0", "EYE IMAGE 1",
+                                        "crosshair capture"};
+    if (!resource)
+    {
+        snprintf(out, outSize, "none");
+        return;
+    }
+    D3D11_RESOURCE_DIMENSION kind = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+    resource->GetType(&kind);
+    if (kind != D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        snprintf(out, outSize, "not a 2D texture (kind %d) %p", static_cast<int>(kind), static_cast<void*>(resource));
+        return;
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    static_cast<ID3D11Texture2D*>(resource)->GetDesc(&desc);
+    snprintf(out, outSize, "%s %p %ux%u fmt %d mips %u samples %u bind %X", names[VR_DevResourceRole(resource)],
+             static_cast<void*>(resource), desc.Width, desc.Height, static_cast<int>(desc.Format), desc.MipLevels,
+             desc.SampleDesc.Count, desc.BindFlags);
+}
+
+int VR_DevRasterEye() { return g_rasterEye.load(std::memory_order_relaxed); }
+#endif
+
+ID3D11Resource* VR_RedirectSceneCopySource(ID3D11DeviceContext* context, ID3D11Resource* destination,
+                                           ID3D11Resource* source)
+{
+    // The first test is the one nearly every copy fails: one load and a compare.
+    ID3D11Resource* const sceneTexture = g_h4SceneColorTexture.load(std::memory_order_acquire);
+    if (!sceneTexture || source != sceneTexture)
+        return source;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    const bool enabled = g_devH4SceneCopy.load(std::memory_order_relaxed);
+#else
+    constexpr bool enabled = true;
+#endif
+    const bool eyeRaster = VR_IsEyeRasterActive(context);
+    const int eye = eyeRaster ? g_rasterEye.load(std::memory_order_acquire) : -1;
+    const bool eyeValid = eye == 0 || eye == 1;
+    ID3D11Resource* const eyeImage = eyeValid ? g_eyeCache[eye] : nullptr;
+    if (!halo4_scene_copy::TakesEyeImage(
+            enabled, TitleAdapter_GetActiveTitle() == GameTitle::Halo4, true, eyeRaster && eyeValid,
+            eyeValid && g_rasterRedirected[eye], eyeImage != nullptr, eyeImage && destination == eyeImage))
+        return source;
+    g_h4SceneCopiesFromEye.fetch_add(1, std::memory_order_relaxed);
+    return eyeImage;
+}
+
+uint64_t VR_TakeHalo4SceneCopyCount()
+{
+    return g_h4SceneCopiesFromEye.exchange(0, std::memory_order_relaxed);
+}
+
+#if HALOMCCVR_DEV_DIAGNOSTICS
+void VR_DevSetHalo4SceneCopy(bool on)
+{
+    g_devH4SceneCopy.store(on, std::memory_order_relaxed);
+    LOG("Halo 4 frame copies (dev): %s", on ? "taken from the eye being drawn" : "left as the game makes them");
+}
+#endif
+
 bool VR_CaptureBackbufferEye(int eye)
 {
     if (eye < 0 || eye > 1 || !g_context || !g_gameBackbufferDescValid ||
@@ -22075,6 +22443,18 @@ void VR_BeginRasterEye(int eye)
     {
         g_rasterRedirected[eye] = false;
         g_dlssKicked[eye].Reset();
+    }
+    // A pass for the other eye: the world is being drawn for each eye again (mono_view_logic.h).
+    if (eye == 0 || eye == 1)
+    {
+        const int monoEye = g_monoPictureEye.load(std::memory_order_relaxed);
+        if (monoEye >= 0 && monoEye != eye)
+        {
+            g_monoPictureEye.store(-1, std::memory_order_release);
+            // This eye was answered for by the other's picture; what its own image holds is from before the
+            // mono frames. It counts again once this pass is captured.
+            g_eyeHasImage[eye] = false;
+        }
     }
     if (eye < 0 || eye > 1 || !g_gameSwapchain || !g_device)
         return;
@@ -22176,6 +22556,13 @@ static void Halo4ResolveSceneTargetAtEyeEnd()
     }
     candidate->AddRef();
     g_sceneColorRtv = candidate;
+    {
+        ID3D11Resource* sceneTexture = nullptr;
+        candidate->GetResource(&sceneTexture);
+        g_h4SceneColorTexture.store(sceneTexture, std::memory_order_release);
+        if (sceneTexture)
+            sceneTexture->Release();   // the view holds it
+    }
     LOG("M2 RASTER: learned Halo 4 scene-color RTV %p as the LAST qualifying "
         "target of the eye (%ux%u fmt=%u viewfmt=%u), agreed by two "
         "consecutive eyes after %u learning eye(s); steady-state redirect is "
@@ -23164,17 +23551,17 @@ void VR_Halo4NoteBoundRenderTargets(
         std::memory_order_release);
 }
 
-void VR_Halo4PrepareAuthoredReticleDraw(ID3D11DeviceContext* context)
+static bool Halo4DrawIsIntoReticleCapture(ID3D11DeviceContext* context)
 {
-    if (context != g_context ||
-        !g_reticleCaptureState.active ||
-        !g_reticleCaptureState.framingCaptured ||
-        !g_halo4AuthoredReticleTargetBound.load(std::memory_order_acquire) ||
-        TitleAdapter_GetActiveTitle() != GameTitle::Halo4)
-    {
-        return;
-    }
+    return context == g_context &&
+        g_reticleCaptureState.active &&
+        g_reticleCaptureState.framingCaptured &&
+        g_halo4AuthoredReticleTargetBound.load(std::memory_order_acquire) &&
+        TitleAdapter_GetActiveTitle() == GameTitle::Halo4;
+}
 
+static void Halo4FrameAuthoredReticleDraw(ID3D11DeviceContext* context)
+{
     const D3D11_VIEWPORT& base = g_reticleCaptureState.captureViewport;
     const Halo4CuiCaptureViewport input{
         base.TopLeftX, base.TopLeftY, base.Width, base.Height,
@@ -23206,6 +23593,214 @@ void VR_Halo4PrepareAuthoredReticleDraw(ID3D11DeviceContext* context)
         1, &g_reticleCaptureState.captureScissor);
     g_authoredReticleFramingReasserts.fetch_add(
         1, std::memory_order_relaxed);
+}
+
+namespace
+{
+    // A blend state the game draws reticle art with, and its twin that leaves the capture's alpha alone. The
+    // twins live as long as the device: a reticle uses a handful of states.
+    struct Halo4ReticleBlendTwin
+    {
+        D3D11_BLEND_DESC desc{};
+        ID3D11BlendState* twin = nullptr;   // null: it could not be made, and is not tried again per draw
+    };
+    constexpr size_t kHalo4ReticleBlendTwinMax = 16;
+    Halo4ReticleBlendTwin g_halo4ReticleBlendTwins[kHalo4ReticleBlendTwinMax];
+    size_t g_halo4ReticleBlendTwinCount = 0;
+    ID3D11Device* g_halo4ReticleBlendTwinDevice = nullptr;
+
+    bool Halo4SameTargetBlend(const D3D11_RENDER_TARGET_BLEND_DESC& a, const D3D11_RENDER_TARGET_BLEND_DESC& b)
+    {
+        return a.BlendEnable == b.BlendEnable && a.SrcBlend == b.SrcBlend && a.DestBlend == b.DestBlend &&
+            a.BlendOp == b.BlendOp && a.SrcBlendAlpha == b.SrcBlendAlpha &&
+            a.DestBlendAlpha == b.DestBlendAlpha && a.BlendOpAlpha == b.BlendOpAlpha &&
+            a.RenderTargetWriteMask == b.RenderTargetWriteMask;
+    }
+
+    // Field by field: the structure has padding a byte compare would read.
+    bool Halo4SameBlend(const D3D11_BLEND_DESC& a, const D3D11_BLEND_DESC& b)
+    {
+        if (a.AlphaToCoverageEnable != b.AlphaToCoverageEnable ||
+            a.IndependentBlendEnable != b.IndependentBlendEnable)
+            return false;
+        const size_t targets = a.IndependentBlendEnable ? 8 : 1;
+        for (size_t i = 0; i < targets; ++i)
+            if (!Halo4SameTargetBlend(a.RenderTarget[i], b.RenderTarget[i]))
+                return false;
+        return true;
+    }
+
+    ID3D11BlendState* Halo4ReticleBlendTwinFor(const D3D11_BLEND_DESC& desc)
+    {
+        if (!g_device)
+            return nullptr;
+        if (g_halo4ReticleBlendTwinDevice != g_device)
+        {
+            for (size_t i = 0; i < g_halo4ReticleBlendTwinCount; ++i)
+                if (g_halo4ReticleBlendTwins[i].twin)
+                    g_halo4ReticleBlendTwins[i].twin->Release();
+            g_halo4ReticleBlendTwinCount = 0;
+            g_halo4ReticleBlendTwinDevice = g_device;
+        }
+        for (size_t i = 0; i < g_halo4ReticleBlendTwinCount; ++i)
+            if (Halo4SameBlend(g_halo4ReticleBlendTwins[i].desc, desc))
+                return g_halo4ReticleBlendTwins[i].twin;
+        if (g_halo4ReticleBlendTwinCount == kHalo4ReticleBlendTwinMax)
+            return nullptr;   // more states than a reticle uses: this draw keeps the game's own
+        D3D11_BLEND_DESC twinDesc = desc;
+        // The capture is render target 0, which is also the one that counts without independent blending.
+        twinDesc.RenderTarget[0].RenderTargetWriteMask =
+            halo4_reticle_alpha::WriteMaskWithoutAlpha(desc.RenderTarget[0].RenderTargetWriteMask);
+        ID3D11BlendState* twin = nullptr;
+        if (FAILED(g_device->CreateBlendState(&twinDesc, &twin)))
+            twin = nullptr;
+        g_halo4ReticleBlendTwins[g_halo4ReticleBlendTwinCount++] = {desc, twin};
+        return twin;
+    }
+
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    // 0 the capture as the game draws it, 1 the rule (halo4_reticle_alpha_logic.h), 2 no draw writes alpha.
+    std::atomic<int> g_devHalo4ReticleAlphaMode{1};
+
+    // What the game binds for the draws of a capture, for the log: one entry per blend state seen in 2 s.
+    struct Halo4ReticleBlendSeen
+    {
+        D3D11_RENDER_TARGET_BLEND_DESC rt{};
+        uint32_t draws = 0;
+        uint32_t withoutAlpha = 0;
+    };
+    constexpr size_t kHalo4ReticleBlendSeenMax = 10;
+    Halo4ReticleBlendSeen g_halo4ReticleBlendSeen[kHalo4ReticleBlendSeenMax];
+    size_t g_halo4ReticleBlendSeenCount = 0;
+    uint32_t g_halo4ReticleBlendUnlisted = 0;
+    uint64_t g_halo4ReticleBlendLogMs = 0;
+
+    void Halo4NoteReticleBlend(const D3D11_RENDER_TARGET_BLEND_DESC& rt, bool withoutAlpha, int mode)
+    {
+        size_t i = 0;
+        for (; i < g_halo4ReticleBlendSeenCount; ++i)
+            if (Halo4SameTargetBlend(g_halo4ReticleBlendSeen[i].rt, rt))
+                break;
+        if (i == g_halo4ReticleBlendSeenCount)
+        {
+            if (i == kHalo4ReticleBlendSeenMax)
+            {
+                ++g_halo4ReticleBlendUnlisted;
+                i = SIZE_MAX;
+            }
+            else
+            {
+                g_halo4ReticleBlendSeen[g_halo4ReticleBlendSeenCount++] = Halo4ReticleBlendSeen{rt, 0, 0};
+            }
+        }
+        if (i != SIZE_MAX)
+        {
+            ++g_halo4ReticleBlendSeen[i].draws;
+            if (withoutAlpha)
+                ++g_halo4ReticleBlendSeen[i].withoutAlpha;
+        }
+        const uint64_t nowMs = GetTickCount64();
+        if (nowMs - g_halo4ReticleBlendLogMs < 2000)
+            return;
+        g_halo4ReticleBlendLogMs = nowMs;
+        char text[1100];
+        size_t used = 0;
+        text[0] = 0;
+        for (size_t k = 0; k < g_halo4ReticleBlendSeenCount && used + 120 < sizeof(text); ++k)
+        {
+            const Halo4ReticleBlendSeen& s = g_halo4ReticleBlendSeen[k];
+            const int wrote = snprintf(
+                text + used, sizeof(text) - used,
+                "%s[blend %d colour %d,%d op %d alpha %d,%d op %d mask %X] x%u (%u without alpha)",
+                k ? "; " : "", s.rt.BlendEnable ? 1 : 0, static_cast<int>(s.rt.SrcBlend),
+                static_cast<int>(s.rt.DestBlend), static_cast<int>(s.rt.BlendOp),
+                static_cast<int>(s.rt.SrcBlendAlpha), static_cast<int>(s.rt.DestBlendAlpha),
+                static_cast<int>(s.rt.BlendOpAlpha), static_cast<unsigned>(s.rt.RenderTargetWriteMask),
+                s.draws, s.withoutAlpha);
+            if (wrote <= 0)
+                break;
+            used += static_cast<size_t>(wrote);
+        }
+        LOG("H4 RETICLE BLEND (dev): mode %d (0 stock, 1 alpha only from draws that write coverage, 2 no alpha "
+            "at all); draws into the capture since the last line by blend state, D3D11_BLEND values (1 zero, "
+            "2 one, 5 src alpha, 6 inv src alpha, 7 dest alpha): %s; %u more in states not listed",
+            mode, text, g_halo4ReticleBlendUnlisted);
+        g_halo4ReticleBlendSeenCount = 0;
+        g_halo4ReticleBlendUnlisted = 0;
+    }
+#endif
+}   // namespace
+
+#if HALOMCCVR_DEV_DIAGNOSTICS
+void VR_DevSetHalo4ReticleAlphaMode(int mode)
+{
+    g_devHalo4ReticleAlphaMode.store(mode < 0 ? 0 : (mode > 2 ? 2 : mode), std::memory_order_relaxed);
+}
+#endif
+
+VrHalo4ReticleDrawScope::VrHalo4ReticleDrawScope(ID3D11DeviceContext* context)
+{
+    if (!Halo4DrawIsIntoReticleCapture(context))
+        return;
+    Halo4FrameAuthoredReticleDraw(context);
+
+    ID3D11BlendState* bound = nullptr;
+    FLOAT factor[4]{};
+    UINT sampleMask = 0;
+    context->OMGetBlendState(&bound, factor, &sampleMask);
+    D3D11_BLEND_DESC desc{};
+    if (bound)
+    {
+        bound->GetDesc(&desc);
+    }
+    else
+    {
+        // No state bound is D3D's default: blending off, every channel written.
+        for (D3D11_RENDER_TARGET_BLEND_DESC& rt : desc.RenderTarget)
+        {
+            rt.SrcBlend = D3D11_BLEND_ONE;
+            rt.DestBlend = D3D11_BLEND_ZERO;
+            rt.BlendOp = D3D11_BLEND_OP_ADD;
+            rt.SrcBlendAlpha = D3D11_BLEND_ONE;
+            rt.DestBlendAlpha = D3D11_BLEND_ZERO;
+            rt.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+            rt.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        }
+    }
+    const D3D11_RENDER_TARGET_BLEND_DESC& rt = desc.RenderTarget[0];
+    const halo4_reticle_alpha::Blend blend{
+        rt.BlendEnable != FALSE, static_cast<int>(rt.DestBlend), static_cast<int>(rt.BlendOp),
+        rt.RenderTargetWriteMask};
+    bool dropsAlpha = halo4_reticle_alpha::DropsAlphaWrite(blend);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    const int mode = g_devHalo4ReticleAlphaMode.load(std::memory_order_relaxed);
+    if (mode == 0)
+        dropsAlpha = false;
+    else if (mode == 2)
+        dropsAlpha = (blend.writeMask & halo4_reticle_alpha::kWriteAlpha) != 0;
+#endif
+    ID3D11BlendState* twin = dropsAlpha ? Halo4ReticleBlendTwinFor(desc) : nullptr;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    Halo4NoteReticleBlend(rt, twin != nullptr, mode);
+#endif
+    if (!twin)
+    {
+        if (bound)
+            bound->Release();
+        return;
+    }
+    context->OMSetBlendState(twin, factor, sampleMask);
+    context_ = context;
+    saved_ = bound;   // keeps the reference OMGetBlendState took, until the game's state is bound again
+    memcpy(factor_, factor, sizeof(factor_));
+    sampleMask_ = sampleMask;
+}
+
+void VrHalo4ReticleDrawScope::Restore()
+{
+    context_->OMSetBlendState(saved_, factor_, sampleMask_);
+    if (saved_)
+        saved_->Release();
 }
 
 bool VR_Halo4AuthoredReticleFeatureHealthy()
@@ -24863,6 +25458,141 @@ bool VR_GetLeftControllerPose(float outQuat[4], float outPos[3])
     }
     LeaveCriticalSection(&g_headCs);
     return ok;
+}
+
+// MONO RENDERING (mono_view_logic.h): asked once for a frame of `title`, by whoever builds that frame's eye
+// cameras, before its eye passes. True: draw the world once, as the eye the eye-order setting draws first, from
+// the midpoint of the eyes looking the way the head looks, with the symmetric frustum `coverFov` (left, right, up,
+// down; radians), then call VR_NoteMonoFrameRendered. The render thread.
+bool VR_MonoRenderThisFrame(GameTitle title, float coverFov[4])
+{
+    const size_t slot = TitleRuntimeSlotIndex(title);
+    if (g_config.mono_rendering != g_monoRejectionsAsked)
+    {
+        g_monoRejectionsAsked = g_config.mono_rendering;
+        for (mono_view::MonoRejections& rejections : g_monoRejections)
+            rejections.Reset();
+    }
+    if (slot < kTitleRuntimeSlotCount)
+    {
+        const uint32_t generation = TitleAdapter_GetGeneration(title);
+        if (generation != g_monoRejectionsGeneration[slot])
+        {
+            g_monoRejectionsGeneration[slot] = generation;
+            g_monoRejections[slot].Reset();
+        }
+    }
+    mono_view::MonoInput in;
+    in.asked = g_config.mono_rendering;
+    in.titleSupported = slot < kTitleRuntimeSlotCount && TitleAdapter_GetActiveTitle() == title;
+    in.rejected = slot < kTitleRuntimeSlotCount && g_monoRejections[slot].refused;
+    float tanX = 0.0f, tanY = 0.0f;
+    if (in.asked && in.titleSupported && g_views.size() >= 2)
+    {
+        const XrFovf& a = g_views[0].fov;
+        const XrFovf& b = g_views[1].fov;
+        const float qa[4]{g_views[0].pose.orientation.x, g_views[0].pose.orientation.y,
+                          g_views[0].pose.orientation.z, g_views[0].pose.orientation.w};
+        const float qb[4]{g_views[1].pose.orientation.x, g_views[1].pose.orientation.y,
+                          g_views[1].pose.orientation.z, g_views[1].pose.orientation.w};
+        in.viewsLocated = mono_view::MonoCover({a.angleLeft, a.angleRight, a.angleUp, a.angleDown},
+                                               {b.angleLeft, b.angleRight, b.angleUp, b.angleDown}, tanX, tanY);
+        in.eyeCantDeg = mono_view::EyeCantDeg(qa, qb);
+        in.theatre = VR_IsCutsceneTheaterActive();
+        in.upscaler = VR_DlssWantsEyeCamera();
+    }
+    const mono_view::MonoRefusal refusal = mono_view::DecideMono(in);
+    // A line when the answer or the title changes, at most one a second.
+    static int logged = -1;
+    static int loggedTitle = -1;
+    static uint64_t loggedMs = 0;
+    const uint64_t now = GetTickCount64();
+    if ((static_cast<int>(refusal) != logged || static_cast<int>(title) != loggedTitle) && now - loggedMs >= 1000)
+    {
+        logged = static_cast<int>(refusal);
+        loggedTitle = static_cast<int>(title);
+        loggedMs = now;
+        if (refusal == mono_view::MonoRefusal::None)
+            LOG("mono rendering (%s): on. The world is drawn once a frame, from between the eyes, and shown to "
+                "both (cover %.1f x %.1f deg each way); the crosshair and the scope are parked at %.0f m so they "
+                "do not double",
+                DlssTitleName(title), atanf(tanX) * 57.2958f, atanf(tanY) * 57.2958f,
+                mono_view::kMonoFlatDistanceM);
+        else if (in.asked)
+            LOG("mono rendering (%s): asked for, and this frame is drawn in stereo: %s", DlssTitleName(title),
+                mono_view::MonoRefusalName(refusal));
+        else
+            LOG("mono rendering (%s): off; the world is drawn once for each eye", DlssTitleName(title));
+    }
+    if (refusal != mono_view::MonoRefusal::None)
+        return false;
+    // After a run of dropped mono frames one frame is drawn as a pair, to see whether the title draws it.
+    if (g_monoRejections[slot].Next() != mono_view::MonoRejections::Frame::Mono)
+        return false;
+    const float halfX = atanf(tanX), halfY = atanf(tanY);
+    coverFov[0] = -halfX;
+    coverFov[1] = halfX;
+    coverFov[2] = halfY;
+    coverFov[3] = -halfY;
+    return true;
+}
+// The one pass of a mono frame of `title` has been drawn and captured as `eye`: its picture is both eyes' for this
+// frame. What the present asks of a pair before it shows one (an image for each eye, each eye's frame serial) is
+// answered for the other eye by this one's.
+void VR_NoteMonoFrameRendered(GameTitle title, int eye)
+{
+    if (eye != 0 && eye != 1)
+        return;
+    const int other = 1 - eye;
+    const size_t slot = TitleRuntimeSlotIndex(title);
+    if (slot < kTitleRuntimeSlotCount)
+        g_monoRejections[slot].MonoRendered();
+    bool have = true;
+#if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
+    if (title == GameTitle::HaloReach)
+    {
+        // Reach's eyes are its own capture textures, each with the serial of the frame it holds.
+        g_reachEyeSerial[other].store(g_reachEyeSerial[eye].load(std::memory_order_acquire),
+                                      std::memory_order_release);
+    }
+    else
+#endif
+    if (title == GameTitle::HaloCE)
+    {
+        // CE's own eye cache hands the one picture out for both eyes (halo_ce::EyeCache::Completed::monoEye).
+    }
+    else
+    {
+        g_eyeHasImage[other] = g_eyeHasImage[eye];
+        have = g_eyeHasImage[eye];
+#if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
+        if (title == GameTitle::Halo4)
+            g_halo4EyeSerial[other].store(g_halo4EyeSerial[eye].load(std::memory_order_acquire),
+                                          std::memory_order_release);
+#endif
+    }
+    g_monoPictureTitle.store(static_cast<int>(title), std::memory_order_release);
+    g_monoPictureEye.store(have ? eye : -1, std::memory_order_release);
+}
+// `title` drew a pair: the latest picture is two eyes' again. When that pair was the probe after a run of
+// dropped mono frames, it is the evidence that the title draws pairs and not single passes
+// (mono_view::MonoRejections); enough of it leaves the title in stereo, said once.
+void VR_NoteStereoFrameRendered(GameTitle title)
+{
+    g_monoPictureEye.store(-1, std::memory_order_release);
+    const size_t slot = TitleRuntimeSlotIndex(title);
+    if (slot < kTitleRuntimeSlotCount && g_monoRejections[slot].StereoRendered())
+        LOG("mono rendering (%s): the game's own renderer kept dropping single-pass frames and drawing the pair "
+            "that followed; it is left in stereo until the setting is switched off and on again or the game is "
+            "loaded anew",
+            DlssTitleName(title));
+}
+// `title`'s renderer turned a single pass down: a frame dropped. A run of them asks for a probe pair.
+void VR_NoteMonoFrameRejected(GameTitle title)
+{
+    const size_t slot = TitleRuntimeSlotIndex(title);
+    if (slot < kTitleRuntimeSlotCount)
+        g_monoRejections[slot].MonoRejected();
 }
 
 bool VR_GetEyeFov(int eye, float outFov[4])

@@ -76,7 +76,7 @@ public:
         c.has_origin_relocation = true;   // the worst-case fallbacks: the hand shot ray on foot, and in a
                                           // seat R-V27 (passenger origin) and R-V22 (barrel direction)
         c.has_fixed_range_reaim = true;   // ComputeAimStick steers through the crosshair-distance point
-        c.has_barrel_marker     = g_config.gun_barrel_aim != 0;
+        c.has_barrel_marker     = Sight_GunBarrelAim() != 0;
         c.camera_follows_aim    = true;   // Reach writes the aim, so the view follows the hand
         return c;
     }

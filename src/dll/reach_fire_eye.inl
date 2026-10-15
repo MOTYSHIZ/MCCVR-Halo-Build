@@ -86,13 +86,25 @@ bool ReachCallUnitCameraEvaluator(int32_t unit, float* out)
     }
 }
 
+// THE ASK IS A CALL OF THE GAME'S OWN INSIDE A TICK: inside the native fire, and for the proof inside the unit's
+// update. In a simulation another machine shares (sight_layer.h Sight_FireTimeChangesAllowed false) only this
+// machine makes those calls, and they are not without effect there: one saved co-op film replayed with the fire's
+// ask parts from the game's own replay at a shot (two Grunts 1e-5 world units apart, then the vehicle the player
+// boards, then which objects exist), and replayed without it does not
+// (docs/COOP-SHARED-SIMULATION-2026-10-13.md). The shot is left as the game built it there anyway, so the eye would
+// be measured for nothing. So there the evaluator is not asked: no proof sample, no fire eye, and every consumer
+// keeps P (FireEye::NotRead).
+bool ReachFireEyeAsked()
+{
+    return Sight_FireEyeAsked(GameTitle::HaloReach);
+}
+
 // Inside a native fire, on the fire thread: this fire's eye for `unit`, asked once (a later site of the same fire
 // reuses it) and only for our own unit. `fresh`: no enclosing fire scope exists (the fire detour is absent), so the
 // scope cannot be trusted to belong to this fire -- ask anew.
 void ReachMeasureFireEye(int32_t unit, bool fresh)
 {
-    if (unit == -1 || !Sight_TransportWanted(GameTitle::HaloReach, false) ||
-        unit != LegacyCollisionIgnoredObject(GameTitle::HaloReach))
+    if (unit == -1 || !ReachFireEyeAsked() || unit != LegacyCollisionIgnoredObject(GameTitle::HaloReach))
         return;
     shot_lag::FireEyeScope& scope = t_reachFireEye;
     if (!fresh && scope.asked && scope.unit == unit)
@@ -145,7 +157,7 @@ void ReachMeasureFireEye(int32_t unit, bool fresh)
 // freshest intent (its camera sample under 100 ms old), at rest only; the evaluator is asked only then. Every build.
 void ReachNoteFireEyeProof(int32_t localUnit, bool onFoot, uint32_t generation)
 {
-    if (!g_origReachUnitCameraPosition || !Sight_TransportWanted(GameTitle::HaloReach, false))
+    if (!g_origReachUnitCameraPosition || !ReachFireEyeAsked())
         return;
     SightPointSample sample{};
     uint64_t atUs = 0;
@@ -263,7 +275,18 @@ const bool g_reachFireEyeRegistered = (Sight_SetFireEyeSource(GameTitle::HaloRea
 void ReportReachFireEye()
 {
     auto& state = g_reachFireEye;
-    const bool wanted = Sight_TransportWanted(GameTitle::HaloReach, false);
+    const bool wanted = ReachFireEyeAsked();
+    // Said when it changes: whether the eye is measured at all (ReachFireEyeAsked).
+    static int s_lastAsked = -1;
+    if (Sight_TransportWanted(GameTitle::HaloReach, false) && int(wanted) != s_lastAsked)
+    {
+        if (!wanted)
+            LOG("Reach fire eye (flat parity): not measured while Co-op safe is on (the measurement is a call of "
+                "the game's own inside a simulation tick, and there the shot is left as the game built it)");
+        else if (s_lastAsked == 0)
+            LOG("Reach fire eye (flat parity): measured again (Co-op safe is off)");
+        s_lastAsked = int(wanted);
+    }
     static int s_lastAvailable = -1;
     const int available = g_origReachUnitCameraPosition ? 1 : 0;
     if (wanted && available != s_lastAvailable)

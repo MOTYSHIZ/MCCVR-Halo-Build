@@ -20,6 +20,10 @@ static std::atomic<uint32_t> g_odstRuntimeGeneration{7};
 static std::atomic<bool> g_vrAim{true},g_enabled{true},g_odstMuzzleBindingsReady{true};
 static struct {bool gun_barrel_aim=true,left_handed=false,independent_dual_aim=false;
     float crosshair_distance_m=10,gun_yaw_deg=0,gun_pitch_deg=0,gun_roll_deg=0;bool shots_from_muzzle=false;} g_config;
+// The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
+[[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
+[[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
+[[maybe_unused]] static bool Sight_IndependentDualAim(){return g_config.independent_dual_aim;}
 static float Game_GetWorldScale(){return 1.f;}
 static std::atomic<bool> g_baseCamValid{true};
 static std::atomic<float> g_worldScale{1},g_baseCamX{0},g_baseCamY{0},g_baseCamZ{0};

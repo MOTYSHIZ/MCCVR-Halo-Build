@@ -3,7 +3,7 @@
 // a later inventory lookup cannot attach an old palette to a replacement gun.
 bool Halo3CaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon) noexcept
 {
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle) || !g_halo3MuzzleBindingsReady.load(std::memory_order_acquire) ||
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle()) || !g_halo3MuzzleBindingsReady.load(std::memory_order_acquire) ||
         player!=0 || slot<0 || slot>1 || !g_engineTlsIndex || !g_halo3PlayerUnitGetter ||
         !g_halo3UnitInVehicle)return false;
     __try
@@ -25,7 +25,7 @@ bool Halo3CaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon
 void Halo3PublishMuzzlePalette(uint16_t tag,const FpInterpolationContext& context,
     const BoneMatrix* destination,uint32_t generation) noexcept
 {
-    if(!(g_config.gun_barrel_aim||g_config.shots_from_muzzle) || !g_halo3MuzzleBindingsReady.load(std::memory_order_acquire) ||
+    if(!(Sight_GunBarrelAim()||Sight_ShotsFromMuzzle()) || !g_halo3MuzzleBindingsReady.load(std::memory_order_acquire) ||
         !context.valid || context.player!=0 || context.slot<0 || context.slot>1 ||
         !generation || context.generation!=generation || generation!=g_halo3RuntimeGeneration.load() ||
         !destination || !g_fpStereoSolveScope.armed)return;

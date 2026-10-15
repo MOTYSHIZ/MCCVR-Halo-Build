@@ -176,7 +176,7 @@ bool InstallHalo3DualAim(uintptr_t base, size_t size, uint32_t generation)
     }
     feature.enabled.store(true, std::memory_order_release);
     (void)InstallHalo3Muzzle(base,size);
-    LOG("Halo 3 dual aim Installed: optional independent controller rays with native per-shot acquisition; option=%d; single weapon, vehicles and remote units retain native aim",g_config.independent_dual_aim?1:0);
+    LOG("Halo 3 dual aim Installed: optional independent controller rays with native per-shot acquisition; option=%d; single weapon, vehicles and remote units retain native aim",Sight_IndependentDualAim()?1:0);
     return true;
 }
 
@@ -192,8 +192,8 @@ void ReportHalo3DualAim()
         g_halo3Dual.rays[0].exchange(0), g_halo3Dual.rays[1].exchange(0),
         g_halo3Dual.refused.exchange(0));
     LOG("Halo 3 dual native targeting: queries=%llu restoreRefused=%llu option=%d",
-        g_halo3Dual.nativeQueries.exchange(0),g_halo3Dual.targetRestoresRefused.exchange(0),g_config.independent_dual_aim?1:0);
+        g_halo3Dual.nativeQueries.exchange(0),g_halo3Dual.targetRestoresRefused.exchange(0),Sight_IndependentDualAim()?1:0);
     LOG("Halo 3 barrel trajectory: enabled=%d fault=%d applied=%llu refused=%llu option=%d",
         g_halo3Muzzle.enabled.load()?1:0,g_halo3Muzzle.faulted.load()?1:0,
-        g_halo3Muzzle.applied.exchange(0),g_halo3Muzzle.refused.exchange(0),g_config.gun_barrel_aim?1:0);
+        g_halo3Muzzle.applied.exchange(0),g_halo3Muzzle.refused.exchange(0),Sight_GunBarrelAim()?1:0);
 }

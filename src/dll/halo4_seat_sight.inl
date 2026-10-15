@@ -1,53 +1,52 @@
-// Included in game.cpp (anonymous namespace) right after the Halo 4 muzzle lane, whose view, aim and fire
-// detours call into it; the contact lane's per-unit update calls its seated trace (forward-declared there).
+// Included in game.cpp (anonymous namespace) right after halo4_seat_converge.inl, whose sample, seated trace and
+// solve it witnesses; the muzzle lane's view, aim and fire detours call into it.
 //
-// HALO 4 SEATED CONVERGENCE, stages 0 and 1. DEV BUILDS ONLY: a player build compiles none of this file.
-// Stage 0 only measures (the dev lines below); stage 1 is the dev key halo4_seat_converge, off by default.
-// The mechanism and every pure decision are in src/common/halo4_seat_aim_logic.h; this file is the engine
-// half:
+// HALO 4 SEAT WITNESSES. DEV BUILDS ONLY: a player build compiles none of this file. Seated convergence itself --
+// the aim-camera sample, the seated trace and the solve -- is halo4_seat_converge.inl, in every build; nothing
+// here decides anything. How Halo 4 fires from a seat and every pure decision these witnesses use are in
+// src/common/halo4_seat_aim_logic.h; this file is their engine half:
 //
-//   ANCHORS (InstallHalo4SeatSight, after the muzzle lane). Each is a unique signature plus the native call
-//   edge that proves its arguments, each its own feature bit, each failing closed with one LOG line:
-//     seat flags    0x5FB2D4 (seat, body) + the dispatcher's call 0xA88F1        -> class Unknown, no convergence
-//     controlled    0x5F9694 + 0x1DC9E4's own call 0x1DCA0E                      -> class Unknown, no convergence
-//     object frame  0x5D84D0 + the record rebase's call 0x5F98DB (0x5F98C2)      -> bit-4 seats only
-//     barrel        0x6121B8 + the fire routine's marker block 0x61797F          -> assist verdict unknown (witness)
-//     aim unit      the fire routine's aim-unit block 0x617DA7 (+0x49C)          -> assist verdict unknown (witness)
-//     aim camera    0x2061A8 whole (selector call, +0x490 bit 31) + 0x1DCA25     -> no first-person witness, no convergence
+//   ANCHORS (InstallHalo4SeatSight, after the muzzle and the convergence lanes). Each is a unique signature plus
+//   the native call edge that proves its arguments, each its own feature bit, each failing closed with one LOG line:
+//     seat flags    0x5FB2D4 (seat, body) + the dispatcher's call 0xA88F1        -> class Unknown
+//     controlled    0x5F9694 + 0x1DC9E4's own call 0x1DCA0E                      -> class Unknown
+//     object frame  0x5D84D0 + the record rebase's call 0x5F98DB (0x5F98C2)      -> the slope witness
+//     barrel        0x6121B8 + the fire routine's marker block 0x61797F          -> assist verdict unknown
+//     aim unit      the fire routine's aim-unit block 0x617DA7 (+0x49C)          -> assist verdict unknown
+//     aim camera    the convergence lane's own proof (0x2061A8 whole, its selector call, 0x1DCA25)
+//                                                                                -> no first-person witness, no census
 //     assist exit   0x1DCB8C + the fire routine's call 0x618103 (a dev hook)     -> no SHOT Halo 4 seated line
 //     shot line     0x5F3510's unit-aim block (0x5F351B..0x5F3601: +0x4EC/+0x4E0 into its direction argument)
 //                   + the fire routine's aim call 0x617E60 (direction [rbp+0x30], call 0x617E90) and assist
-//                   call 0x6180CC (argument 8 = the same [rbp+0x30], call 0x618103)   -> assist verdict unknown (witness)
+//                   call 0x6180CC (argument 8 = the same [rbp+0x30], call 0x618103)   -> assist verdict unknown
 //     (0x5F3510's first bytes carry the muzzle lane's hook: its entry was proven by that lane before hooking,
 //     and this signature starts past the patched bytes.)
 //   The weapon-slot, owner, aiming-unit and barrel-marker natives (0x5FA1C4, 0x612238, 0x5F1ABC, 0x610F6C) and
 //   the marker query 0x5D5B74 are the muzzle lane's own proven bindings; without that lane nothing here runs.
 //
-//   THE SIMULATION SAMPLE (Halo4SeatSightNoteAimCamera, from the muzzle's view detour on the per-tick
-//   targeting calls 0x1DB9A6 / 0x1DBDB6, never on the mod's own query or a barrel shot):
-//   the game's own aim camera for the local unit, the exact first-person witness, the seat flags,
-//   the controlled unit, the vehicle's up, whether the aiming unit carries the player,
-//   the barrel's forward and its offset from the eye, and the SHOT LINE the native assist will turn (the
-//   barrel's forward or the aiming unit's aim, whichever the last fire of this weapon was handed).
-//   Seqlock, published every tick.
+//   THE CENSUS SAMPLE (Halo4SeatSightNoteAimCamera, from the muzzle's view detour on the game's targeting calls
+//   0x1DB9A6 / 0x1DBDB6, never on the mod's own query or a barrel shot): the game's own aim camera for the
+//   local unit, the first-person witness (which camera the selector chose for that call), the seat flags, the
+//   controlled unit, the vehicle's up, whether the aiming unit carries the player, the barrel's forward and its
+//   offset from the camera, and the SHOT LINE the native assist will turn (the barrel's forward or the aiming
+//   unit's aim, whichever the last fire of this weapon was handed). Seqlock. It calls natives the convergence
+//   lane does not, which is why it is a dev census and not a part of that lane.
 //
 //   THE SHOT FORM (Halo4SeatSightNoteFiringAim, the muzzle's aim detour on the fire routine's call 0x617E90):
 //   per fire of the local seat's weapon, the unit-aim flag the native aim call was actually handed. Halo 4
 //   decides it from owner+0x694, a barrel flag in the weapon tag and an actor test; the mod never re-derives
 //   it, it applies what the last fire of the same weapon, owner and aiming unit was handed.
 //
-//   THE SOLVE'S EYE (Halo4PublishSeatEyeRoot, from the stereo transaction): the controller root plus the
-//   native seat eye's render-time offset (NativeVehicleFirstPerson_SeatEyeDelta) -- the game's aim-line
-//   origin in the same frame as the rendered head, never a simulation-time world position.
-//
-//   THE SEATED TRACE (Halo4SightTraceSeated, the contact lane's per-unit update): the published seated intent
-//   ray, a cheap pre-gate before the rate limit, identity from this thread's own seat read, the
-//   vehicle's root, the occupant, the seat's parent and the controlled unit ignored, our own vehicle looked
-//   past (three passes; exhaustion is a MISS). Stage 0 keeps the result to itself (the shot witness measures
-//   against it); stage 1 publishes it to the sight layer.
+//   THE RENDER EYE (Halo4PublishSeatEyeRoot, from the stereo transaction): the controller root plus the native
+//   seat eye's render-time offset (NativeVehicleFirstPerson_SeatEyeDelta), judged against the census sample
+//   (halo4_seat_aim::JudgeEye). It agrees only where the simulation aims the seat from its first-person eye: a
+//   seat the game shows in first person, or any seat with coop_safe_shots off. Where the simulation aims from
+//   its following camera the sample's witness says "chase", and the claim witness and the assessment below --
+//   which reason from that eye -- stand down. The convergence lane solves from the sample itself in both cases.
 //
 //   THE SHOT WITNESS (Halo4SeatAssistDetour, 0x1DCB8C filtered to the fire routine's return 0x618108):
-//   the shot's direction before and after the native seated assist, against the converged point.
+//   the shot's direction before and after the native seated assist, against the converged point (the seated
+//   trace's own last result, which the convergence lane hands over: Halo4PublishSeatTrace).
 #if HALOMCCVR_DEV_DIAGNOSTICS
 
 using Halo4SeatFlagFn = uint8_t(__fastcall*)(uint32_t, int16_t, uint32_t);       // 0x5FB2D4(vehicle, seat, bit)
@@ -137,9 +136,6 @@ struct Halo4SeatSightRuntime
         sampleFaults{0}, writerBusy{0};
     std::atomic<uint32_t> lastFlags{0}, lastClass{0}, lastControlledKind{0}, lastAssisted{2}, lastBarrel{0},
         lastUpZ1e4{0}, lastShotLine{0}, lastShotKnown{0};
-    // The seated trace.
-    std::atomic<uint64_t> seatedUpdates{0}, traces{0}, traceHits{0}, traceMisses{0}, lookPasts{0}, exhausted{0},
-        unnamed{0}, mismatched{0}, rootFallbacks{0}, published{0}, costTicks{0}, costMaxTicks{0}, faults{0};
 } g_h4SeatSight;
 
 // ---- the solve's eye (render transaction -> input thread) ---------------------------------------------------
@@ -561,9 +557,10 @@ void Halo4SeatSightNoteAimCamera(uint32_t unit, const float* origin, const float
     }
 }
 
-// ---- the seated trace (simulation thread, the contact lane's per-unit update) ------------------------------
-// The seated trace's own last result, beside (stage 1) or instead of (stage 0) the sight layer's: the shot
-// witness measures against it when no seated trace is published. Single writer (the simulation thread).
+// ---- the seated trace's last result ------------------------------------------------------------------------
+// The seated trace (halo4_seat_converge.inl) hands each result over with the ray it traced: the shot witness
+// measures against it when no seated trace is published to the sight layer (the key off). Single writer (the
+// thread of the seat's control update).
 struct Halo4SeatTraceRecord
 {
     std::atomic<uint32_t> sequence{0};
@@ -620,274 +617,6 @@ bool Halo4ReadSeatTrace(uint32_t generation, uint64_t maxAgeMs, SightRay& ray, f
         return true;
     }
     return false;
-}
-
-// The root of an object's parent chain (+0x24, the link 0x5D84D0, 0x6121B8 and the seat readers walk), through
-// the salt-checked object table. -1 on a stale link or a chain deeper than any vehicle.
-int32_t Halo4SightRootOf(int32_t object)
-{
-    if (object == -1)
-        return -1;
-    __try
-    {
-        int32_t current = object;
-        for (int depth = 0; depth < 8; ++depth)
-        {
-            const uint8_t* data = Halo4ContactObject(static_cast<uint32_t>(current));
-            if (!data)
-                return -1;
-            int32_t parent = -1;
-            memcpy(&parent, data + 0x24, sizeof(parent));
-            if (parent == -1)
-                return current;
-            current = parent;
-        }
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-    }
-    return -1;
-}
-
-// One native ray, guarded. False: a fault (the trace latches off).
-bool Halo4SeatGuardedRayCast(Halo4PhysicsRayCastInput* input, Halo4PhysicsRayCastResult* output, bool& returned)
-{
-    __try
-    {
-        returned = g_halo4WorldCollision.originalRayCast(input, output);
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-// Whether this update is the local occupant's own, read on THIS thread (never the stamp's or the first-person
-// body's), and the unit it controls (0x5F9694). Guarded.
-bool Halo4SeatSightLocalSeated(uint32_t unit, void* instance, Halo4VehicleInputState& seat, uint32_t& controlled)
-{
-    controlled = UINT32_MAX;
-    __try
-    {
-        if (!Halo4ReadVehicleInput(seat) || !seat.seated || seat.unit != unit ||
-            Halo4ContactBiped(unit) != instance)
-            return false;
-        if (g_h4SeatSight.ready.load(std::memory_order_acquire) & kH4SeatControlled)
-        {
-            controlled = g_h4SeatSight.controlled(unit);
-            if (controlled != UINT32_MAX && !Halo4ContactObject(controlled))
-                controlled = UINT32_MAX;
-        }
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER)
-    {
-        return false;
-    }
-}
-
-void Halo4SightTraceSeated(uint32_t unit, void* instance)
-{
-    constexpr GameTitle kTitle = GameTitle::Halo4;
-    auto& f = g_h4SeatSight;
-    if (!LegacySight(kTitle).flags.load(std::memory_order_acquire) || !g_halo4Contact.flags ||
-        !g_halo4WorldCollision.originalRayCast || TitleAdapter_GetActiveTitle() != kTitle)
-        return;
-    // CHEAP PRE-GATE FIRST: this runs for every unit's update. Only the unit the camera
-    // hook's stamp names as seated goes on; the rate limit is taken only by it, so another unit never uses up
-    // the 30 ms slot, and the two native calls of this thread's own seat read run at most once per trace.
-    if (g_halo4SeatStamp.unit.load(std::memory_order_relaxed) != unit)
-        return;   // one relaxed load for every other unit
-    Halo4VehicleInputState stamp{};
-    if (!Halo4ReadSeatStamp(stamp) || !stamp.seated || stamp.unit != unit)
-        return;
-    f.seatedUpdates.fetch_add(1, std::memory_order_relaxed);   // open question 1: the seated biped IS updated
-    const uint64_t now = GetTickCount64();
-    if (Sight_TraceFaulted(kTitle) || !Sight_TraceDue(kTitle, Sight_NowMs()))
-        return;
-    Halo4VehicleInputState seat{};
-    uint32_t controlled = UINT32_MAX;
-    if (!Halo4SeatSightLocalSeated(unit, instance, seat, controlled))
-    {
-        f.mismatched.fetch_add(1, std::memory_order_relaxed);
-        return;
-    }
-    const uint32_t generation = TitleAdapter_GetGeneration(kTitle);
-    SightRay ray{};
-    if (!Sight_ReadRay(kTitle, generation, kSightRayFreshMs, ray))
-        return;
-    if (ray.ignoreB != static_cast<int32_t>(seat.parent) || (ray.unit != -1 && ray.unit != static_cast<int32_t>(unit)))
-    {
-        // A ray the aim path did not publish for this seat: not traced.
-        f.unnamed.fetch_add(1, std::memory_order_relaxed);
-        LegacySight(kTitle).seatUnnamed.fetch_add(1, std::memory_order_relaxed);
-        return;
-    }
-    int32_t root = Halo4SightRootOf(static_cast<int32_t>(unit));
-    if (root == -1 || root == static_cast<int32_t>(unit))
-    {
-        // The walk failed: the seat's parent (Halo 4 publishes no carrier).
-        root = static_cast<int32_t>(seat.parent);
-        f.rootFallbacks.fetch_add(1, std::memory_order_relaxed);
-        LegacySight(kTitle).rootFallbacks.fetch_add(1, std::memory_order_relaxed);
-    }
-    int32_t chain[4]{};
-    const int chainCount = halo4_seat_aim::BuildSeatIgnores(root, static_cast<int32_t>(unit),
-        static_cast<int32_t>(seat.parent), controlled == UINT32_MAX ? -1 : static_cast<int32_t>(controlled), chain);
-    uint64_t collisionFlags = g_halo4SightShotFlags.load(std::memory_order_acquire);
-    if (!collisionFlags)
-        memcpy(&collisionFlags, g_halo4Contact.flags, sizeof(collisionFlags));
-    LARGE_INTEGER before{}, after{};
-    int32_t lastObject = -1;   // the object the last pass stopped on (-1: structure, or nothing)
-    QueryPerformanceCounter(&before);
-    const auto trace = [&](float alongWu, float remainingWu) {
-        halo4_seat_aim::TracePass pass{};
-        Halo4PhysicsRayCastInput input{};
-        Halo4PhysicsRayCastResult output{};
-        input.profile = 0x1A;
-        memcpy(&input.collisionFlags, &collisionFlags, sizeof(collisionFlags));
-        for (int axis = 0; axis < 3; ++axis)
-        {
-            input.start[axis] = ray.head[axis] + ray.dir[axis] * alongWu;
-            input.end[axis] = input.start[axis] + ray.dir[axis] * remainingWu;
-        }
-        for (int i = 0; i < chainCount; ++i)
-            input.ignoredObjects[i] = chain[i];
-        input.ignoredObjectCount = static_cast<uint8_t>(chainCount);
-        input.resultOptions[0] = 1;
-        bool returned = false;
-        pass.completed = Halo4SeatGuardedRayCast(&input, &output, returned);
-        pass.hit = returned;
-        pass.fraction = output.fraction;
-        // An object hit (type 4, as the contact backend reads it) names its handle; anything else is structure.
-        pass.object = output.type == 4 ? output.objectIndex : -1;
-        lastObject = returned ? pass.object : -1;
-        return pass;
-    };
-    // THE BOARDER RULE (sight_hit::LookPastOwnHierarchy; sight_hit_class_logic.h): PhysicsRayCast's own predicate
-    // (0x1BFC24) already skips everything that descends from an ignored object except a boarder, so a biped of our
-    // hierarchy that is not our own unit is a target, not a part of our vehicle: it is handed on with a root that
-    // is not ours (-2), and the look-past keeps it as the hit. Everything else of ours is still looked past.
-    const auto rootOf = [&](int32_t object) {
-        const int32_t hitRoot = Halo4SightRootOf(object);
-        if (hitRoot != root)
-            return hitRoot;
-        const int type = Halo4SightObjectTypeGuarded(object);
-        if (!sight_hit::LookPastOwnHierarchy(true, object == static_cast<int32_t>(unit), type))
-            return -2;
-        Sight_NoteLookPast(kTitle, Sight_ObjectHitClass(type));   // dev: what was stepped past, by class
-        return hitRoot;
-    };
-    const auto result = halo4_seat_aim::TraceLookingPast(kSightTraceLengthWu, kSightTraceSkipWu,
-        kLegacySightSelfStepWu, kLegacySightSelfPasses, root, chain, chainCount, trace, rootOf);
-    QueryPerformanceCounter(&after);
-    if (!result.completed)
-    {
-        Sight_NoteTraceFault(kTitle);
-        f.faults.fetch_add(1, std::memory_order_relaxed);
-        LOG("SIGHT Halo 4 seated trace: the native ray raised a fault; the trace stays off until the title "
-            "reinstalls");
-        return;
-    }
-    const uint64_t cost = static_cast<uint64_t>(after.QuadPart - before.QuadPart);
-    f.traces.fetch_add(1, std::memory_order_relaxed);
-    (result.hit ? f.traceHits : f.traceMisses).fetch_add(1, std::memory_order_relaxed);
-    f.lookPasts.fetch_add(static_cast<uint64_t>(result.selfHits), std::memory_order_relaxed);
-    if (result.exhausted)
-        f.exhausted.fetch_add(1, std::memory_order_relaxed);
-    f.costTicks.fetch_add(cost, std::memory_order_relaxed);
-    uint64_t prior = f.costMaxTicks.load(std::memory_order_relaxed);
-    while (cost > prior && !f.costMaxTicks.compare_exchange_weak(prior, cost, std::memory_order_relaxed)) {}
-    auto& legacy = LegacySight(kTitle);
-    legacy.seatedTraces.fetch_add(1, std::memory_order_relaxed);
-    legacy.selfHits.fetch_add(static_cast<uint64_t>(result.selfHits), std::memory_order_relaxed);
-#if HALOMCCVR_DEV_DIAGNOSTICS
-    // SIGHT HITS (dev): what the seated ray stopped on, by class (the last pass's object when it was kept as the hit).
-    {
-        const bool objectHit = result.hit && lastObject != -1;
-        const int type = objectHit ? Halo4SightObjectTypeGuarded(lastObject) : -1;
-        Sight_NoteTraceHit(kTitle, sight_hit::ClassifyHit(result.hit, objectHit, type), type,
-                           result.hit ? result.rangeWu : 0.0f, true);
-    }
-#endif
-    // The seat's own record (the shot witness reads it); with the stage-1 key, the sight layer's too: the aim
-    // path converges on it only while every proof holds (Halo4SeatSightPrepare), so publishing alone bends
-    // nothing.
-    Halo4PublishSeatTrace(generation, result.hit, result.rangeWu, ray);
-    if (g_config.halo4_seat_converge)
-    {
-        Sight_PublishTrace(kTitle, generation, result.hit, result.hit ? result.rangeWu : 0.0f, cost);
-        f.published.fetch_add(1, std::memory_order_relaxed);
-    }
-    // AUXILIARY RAYS (sight_layer.h SightAuxRay), looking past our own vehicle exactly as the intent trace does: the
-    // SEAT LIMIT ray (while the seat's reticle is clamped at a natural stop, the ray its gun really aims along from the
-    // seat's eye) and the DEV ASSESSMENT ray (honest_reticle_assess: the game's own aim from the seat's eye, the ray the
-    // native seated assist's crosshair trace runs along). Only while the aim path published one; nothing the aim reads
-    // moves. False: a native fault -- the CALLER latches its own trace off (the seat limit ray the title's trace, the
-    // assessment only its own).
-    const auto auxTrace = [&](const SightAuxRay& aux, bool& hit, float& rangeWu) {
-        const auto pass = [&](float alongWu, float remainingWu) {
-            halo4_seat_aim::TracePass out{};
-            Halo4PhysicsRayCastInput input{};
-            Halo4PhysicsRayCastResult output{};
-            input.profile = 0x1A;
-            memcpy(&input.collisionFlags, &collisionFlags, sizeof(collisionFlags));
-            for (int axis = 0; axis < 3; ++axis)
-            {
-                input.start[axis] = aux.origin[axis] + aux.dir[axis] * alongWu;
-                input.end[axis] = input.start[axis] + aux.dir[axis] * remainingWu;
-            }
-            for (int i = 0; i < chainCount; ++i)
-                input.ignoredObjects[i] = chain[i];
-            input.ignoredObjectCount = static_cast<uint8_t>(chainCount);
-            input.resultOptions[0] = 1;
-            bool returned = false;
-            out.completed = Halo4SeatGuardedRayCast(&input, &output, returned);
-            out.hit = returned;
-            out.fraction = output.fraction;
-            out.object = output.type == 4 ? output.objectIndex : -1;
-            return out;
-        };
-        const auto auxResult = halo4_seat_aim::TraceLookingPast(kSightTraceLengthWu, kSightTraceSkipWu,
-            kLegacySightSelfStepWu, kLegacySightSelfPasses, root, chain, chainCount, pass, Halo4SightRootOf);
-        if (!auxResult.completed)
-            return false;
-        hit = auxResult.hit;
-        rangeWu = auxResult.hit ? auxResult.rangeWu : 0.0f;
-        return true;
-    };
-    SightAuxRay limit{};
-    if (Sight_ReadLimitRay(kTitle, generation, kSightRayFreshMs, limit))
-    {
-        bool limitHit = false;
-        float limitRangeWu = 0.0f;
-        if (!auxTrace(limit, limitHit, limitRangeWu))
-        {
-            Sight_NoteTraceFault(kTitle);
-            f.faults.fetch_add(1, std::memory_order_relaxed);
-            LOG("SIGHT Halo 4 seated seat limit trace: the native ray raised a fault; the trace stays off until the "
-                "title reinstalls");
-            return;
-        }
-        Sight_PublishLimitTrace(kTitle, generation, limitHit, limitRangeWu);
-    }
-    // [assess-only begin]
-    // DEV ASSESSMENT (honest_reticle_assess): the game's own aim from the seat's eye. A native fault here latches only
-    // the ASSESSMENT trace off (Sight_NoteAssessTraceFault); the seat's intent trace and its fault count are the aim's.
-    SightAssessRay assess{};
-    if (!Sight_AssessTraceFaulted(kTitle) && Sight_ReadAssessRay(kTitle, generation, kSightRayFreshMs, assess))
-    {
-        bool assessHit = false;
-        float assessRangeWu = 0.0f;
-        if (!auxTrace(assess, assessHit, assessRangeWu))
-        {
-            Sight_NoteAssessTraceFault(kTitle);
-            return;
-        }
-        Sight_PublishAssessTrace(kTitle, generation, assessHit, assessRangeWu);
-    }
-    // [assess-only end]
 }
 
 // ---- the shot witness (0x1DCB8C's exit, the fire routine's call only) --------------------------------------
@@ -1175,14 +904,15 @@ __declspec(noinline) uint64_t __fastcall Halo4SeatAssistDetour(uint64_t a1, uint
 }
 
 // ---- the input thread (Game_ComputeAimStick) -------------------------------------------------------------------
-// What the aim path needs this poll for a Halo 4 seat. Seated, the on-foot eyes are never used: the controller
-// root is the placed head there, not the point the game's aim line starts from.
+// What the witnesses know this poll about a Halo 4 seat. Nothing of it reaches the aim: the seated ray, the bend
+// and the servo's parking are halo4_seat_converge.inl's.
 struct Halo4SeatSightPoll
 {
     bool seated = false;   // the camera hook's stamp names the local unit seated (fresh)
-    bool ray = false;      // publish the seated intent ray: our seat view, the rendered head known, seats aimed
-    bool solve = false;    // stage 1: every pre-bend proof holds (bend the aim through the traced point)
-    bool turret = false;   // stage 1: a slaved-turret seat (the servo parks it; its reticle is no different)
+    bool ray = false;      // our seat view, the rendered head known, seats aimed
+    bool solve = false;    // every proof of the RENDER eye holds, with the key on: the claim witness and the
+                           // assessment, which reason from that eye, may judge this poll
+    bool turret = false;   // a slaved-turret seat (the claim witness counts it apart)
     uint32_t unit = UINT32_MAX, parent = UINT32_MAX;
     int16_t seat = -1;
     float head[3]{}, eye[3]{};          // H (the rendered centre eye) and the ray's eye (E when it is known)
@@ -1200,26 +930,6 @@ enum Halo4SeatSightWhy : unsigned
     kH4SeatWhyView, kH4SeatWhyHead, kH4SeatWhySwitch, kH4SeatWhyEye, kH4SeatWhySample, kH4SeatWhyWitness,
     kH4SeatWhyClass, kH4SeatWhyRecord, kH4SeatWhyKey, kH4SeatWhySolved, kH4SeatWhyCount
 };
-
-// The converge-off witness's reason for a seat that did not solve (Sight_NoteConvergeState). None of these is a
-// natural limit: a view that is not ours, our proofs not holding yet, or a seat stage 1 does not cover.
-inline converge::ConvergeOff Halo4SeatSightOffReason(unsigned why)
-{
-    using converge::ConvergeOff;
-    switch (why)
-    {
-    case kH4SeatWhyView: return ConvergeOff::SeatViewNotOwned;
-    case kH4SeatWhyHead: return ConvergeOff::RayStale;
-    case kH4SeatWhySwitch: return ConvergeOff::AimOff;
-    case kH4SeatWhyEye:
-    case kH4SeatWhySample:
-    case kH4SeatWhyWitness:
-    case kH4SeatWhyRecord: return ConvergeOff::SeatProofPending;
-    case kH4SeatWhyClass:
-    case kH4SeatWhyKey: return ConvergeOff::SeatNotImplemented;
-    default: return ConvergeOff::None;
-    }
-}
 
 // The native assist's verdict on a converged seat aim (Game_ComputeAimStick, stage 1): a WITNESS only --
 // the claim does not wait on it (a gun the assist cannot bring onto the point fires where it can,
@@ -1412,9 +1122,8 @@ bool Halo4SeatSightPrepare(Halo4SeatSightPoll& out, const float observerForward[
         !halo4_seat_aim::SeatRecordIsWorld(seatFacts.flagsKnown, seatFacts.flags, seatFacts.upKnown, sampleUp);
     if (s_state.agreement.proven)
         w.provenPolls.fetch_add(1, std::memory_order_relaxed);
-    // THE PROOFS, every one required (any failure: this seat aims exactly as before). The kill switches are in
-    // them: vehicle_first_person = 0 (the view is never ours), reach_vehicle_aim = 0 and converged_aim = 0 (no
-    // seated ray), and the dev key itself.
+    // THE PROOFS OF THE RENDER EYE, every one required before the claim witness and the assessment judge a poll
+    // from it. They gate no aim: a seat converges on the convergence lane's own facts.
     const bool key = g_config.halo4_seat_converge != 0;
     unsigned why = kH4SeatWhySolved;
     if (!viewOwned) why = kH4SeatWhyView;
@@ -1426,7 +1135,7 @@ bool Halo4SeatSightPrepare(Halo4SeatSightPoll& out, const float observerForward[
     else if (seatClass == halo4_seat_aim::SeatClass::Unknown || seatClass == halo4_seat_aim::SeatClass::NoWeapon)
         why = kH4SeatWhyClass;
     else if (!recordSolvable) why = kH4SeatWhyRecord;
-    else if (!key) why = kH4SeatWhyKey;   // every proof holds; only the stage-1 key is off
+    else if (!key) why = kH4SeatWhyKey;   // every proof holds; only the key is off
     w.why[why].fetch_add(1, std::memory_order_relaxed);
     out.why = why;
     out.solve = why == kH4SeatWhySolved;
@@ -1553,7 +1262,7 @@ bool Halo4SeatSightHonestAlongAim(const Halo4SeatSightPoll& seat, const float po
 }
 // [assess-only end]
 
-// Cold worker, every 2 s: the three dev lines.
+// Cold worker, every 2 s: the two dev lines (the seated trace's own is the convergence lane's).
 void Halo4SeatSightReport()
 {
     static uint64_t s_last = 0;
@@ -1604,7 +1313,7 @@ void Halo4SeatSightReport()
             "observer forward max %.2f deg; %llu polls, eye proven in %llu; not solved: view %llu, head %llu, "
             "switches %llu, eye %llu, sample %llu, witness %llu, class %llu, record frame unproven %llu, key off %llu; "
             "facts held across a sample gap %llu; "
-            "SOLVED %llu (on a tilted record %llu); assist witness (decides nothing): on the point %llu, turret %llu, shot unknown %llu, no assist "
+            "every render-eye proof held %llu (on a tilted record %llu); assist witness (decides nothing): on the point %llu, turret %llu, shot unknown %llu, no assist "
             "%llu, beyond the cap %llu (max shot line->point %.1f deg); assessment reticle (honest_reticle_assess) on "
             "the shot %llu, on the game's aim %llu",
             static_cast<unsigned long long>(samples), static_cast<unsigned long long>(f.firstPerson.exchange(0)),
@@ -1632,28 +1341,6 @@ void Halo4SeatSightReport()
             static_cast<unsigned long long>(w.claim[kH4ClaimCap].exchange(0)), double(w.maxBarrelDeg.exchange(0.0f)),
             static_cast<unsigned long long>(w.honestAlongAim.exchange(0)),
             static_cast<unsigned long long>(w.honestGameAim.exchange(0)));
-    }
-    const uint64_t seatedUpdates = f.seatedUpdates.exchange(0, std::memory_order_relaxed);
-    const uint64_t traces = f.traces.exchange(0, std::memory_order_relaxed);
-    const uint64_t unnamed = f.unnamed.exchange(0, std::memory_order_relaxed);
-    const uint64_t mismatched = f.mismatched.exchange(0, std::memory_order_relaxed);
-    if (seatedUpdates || traces || unnamed || mismatched)
-    {
-        LARGE_INTEGER frequency{};
-        QueryPerformanceFrequency(&frequency);
-        const double usPerTick = frequency.QuadPart ? 1.0e6 / double(frequency.QuadPart) : 0.0;
-        const uint64_t cost = f.costTicks.exchange(0, std::memory_order_relaxed);
-        LOG("SIGHT Halo 4 seated trace: %llu updates of the seated local biped; %llu traces (%llu hits, %llu misses, "
-            "%llu of them after three passes on our own vehicle), looked past our own vehicle %llu times; %llu seats "
-            "untraced (the ray named no vehicle), %llu not this thread's seat, %llu root fallbacks; cost avg %.1f / "
-            "max %.1f us; published to the sight layer %llu (halo4_seat_converge)",
-            static_cast<unsigned long long>(seatedUpdates), static_cast<unsigned long long>(traces),
-            static_cast<unsigned long long>(f.traceHits.exchange(0)), static_cast<unsigned long long>(f.traceMisses.exchange(0)),
-            static_cast<unsigned long long>(f.exhausted.exchange(0)), static_cast<unsigned long long>(f.lookPasts.exchange(0)),
-            static_cast<unsigned long long>(unnamed), static_cast<unsigned long long>(mismatched),
-            static_cast<unsigned long long>(f.rootFallbacks.exchange(0)),
-            traces ? double(cost) / double(traces) * usPerTick : 0.0,
-            double(f.costMaxTicks.exchange(0)) * usPerTick, static_cast<unsigned long long>(f.published.exchange(0)));
     }
     auto& s = g_halo4SeatShots;
     AcquireSRWLockExclusive(&s.lock);
@@ -1758,7 +1445,7 @@ void InstallHalo4SeatSight(uintptr_t base, size_t size, uint32_t generation)
     if (!g_halo4BarrelBindingsReady.load(std::memory_order_acquire) || g_halo4Barrel.base != base)
     {
         LOG("SIGHT Halo 4 seats: the muzzle lane is not installed (its view detour carries the sample); seated "
-            "witnesses and seated convergence off");
+            "witnesses off");
         return;
     }
     f.base = base;
@@ -1789,7 +1476,7 @@ void InstallHalo4SeatSight(uintptr_t base, size_t size, uint32_t generation)
     }
     else
         LOG("SIGHT Halo 4 seats: the seat-flag accessor (0x5FB2D4, its body, the dispatcher's call 0xA88F1) did "
-            "not prove; every seat is class Unknown and none converges");
+            "not prove; every seat is class Unknown to the witnesses");
     if (Halo4SeatSightUnique(base, size, 0x5F9694, "48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 57 41 54 41 56 48 83 "
             "EC 20 41 83 CE FF 8B F9 41 3B CE 0F 84 ?? ?? ?? ?? 8B 15 ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BE 18 00 "
             "00 00 0F B7 CF 48 8B 04 D0 48 8B 34 06 48 8D 04 49 48 8B 56 50 4C 8B 44 C2 10") &&
@@ -1800,7 +1487,7 @@ void InstallHalo4SeatSight(uintptr_t base, size_t size, uint32_t generation)
     }
     else
         LOG("SIGHT Halo 4 seats: the controlled-unit query (0x5F9694, the aim view's call 0x1DCA0E) did not prove; "
-            "seats are class Unknown, none converges, and the seated trace ignores no turret");
+            "seats are class Unknown to the witnesses");
     if (Halo4SeatSightUnique(base, size, 0x5D84D0, "48 83 EC 28 44 8B 0D ?? ?? ?? ?? 4D 8B D0 65 48 8B 04 25 58 00 00 "
             "00 4C 8B C2 BA 18 00 00 00 0F B7 C9 4A 8B 04 C8 4C 8B 0C 02 48 8D 04 49 49 8B 51 50 4C 8B 4C C2 10 41 83 "
             "79 24 FF 75 38") &&
@@ -1813,7 +1500,7 @@ void InstallHalo4SeatSight(uintptr_t base, size_t size, uint32_t generation)
     }
     else
         LOG("SIGHT Halo 4 seats: the object frame (0x5D84D0, the record rebase's call 0x5F98DB) did not prove; "
-            "only seats whose record is in world angles (flag bit 4) can converge");
+            "the slope witness reads only seats whose record is in world angles (flag bit 4)");
     if (Halo4SeatSightUnique(base, size, 0x6121B8, "48 83 EC 28 65 48 8B 04 25 58 00 00 00 44 8B C9 8B 0D ?? ?? ?? ?? "
             "41 B8 18 00 00 00 48 8B 04 C8 41 0F B7 C9 4D 8B 04 00 48 8D 14 49 49 8B 40 50 4C 8B 54 D0 10 48 8B 05 ?? "
             "?? ?? ??") &&
@@ -1835,18 +1522,13 @@ void InstallHalo4SeatSight(uintptr_t base, size_t size, uint32_t generation)
     else
         LOG("SIGHT Halo 4 seats: the fire routine's aiming unit (0x617DA7: 0x5F1ABC, its +0x49C player) did not "
             "prove; the assist witness cannot judge seated shots (it decides nothing)");
-    if (Halo4SeatSightUnique(base, size, 0x2061A8, "48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 83 EC 20 48 8B FA 8B F1 "
-            "48 8D 54 24 40 45 8B F1 49 8B D8 E8 ?? ?? ?? ?? 44 8B 1D ?? ?? ?? ?? 8B E8 65 4C 8B 14 25 58 00 00 00 44 0F "
-            "B7 C6 B9 18 00 00 00 4B 8B 04 DA 4B 8D 14 40 48 8B 0C 01 48 8B 49 50 4C 8B 44 D1 10 41 8B 88 90 04 00 00 "
-            "48 C1 E9 1F F6 C1 01 74 3C B9 08 00 00 00 48 8B 0C 01 41 0F B7 80 9C 04 00 00 48 69 D0 18 0F 00 00 48 03 "
-            "51 50 F2 0F 10 42 40 F2 0F 11 07 8B 42 48 89 47 08 F2 0F 10 42 4C F2 0F 11 03 8B 42 54 89 43 08 EB 23 45 "
-            "33 C9 4C 8B C3 48 8B D7 8B CE 85 ED 75 0F 41 83 FE 01 41 0F 94 C1 E8 ?? ?? ?? ?? EB 05 E8 ?? ?? ?? ?? 48 "
-            "8B 5C 24 48 8B C5 48 8B 6C 24 50 48 83 C4 20 41 5E 5F 5E C3") &&
-        Halo4SeatSightCalls(base, 0x2061CA, 0x10D268) && Halo4SeatSightCalls(base, 0x1DCA25, 0x2061A8))
+    // The aim camera (0x2061A8 whole, its selector call and +0x490 test, the aim view's call 0x1DCA25): the
+    // convergence lane proved it for this image, or said why not.
+    if (g_h4SeatConverge.ready.load(std::memory_order_acquire) && g_h4SeatConverge.base == base)
         ready |= kH4SeatAimCamera;
     else
-        LOG("SIGHT Halo 4 seats: the aim camera (0x2061A8 with its selector call and +0x490 test, the aim view's "
-            "call 0x1DCA25) did not prove; no first-person witness, no sample, no seated convergence");
+        LOG("SIGHT Halo 4 seats: the aim camera did not prove (the seat converge line above says which part); no "
+            "first-person witness and no census sample");
     if (Halo4SeatSightUnique(base, size, 0x1DCB8C, "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 55 41 56 41 57 48 8D 68 "
             "C1 48 81 EC E0 00 00 00 48 8B 5D 7F 33 FF 0F 29 70 D8 45 85 C9 44 8A 4D 67 0F 29 78 C8 44 0F 29 40 B8 41 8B "
             "00 4C 8D 45 5F 89 45 5F 0F 94 C0") &&

@@ -81,4 +81,88 @@ namespace sig
     // Base address and size of the module containing this code, resolved by
     // address rather than file name, so it survives the DLL being renamed.
     bool SelfModuleRange(uintptr_t& base, size_t& size);
+
+    // SEARCHES OF ONE LOADED IMAGE, REMEMBERED WHILE IT STAYS LOADED.
+    //
+    // A title's hooks are installed more than once within one load of its DLL
+    // (Halo 3: at each new level), and every install asks the same
+    // questions of the same bytes: where is this signature, and is there a
+    // second match after it. The second question has no early way out: it
+    // reads the image to its end, every time. The answers cannot change while
+    // that image stays loaded, because Find answers for the game's own bytes
+    // (this mod's enabled hooks undone, above). So inside an ImageMemoScope a
+    // Find over a range of the scope's image is answered from what the same
+    // search of the same range found earlier in this load of the image:
+    //   * a match is compared again where it was found, by the compare a
+    //     search makes there. If it no longer stands (a patch of this mod's
+    //     that is not a hook), the range is searched again;
+    //   * "no second match" is taken as found: the answer to a search that
+    //     begins right after a remembered match of the same pattern and runs
+    //     to the image's end. Only the search itself could check it again, and
+    //     nothing this mod writes makes a second copy of a signature;
+    //   * any other "no match" is searched for again. A pattern can name bytes
+    //     this mod itself writes (a patch that is not a hook), and those come
+    //     to match later.
+    // A search of anything else (another module, a range that is not inside
+    // the image) is made as always.
+    //
+    // One memo is one load of one image: a scope opened for another base,
+    // size or generation empties it first. It holds offsets and a hash of each
+    // pattern's text, no pointers. It is used by one thread at a time (a scope
+    // is the calling thread's own). When it is full, the searches it cannot
+    // hold are simply made.
+    struct ImageMemo
+    {
+        static constexpr uint32_t kCapacity = 384;
+        static constexpr uint32_t kNoMatch = 0xFFFFFFFFu;
+        struct Entry
+        {
+            uint64_t pattern = 0;   // a hash of the pattern's text
+            uint32_t start = 0;     // the searched range, as offsets in the image
+            uint32_t length = 0;
+            uint32_t match = 0;     // the offset of the first match, or kNoMatch
+        };
+        uintptr_t base = 0;
+        size_t size = 0;
+        uint32_t generation = 0;
+        uint32_t count = 0;
+        Entry entries[kCapacity]{};
+    };
+    struct ImageMemoCounts
+    {
+        uint32_t searched = 0;       // searches made: not asked before in this load of the image, or a
+                                     // "no match" of the kind that is asked again
+        uint32_t remembered = 0;     // answers taken from an earlier search
+        uint32_t searchedAgain = 0;  // a remembered match no longer stood, so its range was searched again
+        uint32_t notHeld = 0;        // searches the memo had no room to keep
+        uint32_t disagreed = 0;      // checking only: remembered answers the search did not confirm
+    };
+    class ImageMemoScope
+    {
+    public:
+        // `generation` is the image's load count from whoever tracks its
+        // loads; 0 (not known) and `use` false both mean every search is made,
+        // as with no scope, and still counted. `check`: every remembered
+        // answer is searched for as well, the search's answer is the one
+        // returned, and a difference is counted. That proves the memo against
+        // a running game and costs every search.
+        ImageMemoScope(ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation, bool use,
+                       bool check = false);
+        ~ImageMemoScope();
+        ImageMemoScope(const ImageMemoScope&) = delete;
+        ImageMemoScope& operator=(const ImageMemoScope&) = delete;
+        const ImageMemoCounts& Counts() const { return counts_; }
+        // Find, for a range inside this scope's image.
+        uintptr_t Answer(uintptr_t base, size_t size, const char* pattern);
+        bool Covers(uintptr_t base, size_t size) const;
+
+    private:
+        ImageMemo* memo_ = nullptr;      // null: this scope only counts
+        ImageMemoScope* outer_ = nullptr;
+        uintptr_t base_ = 0;
+        size_t size_ = 0;
+        bool registered_ = false;
+        bool check_ = false;
+        ImageMemoCounts counts_{};
+    };
 }

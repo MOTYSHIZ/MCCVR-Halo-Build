@@ -9,6 +9,10 @@ static void Check(bool value,const char* name)
 {++checks;if(!value){std::fprintf(stderr,"FAIL: %s\n",name);std::exit(1);}}
 static constexpr uint32_t owner=0x12340001,primary=0x56780002,secondary=0x789A0003;
 static struct {bool gun_barrel_aim=true,left_handed=false,shots_from_muzzle=false;} g_config;
+// The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
+[[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
+[[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
+[[maybe_unused]] static bool Sight_IndependentDualAim(){return false;}
 static std::atomic<bool> g_halo3MuzzleBindingsReady{true};
 static std::atomic<uint32_t> g_halo3RuntimeGeneration{7};
 static weapon_muzzle::Store g_halo3Muzzles;
