@@ -1325,7 +1325,9 @@ namespace
             "Wheel: in those ground vehicles the invisible wheel is in your hands\n"
             "from the moment you sit; every other seat is your hand's.\n"
             "As before: your hand aims, except that the stick or wheel steers\n"
-            "those vehicles while the view turns with them.");
+            "those vehicles while the view turns with them.\n"
+            "With vehicle cameras on, the left stick click changes this for the\n"
+            "seat you are in, and each seat keeps its own choice.");
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Motion steering (Halo 3, ODST, Reach)");
@@ -1351,7 +1353,13 @@ namespace
             "In a seat, step through the cameras that file lists for it. The\n"
             "file is in the mod's folder, written the first time this is on;\n"
             "edit it and it is read again when you save. Its first camera is\n"
-            "the seat view you already have. Needs first-person vehicles on.");
+            "the seat view you already have; a vehicle the mod does not know\n"
+            "starts where the game's own third-person camera sits.\n"
+            "In a seat: left Y = next camera, left X = next tethering mode,\n"
+            "either held a second = re-centre the view, left stick click = next\n"
+            "way to control the seat. Right B then uses, gets out and reloads,\n"
+            "and a passenger's support trigger switches weapon. Each seat keeps\n"
+            "its last camera, mode and controls. Needs first-person vehicles on.");
         if (g_config.vehicle_cameras)
         {
             if (ImGui::Button("Next camera"))

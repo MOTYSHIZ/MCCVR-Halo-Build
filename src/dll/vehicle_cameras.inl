@@ -86,6 +86,21 @@ struct VehicleCameraReadout
 VehicleCameraReadout g_vehicleCameraReadout;
 std::atomic<int> g_vehicleCameraStepCamera{0};
 std::atomic<int> g_vehicleCameraStepMode{0};
+// The left stick click in a seat (vehicle_seat_buttons.h), posted by the input hook: the next way to control it.
+std::atomic<int> g_vehicleControlStep{0};
+// The seat's control mode, as vehicle_control's numbers: the player's choice for this seat where he made one,
+// else the setting. -1 = not in a seat the vehicle cameras run in, where the setting alone decides.
+std::atomic<int> g_vehicleControlEffective{-1};
+// The camera buttons are the mod's in this seat (bit 0), and it is a passenger's (bit 1). Read by the input hook.
+std::atomic<uint32_t> g_vehicleSeatButtons{0};
+inline constexpr uint32_t kVehicleSeatButtonsLive = 1u, kVehicleSeatPassenger = 2u;
+
+// How the seat the player is in is controlled (vehicle_control_logic.h). Any thread.
+vehicle_control::Mode VehicleControlModeNow()
+{
+    const int effective = g_vehicleControlEffective.load(std::memory_order_acquire);
+    return vehicle_control::FromConfig(effective >= 0 ? effective : g_config.vehicle_control);
+}
 
 void VehicleCameraSetReadout(const std::string& text)
 {
@@ -371,8 +386,12 @@ bool Halo3VehicleCameraPublishedPoint(float out[3])
 // The cold worker's reading of the Halo 3 seat. Unknown: seated, but this moment's snapshot could not be read;
 // the answer of the last tick stands. A vehicle the mod does not know is a seat like any other here: its name
 // is "unidentified", and the file's "default" entry is the one it gets.
+// `seatView`: the mod has a first-person seat point for this seat, so the seat view is a view of its own; a
+// vehicle it does not know (a custom one) has none and starts in third person. `wheelSeat`: the driver's seat of
+// a look-steered ground vehicle, where the wheel can be taken.
 enum class VehicleCameraSeatRead { OnFoot, Seated, Unknown };
-VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const char*& name, uint8_t& seatBits)
+VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const char*& name, uint8_t& seatBits,
+                                             bool& seatView, bool& wheelSeat)
 {
     if (!Halo3VehicleFpActive())
         return VehicleCameraSeatRead::OnFoot;
@@ -388,6 +407,8 @@ VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const ch
     name = turret ? "turret" : Halo3VehicleIdName(seat.identity);
     seatBits = vehicle_camera_file::SeatBits(turret || Halo3SeatIsDriver(id, seat.seatIndex, seat.mounted),
                                              turret || seat.mounted);
+    seatView = Halo3FindSeatPoint(id, seat.seatIndex, seat.mounted) != nullptr;
+    wheelSeat = Halo3SeatAuthorsSteering(id, seat.seatIndex, seat.mounted, true) && Halo3VehicleUsesWheel(id);
     return VehicleCameraSeatRead::Seated;
 }
 
@@ -418,11 +439,52 @@ std::string Halo3VehicleCameraNotApplied(const vehicle_camera_select::ActiveCame
 
 // ---- The cold worker --------------------------------------------------------------------------------------
 
+// THE SEAT MEMORY ON DISK (Selector::MemoryText): halomccvr_vehicle_cameras_last.txt beside the camera file,
+// the player's own, written by the mod and never shipped. Replaced whole through a temporary file, so a reader
+// never finds half of one.
+inline constexpr wchar_t kVehicleCameraMemoryFile[] = L"halomccvr_vehicle_cameras_last.txt";
+inline constexpr uint64_t kVehicleCameraMemorySaveMs = 2000;
+
+bool VehicleCameraReadText(const std::wstring& path, std::string& out)
+{
+    out.clear();
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, path.c_str(), L"rb") != 0 || !file)
+        return false;
+    char block[4096];
+    size_t got = 0;
+    while ((got = fread(block, 1, sizeof(block), file)) > 0 && out.size() < (1u << 20))
+        out.append(block, got);
+    fclose(file);
+    return true;
+}
+
+bool VehicleCameraWriteText(const std::wstring& path, const std::string& text)
+{
+    const std::wstring temporary = path + L".tmp";
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, temporary.c_str(), L"wb") != 0 || !file)
+        return false;
+    const bool whole = fwrite(text.data(), 1, text.size(), file) == text.size();
+    const bool closed = fclose(file) == 0;
+    if (!whole || !closed || !MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING))
+    {
+        DeleteFileW(temporary.c_str());
+        return false;
+    }
+    return true;
+}
+
 struct VehicleCameraRuntime
 {
-    explicit VehicleCameraRuntime(std::wstring path) : store(std::move(path)) {}
+    VehicleCameraRuntime(std::wstring path, std::wstring memory) : store(std::move(path)), memoryPath(std::move(memory)) {}
     vehicle_camera_store::Store store;
     vehicle_camera_select::Selector selector;
+    std::wstring memoryPath;
+    uint64_t nextMemorySaveMs = 0;
+    bool memoryFailureLogged = false;
+    bool wheelSeat = false;
+    uint8_t seatBits = 0;
     uint64_t nextFilePollMs = 0;
     VehicleCameraSeatKey seat{};
     vehicle_camera_select::ActiveCamera publishedCamera{};
@@ -448,6 +510,9 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
             VehicleCameraSetReadout({});
             g_vehicleCameraStepCamera.store(0, std::memory_order_relaxed);
             g_vehicleCameraStepMode.store(0, std::memory_order_relaxed);
+            g_vehicleControlStep.store(0, std::memory_order_relaxed);
+            g_vehicleControlEffective.store(-1, std::memory_order_release);
+            g_vehicleSeatButtons.store(0, std::memory_order_release);
             if (runtime)
             {
                 runtime->selector.Update("", false, "", 0);
@@ -466,8 +531,14 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         std::wstring path = LogDirectory();
         if (path.empty())
             return;
+        std::wstring memory = path + kVehicleCameraMemoryFile;
         path += vehicle_camera_store::kFileName;
-        runtime = std::make_unique<VehicleCameraRuntime>(std::move(path));
+        runtime = std::make_unique<VehicleCameraRuntime>(std::move(path), std::move(memory));
+        std::string kept;
+        if (VehicleCameraReadText(runtime->memoryPath, kept))
+            LOG("Vehicle cameras: your last camera, tethering mode and controls kept for %d seat(s), from "
+                "halomccvr_vehicle_cameras_last.txt",
+                runtime->selector.LoadMemory(kept));
     }
     VehicleCameraRuntime& r = *runtime;
     if (!wasOn)
@@ -494,21 +565,26 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     const char* name = "";
     uint8_t seatBits = 0;
     const char* gameKey = "";
+    bool seatView = true, wheelSeat = false;
     const bool halo3 = TitleAdapter_GetActiveTitle() == GameTitle::Halo3;
     if (halo3)
     {
         gameKey = "halo3";
-        read = Halo3VehicleCameraSeat(key, name, seatBits);
+        read = Halo3VehicleCameraSeat(key, name, seatBits, seatView, wheelSeat);
     }
     if (read == VehicleCameraSeatRead::Seated)
     {
-        r.selector.Update(gameKey, true, name, seatBits);
+        r.selector.Update(gameKey, true, name, seatBits, seatView);
         r.seat = key;
+        r.seatBits = seatBits;
+        r.wheelSeat = wheelSeat;
     }
     else if (read == VehicleCameraSeatRead::OnFoot)
     {
         r.selector.Update(gameKey, false, "", 0);
         r.seat = {};
+        r.seatBits = 0;
+        r.wheelSeat = false;
     }
 
     // A step asked for on foot is dropped with the rest: the selector has nothing to step.
@@ -518,6 +594,54 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.selector.StepCamera(stepCamera);
     if (stepMode)
         r.selector.StepMode(stepMode);
+
+    // HOW THE SEAT IS CONTROLLED: the player's choice for it where he made one (the left stick click, kept per
+    // vehicle and seat), else the setting.
+    const bool inSeat = r.selector.Active().valid;
+    const int base = static_cast<int>(vehicle_control::FromConfig(g_config.vehicle_control));
+    int control = base;
+    if (inSeat)
+    {
+        const int choice = r.selector.ControlChoice(base);
+        if (choice >= 0)
+            control = choice;
+        if (g_vehicleControlStep.exchange(0, std::memory_order_relaxed) != 0)
+        {
+            const vehicle_control::Mode next =
+                vehicle_control::Next(vehicle_control::FromConfig(control), r.wheelSeat);
+            control = static_cast<int>(next);
+            r.selector.SetControlChoice(control, base);
+            LOG("Vehicle cameras: %s is now controlled by %s (left stick click)", name[0] ? name : "this seat",
+                vehicle_control::Name(next));
+        }
+    }
+    else
+    {
+        g_vehicleControlStep.store(0, std::memory_order_relaxed);
+    }
+    g_vehicleControlEffective.store(inSeat ? control : -1, std::memory_order_release);
+    g_vehicleSeatButtons.store(
+        inSeat && halo3 ? kVehicleSeatButtonsLive |
+                              ((r.seatBits & vehicle_camera_file::kSeatPassenger) ? kVehicleSeatPassenger : 0u)
+                        : 0u,
+        std::memory_order_release);
+
+    if (r.selector.MemoryDirty() && nowMs >= r.nextMemorySaveMs)
+    {
+        r.nextMemorySaveMs = nowMs + kVehicleCameraMemorySaveMs;
+        if (VehicleCameraWriteText(r.memoryPath, r.selector.MemoryText()))
+        {
+            r.selector.MemorySaved();
+            r.memoryFailureLogged = false;
+        }
+        else if (!r.memoryFailureLogged)
+        {
+            r.memoryFailureLogged = true;
+            LOG("Vehicle cameras: halomccvr_vehicle_cameras_last.txt could not be written (%lu); your choices are "
+                "kept for this session and tried again",
+                GetLastError());
+        }
+    }
 
     const vehicle_camera_select::ActiveCamera& active = r.selector.Active();
     if (!(active == r.publishedCamera) || !(r.seat == r.publishedSeat))
@@ -541,8 +665,12 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         else
             line = "no camera: on foot";
     }
-    else if (const std::string missing = Halo3VehicleCameraNotApplied(active); !missing.empty())
-        line += ". Not applied in Halo 3 yet: " + missing;
+    else
+    {
+        line += std::string("; controls: ") + vehicle_control::Name(vehicle_control::FromConfig(control));
+        if (const std::string missing = Halo3VehicleCameraNotApplied(active); !missing.empty())
+            line += ". Not applied in Halo 3 yet: " + missing;
+    }
     if (line != r.readout)
     {
         r.readout = line;

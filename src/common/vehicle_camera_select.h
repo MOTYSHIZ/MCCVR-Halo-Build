@@ -54,15 +54,34 @@ public:
 
     // The seat this moment. `seated` false = on foot: nothing selected. `gameKey` is one of
     // vehicle_camera_file::kGameKeys; `vehicleName` is what the entries' "match" texts are looked for in; `seat`
-    // is SeatBits, 0 while the game has not said. Cheap while nothing changed: no allocation, two comparisons.
+    // is SeatBits, 0 while the game has not said. `seatView`: the game has a first-person seat view to give this
+    // seat; a seat with none (a vehicle the mod does not know) starts in the entry's first chase camera where its
+    // default is the seat view. Cheap while nothing changed: no allocation, a few comparisons.
     // Returns true when the published camera changed in any way.
-    bool Update(const char* gameKey, bool seated, const char* vehicleName, uint8_t seat);
+    bool Update(const char* gameKey, bool seated, const char* vehicleName, uint8_t seat, bool seatView = true);
 
     // The next (+1) or previous (-1) camera of the seat, in the mode that keeps the player's tethering choice
     // (vehicle_camera_file::CarryMode). False when there is no other camera to step to.
     bool StepCamera(int direction);
     // The current camera's next or previous tethering mode. False when it has only one.
     bool StepMode(int direction);
+
+    // THE PLAYER'S CONTROL CHOICE FOR THIS SEAT (vehicle_control's modes, as numbers). `base` is the setting the
+    // seat would have without one. A choice is kept WITH the base it was made against: when the base has changed
+    // since, the base is the newer statement of what is wanted and the choice is forgotten. -1: none (or not
+    // seated).
+    int ControlChoice(int base);
+    // Keeps `choice` for this seat, made against `base`. A choice equal to its base forgets itself.
+    void SetControlChoice(int choice, int base);
+
+    // WHAT EACH SEAT WAS LAST LEFT IN -- camera, tethering mode and control choice -- per game, vehicle and seat,
+    // and kept across sessions by the caller: MemoryText() is the file's text, LoadMemory() reads it back (lines
+    // it does not understand are skipped) and returns how many seats it read. MemoryDirty() is true from a
+    // change until MemorySaved().
+    std::string MemoryText() const;
+    int LoadMemory(const std::string& text);
+    bool MemoryDirty() const noexcept { return memoryDirty_; }
+    void MemorySaved() noexcept { memoryDirty_ = false; }
 
     const ActiveCamera& Active() const noexcept { return active_; }
     // One line for the log, empty when nothing is selected:
@@ -74,13 +93,17 @@ public:
     const std::string& StandDownReason() const noexcept { return standDown_; }
 
 private:
-    // The player's last choice in a seat, kept for the next time he sits in it.
+    // The player's last choice in a seat, kept for the next time he sits in it. The camera and mode are the
+    // entry's: a seat matched to another entry since (the file was edited) starts in that entry's defaults.
     struct Remembered
     {
+        std::string entry;
         int camera = -1;
         std::string cameraName;
         int mode = -1;
         std::string modeName;
+        int control = -1;
+        int controlBase = -1;
     };
 
     const vehicle_camera_file::Vehicle* Entry() const noexcept;
@@ -88,18 +111,25 @@ private:
     void Select(int camera, int mode, bool countsAsChange);
     void Clear(std::string reason);
     void Remember();
-    std::string MemoryKey(const vehicle_camera_file::Vehicle& entry) const;
+    // Per game, vehicle and seat: not per entry, so one "default" entry still keeps each vehicle's own choice.
+    std::string MemoryKey() const;
 
     vehicle_camera_file::Table table_ = vehicle_camera_file::DefaultTable();
     std::map<std::string, Remembered> memory_;
+    bool memoryDirty_ = false;
     std::string gameKey_;
     std::string vehicleName_;
     std::string standDown_ = kOnFoot;
     uint8_t seat_ = 0;
+    bool seatView_ = true;
     bool seated_ = false;
     const vehicle_camera_file::Game* game_ = nullptr; // into table_
     int entry_ = -1;
     std::string entryName_;
+    // The ride the camera in use was chosen for: a match for the same game, vehicle and seat (or a seat the
+    // game has only now named) keeps it; any other is a new seat.
+    std::string rideGame_, rideVehicle_;
+    uint8_t rideSeat_ = 0;
     std::string cameraName_;
     std::string modeName_;
     // The tethering mode the player last had in a camera that offers a choice, while he stays seated: stepping

@@ -24,6 +24,7 @@
 #include "../common/scope_action_input.h"
 #include "../common/physical_crouch_input.h"
 #include "../common/vr_action_passthrough.h"
+#include "../common/vehicle_seat_buttons.h"
 #include "physical_crouch_camera.h"
 #include "native_vr_actions.h"
 #include "dev_pad.h"
@@ -241,6 +242,45 @@ namespace
             Game_RecenterManual();
             Menu_Toggle();
             LOG("L3+R3: recentered immersive/theatre space and toggled F1 menu");
+        }
+
+        // THE VEHICLE CAMERA BUTTONS (vehicle_seat_buttons.h): in a seat the vehicle cameras run in, left Y steps
+        // the camera, left X its tethering mode, either held re-centres the view, and the left stick click moves the
+        // seat to its next way of being controlled; right B takes over what left X does in the game, and in a
+        // passenger's seat the support trigger switches weapon. Before anything below reads a button, so every
+        // route to the game -- the action mapper, the native bridge, legacy routing -- sees the seat's buttons.
+        {
+            static thread_local vehicle_seat_buttons::Seat seatButtons;
+            bool passenger = false;
+            const bool live = Game_VehicleSeatButtonsLive(passenger) && !Menu_IsOpen() && !pad.exclusiveInput;
+            vehicle_seat_buttons::Buttons buttons;
+            buttons.x = pad.x;
+            buttons.y = pad.y;
+            buttons.b = pad.b;
+            buttons.clickL = pad.clickL;
+            buttons.clickR = pad.clickR;
+            buttons.supportTrigger = pad.trigL;
+            const vehicle_seat_buttons::Requests asked = seatButtons.Step(
+                buttons, live, passenger, GetTickCount64(), vehicle_seat_buttons::kDefaultHoldMs);
+            if (live)
+            {
+                pad.x = buttons.x;
+                pad.y = buttons.y;
+                pad.b = buttons.b;
+                pad.clickL = buttons.clickL;
+                pad.trigL = buttons.supportTrigger;
+            }
+            if (asked.camera || asked.mode)
+                Game_VehicleCameraStep(asked.camera, asked.mode);
+            if (asked.control)
+                Game_VehicleControlStep();
+            if (asked.recenter)
+            {
+                Game_RecenterManual();
+                LOG("Vehicle cameras: view re-centred (left X or Y held)");
+            }
+            if (asked.camera || asked.mode || asked.control || asked.recenter)
+                VR_SetGameHaptics(asked.recenter ? 0.6f : 0.35f);
         }
 
         static thread_local ExclusiveInputHolds physicalHolds;

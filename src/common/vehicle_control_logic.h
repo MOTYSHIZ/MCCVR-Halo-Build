@@ -57,6 +57,37 @@ inline constexpr bool StickAims(Mode mode) noexcept
     return mode == Mode::Stick;
 }
 
+// THE LEFT STICK CLICK'S NEXT CHOICE for a seat now controlled by `current`: Motion, then Stick, then -- in a
+// seat that can take the wheel (`wheelSeat`: a look-steered ground vehicle's driver) -- Wheel, and round again.
+// Automatic is where the seat was before any choice; the click moves it on as from Motion.
+inline constexpr Mode Next(Mode current, bool wheelSeat) noexcept
+{
+    switch (current)
+    {
+    case Mode::Stick:
+        return wheelSeat ? Mode::Wheel : Mode::Motion;
+    case Mode::Wheel:
+        return Mode::Motion;
+    default:
+        return Mode::Stick;
+    }
+}
+
+inline constexpr const char* Name(Mode mode) noexcept
+{
+    switch (mode)
+    {
+    case Mode::Motion:
+        return "Motion (your hand)";
+    case Mode::Stick:
+        return "Stick";
+    case Mode::Wheel:
+        return "Wheel";
+    default:
+        return "As before";
+    }
+}
+
 // Is the turn stick busy with the seat, so that it must not turn the view as well? A stick-aimed seat's always
 // is. A seat whose heading is authored has it busy until the wheel is in hand and steering.
 inline constexpr bool StickBusy(bool authored, bool stickAims, bool wheelSteering) noexcept

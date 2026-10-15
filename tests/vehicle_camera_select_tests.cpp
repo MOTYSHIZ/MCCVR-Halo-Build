@@ -332,6 +332,90 @@ static void TestCarryAcrossCameras()
           "and the choice last made carries through the seat view to the next camera");
 }
 
+static void TestNoSeatView()
+{
+    Selector selector;
+    Check(selector.Update("halo3", true, "unidentified", kSeatDriver, false), "a vehicle the game has no seat view for");
+    Check(selector.Active().chase && selector.Active().camera == 1,
+          "starts in the first chase camera when the entry's default is the seat view");
+    Check(selector.StepCamera(1) && !selector.Active().chase, "and can still step to the seat view");
+    selector.Update("halo3", false, "", 0);
+    selector.Update("halo3", true, "unidentified", kSeatDriver, false);
+    Check(!selector.Active().chase, "where the player left it, the next time");
+
+    Selector known;
+    known.Update("halo3", true, "warthog", kSeatDriver, true);
+    Check(!known.Active().chase, "a vehicle with a seat view starts in it");
+}
+
+static void TestMemoryPerVehicleAndSeat()
+{
+    Selector selector;
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    selector.StepCamera(1);
+    selector.Update("halo3", true, "ghost", kSeatDriver);
+    Check(selector.Active().camera == 0, "one default entry still keeps each vehicle's own choice");
+    selector.Update("halo3", true, "warthog", kSeatPassenger);
+    Check(selector.Active().camera == 0, "and each seat's");
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    Check(selector.Active().camera == 1, "the Warthog driver's choice is kept");
+    Check(selector.MemoryDirty(), "a choice marks the memory to be saved");
+}
+
+static void TestControlChoice()
+{
+    Selector selector;
+    Check(selector.ControlChoice(1) == -1, "on foot there is no control choice");
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    Check(selector.ControlChoice(1) == -1, "a seat starts with none");
+    selector.MemorySaved();
+    selector.SetControlChoice(2, 1);
+    Check(selector.ControlChoice(1) == 2 && selector.MemoryDirty(), "a choice is kept against its base");
+    selector.Update("halo3", true, "ghost", kSeatDriver);
+    Check(selector.ControlChoice(1) == -1, "per vehicle");
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    Check(selector.ControlChoice(1) == 2, "and back in the Warthog it is there");
+    Check(selector.ControlChoice(3) == -1, "a base changed since forgets it");
+    Check(selector.ControlChoice(1) == -1, "for good");
+    selector.SetControlChoice(1, 1);
+    Check(selector.ControlChoice(1) == -1, "a choice equal to its base is no choice");
+}
+
+static void TestMemoryFile()
+{
+    Selector selector;
+    selector.SetTable(Read(Halo3Table(kWarthogCameras)));
+    selector.Update("halo3", true, "Warthog", kSeatDriver);
+    selector.StepCamera(1); // High, Tethered (carried)
+    selector.SetControlChoice(2, 1);
+    selector.Update("halo3", true, "Warthog", kSeatGunner);
+    selector.SetControlChoice(3, 1);
+    const std::string text = selector.MemoryText();
+    Check(Has(text, "halo3\tWarthog\tDriver\tWarthog\t3\tHigh\t1\tTethered\tstick\tmotion"), "the driver's line");
+    Check(Has(text, "halo3\tWarthog\tGunner\t\t0\t\t0\t\twheel\tmotion"),
+          "the gunner's line: controls chosen, no camera stepped to");
+    Check(text.rfind("# ", 0) == 0, "the file starts with what it is");
+
+    Selector fresh;
+    fresh.SetTable(Read(Halo3Table(kWarthogCameras)));
+    Check(fresh.LoadMemory(text + "not a line of ours\r\nhalo3\tGhost\r\n") == 2, "two seats read back, the rest skipped");
+    Check(!fresh.MemoryDirty(), "reading the file is not a change to save");
+    fresh.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(fresh.Active().camera == 2 && fresh.Active().mode == 0 && fresh.Active().rotYaw,
+          "the next session starts the seat where it was left");
+    Check(fresh.ControlChoice(1) == 2, "with its controls");
+    fresh.Update("halo3", true, "Warthog", kSeatGunner);
+    Check(fresh.ControlChoice(1) == 3, "each seat with its own");
+
+    // A seat whose remembered entry is not the one it is matched to now starts in that entry's defaults.
+    Selector moved;
+    moved.SetTable(Read(Halo3Table(kWarthogCameras)));
+    moved.LoadMemory("halo3\tWarthog\tDriver\tsomething else\t3\tHigh\t1\tTethered\tstick\tmotion\r\n");
+    moved.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(moved.Active().camera == 1, "another entry's memory is not this entry's camera");
+    Check(moved.ControlChoice(1) == 2, "though the controls are the seat's own");
+}
+
 int main()
 {
     TestBuiltInTable();
@@ -341,6 +425,10 @@ int main()
     TestReload();
     TestTwoCamerasOfOneName();
     TestCarryAcrossCameras();
+    TestNoSeatView();
+    TestMemoryPerVehicleAndSeat();
+    TestControlChoice();
+    TestMemoryFile();
     std::printf("PASS: %u vehicle camera selection checks\n", g_checks);
     return 0;
 }

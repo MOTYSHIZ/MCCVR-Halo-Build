@@ -332,6 +332,11 @@ bool Game_Halo3VehicleWheelActive();
 // camera is in use, or why none is; false when there is nothing to say (the feature is off).
 void Game_VehicleCameraStep(int cameraDirection, int modeDirection);
 bool Game_VehicleCameraReadout(char* out, size_t capacity);
+// The vehicle camera buttons (vehicle_seat_buttons.h), for the input hook. Live: the seat the player is in is one
+// the vehicle cameras run in, so left X, left Y and the left stick click are theirs; `passenger` says it is a
+// passenger's. ControlStep asks for the seat's next way to be controlled (the left stick click).
+bool Game_VehicleSeatButtonsLive(bool& passenger);
+void Game_VehicleControlStep();
 // C13 per-SEAT trim: the config storage slot for the seat the player occupies
 // right now (see ConfigSeatTrimSlot; a mounted gunner reports the carrier
 // vehicle's gunner slot), -1 when on foot or unidentified, plus its display

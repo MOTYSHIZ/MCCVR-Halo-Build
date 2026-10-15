@@ -65,6 +65,19 @@ static void TestStickAims()
     Check(StickBusy(false, true, true), "a wheel that is not this seat's frees nothing");
 }
 
+static void TestNext()
+{
+    Check(Next(Mode::Motion, true) == Mode::Stick && Next(Mode::Stick, true) == Mode::Wheel &&
+              Next(Mode::Wheel, true) == Mode::Motion,
+          "a seat with a wheel goes round Motion, Stick, Wheel");
+    Check(Next(Mode::Motion, false) == Mode::Stick && Next(Mode::Stick, false) == Mode::Motion,
+          "a seat without one goes between Motion and Stick");
+    Check(Next(Mode::Wheel, false) == Mode::Motion, "a wheel chosen elsewhere is left for the hand");
+    Check(Next(Mode::Automatic, true) == Mode::Stick && Next(Mode::Automatic, false) == Mode::Stick,
+          "from as before, the click moves on as from Motion");
+    Check(Name(Mode::Stick)[0] == 'S' && Name(Mode::Automatic)[0] == 'A', "each mode has a name for the readout");
+}
+
 static void TestWheelOnOffer()
 {
     Halo3Wheel wheel;
@@ -107,6 +120,7 @@ int main()
 {
     TestWhoSteers();
     TestStickAims();
+    TestNext();
     TestWheelOnOffer();
     std::printf("PASS: %u vehicle control checks\n", g_checks);
     return 0;

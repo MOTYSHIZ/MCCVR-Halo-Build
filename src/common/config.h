@@ -790,7 +790,7 @@ struct Config
     // other seat is the hand's. 0 = as before this choice existed: the hand aims every seat, except that the
     // stick or wheel steers a look-steered driver whose view turns with the vehicle. Halo 3 for now; in the
     // other games the stick or wheel still steers only a view that follows the vehicle.
-    int vehicle_control = 0;
+    int vehicle_control = 1;
     float vehicle_wheel_max_deg = 75.0f;      // wheel angle at full lock
     float vehicle_wheel_deadzone_deg = 6.0f;  // slack around centre
 

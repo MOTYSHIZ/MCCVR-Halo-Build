@@ -11219,7 +11219,7 @@ namespace
             static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex,
             seat.mounted, true);
         const bool authors = vehicle_control::Authored(
-            vehicle_control::FromConfig(g_config.vehicle_control), lookSteeredDriver, followActive);
+            VehicleControlModeNow(), lookSteeredDriver, followActive);
         // The wheel state itself belongs to the input thread, which releases it
         // on the same condition; only the published atomics are cleared here,
         // so a game that stopped polling input cannot leave a steer latched.
@@ -11232,7 +11232,7 @@ namespace
                                          std::memory_order_release);
         // Stick, in any seat the mod's seat camera is up in: a gunner's, a passenger's, a tank driver's.
         g_halo3SeatStickAims.store(
-            fpActive && vehicle_control::StickAims(vehicle_control::FromConfig(g_config.vehicle_control)) ? 1u : 0u,
+            fpActive && vehicle_control::StickAims(VehicleControlModeNow()) ? 1u : 0u,
             std::memory_order_release);
     }
 
@@ -52821,7 +52821,7 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
 {
     // The wheel as the chosen way to steer (vehicle_control) is offered whatever the wheel's own switch says.
     const bool wheelChosen =
-        vehicle_control::FromConfig(g_config.vehicle_control) == vehicle_control::Mode::Wheel;
+        VehicleControlModeNow() == vehicle_control::Mode::Wheel;
     const bool eligible = pad.valid && (g_config.vehicle_motion || wheelChosen) &&
         g_enabled.load() && g_vrAim.load() && Halo3SeatUsesWheel();
     if (Halo3UpdateWheelToggle(g_halo3Wheel, eligible, pad.gripL, pad.gripR,
@@ -57246,6 +57246,18 @@ bool Game_ReachPlayerIsInVehicle()
 void Game_VehicleCameraStep(int cameraDirection, int modeDirection)
 {
     VehicleCameraRequestStep(cameraDirection, modeDirection);
+}
+
+bool Game_VehicleSeatButtonsLive(bool& passenger)
+{
+    const uint32_t seat = g_vehicleSeatButtons.load(std::memory_order_acquire);
+    passenger = (seat & kVehicleSeatPassenger) != 0;
+    return (seat & kVehicleSeatButtonsLive) != 0;
+}
+
+void Game_VehicleControlStep()
+{
+    g_vehicleControlStep.fetch_add(1, std::memory_order_relaxed);
 }
 
 bool Game_VehicleCameraReadout(char* out, size_t capacity)

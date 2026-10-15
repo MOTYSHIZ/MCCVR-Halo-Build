@@ -2923,9 +2923,14 @@ void ConfigSave()
     fprintf(f, "# halomccvr_vehicle_cameras.json, in this folder. The file is written\n");
     fprintf(f, "# the first time this is on; it is yours to edit and is read again\n");
     fprintf(f, "# when you save it. Its first camera is the seat view you already\n");
-    fprintf(f, "# have, so nothing changes until you choose another one from the F1\n");
-    fprintf(f, "# menu's Vehicles page. A camera placed outside the vehicle shows\n");
-    fprintf(f, "# your character in the seat.\n");
+    fprintf(f, "# have; a vehicle the mod does not know starts where the game's own\n");
+    fprintf(f, "# third-person camera sits. In a seat: left Y = next camera, left X =\n");
+    fprintf(f, "# next tethering mode, either held a second = re-centre the view, left\n");
+    fprintf(f, "# stick click = next way to control the seat (vehicle_control). Right B\n");
+    fprintf(f, "# then uses, gets out and reloads, and a passenger's support trigger\n");
+    fprintf(f, "# switches weapon. Each seat's last camera, mode and controls are kept\n");
+    fprintf(f, "# in halomccvr_vehicle_cameras_last.txt (delete it to start afresh).\n");
+    fprintf(f, "# A camera placed outside the vehicle shows your character in the seat.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
     fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
     fprintf(f, "# How you control a vehicle seat (Halo 3 for now). This is apart from\n");
