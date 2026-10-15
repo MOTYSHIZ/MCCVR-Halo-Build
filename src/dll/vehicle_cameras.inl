@@ -276,6 +276,8 @@ struct Halo3VehicleCameraRest
     uint32_t waited = 0;   // placements asked for before a distance was known
 };
 Halo3VehicleCameraRest g_halo3VehicleCameraRest;
+// The resting distance in use, world units (0 = none yet), for the cold worker's log line.
+std::atomic<float> g_halo3VehicleCameraRestWu{0.0f};
 inline constexpr float kHalo3RestKnownWu = 0.25f; // nearer than this the director is still in the seat's own view
 inline constexpr float kHalo3RestFurthestWu = 8.0f;
 inline constexpr float kHalo3RestPivotReachWu = 10.0f; // a pivot further than this from the vehicle is not its seat's
@@ -311,6 +313,7 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
         in.restValid = true;
         memcpy(in.rest, about, sizeof(in.rest));
         in.restDistance = rest.distance;
+        g_halo3VehicleCameraRestWu.store(rest.distance, std::memory_order_relaxed);
         return true;
     }
     if (rest.waited < kHalo3RestWaitFrames)
@@ -585,6 +588,8 @@ struct VehicleCameraRuntime
     int frameSourceLogged = -1; // 0 = the drawn root node, 1 = the simulation's frame
     bool standInLogged = false;
     bool noTraceLogged = false;
+    float restLoggedWu = 0.0f;
+    uint32_t heldFramesStint = 0;
 };
 inline constexpr uint64_t kVehicleCameraFilePollMs = 2000;
 
@@ -781,6 +786,12 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.frameSourceLogged = -1;
         r.standInLogged = false;
         r.noTraceLogged = false;
+        if (r.heldFramesStint)
+            LOG("Vehicle cameras (Halo 3): in that seat the camera was held short of something on %u frames",
+                r.heldFramesStint);
+        r.heldFramesStint = 0;
+        r.restLoggedWu = 0.0f;
+        g_halo3VehicleCameraRestWu.store(0.0f, std::memory_order_relaxed);
     }
 
     const uint32_t frames = g_halo3VehicleCameraFrames.exchange(0, std::memory_order_relaxed);
@@ -788,7 +799,17 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     const uint32_t standInFrames = g_halo3VehicleCameraStandInFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t collideFrames = g_halo3VehicleCameraCollideFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t noTraceFrames = g_halo3VehicleCameraNoTraceFrames.exchange(0, std::memory_order_relaxed);
-    g_halo3VehicleCameraHeldFrames.exchange(0, std::memory_order_relaxed);
+    r.heldFramesStint += g_halo3VehicleCameraHeldFrames.exchange(0, std::memory_order_relaxed);
+    // The game's own third-person camera's resting distance: said once it is first measured in a seat, and
+    // again whenever it has grown by a tenth since (the distance is the furthest the game's camera has stood).
+    const float restWu = g_halo3VehicleCameraRestWu.load(std::memory_order_relaxed);
+    if (restWu > 0.0f && restWu > r.restLoggedWu * 1.1f)
+    {
+        r.restLoggedWu = restWu;
+        LOG("Vehicle cameras (Halo 3): the game's own third-person camera rests %.2f world units (%.0f cm) from "
+            "its pivot in this seat",
+            static_cast<double>(restWu), static_cast<double>(restWu / vehicle_camera_frame::kWorldUnitsPerCm));
+    }
     if (noTraceFrames > 60 && collideFrames == 0 && !r.noTraceLogged)
     {
         r.noTraceLogged = true;
