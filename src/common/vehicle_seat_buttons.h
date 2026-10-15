@@ -11,7 +11,9 @@
 // The three left buttons are the mod's alone while this holds: none of them reaches the game. A tap acts on
 // RELEASE, so a hold can mean something else. Only a press that STARTS in the seat counts: the first poll in
 // a seat records what is already down (the button that boarded the vehicle is still held when the seat comes
-// up) and acts on nothing. A left stick click joined by the right stick's is the menu's chord, not a click.
+// up) and acts on nothing. A left stick click joined by the right stick's is the menu's chord, not a click, and
+// left Y joined by right B is the pause chord (the caller reads it from the buttons as they were): that Y is
+// not a tap or a hold, and that B is not the game's use.
 //
 // Pure: the caller hands in the poll's buttons and gets back what reaches the game and what was asked for. Keep ONE
 // instance for every thread that polls the pad and step it under a lock, with the time read inside the lock: a
@@ -56,6 +58,12 @@ public:
             return asked;
         }
         const Buttons raw = buttons;
+        if (raw.y && raw.b)
+            pauseChord_ = true;
+        else if (!raw.y && !raw.b)
+            pauseChord_ = false;
+        if (pauseChord_)
+            y_.downMs = 0;
         if (primed_)
         {
             Tap(x_, raw.x, nowMs, holdMs, asked.recenter, asked.mode);
@@ -79,7 +87,7 @@ public:
         primed_ = true;
 
         // What reaches the game.
-        buttons.x = raw.b;
+        buttons.x = raw.b && !pauseChord_;
         buttons.b = false;
         buttons.y = false;
         buttons.clickL = false;
@@ -126,6 +134,7 @@ private:
     }
 
     bool primed_ = false;
+    bool pauseChord_ = false; // left Y and right B have been down together since both were last up
     Press x_, y_;
     bool clickWas_ = false, clickArmed_ = false, clickChord_ = false;
     bool triggerDown_ = false;

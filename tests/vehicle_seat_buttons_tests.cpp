@@ -120,6 +120,28 @@ static void TestPollsFromSeveralThreads()
     Check(steps == 0, "and its release, whichever thread sees it, steps no camera");
 }
 
+// Left Y with right B is the pause chord: neither a camera step nor a re-centre, and B is not the game's use
+// while it lasts, whichever of the two is let go first.
+static void TestPauseChord()
+{
+    Poll p;
+    p.Run(With(false, false));
+    p.Run(With(false, true));
+    Requests r = p.Run(With(false, true, true));
+    Check(!p.out.x && !p.out.y, "left Y with right B: the chord, so B is not the game's use");
+    r = p.Run(With(false, true, true), true, false, 1200);
+    Check(!r.recenter, "held together they do not re-centre");
+    r = p.Run(With(false, false, true));
+    Check(r.camera == 0 && !p.out.x, "letting go of Y steps no camera, and B still held is not use");
+    r = p.Run(With(false, false, false));
+    Check(r.camera == 0, "nor does letting go of B");
+    p.Run(With(false, false, true));
+    Check(p.out.x, "a later B on its own is the game's use again");
+    p.Run(With(false, false, false));
+    p.Run(With(false, true));
+    Check(p.Run(With(false, false)).camera == 1, "and a later Y on its own steps the camera");
+}
+
 static void TestBoardingPress()
 {
     Poll p;
@@ -186,6 +208,7 @@ int main()
     TestTaps();
     TestHold();
     TestPollsFromSeveralThreads();
+    TestPauseChord();
     TestBoardingPress();
     TestLeavingTheSeat();
     TestStickClick();

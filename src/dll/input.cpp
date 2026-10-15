@@ -237,6 +237,9 @@ namespace
 
         const bool sharedGameplayInput =
             Game_AllowsSharedGameplayFeatures();
+        // The face buttons as the controllers gave them: the vehicle camera buttons below take left Y and right B
+        // over in a seat, and the pause chord further down is still read from these.
+        const bool rawPadY = pad.y, rawPadB = pad.b;
         const MenuChordResult chord =
             g_menuChord.Update(GetTickCount64(), pad.clickL, pad.clickR);
         if (chord.toggled)
@@ -272,6 +275,13 @@ namespace
                 asked = g_seatButtons.Step(buttons, live, passenger, GetTickCount64(),
                                            vehicle_seat_buttons::kDefaultHoldMs);
             }
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            static std::atomic<bool> seatBWas{false};
+            const bool seatB = live && rawPadB;
+            if (seatB != seatBWas.exchange(seatB, std::memory_order_relaxed) && seatB)
+                LOG("Vehicle cameras (dev): right B pressed in the seat; handed to the game as %s",
+                    buttons.x ? "use (left X's job)" : "nothing (the pause chord)");
+#endif
             if (live)
             {
                 pad.x = buttons.x;
@@ -338,8 +348,8 @@ namespace
         {
             pauseChord = g_pauseChord.Update(
                 GetTickCount64(),
-                pad.y || (physicalButtons & XINPUT_GAMEPAD_Y) != 0,
-                pad.b || (physicalButtons & XINPUT_GAMEPAD_B) != 0);
+                rawPadY || (physicalButtons & XINPUT_GAMEPAD_Y) != 0,
+                rawPadB || (physicalButtons & XINPUT_GAMEPAD_B) != 0);
             if (pauseChord.toggled)
                 Input_RequestPauseToggle();
         }
