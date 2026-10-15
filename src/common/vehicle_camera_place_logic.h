@@ -25,11 +25,14 @@ struct Inputs
     bool headValid = false;
     float head[3]{};
     // Where the game's own third-person camera rests for this seat ("origin": "thirdperson"): the point it
-    // turns about, and its own distance behind that point in world units. A game that cannot say leaves
-    // restValid false, and such a camera then stands behind the vehicle's origin at a distance of the mod's own.
+    // turns about, its own distance from that point in world units, and how much of that distance is height
+    // above the point (a game's chase camera looking level usually stands above the point it turns about; the
+    // rest of the distance is behind). A game that cannot say leaves restValid false, and such a camera then
+    // stands behind the vehicle's origin at a distance of the mod's own.
     bool restValid = false;
     float rest[3]{};
     float restDistance = 0.0f;
+    float restRise = 0.0f;
     // The heading the player's room faces (the stick turns it; his head does not): what an orbiting camera
     // ("locationTracking": "view") rides.
     float viewYaw = 0.0f;
@@ -85,12 +88,17 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
     switch (static_cast<Origin>(camera.origin))
     {
     case Origin::ThirdPerson:
-        // The game's own distance lies behind its own turning point, along whatever carries this camera's
-        // offset, so the camera rests where the game's does and does not swing with the aim as the game's does.
+        // The game's own distance from its own turning point, laid along whatever carries this camera's offset:
+        // its height above the point, and the rest of it behind. So the camera rests where the game's does when
+        // it looks level, and does not swing with the aim as the game's does.
         if (in.restValid && Finite3(in.rest) && std::isfinite(in.restDistance) && in.restDistance > 0.0f)
         {
+            float rise = std::isfinite(in.restRise) ? in.restRise : 0.0f;
+            rise = rise > in.restDistance ? in.restDistance : (rise < -in.restDistance ? -in.restDistance : rise);
+            const float back = std::sqrt(in.restDistance * in.restDistance - rise * rise);
             origin = in.rest;
-            offsetCm[0] -= in.restDistance / vehicle_camera_frame::kWorldUnitsPerCm;
+            offsetCm[0] -= back / vehicle_camera_frame::kWorldUnitsPerCm;
+            offsetCm[2] += rise / vehicle_camera_frame::kWorldUnitsPerCm;
         }
         else
         {

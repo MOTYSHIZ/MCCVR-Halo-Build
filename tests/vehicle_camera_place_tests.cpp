@@ -180,6 +180,16 @@ static void TestThirdPersonRest()
     Check(Near3(point, 10.0f, 18.5f, 4.0f), "rests the game's own distance behind the game's own turning point");
     Check(!state.standIn, "and that is not the stand-in");
 
+    // Part of the game's distance is height: its camera stands above the point it turns about when it looks
+    // level. The camera stands that high, and behind by the rest of the distance.
+    in.restRise = 1.2f;
+    Check(Place(camera, in, state, point) && Near3(point, 10.0f, 18.9f, 5.2f),
+          "the game's own height above its turning point, and the rest of its distance behind");
+    in.restRise = 5.0f;
+    Check(Place(camera, in, state, point) && Near3(point, 10.0f, 20.5f, 6.0f),
+          "a height of more than the whole distance is the whole distance, straight up");
+    in.restRise = 0.0f;
+
     camera.offsetCm[0] = 100.0f;
     camera.offsetCm[2] = 50.0f;
     Check(Place(camera, in, state, point) &&

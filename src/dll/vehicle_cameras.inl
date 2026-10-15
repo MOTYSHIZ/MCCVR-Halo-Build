@@ -266,13 +266,18 @@ bool Halo3ReadObserverCamera(float position[3], float focus[3], float* forward =
 }
 
 // WHERE THE GAME'S OWN THIRD-PERSON CAMERA RESTS in the seat ("origin": "thirdperson"). The game's camera
-// swings about its pivot with the aim; where it RESTS is that pivot and its distance from it. The distance is
-// the furthest the game's camera has stood off in this seat: the game pulls its camera in from walls and
-// through its change of view, and the furthest it stands is the distance it means. Camera thread.
+// swings about its pivot with the aim; where it RESTS is that pivot, its distance from it, and its height above
+// it when it looks level (measured headless in a Mongoose: 474 cm from the pivot, 151 cm of that above it,
+// looking level). The distance is the furthest the game's camera has stood off in this seat while looking within
+// kHalo3RestLevelSin of level: the game pulls its camera in from walls and through its change of view, the
+// furthest it stands is the distance it means, and how high it stands depends on where the player aims. Until it
+// has looked level, the furthest it has stood at any aim is used. Camera thread.
 struct Halo3VehicleCameraRest
 {
     VehicleCameraSeatKey seat{};
     float distance = 0.0f; // world units
+    float rise = 0.0f;     // of that distance, the height above the pivot along the vehicle's up
+    bool level = false;    // the distance and height were taken while the game's camera looked level
     uint32_t waited = 0;   // placements asked for before a distance was known
 };
 Halo3VehicleCameraRest g_halo3VehicleCameraRest;
@@ -287,6 +292,7 @@ inline constexpr float kHalo3RestKnownWu = 0.25f; // nearer than this the direct
 inline constexpr float kHalo3RestFurthestWu = 8.0f;
 inline constexpr float kHalo3RestPivotReachWu = 10.0f; // a pivot further than this from the vehicle is not its seat's
 inline constexpr uint32_t kHalo3RestWaitFrames = 45;
+inline constexpr float kHalo3RestLevelSin = 0.26f; // within about 15 degrees of level
 
 // Fills `in` with the resting place. False: not known YET, and the seat keeps the view it has for this frame.
 // True with in.restValid false: it could not be read at all, and the caller's stand-in applies.
@@ -310,14 +316,20 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
     {
         const float stood[3] = {at[0] - about[0], at[1] - about[1], at[2] - about[2]};
         const float distance = sqrtf(vehicle_camera_frame::Dot(stood, stood));
-        if (std::isfinite(distance) && distance > rest.distance && distance <= kHalo3RestFurthestWu)
+        const float lookUp = vehicle_camera_frame::Dot(looks, in.vehicle.up);
+        const bool level = std::fabs(lookUp) <= kHalo3RestLevelSin;
+        // The first level sample replaces whatever was taken at another aim; after that only a level one that
+        // stands further does.
+        const bool take = std::isfinite(distance) && distance <= kHalo3RestFurthestWu &&
+                          (level ? (!rest.level || distance > rest.distance) : (!rest.level && distance > rest.distance));
+        if (take)
         {
             rest.distance = distance;
+            rest.rise = vehicle_camera_frame::Dot(stood, in.vehicle.up);
+            rest.level = level;
             const float pivot[3] = {about[0] - in.vehicleOrigin[0], about[1] - in.vehicleOrigin[1],
                                     about[2] - in.vehicleOrigin[2]};
-            const float lookUp = vehicle_camera_frame::Dot(looks, in.vehicle.up);
-            g_halo3VehicleCameraRestUpWu.store(vehicle_camera_frame::Dot(stood, in.vehicle.up),
-                                               std::memory_order_relaxed);
+            g_halo3VehicleCameraRestUpWu.store(rest.rise, std::memory_order_relaxed);
             g_halo3VehicleCameraRestPitchDeg.store(
                 asinf(lookUp < -1.0f ? -1.0f : (lookUp > 1.0f ? 1.0f : lookUp)) * 57.29578f,
                 std::memory_order_relaxed);
@@ -330,6 +342,7 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
         in.restValid = true;
         memcpy(in.rest, about, sizeof(in.rest));
         in.restDistance = rest.distance;
+        in.restRise = std::isfinite(rest.rise) ? rest.rise : 0.0f;
         g_halo3VehicleCameraRestWu.store(rest.distance, std::memory_order_relaxed);
         return true;
     }
@@ -831,7 +844,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         const float upWu = g_halo3VehicleCameraRestUpWu.load(std::memory_order_relaxed);
         const float pivotUpWu = g_halo3VehicleCameraRestPivotUpWu.load(std::memory_order_relaxed);
         LOG("Vehicle cameras (Halo 3): the game's own third-person camera rests %.2f world units (%.0f cm) from "
-            "its pivot in this seat; where it stood furthest it was %.0f cm above the pivot looking %.1f deg up, "
+            "its pivot in this seat, %.0f cm of that above the pivot (it looked %.1f deg up), "
             "and the pivot is %.0f cm above the vehicle's origin",
             static_cast<double>(restWu), static_cast<double>(restWu / vehicle_camera_frame::kWorldUnitsPerCm),
             static_cast<double>(upWu / vehicle_camera_frame::kWorldUnitsPerCm),
