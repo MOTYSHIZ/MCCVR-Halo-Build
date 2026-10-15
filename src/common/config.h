@@ -481,6 +481,20 @@ struct Config
     // waits until it has learned where the game leaves each eye's picture, which compares two eyes. Followed live.
     // (default 0)
     bool mono_rendering = false;
+    // HOOK COST (hook_cost_logic.h). N = one presented frame in N is timed: every Direct3D call the mod hooks
+    // reads the cycle counter around the mod's own work and around the game's real call, and every ten seconds a
+    // `timing:` line gives the mod's own work a frame, by call. The timed frame itself is slower by the timer's
+    // readings (milliseconds in a scene with much in it). 0 = off; then a hook pays one flag test. Least 8.
+    // Followed live. (default 0)
+    int hook_cost_frames = 0;
+
+    // A host that draws its own UI over the game's frame (Project Reclaimer; reclaimer_host_logic.h, "the host's UI
+    // as a panel"): 1 = that UI is shown as a panel in front of the stereo picture, where the flat screen would
+    // be; 0 = the picture goes flat while one of the host's screens is up, and its overlays during play are not
+    // seen. Nothing in MCC. Followed live.
+    bool host_ui_panel = true;
+    float host_ui_panel_width_m = 2.8f;    // the panel's width, in meters (16:9 at 2.4 m: about 60 degrees across)
+    float host_ui_panel_distance_m = 2.4f; // how far in front of the eyes it floats, in meters
 
     // Universal cutscene-only stereo theatre. A title enters it only after its
     // adapter proves the engine owns an authored camera and player camera
@@ -1915,6 +1929,16 @@ inline VirtualStockAimSettings VirtualStockAimSettingsFromConfig(
 }
 
 extern Config g_config;
+
+// True when the HOST decides the size the game is drawn at and the mod cannot move it. False in MCC, where
+// the game draws at its swapchain's size and the mod sets that from resolution_scale. Project Reclaimer draws
+// the game through a viewport of its own "render resolution" setting whatever the swapchain's size: a larger
+// swapchain shows the game in its top-left corner, and a smaller one shows only the top-left part of the game's
+// frame, stretched over each eye like a wrong field of view (the dev SCENEPROBE line then reads a render target
+// smaller than its viewport, "RT 2970x2142 ... viewport 3840x2160"). So there the mod forces nothing and takes
+// the game's own swapchain as the VR raster; resolution_scale does nothing.
+// Set once at start (dllmain.cpp), before the D3D11 hooks are installed.
+extern bool g_hostOwnsRenderSize;
 
 // C-TITLE-1 profile control. `profile` is 0..5 (Halo 3, ODST, Reach,
 // Halo 4, Halo 2 Anniversary, Halo 2 Classic) or -1 for the shared

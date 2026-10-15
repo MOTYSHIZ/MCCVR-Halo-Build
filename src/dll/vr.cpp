@@ -65,7 +65,9 @@
 #include "../common/haloce_reticle_logic.h"
 #include "../common/vr_blit_shader.h"
 #include "../common/reticle_tint_shader.h"
+#include "../common/host_ui_panel_shader.h"
 #include "../common/mono_view_logic.h"
+#include "../common/reclaimer_host_logic.h"
 #include "haloce_controls.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
@@ -1301,6 +1303,8 @@ namespace
     TimingRing<512> g_waitDurationsMs;
     TimingRing<512> g_endFrameDurationsMs;
     TimingRing<512> g_renderWindowMs;
+    // The game's draw calls a frame, and the small ones among them (d3d11_hook.cpp, NoteFrameDraw).
+    TimingRing<512> g_frameDrawCalls, g_frameSmallDrawCalls;
     TimingRing<512> g_predictionErrorMs;
     LARGE_INTEGER g_qpcFrequency{};
     LARGE_INTEGER g_lastBeforePresentQpc{};
@@ -9913,6 +9917,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    #include "vr_host_ui_panel.inl"
+
     float UpdatePauseTransition()
     {
         enum class Phase { Idle, FadeOut, FadeIn };
@@ -15160,15 +15166,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         g_nativePointerFrame = {hit.hit, pressed, hit.u, hit.v};
     }
 
-    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad)
+    // `hostPanelScreen`: the quad is the host's UI panel carrying one of the host's screens (vr_host_ui_panel.inl):
+    // a menu during play, with no menu mode of the game's own to go by.
+    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad, bool hostPanelScreen = false)
     {
         static bool pressed = false;
         const bool headLocked = quad.space == g_viewSpace;
         if (!g_config.game_menu_pointer || Menu_IsOpen() || g_padState.thumbrestDpad) {
             NativeMenuPointer_FrameStatus("disabled-F1-or-Dpad"); pressed=false; return;
         }
-        if (!game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
-                VR_IsPausePresentation() && VR_IsPausePresentationTarget()) ||
+        if ((!hostPanelScreen && !game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+                VR_IsPausePresentation() && VR_IsPausePresentationTarget())) ||
             VR_IsCutsceneTheaterActive()) {
             NativeMenuPointer_FrameStatus("non-menu-mode"); pressed=false; return;
         }
@@ -17146,6 +17154,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
 
         XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, secondaryReticleQuad, scopeQuad, fadeQuad, nativeCursorQuad, nativeSubtitleQuad;
+        // A host's own UI of this frame, shown over the stereo picture (vr_host_ui_panel.inl).
+        XrCompositionLayerQuad hostUiQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        bool hostUiPanelQueued = false;
         // The crosshair layer's colour scale (crosshair_opacity / crosshair_brightness). It lives as long as the
         // quads above: the layer points at it until xrEndFrame has returned.
         XrCompositionLayerColorScaleBiasKHR reticleTint{XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR};
@@ -19623,6 +19634,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     return;
                 }
 
+                // A host's own UI of this frame, over the stereo picture and under the mod's own menu, which is
+                // queued next.
+                if (stereoWorldFrame && PrepareHostUiPanel(hostUiQuad))
+                {
+                    layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&hostUiQuad));
+                    hostUiPanelQueued = true;
+                }
+
                 // One-shot welcome page for this launch. The latch is a
                 // process-lifetime static that is never cleared, so quitting a
                 // level or returning to MCC's menu can never bring the page
@@ -19754,14 +19773,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 }
             }
         }
-        if (comfortFadeAlpha <= 0.01f &&
-            std::find(layers.begin(),layers.end(),
-                reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end()) {
-            UpdateNativeMenuPointer(screenQuad);
+        // The pointer works on the flat screen, and on the host's UI panel while that carries a screen: the panel
+        // has the frame's layout, so a point on it is the same point of the window.
+        const bool screenQueued = std::find(layers.begin(),layers.end(),
+            reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end();
+        const bool hostPanelScreen = !screenQueued && hostUiPanelQueued && D3D_HostUiPanelIsScreen();
+        if (comfortFadeAlpha <= 0.01f && (screenQueued || hostPanelScreen)) {
+            const XrCompositionLayerQuad& pointedAt = screenQueued ? screenQuad : hostUiQuad;
+            UpdateNativeMenuPointer(pointedAt, hostPanelScreen);
             float u=0,v=0;bool pressed=false;
             if(g_nativePointerFrame.active && g_nativeCursorReady &&
                 NativeMenuPointer_ReadVisual(u,v,pressed)) {
-                nativeCursorQuad=game_menu_pointer::CursorQuad(screenQuad,g_nativeCursorChain,u,v,pressed);
+                nativeCursorQuad=game_menu_pointer::CursorQuad(pointedAt,g_nativeCursorChain,u,v,pressed);
                 layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeCursorQuad));
             }
         }
@@ -21430,11 +21453,22 @@ void VR_BeforePresent(IDXGISwapChain* sc)
         }
     }
 
+    {
+        uint32_t smallDraws = 0;
+        const uint32_t draws = D3D_TakeFrameDrawCalls(smallDraws);
+        g_frameDrawCalls.Add(static_cast<double>(draws));
+        g_frameSmallDrawCalls.Add(static_cast<double>(smallDraws));
+    }
     const uint64_t timingNowMs = GetTickCount64();
     if (!g_timingLogStartMs)
         g_timingLogStartMs = timingNowMs;
     else if (timingNowMs - g_timingLogStartMs >= 10000)
     {
+        // What the frames were made of, beside how long they took: both eyes' draws, the HUD's and the mod's own.
+        LOG("timing: draw calls a frame p50 %.0f p95 %.0f; of them with 96 elements or fewer (text, HUD and "
+            "other quads) p50 %.0f p95 %.0f",
+            TimingPercentile(g_frameDrawCalls, 0.50), TimingPercentile(g_frameDrawCalls, 0.95),
+            TimingPercentile(g_frameSmallDrawCalls, 0.50), TimingPercentile(g_frameSmallDrawCalls, 0.95));
         // Backward-compatible rolling summaries. These are the latest 512
         // samples (not a fixed 10-second window) and are intentionally not used
         // to attribute a transition; the PACING capture correlates exact rows.

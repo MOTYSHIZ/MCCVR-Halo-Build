@@ -20,6 +20,7 @@
 #include "log.h"
 
 Config g_config;
+bool g_hostOwnsRenderSize = false;
 
 // Shipped per-seat placements become built-in defaults, so a config file that
 // predates a key is still placed rather than bare. Halo 3/ODST rows are
@@ -336,6 +337,8 @@ static void Clamp()
     g_config.hand_smoothing_speed_cutoff_hz = std::clamp(g_config.hand_smoothing_speed_cutoff_hz, 0.1f, 100.0f);
     g_config.screen_width_m = std::clamp(g_config.screen_width_m, 0.5f, 20.0f);
     g_config.screen_distance_m = std::clamp(g_config.screen_distance_m, 0.3f, 20.0f);
+    g_config.host_ui_panel_width_m = std::clamp(g_config.host_ui_panel_width_m, 0.5f, 20.0f);
+    g_config.host_ui_panel_distance_m = std::clamp(g_config.host_ui_panel_distance_m, 0.3f, 20.0f);
     g_config.cutscene_theater_depth = std::clamp(
         g_config.cutscene_theater_depth, 0.0f, 2.0f);
     g_config.cutscene_theater_width_m = std::clamp(
@@ -1371,6 +1374,15 @@ void ConfigLoad(const wchar_t* path)
         // A player's setting stands ABOVE the development-only part below: a key read only in there is saved by a
         // player build and then called unknown at its next start (tests/config_player_roundtrip_tests.cpp).
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
+        if (!strcmp(key, "hook_cost_frames"))
+        {
+            const int frames = atoi(val);
+            g_config.hook_cost_frames = frames <= 0 ? 0 : (frames < 8 ? 8 : (frames > 100000 ? 100000 : frames));
+            continue;
+        }
+        if (!strcmp(key, "host_ui_panel")) { g_config.host_ui_panel = atoi(val) != 0; continue; }
+        if (!strcmp(key, "host_ui_panel_width_m")) { g_config.host_ui_panel_width_m = (float)atof(val); continue; }
+        if (!strcmp(key, "host_ui_panel_distance_m")) { g_config.host_ui_panel_distance_m = (float)atof(val); continue; }
 #if HALOMCCVR_DEV_DIAGNOSTICS   // research tools and dev overrides: a player build never reads them
         if (!strcmp(key, "reach_aim_probe")) { g_config.reach_aim_probe=atoi(val); continue; }
         if (!strcmp(key, "dev_install_search_check")) { g_config.dev_install_search_check = atoi(val) != 0 ? 1 : 0; continue; }
@@ -2127,6 +2139,21 @@ void ConfigSave()
     fprintf(f, "# with DLSS. (default %d)\n",
             d.mono_rendering ? 1 : 0);
     fprintf(f, "mono_rendering = %d\n\n", g_config.mono_rendering ? 1 : 0);
+    fprintf(f, "# For performance reports. N = the mod times its own work in one frame out of every N and writes\n");
+    fprintf(f, "# it to the log every 10 seconds (lines starting 'timing: the mod's own work'). The timed frame is\n");
+    fprintf(f, "# a little slower, so leave this at 0 for normal play. Try 251. (default %d, 0 = off, least 8)\n",
+            d.hook_cost_frames);
+    fprintf(f, "hook_cost_frames = %d\n\n", g_config.hook_cost_frames);
+    fprintf(f, "# Project Reclaimer only. Its menus, scoreboard, chat and other on-screen items are drawn over the\n");
+    fprintf(f, "# game's picture after the headset's pictures are taken. 1 = they are shown as a panel in front of\n");
+    fprintf(f, "# the 3D picture, which stays 3D. 0 = the picture goes flat while a menu is up. (default %d)\n",
+            d.host_ui_panel ? 1 : 0);
+    fprintf(f, "host_ui_panel = %d\n", g_config.host_ui_panel ? 1 : 0);
+    fprintf(f, "# That panel's width and its distance from your head, in meters.\n");
+    fprintf(f, "# (defaults %.2f and %.2f, ranges 0.5 to 20 and 0.3 to 20)\n", d.host_ui_panel_width_m,
+            d.host_ui_panel_distance_m);
+    fprintf(f, "host_ui_panel_width_m = %.2f\n", g_config.host_ui_panel_width_m);
+    fprintf(f, "host_ui_panel_distance_m = %.2f\n\n", g_config.host_ui_panel_distance_m);
     fprintf(f, "# Stereo 3D theatre for engine-confirmed cutscenes where the game\n");
     fprintf(f, "# has taken camera control away from the player. Shared by every\n");
     fprintf(f, "# supported title, including future title adapters. (default %d)\n",

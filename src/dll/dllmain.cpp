@@ -7,6 +7,7 @@
 #include "host_unload_gate.h"
 #include "../common/log.h"
 #include "../common/config.h"
+#include "../common/reclaimer_host_logic.h"
 #include "d3d11_hook.h"
 #include "vr.h"
 #include "game.h"
@@ -141,6 +142,10 @@ static const char* DetectMccEdition(const wchar_t* exePath)
         return "Microsoft Store / Xbox app (Game Pass)";
     if (path.find(L"mcc-win64-shipping.exe") != std::wstring::npos)
         return "Steam";
+    // Not MCC at all: Project Reclaimer runs MCC's halo3.dll without MCC's shell (src/relay/reclaimer_relay.cpp).
+    // Named so a log from it is never read as a broken MCC session.
+    if (path.find(L"\\project-reclaimer") != std::wstring::npos)
+        return "NOT MCC: Project Reclaimer (standalone Halo 3 client, experimental)";
     return "unrecognised host executable";
 }
 
@@ -173,6 +178,9 @@ static DWORD WINAPI InitThread(LPVOID)
     const std::wstring primaryConfig = dir + L"halomccvr.cfg";
     const std::wstring legacyConfig = dir + L"halo3xr.cfg";
     ConfigLoadMigrating(primaryConfig.c_str(), legacyConfig.c_str());
+    // Project Reclaimer draws the game at its own render resolution (config.h, g_hostOwnsRenderSize).
+    if (reclaimer_host::IsClientExeName(reclaimer_host::Leaf(hostExe)))
+        g_hostOwnsRenderSize = true;
     if (!Telemetry_Init())
         LOG("telemetry: recorder unavailable; VR startup continues");
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -225,6 +233,22 @@ static DWORD WINAPI InitThread(LPVOID)
         return 0;
     }
     LOG("D3D11 hooks installed; waiting for the game to render its first frame");
+    // Project Reclaimer only: its relay holds the engine worker suspended until the render-size and D3D11 hooks
+    // above exist (src/relay/reclaimer_relay.cpp says why). Nobody waits for this in MCC, and nothing is created
+    // there.
+    if (reclaimer_host::IsClientExeName(reclaimer_host::Leaf(hostExe)))
+    {
+        wchar_t eventName[64]{};
+        reclaimer_host::EarlyHooksEventName(eventName, std::size(eventName), GetCurrentProcessId());
+        if (const HANDLE ready = OpenEventW(EVENT_MODIFY_STATE, FALSE, eventName))
+        {
+            SetEvent(ready);
+            CloseHandle(ready);
+            LOG("Project Reclaimer: early hooks reported to the relay; the engine worker starts now");
+        }
+        else
+            LOG("Project Reclaimer: no relay is waiting for the early hooks (the worker was already running)");
+    }
 
     // Install input interception immediately. OpenXR instance creation below
     // blocks for roughly 20 seconds while SteamVR starts; waiting until after

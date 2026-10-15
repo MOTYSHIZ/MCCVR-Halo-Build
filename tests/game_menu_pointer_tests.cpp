@@ -60,6 +60,8 @@ RuntimeMode TitleAdapter_GetRuntimeMode() { return mode; }
 bool VR_IsPausePresentation() { return pauseScreen; }
 bool VR_IsPausePresentationTarget() { return pauseScreen; }
 bool VR_IsCutsceneTheaterActive() { return false; }
+static bool hostPanelScreen = false;
+bool D3D_HostUiPanelIsScreen() { return hostPanelScreen; }
 
 static int checks = 0, failures = 0;
 static void Check(bool ok, const char* name) {
@@ -146,6 +148,10 @@ int main()
     Frame(true); Frame(true,true); mode=RuntimeMode::Gameplay;
     Watchdog(nullptr,0,0,0); Check(!mouseDown,"gameplay transition releases");
     Frame(true); Check(!NativeMenuPointer_ConsumesTrigger(),"gameplay never consumes trigger");
+    hostPanelScreen=true; Frame(true);
+    Check(NativeMenuPointer_ConsumesTrigger(),"a host's screen shown as a panel is a menu during gameplay");
+    hostPanelScreen=false; Watchdog(nullptr,0,0,0); Frame(true);
+    Check(!NativeMenuPointer_ConsumesTrigger(),"and the pointer goes with that screen");
     mode=RuntimeMode::Paused; Frame(true);
     Check(NativeMenuPointer_ConsumesTrigger(),"pause hover consumes VR trigger only");
     mode=RuntimeMode::Unsupported; Frame(true); Frame(true,true);
