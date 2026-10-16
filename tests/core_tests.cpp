@@ -17940,6 +17940,22 @@ int main()
                   lookupOk,
                 "Vehicle identity separates same-type cousins and an "
                 "unidentified vehicle resolves to no point at all");
+
+            // The seat's eye: the occupant's head where there is no tuned
+            // point or the tuned point does not fit the model; a mounted
+            // gunner's tuned point and an unmeasured one are always kept.
+            const bool eyeOk =
+                Halo3SeatEyeFromHead(false, false, -1.0f) &&
+                Halo3SeatEyeFromHead(false, true, -1.0f) &&
+                !Halo3SeatEyeFromHead(true, false, 0.03f) &&
+                !Halo3SeatEyeFromHead(true, false, kHalo3TunedEyeFitWu) &&
+                Halo3SeatEyeFromHead(true, false, kHalo3TunedEyeFitWu + 0.01f) &&
+                !Halo3SeatEyeFromHead(true, true, 2.0f) &&
+                !Halo3SeatEyeFromHead(true, false, -1.0f) &&
+                !Halo3SeatEyeFromHead(true, false, std::nanf(""));
+            Check(eyeOk,
+                "A seat's eye is the occupant's head without a fitting tuned "
+                "point, and a gunner's tuned point is kept");
         }
 
         // O1: ODST's own identity rules. ODST ships the same authored vehicles

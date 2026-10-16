@@ -9262,8 +9262,21 @@ namespace
         bool interpolateNodes = false;
         bool nodeInterpolated = false;
         Halo3HeadSettleLatch settle{};
+        // The seat's eye, chosen once when the head first settles: the tuned point or the occupant's head
+        // (Halo3SeatEyeFromHead), and the head's eye in the seat node's frame.
+        bool eyeDecided = false;
+        bool eyeFromHead = false;
+        float headEyeLocal[3] = {0.0f, 0.0f, 0.0f};
     };
     Halo3HeadReference g_halo3HeadReference;
+    // The last seat's eye choice, for the cold worker's log line: whether the head carries it, and how far the
+    // tuned point stood from the head's eye (cm; -1 = no tuned point), ahead, above and to the right.
+    std::atomic<uint32_t> g_halo3SeatEyeSerial{0};
+    std::atomic<uint32_t> g_halo3SeatEyeFromHead{0};
+    std::atomic<float> g_halo3SeatEyeApartCm{-1.0f};
+    std::atomic<float> g_halo3SeatEyeAheadCm{0.0f};
+    std::atomic<float> g_halo3SeatEyeAboveCm{0.0f};
+    std::atomic<float> g_halo3SeatEyeRightCm{0.0f};
 
     struct Halo3NativeAnchorCalibration
     {
@@ -10115,12 +10128,15 @@ namespace
                 bool anchorValid = false;
                 bool bodyAnchorValid = false;
                 bool headParented = false;
-                const bool haveLiveNode =
+                // The seat's tuned eye point (kHalo3SeatPoints), where this build has one for the vehicle.
+                const bool haveTuned =
                     frameBoundsValid &&
                     Halo3ResolveAuthoredNodeLocal(
                         generation, nodeObject, nodeDefinition, nodeIndex,
                         anchorId, seat, mountedTurret, trimForward, trimUp,
-                        trimRight, authoredNodeLocal) &&
+                        trimRight, authoredNodeLocal);
+                const bool haveLiveNode =
+                    frameBoundsValid &&
                     Halo3ReadLiveNodeMatrix(
                         nodeObject, nodeObjectData, nodeIndex, liveNode,
                         nodeInterpolated);
@@ -10132,23 +10148,11 @@ namespace
                            sizeof(meshFrame.fwd));
                     memcpy(meshFrame.up, liveNode.up, sizeof(meshFrame.up));
 
-                    anchorValid = Halo3MatrixTransformPoint(
-                        liveNode, authoredNodeLocal, cameraAnchor) &&
-                        Halo3AnchorWithinBounds(
-                            cameraAnchor, frameBoundsCenter, frameBoundsRadius,
-                            2.0f);
-                    // C21: keep this pre-bounce placement. It is the seat
-                    // itself, rigid in the vehicle frame, and it is what the
-                    // hands hang off; the head bounce below belongs only to
-                    // the camera.
-                    memcpy(bodyAnchor, cameraAnchor, sizeof(bodyAnchor));
-                    bodyAnchorValid = anchorValid;
-
                     // The attached mod's natural bounce comes from this exact
                     // phase-matched occupant-head marker. The enum-only seat
                     // debounce is much shorter than Halo's boarding and
                     // seat-switch animations, so it cannot define H0. Keep the
-                    // exact authored anchor until this concrete seat identity's
+                    // exact eye point until this concrete seat identity's
                     // head has aged and remained still in node space.
                     const bool stableSeat =
                         g_halo3VehicleFpStable.load(
@@ -10180,25 +10184,120 @@ namespace
                     }
                     float headWorld[3] = {};
                     float currentHeadLocal[3] = {};
-                    if (anchorValid && stableSeat &&
+                    const bool headRead =
                         Halo3ReadPhaseMatchedHead(
                             unit, nodeInterpolated, headWorld) &&
                         Halo3MatrixInverseTransformPoint(
-                            liveNode, headWorld, currentHeadLocal))
+                            liveNode, headWorld, currentHeadLocal);
+                    const bool settled = headRead && stableSeat &&
+                        headRef.settle.Update(nowMs, currentHeadLocal);
+                    if (!(headRead && stableSeat) && !headRef.settle.valid)
                     {
+                        // A quiet window must consist of valid phase-matched
+                        // samples; a gap restarts observation, never the camera.
+                        headRef.settle = {};
+                    }
+
+                    // THE EYE. A seat the mod has a tuned point for keeps it. Where it has none (a vehicle it
+                    // does not know, such as a mod map's own), or the tuned point stands well away from the
+                    // occupant's head (a mod vehicle built on a stock one's tag, so known by the stock
+                    // vehicle's values, carries a different model), the eye is the occupant's own head marker
+                    // -- where Halo itself puts the camera of a seat its tag makes first person -- with the
+                    // seat's trims. Chosen once, when the head first settles in the seat; a mounted gunner's
+                    // tuned point may stand at the gun on purpose and is always kept.
+                    const float headRight[3] = {
+                        world.fwd[1] * world.up[2] - world.fwd[2] * world.up[1],
+                        world.fwd[2] * world.up[0] - world.fwd[0] * world.up[2],
+                        world.fwd[0] * world.up[1] - world.fwd[1] * world.up[0]};
+                    const auto headEyeWorld = [&](float out[3]) {
+                        for (int i = 0; i < 3; ++i)
+                            out[i] = headWorld[i] + world.fwd[i] * trimForward +
+                                world.up[i] * trimUp + headRight[i] * trimRight;
+                    };
+                    if (settled && !headRef.eyeDecided)
+                    {
+                        headRef.eyeDecided = true;
+                        float eyeWorld[3];
+                        headEyeWorld(eyeWorld);
+                        const bool headEye = Halo3MatrixInverseTransformPoint(
+                            liveNode, eyeWorld, headRef.headEyeLocal);
+                        float tunedWorld[3] = {};
+                        float apartWu = -1.0f;
+                        float tunedOff[3] = {};
+                        if (haveTuned &&
+                            Halo3MatrixTransformPoint(
+                                liveNode, authoredNodeLocal, tunedWorld))
+                        {
+                            const float d[3] = {tunedWorld[0] - eyeWorld[0],
+                                                tunedWorld[1] - eyeWorld[1],
+                                                tunedWorld[2] - eyeWorld[2]};
+                            apartWu = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                            for (int i = 0; i < 3; ++i)
+                            {
+                                tunedOff[0] += d[i] * world.fwd[i];
+                                tunedOff[1] += d[i] * world.up[i];
+                                tunedOff[2] += d[i] * headRight[i];
+                            }
+                        }
+                        headRef.eyeFromHead = headEye &&
+                            Halo3SeatEyeFromHead(haveTuned, mountedTurret, apartWu);
+                        constexpr float kCmPerWu = 304.8f;
+                        g_halo3SeatEyeFromHead.store(headRef.eyeFromHead ? 1u : 0u,
+                                                     std::memory_order_relaxed);
+                        g_halo3SeatEyeApartCm.store(apartWu < 0.0f ? -1.0f : apartWu * kCmPerWu,
+                                                    std::memory_order_relaxed);
+                        g_halo3SeatEyeAheadCm.store(tunedOff[0] * kCmPerWu, std::memory_order_relaxed);
+                        g_halo3SeatEyeAboveCm.store(tunedOff[1] * kCmPerWu, std::memory_order_relaxed);
+                        g_halo3SeatEyeRightCm.store(tunedOff[2] * kCmPerWu, std::memory_order_relaxed);
+                        g_halo3SeatEyeSerial.fetch_add(1, std::memory_order_release);
+                    }
+                    float eyeLocal[3] = {};
+                    bool haveEye = false;
+                    if (headRef.eyeDecided && headRef.eyeFromHead)
+                    {
+                        memcpy(eyeLocal, headRef.headEyeLocal, sizeof(eyeLocal));
+                        haveEye = true;
+                    }
+                    else if (haveTuned)
+                    {
+                        memcpy(eyeLocal, authoredNodeLocal, sizeof(eyeLocal));
+                        haveEye = true;
+                    }
+                    else if (headRead)
+                    {
+                        // No tuned point and the head not settled yet (the boarding animation): the head as it
+                        // is this frame, so the view rides the animation in rather than starting in the hull.
+                        float eyeWorld[3];
+                        headEyeWorld(eyeWorld);
+                        haveEye = Halo3MatrixInverseTransformPoint(
+                            liveNode, eyeWorld, eyeLocal);
+                    }
+                    if (haveEye)
+                    {
+                        anchorValid = Halo3MatrixTransformPoint(
+                            liveNode, eyeLocal, cameraAnchor) &&
+                            Halo3AnchorWithinBounds(
+                                cameraAnchor, frameBoundsCenter, frameBoundsRadius,
+                                2.0f);
+                        // C21: keep this pre-bounce placement. It is the seat
+                        // itself, rigid in the vehicle frame, and it is what the
+                        // hands hang off; the head bounce below belongs only to
+                        // the camera.
+                        memcpy(bodyAnchor, cameraAnchor, sizeof(bodyAnchor));
+                        bodyAnchorValid = anchorValid;
                         // C22: once this seat has settled, the head
                         // contribution stays on for the whole seat session and
                         // SATURATES at the limit instead of dropping out. The
                         // old in-limit gate plus its re-settle is what stepped
                         // the camera every time the car moved enough to breach
-                        // the limit â€” and on a moving vehicle the head never
+                        // the limit -- and on a moving vehicle the head never
                         // holds still long enough to earn the contribution
                         // back, so it stayed off until the car stopped.
                         float headAnchor[3] = {};
-                        if (headRef.settle.Update(nowMs, currentHeadLocal) &&
+                        if (anchorValid && settled &&
                             Halo3ComputeHeadParentedPoint(
                                 liveNode, headWorld, headRef.settle.reference,
-                                authoredNodeLocal, g_config.vehicle_bounce,
+                                eyeLocal, g_config.vehicle_bounce,
                                 headAnchor) &&
                             Halo3AnchorWithinBounds(
                                 headAnchor, frameBoundsCenter,
@@ -10208,12 +10307,6 @@ namespace
                                    sizeof(cameraAnchor));
                             headParented = true;
                         }
-                    }
-                    else if (!headRef.settle.valid)
-                    {
-                        // A quiet window must consist of valid phase-matched
-                        // samples; a gap restarts observation, never the camera.
-                        headRef.settle = {};
                     }
                 }
                 else
@@ -11564,6 +11657,33 @@ namespace
                     ? "the seat's own camera flag is restored"
                     : "the director is given the game's own answer again; nothing was written");
             nativeSeatSerialLogged = nativeSeatSerial;
+        }
+
+        // The seat's eye, once its occupant's head has settled (the sampler's THE EYE).
+        static uint32_t seatEyeLogged = 0;
+        const uint32_t seatEye = g_halo3SeatEyeSerial.load(std::memory_order_acquire);
+        if (seatEye != seatEyeLogged)
+        {
+            seatEyeLogged = seatEye;
+            Halo3SeatSnapshot eyeSeat;
+            char eyeSeatName[64] = "a seat";
+            if (Halo3ReadSeatSnapshot(eyeSeat))
+                std::snprintf(eyeSeatName, sizeof(eyeSeatName), "%s, seat %d%s",
+                              Halo3VehicleIdName(eyeSeat.identity), eyeSeat.seatIndex,
+                              eyeSeat.mounted ? " mounted" : "");
+            const bool fromHead = g_halo3SeatEyeFromHead.load(std::memory_order_relaxed) != 0;
+            const float apartCm = g_halo3SeatEyeApartCm.load(std::memory_order_relaxed);
+            if (apartCm < 0.0f)
+                LOG("H3 seat eye (%s): no tuned point for this vehicle, so the view stands at the occupant's head",
+                    eyeSeatName);
+            else
+                LOG("H3 seat eye (%s): the tuned point stands %.0f cm from the occupant's head (%.0f ahead, %.0f "
+                    "above, %.0f to the right), so the view stands at %s",
+                    eyeSeatName, static_cast<double>(apartCm),
+                    static_cast<double>(g_halo3SeatEyeAheadCm.load(std::memory_order_relaxed)),
+                    static_cast<double>(g_halo3SeatEyeAboveCm.load(std::memory_order_relaxed)),
+                    static_cast<double>(g_halo3SeatEyeRightCm.load(std::memory_order_relaxed)),
+                    fromHead ? "the occupant's head (the tuned point does not fit this model)" : "the tuned point");
         }
 
         static uint32_t seatRecentersLogged = 0;

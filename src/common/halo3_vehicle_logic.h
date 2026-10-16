@@ -1778,6 +1778,21 @@ inline constexpr const Halo3SeatPoint* Halo3FindSeatPoint(
     return nullptr;
 }
 
+// Whether a seat's view stands at the occupant's head rather than at its tuned point (kHalo3SeatPoints): when
+// there is no tuned point, or the tuned point stands further than kHalo3TunedEyeFitWu from the head's eye -- a
+// vehicle known by a stock one's values but carrying another model, as a mod vehicle built on a stock tag does.
+// A mounted gunner's tuned point may stand at the gun on purpose, so it is always kept. `tunedApartWu` < 0 or not
+// a number: not measured, so the tuned point is kept.
+inline constexpr float kHalo3TunedEyeFitWu = 0.10f; // about 30 cm
+inline bool Halo3SeatEyeFromHead(bool haveTuned, bool mounted, float tunedApartWu) noexcept
+{
+    if (!haveTuned)
+        return true;
+    if (mounted || !(tunedApartWu >= 0.0f))
+        return false;
+    return tunedApartWu > kHalo3TunedEyeFitWu;
+}
+
 // The seat that steers. Every vehicle in the authored table puts its driver at
 // seat 0 of the vehicle itself; a mounted turret gunner is seat 0 of the GUN,
 // and a walk-up turret has no vehicle under it at all. Unknown never steers —
