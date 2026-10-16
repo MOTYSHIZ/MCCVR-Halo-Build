@@ -9263,7 +9263,7 @@ namespace
         bool nodeInterpolated = false;
         Halo3HeadSettleLatch settle{};
         // The seat's eye, chosen once when the head first settles: the tuned point or the occupant's head
-        // (Halo3SeatEyeFromHead), and the head's eye in the seat node's frame.
+        // (the head where the vehicle has no tuned point), and the head's eye in the seat node's frame.
         bool eyeDecided = false;
         bool eyeFromHead = false;
         float headEyeLocal[3] = {0.0f, 0.0f, 0.0f};
@@ -10199,12 +10199,14 @@ namespace
                     }
 
                     // THE EYE. A seat the mod has a tuned point for keeps it. Where it has none (a vehicle it
-                    // does not know, such as a mod map's own), or the tuned point stands well away from the
-                    // occupant's head (a mod vehicle built on a stock one's tag, so known by the stock
-                    // vehicle's values, carries a different model), the eye is the occupant's own head marker
-                    // -- where Halo itself puts the camera of a seat its tag makes first person -- with the
-                    // seat's trims. Chosen once, when the head first settles in the seat; a mounted gunner's
-                    // tuned point may stand at the gun on purpose and is always kept.
+                    // does not know, such as a mod map's own), the eye is the occupant's own head marker --
+                    // where Halo itself puts the camera of a seat its tag makes first person -- with the seat's
+                    // trims, instead of the game's camera for a third-person seat, which stands at the chase
+                    // camera's pivot inside the hull. Chosen once, when the head first settles in the seat.
+                    // How far a tuned point stands from the head is logged, not acted on: a mod vehicle built
+                    // on a stock one's tag is known by the stock values and keeps the stock point on its own
+                    // model, but stock seats already differ from their heads (a Mongoose driver's by 24 cm), and
+                    // where a fitting point ends has not been measured on enough seats to draw the line.
                     const float headRight[3] = {
                         world.fwd[1] * world.up[2] - world.fwd[2] * world.up[1],
                         world.fwd[2] * world.up[0] - world.fwd[0] * world.up[2],
@@ -10239,8 +10241,7 @@ namespace
                                 tunedOff[2] += d[i] * headRight[i];
                             }
                         }
-                        headRef.eyeFromHead = headEye &&
-                            Halo3SeatEyeFromHead(haveTuned, mountedTurret, apartWu);
+                        headRef.eyeFromHead = headEye && !haveTuned;
                         constexpr float kCmPerWu = 304.8f;
                         g_halo3SeatEyeFromHead.store(headRef.eyeFromHead ? 1u : 0u,
                                                      std::memory_order_relaxed);
@@ -11678,12 +11679,12 @@ namespace
                     eyeSeatName);
             else
                 LOG("H3 seat eye (%s): the tuned point stands %.0f cm from the occupant's head (%.0f ahead, %.0f "
-                    "above, %.0f to the right), so the view stands at %s",
+                    "above, %.0f to the right); the view stands at %s",
                     eyeSeatName, static_cast<double>(apartCm),
                     static_cast<double>(g_halo3SeatEyeAheadCm.load(std::memory_order_relaxed)),
                     static_cast<double>(g_halo3SeatEyeAboveCm.load(std::memory_order_relaxed)),
                     static_cast<double>(g_halo3SeatEyeRightCm.load(std::memory_order_relaxed)),
-                    fromHead ? "the occupant's head (the tuned point does not fit this model)" : "the tuned point");
+                    fromHead ? "the occupant's head" : "the tuned point");
         }
 
         static uint32_t seatRecentersLogged = 0;
