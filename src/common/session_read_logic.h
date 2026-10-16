@@ -1,6 +1,7 @@
 #pragma once
 
-// THE SESSION, AS THE GAME HOLDS IT -- for the log (sight_layer.h Sight_NoteSession). Three facts a title's
+// THE SESSION, AS THE GAME HOLDS IT -- for the log and for the automatic co-op switch (sight_layer.h
+// Sight_NoteSession, coop_safe_shots = 2). Three facts a title's
 // simulation thread can read in one pass:
 //
 //   * the SIMULATION TYPE the game was started with. The games name the values themselves (Halo 3's table of
@@ -54,7 +55,8 @@ struct TlsSlots
 };
 
 // ADDR-HYGIENE: guarded (the players array's own name, signature, maximum and datum size are checked before the
-// count beside it is believed) and log only: a wrong value mislabels one SESSION line and decides nothing.
+// count beside it is believed). A layout that does not prove reads "not read", which the automatic co-op switch
+// counts as shared: a build these offsets were not measured on can only keep the stand-downs on.
 inline constexpr Layout kHalo3{0x11, false, true, false, 0x2F8, 0x08, false, 0x7C};
 inline constexpr TlsSlots kHalo3Slots{0x48, 0x10, 0x40};
 inline constexpr Layout kOdst{0x11, false, true, false, 0x418, 0x08, false, 0x7C};
@@ -138,6 +140,72 @@ inline Session Read(const uint8_t* gameGlobals, const uint8_t* playersHeader, co
                                         : uint64_t(Load<uint32_t>(countBlock + layout.maskOffset));
     s.others = detail::Bits(mask & kMachineBits & ~(uint64_t(1) << local));
     return s;
+}
+
+// ---- whether a change made on this machine only can end the session ------------------------------------------
+// A synchronous session computes one simulation on every machine from shared input, so a change made inside one
+// machine's simulation ends it; a distributed one has an authority, and the same change there is a misprediction.
+//   Alone          a synchronous (or local) game with one player and no other machine: nothing to disagree with;
+//   Authoritative  a distributed game (Firefight, custom games): no shared simulation to break;
+//   Shared         a synchronous client, or a synchronous server with anyone else in it;
+//   Unknown        anything not read. Unknown is never safe.
+enum class Standing : uint8_t { Unknown = 0, Alone, Authoritative, Shared };
+
+inline Standing Classify(const Session& s)
+{
+    if (s.type == 4 || s.type == 5)
+        return Standing::Authoritative;
+    if (s.type == 2)
+        return Standing::Shared;
+    if (s.type == 1 || s.type == 3)
+    {
+        if (s.players == 1 && s.others == 0)
+            return Standing::Alone;
+        if (s.players > 1 || s.others > 0)
+            return Standing::Shared;
+    }
+    return Standing::Unknown;
+}
+
+inline bool OneMachineChangesSafe(Standing standing)
+{
+    return standing == Standing::Alone || standing == Standing::Authoritative;
+}
+
+inline const char* StandingText(Standing standing)
+{
+    switch (standing)
+    {
+    case Standing::Alone: return "alone in a synchronous game";
+    case Standing::Authoritative: return "a host-authoritative game (Firefight, custom games)";
+    case Standing::Shared: return "a shared simulation (campaign co-op, Spartan Ops)";
+    default: return "not read";
+    }
+}
+
+// THE AUTOMATIC SWITCH'S GATE. The session is read by the title's simulation thread on every control update; the
+// gate opens only on a run of `kGateSettleNotes` consecutive notes that all say safe, and closes at once on one
+// that does not. Notes that stop coming are no evidence of anything: after `kGateStaleMs` without one the gate is
+// closed, and the next note starts the run again -- so does a note from another title -- because the level, the
+// lobby and the session may all have changed in between. Every failure of the read leaves the gate closed.
+inline constexpr unsigned kGateSettleNotes = 30;
+inline constexpr unsigned long long kGateStaleMs = 5000;
+
+// The run of safe notes after one more note. `continued`: the previous note was this title's and within
+// kGateStaleMs.
+inline unsigned GateNote(unsigned safeNotes, bool safeNow, bool continued)
+{
+    if (!safeNow)
+        return 0;
+    if (!continued)
+        return 1;
+    return safeNotes < 0x7FFFFFFFu ? safeNotes + 1 : safeNotes;
+}
+
+// `sinceLastNoteMs`: how long ago the newest note arrived.
+inline bool GateOpen(unsigned safeNotes, unsigned long long sinceLastNoteMs)
+{
+    return safeNotes >= kGateSettleNotes && sinceLastNoteMs <= kGateStaleMs;
 }
 
 // The same from an engine thread's TLS block (null: nothing read).

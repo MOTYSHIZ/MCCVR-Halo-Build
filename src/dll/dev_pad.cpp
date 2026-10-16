@@ -115,7 +115,7 @@ bool SetLive(const std::string& name, int value)
     else if (name == "halo4_seat_converge") g_config.halo4_seat_converge = value ? 1 : 0;
     else if (name == "reach_vehicle_aim") g_config.reach_vehicle_aim = value < 0 ? 0 : (value > 2 ? 2 : value);
     else if (name == "shots_from_muzzle") g_config.shots_from_muzzle = value != 0;
-    else if (name == "coop_safe_shots") g_config.coop_safe_shots = value != 0;
+    else if (name == "coop_safe_shots") g_config.coop_safe_shots = value < 0 ? 0 : (value > 2 ? 2 : value);
     // The aim lead as a whole number of hundredths of a tick (100 = one tick, 0 = off).
     else if (name == "aim_lead_ticks_x100")
         g_config.aim_lead_ticks = aim_lead::ClampTicks(float(value) * 0.01f, Config{}.aim_lead_ticks);

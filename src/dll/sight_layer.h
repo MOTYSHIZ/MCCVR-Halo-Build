@@ -202,13 +202,17 @@ struct SightCameraSample
 // The aim written into the control record and a pressed binding are shared input and are not
 // affected. A site that stands a local shot down for this reason
 // counts it (Sight_Report logs "CO-OP SAFE SHOTS" every 2 s).
+// coop_safe_shots = 2 (automatic) asks the session the title's simulation thread last noted (Sight_NoteSession):
+// true only while the game says the player is alone or the session is host-authoritative, on a settled run of
+// fresh notes (session_read_logic.h: Classify, GateOpen). Any thread; a few atomic loads.
 bool Sight_FireTimeChangesAllowed();
 void Sight_NoteFireTimeStoodDown(GameTitle title);
 // The session in progress as the game holds it, read by the title's simulation thread
 // (src/common/session_read_logic.h): its simulation type, the players in the game and the machines other than
 // this one (-1 each: not read; a type of -1: no game in progress). Sight_Report logs them whenever one changes
 // ("SESSION <game>: ..."), so a solo level, a co-op host, a co-op joiner and a host-authoritative game can be told
-// apart in a log. Nothing acts on it.
+// apart in a log. Each note also steps the automatic switch's gate (Sight_FireTimeChangesAllowed), which acts on
+// it only under coop_safe_shots = 2.
 void Sight_NoteSession(GameTitle title, int type, int players, int otherMachines);
 // THE WRITTEN AIM, LED (the player key aim_lead_ticks; src/common/aim_lead_logic.h). A record written at one control
 // pass is first used by the next simulation tick, so a shot leaves along a hand sample about a tick old. The title's

@@ -1546,8 +1546,9 @@ namespace
                                 "aim. If the muzzle is inside a wall your eye sees past, or the aim is not converged,\n"
                                 "the shot leaves your eye as before. \"Aim from the visible gun barrel\" (Crosshair\n"
                                 "page), when on, wins and keeps the barrel's own direction. Live.\n"
-                                "Only while Co-op safe shots (Advanced page) is off: with that on, as it is by\n"
-                                "default, shots leave your eye.");
+                                "Only while Co-op safe shots (Advanced page) allows it: on Automatic, the default,\n"
+                                "that is when you play alone or in Firefight or a custom game. In a co-op session,\n"
+                                "or with it on Always, shots leave your eye.");
             ImGui::TextDisabled("Both cover vehicle seats too. Every seat you aim from converges (Halo 3, ODST,\n"
                                 "Halo CE and Halo 2 in first-person seats; Reach and Halo 2 with Direct drive;\n"
                                 "Halo 4 seats with their switch on the Vehicles page). With Direct drive, seats have\n"
@@ -2451,8 +2452,16 @@ namespace
 
         if (g_activeCategory == Cat_Advanced)
         {
-        changed |= ImGui::Checkbox("Co-op safe shots (leave on)", &g_config.coop_safe_shots);
-        ImGui::TextDisabled("ON (default): nothing the mod does changes a shot as it is fired, so every player's game\n"
+        ImGui::Text("Co-op safe shots");
+        changed |= ImGui::RadioButton("Automatic##coopsafe", &g_config.coop_safe_shots, 2);
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("Always##coopsafe", &g_config.coop_safe_shots, 1);
+        ImGui::SameLine();
+        changed |= ImGui::RadioButton("Off##coopsafe", &g_config.coop_safe_shots, 0);
+        ImGui::TextDisabled("AUTOMATIC (default): as Always whenever anyone else is in your campaign session, and as Off\n"
+                            "when the game says you are alone, or in Firefight or a custom game (the log's CO-OP SAFE\n"
+                            "SHOTS automatic line says which). Not Halo CE, where it stays as Always.\n"
+                            "ALWAYS: nothing the mod does changes a shot as it is fired, so every player's game\n"
                             "fires it the same way and a campaign co-op or Spartan Ops session stays together. Your\n"
                             "hand still aims; shots leave your eye. In Halo 2 your hand aims only with Direct drive\n"
                             "on, True physical melee presses the game's melee instead of striking on contact (Halo\n"

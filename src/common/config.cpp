@@ -1004,6 +1004,7 @@ void ConfigLoad(const wchar_t* path)
     bool loadedHolsterRadius = false;
     bool flashlightMappingV2 = false;
     bool aimDirectDriveSeen = false;
+    bool coopSafeShotsV2 = false;   // coop_safe_shots_version >= 2: a 1 in this file is a chosen "always"
     bool loadedLegacyVirtualStockStrength = false;
     bool loadedStandardVirtualStockStrength = false;
     bool loadedPlusVirtualStockStrength = false;
@@ -1334,7 +1335,9 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "two_hand_coherent_aim")) { g_config.two_hand_coherent_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "gun_barrel_aim")) { g_config.gun_barrel_aim=atoi(val)!=0; continue; }
         if (!strcmp(key, "shots_from_muzzle")) { g_config.shots_from_muzzle=atoi(val)!=0; continue; }
-        if (!strcmp(key, "coop_safe_shots")) { g_config.coop_safe_shots=atoi(val)!=0; continue; }
+        if (!strcmp(key, "coop_safe_shots"))
+        { const int v=atoi(val); g_config.coop_safe_shots=v<0?0:(v>2?2:v); continue; }
+        if (!strcmp(key, "coop_safe_shots_version")) { coopSafeShotsV2 = atoi(val) >= 2; continue; }
         if (!strcmp(key, "aim_lead_ticks"))
         {
             // Held inside 0 to 3 ticks; a value that is not a number keeps the one in effect.
@@ -2022,6 +2025,15 @@ void ConfigLoad(const wchar_t* path)
     // them was the old default, never a choice, and only dev builds ever wrote them.
     if (!aimDirectDriveSeen && (g_config.legacy_direct_drive || g_config.reach_direct_drive == 3))
         g_config.aim_direct_drive = 1;
+    // Co-op safe shots gained a third value, 2 = automatic, which is the default. A file written before that knew
+    // only off and on, and its 1 was the default rather than a choice between always and automatic, so it becomes
+    // automatic. Off stays off; a 1 written since (coop_safe_shots_version = 2) is a chosen "always" and stays.
+    if (!coopSafeShotsV2 && g_config.coop_safe_shots == 1)
+    {
+        g_config.coop_safe_shots = 2;
+        LOG("config: co-op safe shots moved from on to automatic (on whenever anyone else is in your session); "
+            "choose Always on the Advanced page to keep it on everywhere");
+    }
     Config_ApplyAimModes();
     Clamp();
     NormalizeVirtualStockProximityPair();
@@ -2374,15 +2386,20 @@ void ConfigSave()
                "# they land where the shot from the eye would have. Needs converged_aim; gun_barrel_aim wins.\n"
                "# (default %d)\n"
                "shots_from_muzzle = %d\n\n", d.shots_from_muzzle ? 1 : 0, g_config.shots_from_muzzle ? 1 : 0);
-    fprintf(f, "# Co-op safe shots. LEAVE THIS ON (1) unless you only ever play alone: with it off, your first\n"
-               "# shot in a campaign co-op or Spartan Ops session ends the session for everyone.\n"
-               "# 1 = nothing changes a shot as it is fired (no muzzle or barrel origin, no fire-time re-aim, no\n"
+    fprintf(f, "# Co-op safe shots. 2 = AUTOMATIC (the default): on whenever anyone else is in your campaign or\n"
+               "# Spartan Ops session, and off when the game says you are alone, or in Firefight or a custom game.\n"
+               "# Halo CE's session is not read, so there it is always on.\n"
+               "# 1 = ALWAYS: nothing changes a shot as it is fired (no muzzle or barrel origin, no fire-time re-aim, no\n"
                "# separate dual-wield aim, no seat redirect), so every player's game fires it the same way.\n"
                "# Your hand still aims; shots leave the eye. True physical melee presses the game's melee\n"
                "# instead of striking on contact (Halo CE: it does nothing), in Halo 2 your hand aims only with\n"
                "# direct drive on, and seats in Halo CE and ODST and passenger seats in Reach keep the game's\n"
-               "# own camera. (default %d)\n"
-               "coop_safe_shots = %d\n\n", d.coop_safe_shots ? 1 : 0, g_config.coop_safe_shots ? 1 : 0);
+               "# own camera.\n"
+               "# 0 = OFF, for playing alone only: with it off, your first shot in a campaign co-op or Spartan Ops\n"
+               "# session ends the session for everyone. (default %d)\n"
+               "coop_safe_shots = %d\n"
+               "# Which values the line above can hold (2: off, always and automatic). Leave it as it is.\n"
+               "coop_safe_shots_version = 2\n\n", d.coop_safe_shots, g_config.coop_safe_shots);
     fprintf(f, "# Aim lead, on foot in Halo 3, ODST and Reach: the aim written for each shot is carried ahead by\n"
                "# this many simulation ticks of the aim's own motion, so a shot fired while you turn lands where\n"
                "# the reticle is and not where it was a tick ago. Only the game's aim is led: the reticle, the\n"

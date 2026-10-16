@@ -263,7 +263,7 @@ try {
         $d3dSource -notmatch 'D3D_Halo4HelmetShaderPathAvailable' -or
         $halo4RestoreAsmSource -notmatch 'Halo4EffectTransientWrapper' -or
         $halo4RestoreAsmSource -notmatch 'Halo4CurvatureBridge' -or
-        $configHeaderSource -notmatch 'bool halo4_helmet\s*=\s*true' -or
+        $configHeaderSource -notmatch 'bool halo4_helmet\s*=\s*false' -or
         $menuSource -notmatch 'Show Halo 4 helmet frame') {
         throw 'C-H4-56 gate failed: the full-frontend visor geometry admission, native-reticle replay canvas, exact visor-shader toggle, pause, effects, or adjustable HUD source is missing.'
     }
@@ -670,7 +670,7 @@ try {
             effect_cave_restored_on_cleanup = $true
             effect_policy = 'stage3ai-selected-local-first-person-finite-far'
             effect_failure_policy = 'stock-effects-camera-hud-and-openxr-remain-armed'
-            helmet_default_visible = $true
+            helmet_default_visible = $false
             helmet_control = 'halo4_helmet'
             helmet_binding =
                 'exact-3dmigoto-pixel-shader-4BE62AC49C2BF210'

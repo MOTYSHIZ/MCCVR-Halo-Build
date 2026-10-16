@@ -102,6 +102,20 @@ struct LeadLane
     std::atomic<uint32_t> leadMaxMilliDeg{0}, leadUs{0};
 };
 
+// The automatic co-op switch's gate (session_read_logic.h GateNote / GateOpen): stepped by the noting title's
+// simulation thread, read by every thread that asks Sight_FireTimeChangesAllowed. One gate: one title runs at a
+// time, and a note from another title starts the run again.
+struct SessionGate
+{
+    std::atomic<uint32_t> safeNotes{0};
+    std::atomic<uint64_t> lastNoteMs{0};
+    std::atomic<uint8_t> title{0xFF}, standing{0};
+    // What the report last logged (the reporting thread's own).
+    int loggedOpen = -1;
+    uint8_t loggedStanding = 0xFF;
+};
+SessionGate g_sessionGate;
+
 RayPublication g_rays[kTitleSlots];
 // The engine eye's track per title, owned by the title's ray publisher (one aim thread per title; the try-lock only
 // keeps a second publisher, should one ever appear, from tearing it -- that publish then carries no velocity).
@@ -497,11 +511,37 @@ void Sight_NoteSession(GameTitle title, int type, int players, int otherMachines
     s.sessionType.store(type, std::memory_order_relaxed);
     s.sessionPlayers.store(players, std::memory_order_relaxed);
     s.sessionOthers.store(otherMachines, std::memory_order_relaxed);
+    // The automatic switch's gate: one more note.
+    session_read::Session session{};
+    session.type = type;
+    session.players = players;
+    session.others = otherMachines;
+    const session_read::Standing standing = session_read::Classify(session);
+    auto& g = g_sessionGate;
+    const uint64_t now = Sight_NowMs();
+    const uint64_t last = g.lastNoteMs.load(std::memory_order_relaxed);
+    const bool continued = last && now >= last && now - last <= session_read::kGateStaleMs &&
+                           g.title.load(std::memory_order_relaxed) == static_cast<uint8_t>(title);
+    g.safeNotes.store(session_read::GateNote(g.safeNotes.load(std::memory_order_relaxed),
+                                             session_read::OneMachineChangesSafe(standing), continued),
+                      std::memory_order_release);
+    g.title.store(static_cast<uint8_t>(title), std::memory_order_relaxed);
+    g.standing.store(static_cast<uint8_t>(standing), std::memory_order_relaxed);
+    g.lastNoteMs.store(now, std::memory_order_release);
 }
 
 bool Sight_FireTimeChangesAllowed()
 {
-    return !g_config.coop_safe_shots;
+    const int mode = g_config.coop_safe_shots;
+    if (mode == 0)
+        return true;
+    if (mode != 2)
+        return false;
+    // Automatic: only while the gate is open. Notes that have stopped coming close it.
+    const uint64_t last = g_sessionGate.lastNoteMs.load(std::memory_order_acquire);
+    const uint64_t now = Sight_NowMs();
+    return session_read::GateOpen(g_sessionGate.safeNotes.load(std::memory_order_acquire),
+                                  last && now >= last ? now - last : ~0ull);
 }
 
 void Sight_NoteFireTimeStoodDown(GameTitle title)
@@ -1969,6 +2009,27 @@ void Sight_Report()
     LARGE_INTEGER freq{};
     QueryPerformanceFrequency(&freq);
     const double usPerTick = freq.QuadPart ? 1.0e6 / double(freq.QuadPart) : 0.0;
+    // The automatic switch: one line whenever what it decided, or why, changes.
+    if (g_config.coop_safe_shots == 2)
+    {
+        auto& g = g_sessionGate;
+        const int open = Sight_FireTimeChangesAllowed() ? 1 : 0;
+        const uint8_t standing = g.standing.load(std::memory_order_relaxed);
+        if (open != g.loggedOpen || standing != g.loggedStanding)
+        {
+            g.loggedOpen = open;
+            g.loggedStanding = standing;
+            const uint64_t last = g.lastNoteMs.load(std::memory_order_relaxed);
+            LOG("CO-OP SAFE SHOTS automatic: %s. The session as last read: %s (%s)",
+                open ? "OFF, one-machine changes are allowed"
+                     : "ON, every one-machine change is stood down",
+                session_read::StandingText(static_cast<session_read::Standing>(standing)),
+                !last ? "never read"
+                      : now >= last && now - last <= session_read::kGateStaleMs ? "fresh" : "no read for 5 s");
+        }
+    }
+    else
+        g_sessionGate.loggedOpen = -1;
     for (size_t i = 0; i < kTitleSlots; ++i)
     {
         auto& s = g_stats[i];
