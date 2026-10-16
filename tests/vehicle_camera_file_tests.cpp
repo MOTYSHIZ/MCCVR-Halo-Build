@@ -64,6 +64,17 @@ static void TestBuiltInTable()
     Check(Has(text, "\"origin\": \"thirdperson\"") && back.games[0].vehicles[0].cameras[1].origin == Origin::ThirdPerson,
           "the game's own third-person place is written and read by name");
     Check(OriginText(Origin::ThirdPerson, "x") == "thirdperson", "and named so in a readout");
+    Check(any.cameras[1].lag == kThirdPersonLagSeconds && Has(text, "\"lag\": 0.3") &&
+              back.games[0].vehicles[0].cameras[1].lag == kThirdPersonLagSeconds,
+          "the built-in third-person camera follows on a spring, and the file says so");
+
+    // A camera that does not say: one at the game's own third-person place lags, any other does not.
+    Camera unset;
+    Check(LagSecondsOf(unset) == 0.0f, "a camera that says nothing about lag has none");
+    unset.origin = Origin::ThirdPerson;
+    Check(LagSecondsOf(unset) == kThirdPersonLagSeconds, "unless it rests where the game's camera does");
+    unset.lag = 0.0f;
+    Check(LagSecondsOf(unset) == 0.0f, "and \"lag\": 0 turns that off");
 }
 
 static void TestGames()
@@ -130,6 +141,7 @@ static void TestCamerasAndTethering()
     Check(behind.offset[0] == -450.0f && behind.offset[1] == 10.5f && behind.offset[2] == 180.0f, "the offset");
     Check(behind.locYaw && !behind.locPitch && !behind.locRoll && !behind.locView, "location tracking by axis");
     Check(!behind.collide && behind.collideMargin == 12.0f, "collision settings");
+    Check(behind.lag < 0.0f && LagSecondsOf(behind) == 0.0f, "a camera that does not set lag has none");
     Check(behind.ModeCount() == 2, "two modes");
     const Tether still = behind.Mode(0);
     Check(still.name == "Untethered" && still.offset[0] == -450.0f && still.locYaw && !still.locPitch &&
@@ -324,6 +336,17 @@ static void TestBoundsAndErrors()
     Check(!bad.ok && Has(bad.error, "rotationTracking[1]"), "an unknown axis, by its place");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"locationTracking\": \"orbit\" } ] }"), table);
     Check(!bad.ok && Has(bad.error, "view"), "a location tracking word that is not view");
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"lag\": 0.5, \"lagDamping\": 0.7 } ] }"), table).ok &&
+              table.games[0].vehicles[0].cameras[0].lag == 0.5f &&
+              table.games[0].vehicles[0].cameras[0].lagDamping == 0.7f,
+          "lag and its damping are read");
+    Check(Has(ToJson(table, false), "\"lag\": 0.5, \"lagDamping\": 0.7"), "and written back");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"lag\": -1 } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "lag"), "a negative lag");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"lag\": 6 } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "seconds"), "a lag past five seconds");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"lagDamping\": 0.05 } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "lagDamping"), "a damping too small to settle");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"collide\": 1 } ] }"), table);
     Check(!bad.ok && Has(bad.error, "true or false"), "a number where true or false belongs");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"origin\": \"\" } ] }"), table);

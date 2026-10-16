@@ -166,6 +166,8 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.rotRoll = tether.rotRoll;
     next.collide = chosen.collide;
     next.collideMarginCm = chosen.collideMargin;
+    next.lagSeconds = vehicle_camera_file::LagSecondsOf(chosen);
+    next.lagDamping = chosen.lagDamping;
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
@@ -480,6 +482,8 @@ std::string Selector::Describe() const
     line += ", location " + vehicle_camera_file::LocationTrackingText(mode);
     line += ", rotation " + vehicle_camera_file::RotationTrackingText(mode);
     line += ", leash " + vehicle_camera_file::LeashText(active_.leashMinCm, active_.leashMaxCm);
+    if (active_.lagSeconds > 0.0f)
+        line += ", lag " + Number(active_.lagSeconds) + " s";
     return line;
 }
 } // namespace vehicle_camera_select

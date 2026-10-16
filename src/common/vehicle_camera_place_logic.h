@@ -206,4 +206,110 @@ inline float EaseReach(float& held, float wanted, float seconds, float releasePe
     }
     return held;
 }
+
+// LAG ("lag", "lagDamping"): the camera follows its place on a spring and damper instead of being carried there
+// rigidly. A camera on a long boom is swung through a wide arc by every turn and bump of the vehicle; the spring
+// lets those swings through slowly. It damps against the place's own velocity, so at a steady speed it sits on its
+// place and only a change of motion lags -- but against that velocity SMOOTHED over the lag's seconds and held to
+// a vehicle's speed: steered by the raw one, a bump's jolt reaches the camera within a twentieth of a second, and a
+// place that jumps in one frame (a speed no vehicle has) throws it past. World units.
+struct LagState
+{
+    bool valid = false;
+    uint32_t changes = 0; // the camera the state belongs to (ActiveCamera::changes)
+    float pos[3]{};
+    float vel[3]{};
+    float place[3]{};    // the place at the last step, for its velocity
+    float placeVel[3]{}; // the place's velocity, smoothed
+};
+inline constexpr float kLagStiffness = 3.0f;      // the spring's frequency is this over the lag's seconds
+inline constexpr float kLagMaxPlaceSpeedWu = 20.0f; // about 60 m/s: past any vehicle, or a boom end in a hard turn
+inline constexpr float kLagSubstepSeconds = 0.004f;
+inline constexpr float kLagMaxStepSeconds = 0.1f; // a longer frame is stepped as this long
+inline constexpr float kLagRestartSeconds = 0.5f; // a longer gap starts over on the place
+inline constexpr float kLagRestartWu = 3.0f;      // so does a place this far from the camera (about 9 m)
+
+// The camera's point this frame, in `out`. `seconds` since the last call: 0 (the same frame again) moves nothing.
+// A camera without lag, a different camera, a long gap or a far jump puts the point on its place.
+inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const float place[3], float seconds,
+                      LagState& state, float out[3]) noexcept
+{
+    const auto restart = [&]() {
+        state.valid = Finite3(place);
+        state.changes = camera.changes;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            state.pos[axis] = place[axis];
+            state.vel[axis] = 0.0f;
+            state.place[axis] = place[axis];
+            state.placeVel[axis] = 0.0f;
+            out[axis] = place[axis];
+        }
+    };
+    const float lag = camera.lagSeconds;
+    if (!(lag > 0.0f) || !std::isfinite(lag) || !Finite3(place) || !state.valid || state.changes != camera.changes ||
+        !std::isfinite(seconds) || seconds < 0.0f || seconds > kLagRestartSeconds)
+    {
+        restart();
+        if (!(lag > 0.0f))
+            state.valid = false;
+        return;
+    }
+    float apart = 0.0f;
+    for (int axis = 0; axis < 3; ++axis)
+        apart += (place[axis] - state.pos[axis]) * (place[axis] - state.pos[axis]);
+    if (!(apart <= kLagRestartWu * kLagRestartWu))
+    {
+        restart();
+        return;
+    }
+    if (seconds > 0.0f)
+    {
+        const float step = seconds > kLagMaxStepSeconds ? kLagMaxStepSeconds : seconds;
+        const float w = kLagStiffness / lag;
+        float zeta = camera.lagDamping;
+        if (!std::isfinite(zeta))
+            zeta = 1.0f;
+        zeta = zeta < vehicle_camera_file::kMinLagDamping ? vehicle_camera_file::kMinLagDamping
+             : zeta > vehicle_camera_file::kMaxLagDamping ? vehicle_camera_file::kMaxLagDamping
+                                                          : zeta;
+        int count = static_cast<int>(step / kLagSubstepSeconds) + 1;
+        const float h = step / static_cast<float>(count);
+        // The place's velocity this frame, held to a vehicle's speed, folded into the smoothed one.
+        float raw[3];
+        float rawSpeed = 0.0f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            raw[axis] = (place[axis] - state.place[axis]) / seconds;
+            rawSpeed += raw[axis] * raw[axis];
+        }
+        rawSpeed = std::sqrt(rawSpeed);
+        const float hold = rawSpeed > kLagMaxPlaceSpeedWu ? kLagMaxPlaceSpeedWu / rawSpeed : 1.0f;
+        const float blend = 1.0f - std::exp(-seconds / lag);
+        for (int axis = 0; axis < 3; ++axis)
+            state.placeVel[axis] += (raw[axis] * hold - state.placeVel[axis]) * blend;
+        // The place moves in a straight line across the frame; each substep pulls toward where it is at its start.
+        for (int i = 0; i < count; ++i)
+        {
+            const float t = h * static_cast<float>(i) / step; // 0..1 across the stepped part of the frame
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                const float at = state.place[axis] + (place[axis] - state.place[axis]) * t;
+                const float accel = w * w * (at - state.pos[axis]) +
+                                    2.0f * zeta * w * (state.placeVel[axis] - state.vel[axis]);
+                state.vel[axis] += accel * h;
+                state.pos[axis] += state.vel[axis] * h;
+            }
+        }
+        if (!Finite3(state.pos) || !Finite3(state.vel))
+        {
+            restart();
+            return;
+        }
+        for (int axis = 0; axis < 3; ++axis)
+            state.place[axis] = place[axis];
+    }
+    for (int axis = 0; axis < 3; ++axis)
+        out[axis] = state.pos[axis];
+}
 } // namespace vehicle_camera_place

@@ -286,6 +286,96 @@ static void TestRefusals()
     Check(!state.latched, "and takes no heading");
 }
 
+// LAG: the camera follows its place on a spring that also pulls on the place's velocity.
+static void TestLag()
+{
+    ActiveCamera camera = Behind();
+    LagState state;
+    float out[3]{};
+    const float dt = 1.0f / 90.0f;
+
+    // Without lag the point is its place, every frame.
+    float place[3] = {1.0f, 2.0f, 3.0f};
+    FollowLag(camera, place, dt, state, out);
+    Check(Near3(out, 1.0f, 2.0f, 3.0f) && !state.valid, "no lag: the point is its place");
+
+    camera.lagSeconds = 0.3f;
+    camera.lagDamping = 1.0f;
+    FollowLag(camera, place, -1.0f, state, out);
+    Check(Near3(out, 1.0f, 2.0f, 3.0f) && state.valid, "the first frame starts on the place");
+
+    // A steady speed does not lag: 10 world units a second (about 30 m/s), straight on.
+    for (int i = 1; i <= 180; ++i)
+    {
+        place[0] = 1.0f + 10.0f * dt * static_cast<float>(i);
+        FollowLag(camera, place, dt, state, out);
+    }
+    Check(std::fabs(out[0] - place[0]) < 0.01f, "at a steady speed the camera sits on its place");
+
+    // A sudden move of one world unit: about four fifths of it made up after the lag's seconds, never overshot.
+    camera.changes = 2;
+    place[0] = 0.0f;
+    FollowLag(camera, place, dt, state, out);
+    place[0] = 1.0f;
+    float most = 0.0f, atLag = 0.0f;
+    for (int i = 1; i <= 270; ++i)
+    {
+        FollowLag(camera, place, dt, state, out);
+        most = out[0] > most ? out[0] : most;
+        if (i == 27)
+            atLag = out[0];
+    }
+    Check(atLag > 0.72f && atLag < 0.92f, "about four fifths of a sudden move is made up after the lag");
+    Check(most < 1.05f && std::fabs(out[0] - 1.0f) < 0.01f,
+          "with damping 1 it settles barely past its place: a jump is not taken for a speed");
+
+    // A softer spring swings past its place and back.
+    camera.changes = 3;
+    camera.lagDamping = 0.3f;
+    place[0] = 0.0f;
+    FollowLag(camera, place, dt, state, out);
+    place[0] = 1.0f;
+    most = 0.0f;
+    for (int i = 1; i <= 270; ++i)
+    {
+        FollowLag(camera, place, dt, state, out);
+        most = out[0] > most ? out[0] : most;
+    }
+    Check(most > 1.1f, "a damping below 1 overshoots");
+
+    // A bump: the place shaken up and down five times a second reaches the camera at a fraction of its size.
+    camera.changes = 5;
+    camera.lagDamping = 1.0f;
+    place[0] = place[1] = place[2] = 0.0f;
+    FollowLag(camera, place, dt, state, out);
+    float shaken = 0.0f;
+    for (int i = 1; i <= 270; ++i)
+    {
+        place[2] = 0.06f * std::sin(2.0f * 3.14159265f * 5.0f * dt * static_cast<float>(i));
+        FollowLag(camera, place, dt, state, out);
+        if (i > 135)
+            shaken = std::fabs(out[2]) > shaken ? std::fabs(out[2]) : shaken;
+    }
+    Check(shaken < 0.06f * 0.3f, "a five-times-a-second bump reaches the camera at under a third of its size");
+
+    // The same frame again moves nothing; another camera, a far jump or a long gap starts over on the place.
+    camera.lagDamping = 1.0f;
+    place[0] = 1.5f;
+    FollowLag(camera, place, dt, state, out);
+    const float held = out[0];
+    FollowLag(camera, place, 0.0f, state, out);
+    Check(out[0] == held, "a second call in the same frame moves nothing");
+    camera.changes = 4;
+    FollowLag(camera, place, dt, state, out);
+    Check(out[0] == 1.5f, "another camera starts on its place");
+    place[0] = 10.0f;
+    FollowLag(camera, place, dt, state, out);
+    Check(out[0] == 10.0f, "so does a place too far to swing to");
+    place[0] = 10.5f;
+    FollowLag(camera, place, 1.0f, state, out);
+    Check(out[0] == 10.5f, "and a gap of a second");
+}
+
 int main()
 {
     TestRigid();
@@ -297,6 +387,7 @@ int main()
     TestCollide();
     TestLeash();
     TestRefusals();
+    TestLag();
     std::printf("PASS: %u vehicle camera placement checks\n", g_checks);
     return 0;
 }

@@ -76,6 +76,13 @@ struct Tether
     std::string originMarker; // origin Marker: the marker's or node's name
 };
 
+// A camera that does not set "lag": one where the game's own third-person camera rests lags this much (that camera
+// stands a long way back, where every turn and bump of the vehicle swings it through a wide arc); any other none.
+inline constexpr float kThirdPersonLagSeconds = 0.3f;
+inline constexpr float kMaxLagSeconds = 5.0f;
+inline constexpr float kMinLagDamping = 0.1f;
+inline constexpr float kMaxLagDamping = 2.0f;
+
 struct Camera
 {
     std::string name; // optional; an unnamed camera is shown by its number
@@ -95,6 +102,10 @@ struct Camera
     bool rotYaw = false, rotPitch = false, rotRoll = false;
     bool collide = true;
     float collideMargin = 30.0f; // cm short of whatever blocks the offset
+    // LAG ("lag", "lagDamping"): the camera follows its place on a spring and damper rather than a rigid boom.
+    // Seconds to catch up with a turn or a bump; < 0 = not set (LagSecondsOf). lagDamping 1 = no overshoot.
+    float lag = -1.0f;
+    float lagDamping = 1.0f;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -110,6 +121,14 @@ struct Camera
         return mode.origin >= 0 ? mode.originMarker : originMarker;
     }
 };
+
+// The lag a camera has: its own "lag", else kThirdPersonLagSeconds where it rests where the game's camera does.
+inline float LagSecondsOf(const Camera& camera) noexcept
+{
+    if (camera.lag >= 0.0f)
+        return camera.lag;
+    return camera.origin == Origin::ThirdPerson ? kThirdPersonLagSeconds : 0.0f;
+}
 
 // THE SEAT, as the game reports it. A seat can be both a driver's and a gunner's (a turret's one seat drives and
 // fires it), so an entry's "seat" list is tested against the seat's FLAGS: "driver", "gunner", and "passenger"

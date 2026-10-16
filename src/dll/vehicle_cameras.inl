@@ -157,6 +157,8 @@ struct Halo3VehicleCameraPoint
 Halo3VehicleCameraPoint g_halo3VehicleCameraPoint;
 inline constexpr uint64_t kHalo3VehicleCameraPointFreshMs = 100;
 vehicle_camera_place::State g_halo3VehicleCameraState; // camera thread
+vehicle_camera_place::LagState g_halo3VehicleCameraLag; // camera thread
+LARGE_INTEGER g_halo3VehicleCameraLagAt{};              // camera thread: the last lag step's clock
 // Frames placed; those of them placed from the simulation's vehicle frame because the drawn root node did not
 // check out; and those placed at the mod's stand-in because the game's own third-person camera could not be
 // read. Counted by the camera thread, taken by the cold worker for its log lines.
@@ -399,6 +401,23 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
         return false;
     const float* pivot = placed.pivot;
     float reachUsed = 1.0f;
+
+    // LAG ("lag"): the point follows its place on a spring (vehicle_camera_place::FollowLag), on the frame's own
+    // clock -- a millisecond tick is a sixth of a frame at 90 Hz. Before the wall check, so a wall still holds the
+    // lagged camera short.
+    {
+        static LARGE_INTEGER frequency{};
+        if (!frequency.QuadPart)
+            QueryPerformanceFrequency(&frequency);
+        LARGE_INTEGER now{};
+        QueryPerformanceCounter(&now);
+        const float seconds = g_halo3VehicleCameraLagAt.QuadPart && frequency.QuadPart
+            ? static_cast<float>(static_cast<double>(now.QuadPart - g_halo3VehicleCameraLagAt.QuadPart) /
+                                 static_cast<double>(frequency.QuadPart))
+            : -1.0f;
+        g_halo3VehicleCameraLagAt = now;
+        vehicle_camera_place::FollowLag(camera, point, seconds, g_halo3VehicleCameraLag, point);
+    }
 
     // HELD SHORT OF A WALL ("collide"): the line from the pivot to the camera's place is traced by the title's own
     // simulation thread beside the aim's ray (legacy_sight_trace.inl), and the camera stops short of what it meets.

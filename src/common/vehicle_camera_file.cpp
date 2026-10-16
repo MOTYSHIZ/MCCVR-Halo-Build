@@ -371,6 +371,18 @@ struct Reader
             {
                 ok = Number(item, at, camera.collideMargin);
             }
+            else if (key == "lag")
+            {
+                ok = Number(item, at, camera.lag);
+                if (ok && !(camera.lag >= 0.0f && camera.lag <= kMaxLagSeconds))
+                    return TypeError(item, at, "seconds from 0 (no lag) to 5");
+            }
+            else if (key == "lagDamping")
+            {
+                ok = Number(item, at, camera.lagDamping);
+                if (ok && !(camera.lagDamping >= kMinLagDamping && camera.lagDamping <= kMaxLagDamping))
+                    return TypeError(item, at, "a damping from 0.1 to 2 (1 = no overshoot)");
+            }
             else if (key == "tethering")
             {
                 if (!item.IsArray() || item.items.empty())
@@ -729,6 +741,10 @@ const char* const kGuide[] = {
     "                    locationTracking, rotationTracking }, each taking the camera's own for what it leaves",
     "                    out -- e.g. the same camera held still, and turning with the vehicle",
     "  collide           pull the camera in when a wall is in the way; collideMargin = cm to stop short",
+    "  lag               seconds the camera takes to catch up when the vehicle turns or bumps: it follows on a",
+    "                    spring instead of a rigid boom (0 = rigid). A steady speed does not lag. Left out: 0.3",
+    "                    for an origin of \"thirdperson\", 0 for any other. lagDamping: 1 = no overshoot, lower =",
+    "                    a softer spring that swings past its place and back",
     "Per vehicle entry: defaultCamera / defaultMode = where you start (from 0);",
     "  seat = \"driver\" | \"gunner\" | \"passenger\" (or a list): this entry is only for that seat. Left out: the",
     "  driver's entry, and the one any other seat of the vehicle uses when it has none of its own;",
@@ -768,6 +784,10 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += std::string(", \"collide\": ") + (camera.collide ? "true" : "false");
     if (all || camera.collideMargin != unset.collideMargin)
         out += ", \"collideMargin\": " + NumberText(camera.collideMargin);
+    if (camera.lag >= 0.0f)
+        out += ", \"lag\": " + NumberText(camera.lag);
+    if (camera.lag >= 0.0f || camera.lagDamping != unset.lagDamping)
+        out += ", \"lagDamping\": " + NumberText(camera.lagDamping);
     if (camera.tethering.empty())
     {
         out += " }";
@@ -908,6 +928,8 @@ Table DefaultTable()
     // the hull.
     behind.locPitch = false;
     behind.locRoll = false;
+    // On a spring: it stands a long way back, where a rigid boom swings it through every turn and bump.
+    behind.lag = kThirdPersonLagSeconds;
     Tether still = behind.Mode(0);
     still.name = "Untethered";
     Tether turning = still;

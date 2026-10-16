@@ -34,6 +34,8 @@ struct ActiveCamera
     bool rotYaw = false, rotPitch = false, rotRoll = false;
     bool collide = false;
     float collideMarginCm = 0.0f;
+    float lagSeconds = 0.0f; // vehicle_camera_file::LagSecondsOf: 0 = rigid
+    float lagDamping = 1.0f;
     int camera = 0, cameraCount = 0;
     int mode = 0, modeCount = 0;
     // Counts the times the camera or mode in use became a different one by the player's doing or the seat's:
