@@ -254,6 +254,13 @@ namespace
     uint32_t g_nativeSubtitleAcquiredIndex = 0;
     bool g_nativeSubtitleAcquired = false, g_nativeSubtitleFailed = false;
     bool g_nativeTheatreCaptionReady = false;
+    // The notice's panel (NativeNotice_Read): a swapchain of its own, so it never waits on or replaces a caption.
+    XrSwapchain g_noticeChain = XR_NULL_HANDLE;
+    std::vector<ID3D11Texture2D*> g_noticeImages;
+    std::vector<ID3D11RenderTargetView*> g_noticeRtvs;
+    uint64_t g_noticeUploaded = 0, g_noticeRetryMs = 0;
+    uint32_t g_noticeAcquiredIndex = 0;
+    bool g_noticeAcquired = false, g_noticeFailed = false;
     XrSwapchain g_dualReticleChain = XR_NULL_HANDLE;
     std::vector<ID3D11Texture2D*> g_dualReticleImages;
     std::vector<ID3D11RenderTargetView*> g_dualReticleRtvs;
@@ -9913,6 +9920,58 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    // The notice's panel, head-locked a little above the line of sight: 1 m wide at 2 m. As the captions' panel:
+    // its upload never waits (a busy image is retried next frame) and a failure only turns the notice off.
+    bool PrepareNotice(XrCompositionLayerQuad& quad)
+    {
+        const auto image = NativeNotice_Read();
+        const uint64_t now = GetTickCount64();
+        if (g_noticeFailed || !image || now >= image->expiresAtMs) return false;
+        const bool format = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM ||
+            g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+            g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM ||
+            g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        if (!format || !image->rgba || image->rgba->size() != image->width * image->height * 4) return false;
+        if (g_noticeChain == XR_NULL_HANDLE) {
+            if (now < g_noticeRetryMs) return false;
+            g_noticeRetryMs = now + 5000;
+            if (!CreateChain(image->width,image->height,g_noticeChain,g_noticeImages,g_noticeRtvs,"notice"))
+                return false;
+        }
+        if (g_noticeUploaded != image->revision || g_noticeAcquired) {
+            XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            wait.timeout = 0;
+            if (!g_noticeAcquired) {
+                if (xrAcquireSwapchainImage(g_noticeChain,&acquire,&g_noticeAcquiredIndex) != XR_SUCCESS) return false;
+                g_noticeAcquired = true;
+            }
+            const XrResult ready = xrWaitSwapchainImage(g_noticeChain,&wait);
+            if (ready == XR_TIMEOUT_EXPIRED) return false;
+            if (ready != XR_SUCCESS) {
+                g_noticeFailed = true;
+                LOG("Notice panel: swapchain wait failed (%d); notices are off for this session",ready);
+                return false;
+            }
+            const bool valid = g_noticeAcquiredIndex < g_noticeImages.size();
+            if (valid) g_context->UpdateSubresource(g_noticeImages[g_noticeAcquiredIndex],
+                0,nullptr,image->rgba->data(),image->width*4,0);
+            const XrResult released = xrReleaseSwapchainImage(g_noticeChain,&release);
+            g_noticeAcquired = false;
+            if (!valid || released != XR_SUCCESS) {
+                g_noticeFailed = true;
+                LOG("Notice panel: swapchain release failed (%d, image=%d); notices are off for this session",
+                    released,valid?1:0);
+                return false;
+            }
+            g_noticeUploaded = image->revision;
+        }
+        quad = MakeQuad(g_noticeChain,image->width,image->height,1.0f,2.0f,0.35f,
+            XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,true,0.0f);
+        return true;
+    }
+
     float UpdatePauseTransition()
     {
         enum class Phase { Idle, FadeOut, FadeIn };
@@ -17145,7 +17204,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
         }
 
-        XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, secondaryReticleQuad, scopeQuad, fadeQuad, nativeCursorQuad, nativeSubtitleQuad;
+        XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, secondaryReticleQuad, scopeQuad, fadeQuad, nativeCursorQuad, nativeSubtitleQuad, noticeQuad;
         // The crosshair layer's colour scale (crosshair_opacity / crosshair_brightness). It lives as long as the
         // quads above: the layer points at it until xrEndFrame has returned.
         XrCompositionLayerColorScaleBiasKHR reticleTint{XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR};
@@ -17179,6 +17238,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         g_nativeTheatreCaptionReady=false;
         const bool nativeSubtitleReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
             !Menu_IsOpen() && PrepareNativeSubtitle(nativeSubtitleQuad);
+        const bool noticeReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
+            !Menu_IsOpen() && PrepareNotice(noticeQuad);
 #if HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO || \
     HALOMCCVR_HALO2_STEREO6DOF
         bool halo2ProjectionQueued = false;
@@ -19727,6 +19788,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
         if (nativeSubtitleReady && !layers.empty())
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeSubtitleQuad));
+        if (noticeReady && !layers.empty())
+            layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&noticeQuad));
         // Evaluate against this frame's actual native quad before composition.
         // The cursor follows the last successfully delivered smoothed mouse UV.
         // MONO: nothing in the one picture has disparity, so a layer left at its true distance would be the only

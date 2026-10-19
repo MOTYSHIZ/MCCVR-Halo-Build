@@ -91,6 +91,10 @@ public:
     //   offset -450 0 180 cm, location Yaw, Pitch, Roll, rotation None, leash None
     //   default (Driver): camera 1 of 2 "Seat", the seat view
     std::string Describe() const;
+    // The same, short, for the headset: "<vehicle> \u00B7 <camera>[, <mode>]" -- the mode only where the camera
+    // has more than one; the vehicle by its entry's name, or by its own where the default entry has it. Empty
+    // when nothing is selected.
+    std::wstring Note() const;
     // Why nothing is selected, for the log; empty when a camera is.
     const std::string& StandDownReason() const noexcept { return standDown_; }
 

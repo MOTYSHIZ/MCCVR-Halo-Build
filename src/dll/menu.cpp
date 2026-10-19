@@ -1349,6 +1349,8 @@ namespace
         ImGui::Text("Vehicle cameras (Halo 3)");
         changed |= ImGui::Checkbox("Cameras from halomccvr_vehicle_cameras.json",
                                    &g_config.vehicle_cameras);
+        changed |= ImGui::Checkbox("Note in the headset when the camera changes",
+                                   &g_config.vehicle_camera_note);
         ImGui::TextDisabled(
             "In a seat, step through the cameras that file lists for it. The\n"
             "file is in the mod's folder, written the first time this is on;\n"

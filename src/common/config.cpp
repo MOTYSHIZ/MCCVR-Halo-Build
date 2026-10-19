@@ -1544,6 +1544,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.vehicle_cameras = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "vehicle_camera_note"))
+        {
+            g_config.vehicle_camera_note = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "vehicle_control"))
         {
             const int mode = atoi(val);
@@ -2950,6 +2955,11 @@ void ConfigSave()
     fprintf(f, "# A camera placed outside the vehicle shows your character in the seat.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
     fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
+    fprintf(f, "# With vehicle cameras on: a short note in the headset for a few\n");
+    fprintf(f, "# seconds when you get in and when the camera, its tethering mode or\n");
+    fprintf(f, "# the seat's controls change. 0 = no note.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_camera_note ? 1 : 0);
+    fprintf(f, "vehicle_camera_note = %d\n\n", g_config.vehicle_camera_note ? 1 : 0);
     fprintf(f, "# How you control a vehicle seat (Halo 3 for now). This is apart from\n");
     fprintf(f, "# how your view turns: each works with a view the world holds still\n");
     fprintf(f, "# and with one that turns with the vehicle.\n");

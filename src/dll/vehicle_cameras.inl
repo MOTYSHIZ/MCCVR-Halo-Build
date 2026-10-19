@@ -283,6 +283,8 @@ struct Halo3VehicleCameraRest
     uint32_t waited = 0;   // placements asked for before a distance was known
 };
 Halo3VehicleCameraRest g_halo3VehicleCameraRest;
+// How long the headset note shows after a change (vehicle_camera_note).
+inline constexpr float kVehicleCameraNoteSeconds = 3.0f;
 // The resting distance in use, world units (0 = none yet), for the cold worker's log line, with the shape of the
 // game's camera where it stood furthest: its height above its pivot along the vehicle's up, the pitch it looked
 // at, and the pivot's own height above the vehicle's origin.
@@ -827,6 +829,17 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     // Getting out is not news; a seat's camera, a step, and a seat the file gives no camera are.
     if (!onFoot && line != r.loggedLine)
     {
+        if (active.valid && g_config.vehicle_camera_note)
+        {
+            std::wstring note = r.selector.Note();
+            note += L" \u00B7 ";
+            // The control's name without its explanation: "Motion (your hand)" is "Motion" here.
+            for (const char* c = vehicle_control::Name(vehicle_control::FromConfig(control)); *c && *c != '('; ++c)
+                note.push_back(static_cast<wchar_t>(*c));
+            while (!note.empty() && note.back() == L' ')
+                note.pop_back();
+            NativeNotice_Show(note.c_str(), kVehicleCameraNoteSeconds);
+        }
         r.loggedLine = line;
         LOG("Vehicle cameras: %s", line.c_str());
     }

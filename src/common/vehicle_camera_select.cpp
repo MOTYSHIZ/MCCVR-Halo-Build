@@ -4,6 +4,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwctype>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -446,6 +448,28 @@ bool Selector::StepMode(int direction)
     Select(active_.camera, Wrap(active_.mode + (direction > 0 ? 1 : -1), active_.modeCount), true);
     Remember();
     return true;
+}
+
+std::wstring Selector::Note() const
+{
+    const Vehicle* entry = Entry();
+    if (!entry || !active_.valid)
+        return {};
+    const auto wide = [](const std::string& text) {
+        std::wstring out;
+        out.reserve(text.size());
+        for (const char c : text)
+            out.push_back(static_cast<wchar_t>(static_cast<unsigned char>(c)));
+        return out;
+    };
+    std::wstring line = wide(entry->isDefault && !vehicleName_.empty() ? vehicleName_ : entry->name);
+    if (!line.empty())
+        line[0] = static_cast<wchar_t>(std::towupper(line[0]));
+    line += L" \u00B7 ";
+    line += cameraName_.empty() ? L"Camera " + std::to_wstring(active_.camera + 1) : wide(cameraName_);
+    if (active_.modeCount > 1)
+        line += L", " + (modeName_.empty() ? L"Mode " + std::to_wstring(active_.mode + 1) : wide(modeName_));
+    return line;
 }
 
 std::string Selector::Describe() const

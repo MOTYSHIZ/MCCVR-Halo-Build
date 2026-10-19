@@ -315,7 +315,9 @@ static void TestBuiltInPresets()
     selector.SetTable(DefaultTable());
     selector.Update("halo3", true, "warthog", kSeatDriver);
     Check(Has(selector.Describe(), "Warthog (Driver): camera 1 of 4 \"Seat\""), "a Warthog driver has four cameras");
+    Check(selector.Note() == L"Warthog \u00B7 Seat", "the headset note names the vehicle and the camera");
     Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Third Person\""), "the second the game's own");
+    Check(selector.Note() == L"Warthog \u00B7 Third Person, Untethered", "and the mode where there is more than one");
     Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Over the Shoulder\"") &&
               selector.Active().lagSeconds > 0.0f && selector.Active().origin == static_cast<uint8_t>(Origin::Seat),
           "then one over the shoulder, from the seat, on a spring");
@@ -328,6 +330,7 @@ static void TestBuiltInPresets()
           "a flyer's own cameras ride its pitch and roll");
     selector.Update("halo3", true, "unidentified", kSeatDriver);
     Check(Has(selector.Describe(), "default (Driver): camera 1 of 2"), "a vehicle it does not know gets two");
+    Check(selector.Note() == L"Unidentified \u00B7 Seat", "and its note names the vehicle, not the default entry");
     selector.Update("reach", true, "warthog", kSeatDriver);
     Check(Has(selector.Describe(), "default (Driver): camera 1 of 2"), "and another game the default section's");
 }
