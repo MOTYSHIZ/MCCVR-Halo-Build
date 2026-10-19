@@ -25,6 +25,7 @@
 // for one.
 
 const char* Halo3VehicleIdName(uint32_t id);
+const char* Halo3SeatVehicleName(uint32_t identity, uint32_t defIndex, char (&buffer)[24]);
 
 // The seat a camera was chosen for, so a game's camera thread never lays one seat's camera onto another.
 struct VehicleCameraSeatKey
@@ -553,7 +554,10 @@ VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const ch
                                seat.seatIndex, seat.identity, seat.mounted};
     // A gunner on a vehicle's own gun is named by the vehicle that carries it; a turret the player walks up to
     // is driven and fired from its one seat.
-    name = turret ? "turret" : Halo3VehicleIdName(seat.identity);
+    // A vehicle the mod does not know is named by its tags' fingerprint ("custom_..."), so each custom vehicle
+    // has its own entry match, seat memory and note. Cold worker only: the name lives in this buffer.
+    static char customName[24];
+    name = turret ? "turret" : Halo3SeatVehicleName(seat.identity, seat.definitionIndex, customName);
     seatBits = vehicle_camera_file::SeatBits(turret || Halo3SeatIsDriver(id, seat.seatIndex, seat.mounted),
                                              turret || seat.mounted);
     seatView = Halo3FindSeatPoint(id, seat.seatIndex, seat.mounted) != nullptr;

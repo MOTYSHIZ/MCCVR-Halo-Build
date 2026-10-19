@@ -11408,6 +11408,99 @@ namespace
         return g_halo3SeatStickAims.load(std::memory_order_acquire) != 0 && Halo3VehicleFpActive();
     }
 
+    const char* Halo3VehicleIdName(uint32_t id);
+
+    // A VEHICLE THE MOD DOES NOT KNOW, told apart by what its tags hold: its render model's import checksum and
+    // node count, and its definition's physics values (Halo3ReadDefinitionFields). A definition's index is the
+    // map's (it differs from map to map, and must never be a key); its content is the vehicle's own, so the same
+    // custom vehicle has the same fingerprint in every map and session. 0: the tags could not be read.
+    // Guarded: a plain helper so the SEH frame holds no C++ object.
+    bool Halo3ReadRenderModelIdentity(uint32_t defIndex, uint32_t& checksum, int32_t& nodeCount)
+    {
+        checksum = 0;
+        nodeCount = 0;
+        __try
+        {
+            const unsigned char* def = Halo3LoadedTagDefinition(defIndex);
+            const unsigned char* model = def
+                ? Halo3LoadedTagDefinition(*reinterpret_cast<const uint32_t*>(def + kHalo3VehicleModelDatumOffset))
+                : nullptr;
+            const unsigned char* render = model
+                ? Halo3LoadedTagDefinition(
+                      *reinterpret_cast<const uint32_t*>(model + kHalo3ModelRenderModelDatumOffset))
+                : nullptr;
+            if (!render)
+                return false;
+            checksum = *reinterpret_cast<const uint32_t*>(render + 0x08);
+            nodeCount = *reinterpret_cast<const int32_t*>(render + kHalo3RenderModelNodesBlockOffset);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    uint32_t Halo3CustomVehicleFingerprint(uint32_t defIndex)
+    {
+        if (defIndex > 0xFFFFu)
+            return 0;
+        // Cold worker only; one entry per definition of the map in play (a new map changes the generation).
+        struct Entry
+        {
+            uint32_t generation = 0, defIndex = 0xFFFFFFFFu, fingerprint = 0;
+        };
+        static Entry cache[8];
+        static unsigned next = 0;
+        const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_relaxed);
+        for (const Entry& entry : cache)
+            if (entry.generation == generation && entry.defIndex == defIndex)
+                return entry.fingerprint;
+
+        uint32_t checksum = 0;
+        int32_t nodeCount = 0;
+        int32_t counts[10] = {};
+        float jeep[2] = {};
+        int32_t scoutSpecific = -1;
+        float scoutAccel = 0.0f;
+        float tails[3] = {};
+        uint32_t fingerprint = 0;
+        if (Halo3ReadRenderModelIdentity(defIndex, checksum, nodeCount) &&
+            Halo3ReadDefinitionFields(defIndex, counts, jeep, &scoutSpecific, &scoutAccel, tails))
+        {
+            uint32_t hash = 2166136261u; // FNV-1a over the values' bytes
+            const auto mix = [&hash](const void* data, size_t size) {
+                const auto* bytes = static_cast<const unsigned char*>(data);
+                for (size_t i = 0; i < size; ++i)
+                    hash = (hash ^ bytes[i]) * 16777619u;
+            };
+            mix(&checksum, sizeof(checksum));
+            mix(&nodeCount, sizeof(nodeCount));
+            mix(counts, sizeof(counts));
+            mix(jeep, sizeof(jeep));
+            mix(&scoutSpecific, sizeof(scoutSpecific));
+            mix(&scoutAccel, sizeof(scoutAccel));
+            mix(tails, sizeof(tails));
+            fingerprint = hash ? hash : 1u;
+        }
+        cache[next] = Entry{generation, defIndex, fingerprint};
+        next = (next + 1) % 8;
+        return fingerprint;
+    }
+
+    // The seat's vehicle by name: a known one's (Halo3VehicleIdName), else "custom_" and its fingerprint, so each
+    // custom vehicle has a name of its own; "unidentified" when even that cannot be read. Cold worker.
+    const char* Halo3SeatVehicleName(uint32_t identity, uint32_t defIndex, char (&buffer)[24])
+    {
+        if (static_cast<Halo3VehicleId>(identity) != Halo3VehicleId::Unknown)
+            return Halo3VehicleIdName(identity);
+        const uint32_t fingerprint = Halo3CustomVehicleFingerprint(defIndex);
+        if (!fingerprint)
+            return Halo3VehicleIdName(identity);
+        std::snprintf(buffer, sizeof(buffer), "custom_%08x", fingerprint);
+        return buffer;
+    }
+
     const char* Halo3VehicleIdName(uint32_t id)
     {
         switch (static_cast<Halo3VehicleId>(id))
@@ -11634,10 +11727,12 @@ namespace
                     // Named from the seat snapshot; a vehicle this build has no entry for reads "unidentified".
                     Halo3SeatSnapshot occupied;
                     char seatName[64] = "seat not read yet";
+                    char occupiedName[24];
                     if (Halo3ReadSeatSnapshot(occupied))
                         std::snprintf(seatName, sizeof(seatName), "%s, seat %d%s",
-                                      Halo3VehicleIdName(occupied.identity), occupied.seatIndex,
-                                      occupied.mounted ? " mounted" : "");
+                                      Halo3SeatVehicleName(occupied.identity, occupied.definitionIndex,
+                                                           occupiedName),
+                                      occupied.seatIndex, occupied.mounted ? " mounted" : "");
                     LOG("H3 first-person seat: Active (%s); the camera director "
                         "is told the occupied seat is first person, so Halo stops drawing "
                         "the player's own character model. The seat's data is as "
@@ -11668,10 +11763,11 @@ namespace
             seatEyeLogged = seatEye;
             Halo3SeatSnapshot eyeSeat;
             char eyeSeatName[64] = "a seat";
+            char eyeVehicleName[24];
             if (Halo3ReadSeatSnapshot(eyeSeat))
                 std::snprintf(eyeSeatName, sizeof(eyeSeatName), "%s, seat %d%s",
-                              Halo3VehicleIdName(eyeSeat.identity), eyeSeat.seatIndex,
-                              eyeSeat.mounted ? " mounted" : "");
+                              Halo3SeatVehicleName(eyeSeat.identity, eyeSeat.definitionIndex, eyeVehicleName),
+                              eyeSeat.seatIndex, eyeSeat.mounted ? " mounted" : "");
             const bool fromHead = g_halo3SeatEyeFromHead.load(std::memory_order_relaxed) != 0;
             const float apartCm = g_halo3SeatEyeApartCm.load(std::memory_order_relaxed);
             if (apartCm < 0.0f)
