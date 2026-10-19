@@ -9920,7 +9920,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
-    // The notice's panel, head-locked a little above the line of sight: 1 m wide at 2 m. As the captions' panel:
+    // The notice's panel, head-locked a little above the line of sight: 1.6 m wide at 2 m. As the captions' panel:
     // its upload never waits (a busy image is retried next frame) and a failure only turns the notice off.
     bool PrepareNotice(XrCompositionLayerQuad& quad)
     {
@@ -9967,7 +9967,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
             g_noticeUploaded = image->revision;
         }
-        quad = MakeQuad(g_noticeChain,image->width,image->height,1.0f,2.0f,0.35f,
+        quad = MakeQuad(g_noticeChain,image->width,image->height,1.6f,2.0f,0.35f,
             XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,true,0.0f);
         return true;
     }

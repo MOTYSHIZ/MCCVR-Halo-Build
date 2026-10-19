@@ -172,7 +172,8 @@ void InstallHostObserver() {
         static_cast<unsigned long long>(wrapper-base));
 }
 
-std::shared_ptr<const NativeSubtitleImage> Rasterize(const RasterCaption& event) {
+// `largestPx`: the font's largest size; it shrinks from there until the text fits.
+std::shared_ptr<const NativeSubtitleImage> Rasterize(const RasterCaption& event, int largestPx = 66) {
     const wchar_t* normalized=event.text;
     if(!event.length) return {};
     constexpr int w = NativeSubtitleImage::width, h = NativeSubtitleImage::height;
@@ -192,7 +193,7 @@ std::shared_ptr<const NativeSubtitleImage> Rasterize(const RasterCaption& event)
     HFONT font = nullptr;
     HGDIOBJ previousFont = nullptr;
     RECT measured{48,24,w-48,h-24};
-    for (int px = 66; px >= 18; px -= 4) {
+    for (int px = largestPx; px >= 18; px -= 4) {
         font = CreateFontW(-px, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe UI");
@@ -344,7 +345,8 @@ void NativeSubtitles_Poll(bool levelRunning) {
                     std::memory_order_release);
         } else if (serial != g_noticeRasterized) {
             g_noticeRasterized = serial;
-            if (auto image = Rasterize(notice))
+            // Twice a caption's size: a short line, read at a glance while driving.
+            if (auto image = Rasterize(notice, 132))
                 std::atomic_store_explicit(&g_noticeImage,
                     std::shared_ptr<const NativeSubtitleImage>(std::move(image)),std::memory_order_release);
         }
