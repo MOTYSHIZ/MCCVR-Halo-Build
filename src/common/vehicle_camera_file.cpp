@@ -912,41 +912,129 @@ const Game* Table::FindGame(const char* gameKey) const noexcept
     return fallback;
 }
 
-Table DefaultTable()
+namespace
 {
-    // The seat view the player already has comes first, so the file changes nothing until another camera is
-    // chosen. The second camera sits where the game's own third-person camera rests, which suits a vehicle of
-    // any size, and has two modes: the world held still, and the view turning with the vehicle's heading.
+// The built-in cameras' parts. Every seat starts in its seat view, so the file changes nothing until another
+// camera is chosen; the second camera is where the game's own third-person camera rests, which suits a vehicle of
+// any size. A vehicle the mod knows adds one or two of its own, after Halo Campaign Evolved's.
+Camera SeatView()
+{
     Camera seat;
     seat.name = "Seat";
     seat.type = CameraType::FirstPerson;
+    return seat;
+}
 
-    Camera behind;
-    behind.name = "Third Person";
-    behind.origin = Origin::ThirdPerson;
-    // Behind the way the vehicle faces and level, as the game's own camera is: it does not dip and bank with
-    // the hull.
-    behind.locPitch = false;
-    behind.locRoll = false;
-    // On a spring: it stands a long way back, where a rigid boom swings it through every turn and bump.
-    behind.lag = kThirdPersonLagSeconds;
-    Tether still = behind.Mode(0);
+// Two modes: the world held still, and the view turning with the vehicle's heading.
+void UntetheredAndTethered(Camera& camera)
+{
+    Tether still = camera.Mode(0);
     still.name = "Untethered";
     Tether turning = still;
     turning.name = "Tethered";
     turning.rotYaw = true;
-    behind.tethering = {still, turning};
+    camera.tethering = {still, turning};
+}
 
+Camera ThirdPerson()
+{
+    Camera behind;
+    behind.name = "Third Person";
+    behind.origin = Origin::ThirdPerson;
+    // Behind the way the vehicle faces and level, as the game's own camera is: it does not dip and bank with
+    // the hull. On a spring: it stands a long way back, where a rigid boom swings it through every turn and bump.
+    behind.locPitch = false;
+    behind.locRoll = false;
+    behind.lag = kThirdPersonLagSeconds;
+    UntetheredAndTethered(behind);
+    return behind;
+}
+
+// A chase camera at `offset` cm ([forward, right, up]) from `origin`. `level`: it turns with the vehicle's heading
+// only (a ground vehicle's: the horizon stays put over bumps); otherwise it is rigid to the vehicle (a flyer's).
+Camera Chase(const char* name, Origin origin, float forward, float right, float up, bool level, float lag)
+{
+    Camera camera;
+    camera.name = name;
+    camera.origin = origin;
+    camera.offset[0] = forward;
+    camera.offset[1] = right;
+    camera.offset[2] = up;
+    camera.locPitch = camera.locRoll = !level;
+    camera.lag = lag;
+    UntetheredAndTethered(camera);
+    return camera;
+}
+
+Vehicle Entry(const char* key, const char* match, uint8_t seats, std::vector<Camera> extra)
+{
+    Vehicle vehicle;
+    vehicle.name = key;
+    vehicle.match = {match};
+    vehicle.seats = seats;
+    vehicle.cameras = {SeatView(), ThirdPerson()};
+    for (Camera& camera : extra)
+        vehicle.cameras.push_back(std::move(camera));
+    return vehicle;
+}
+
+Vehicle AnyVehicle()
+{
     Vehicle any;
     any.name = kDefaultKey;
     any.isDefault = true;
-    any.cameras = {seat, behind};
+    any.cameras = {SeatView(), ThirdPerson()};
+    return any;
+}
+} // namespace
 
+Table DefaultTable()
+{
+    // Halo 3: the vehicles the mod knows by name (Halo3VehicleIdName), each with the seats Halo Campaign Evolved
+    // gives its own cameras. A gunner on a vehicle's gun is named by the vehicle; a passenger is any seat that
+    // neither drives nor fires the vehicle's gun.
+    constexpr uint8_t driver = kSeatDriver, gunner = kSeatGunner, passenger = kSeatPassenger;
+    Game halo3;
+    halo3.key = kGameKeys[0];
+    halo3.vehicles = {
+        Entry("Warthog", "warthog", driver,
+              {Chase("Over the Shoulder", Origin::Seat, -180, 70, 60, true, 0.15f),
+               Chase("Left Side", Origin::Seat, 0, -140, 40, true, 0.0f)}),
+        Entry("Warthog passenger", "warthog", passenger,
+              {Chase("Over the Shoulder", Origin::Seat, -180, -70, 60, true, 0.15f),
+               Chase("Right Side", Origin::Seat, 0, 140, 40, true, 0.0f)}),
+        Entry("Warthog gunner", "warthog", gunner, {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
+        Entry("Mongoose", "mongoose", driver, {Chase("Over the Shoulder", Origin::Seat, -150, 50, 50, true, 0.15f)}),
+        Entry("Mongoose passenger", "mongoose", passenger,
+              {Chase("Over the Shoulder", Origin::Seat, -150, -50, 50, true, 0.15f)}),
+        Entry("Ghost", "ghost", driver,
+              {Chase("Follow", Origin::Vehicle, -450, 0, 220, true, 0.25f),
+               Chase("Over the Shoulder", Origin::Vehicle, -10, 60, 135, true, 0.1f)}),
+        Entry("Chopper", "chopper", driver, {Chase("Follow", Origin::Vehicle, -500, 0, 250, true, 0.25f)}),
+        Entry("Prowler", "prowler", driver, {Chase("Follow", Origin::Vehicle, -550, 0, 300, true, 0.25f)}),
+        Entry("Prowler gunner", "prowler", gunner, {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
+        Entry("Banshee", "banshee", driver,
+              {Chase("Over the Shoulder", Origin::Vehicle, -350, 150, 200, false, 0.2f),
+               Chase("Chase", Origin::Vehicle, -600, 0, 150, false, 0.3f)}),
+        Entry("Hornet", "hornet", driver,
+              {Chase("Over the Shoulder", Origin::Vehicle, -350, 150, 250, false, 0.2f),
+               Chase("Chase", Origin::Vehicle, -700, 0, 250, false, 0.3f)}),
+        Entry("Scorpion", "scorpion", driver, {Chase("High", Origin::Vehicle, -700, 0, 700, true, 0.3f)}),
+        Entry("Scorpion gunner", "scorpion", gunner,
+              {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
+        Entry("Wraith", "wraith", driver, {Chase("High", Origin::Vehicle, -700, 100, 700, true, 0.3f)}),
+        Entry("Wraith gunner", "wraith", gunner, {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
+        Entry("Turret", "turret", 0, {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
+        AnyVehicle(),
+    };
+
+    // Every other game, until it has cameras of its own.
     Game game;
     game.key = kDefaultKey;
-    game.vehicles.push_back(std::move(any));
+    game.vehicles.push_back(AnyVehicle());
 
     Table table;
+    table.games.push_back(std::move(halo3));
     table.games.push_back(std::move(game));
     return table;
 }

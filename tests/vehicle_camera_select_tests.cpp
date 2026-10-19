@@ -67,7 +67,8 @@ static void TestBuiltInTable()
     Check(!selector.Update("halo3", false, "", 0), "staying on foot changes nothing");
     Check(!selector.StepCamera(1) && !selector.StepMode(1), "there is nothing to step on foot");
 
-    Check(selector.Update("halo3", true, "warthog", kSeatDriver), "sitting down selects a camera");
+    // A vehicle the built-in table has no entry for: its "default" entry.
+    Check(selector.Update("halo3", true, "unidentified", kSeatDriver), "sitting down selects a camera");
     const ActiveCamera seat = selector.Active();
     Check(seat.valid && !seat.chase, "the built-in table starts in the seat view");
     Check(seat.camera == 0 && seat.cameraCount == 2 && seat.modeCount == 1, "the seat view is camera 1 of 2");
@@ -75,7 +76,7 @@ static void TestBuiltInTable()
     Check(selector.StandDownReason().empty(), "no stand-down reason while a camera is selected");
     Check(selector.Describe() == "default (Driver): camera 1 of 2 \"Seat\", the seat view",
           "the seat view's log line");
-    Check(!selector.Update("halo3", true, "warthog", kSeatDriver), "the same seat again changes nothing");
+    Check(!selector.Update("halo3", true, "unidentified", kSeatDriver), "the same seat again changes nothing");
     Check(selector.Active() == seat, "and publishes the same record");
     Check(!selector.StepMode(1), "the seat view has one mode");
     Check(!selector.StepCamera(0), "a step of zero is no step");
@@ -302,7 +303,33 @@ static void TestReload()
     selector.SetTable(DefaultTable());
     Check(selector.Active() == onFoot && selector.StandDownReason() == "on foot", "a reload on foot selects nothing");
     selector.Update("halo3", true, "Warthog", kSeatDriver);
-    Check(Has(selector.Describe(), "default (Driver)"), "and the next seat uses the new table");
+    Check(Has(selector.Describe(), "Warthog (Driver)"), "and the next seat uses the new table");
+}
+
+// The built-in table's own cameras for the vehicles the mod knows: each seat of a vehicle has its entry, every
+// one starting in the seat view with the game's third-person camera second, and a vehicle it does not know gets
+// the default entry's two.
+static void TestBuiltInPresets()
+{
+    Selector selector;
+    selector.SetTable(DefaultTable());
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    Check(Has(selector.Describe(), "Warthog (Driver): camera 1 of 4 \"Seat\""), "a Warthog driver has four cameras");
+    Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Third Person\""), "the second the game's own");
+    Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Over the Shoulder\"") &&
+              selector.Active().lagSeconds > 0.0f && selector.Active().origin == static_cast<uint8_t>(Origin::Seat),
+          "then one over the shoulder, from the seat, on a spring");
+    selector.Update("halo3", true, "warthog", kSeatPassenger);
+    Check(Has(selector.Describe(), "Warthog passenger (Passenger)"), "the passenger has an entry of its own");
+    selector.Update("halo3", true, "warthog", kSeatGunner);
+    Check(Has(selector.Describe(), "Warthog gunner (Gunner): camera 1 of 3"), "and so has the gunner");
+    selector.Update("halo3", true, "banshee", kSeatDriver);
+    Check(selector.StepCamera(1) && selector.StepCamera(1) && selector.Active().locPitch && selector.Active().locRoll,
+          "a flyer's own cameras ride its pitch and roll");
+    selector.Update("halo3", true, "unidentified", kSeatDriver);
+    Check(Has(selector.Describe(), "default (Driver): camera 1 of 2"), "a vehicle it does not know gets two");
+    selector.Update("reach", true, "warthog", kSeatDriver);
+    Check(Has(selector.Describe(), "default (Driver): camera 1 of 2"), "and another game the default section's");
 }
 
 static void TestTwoCamerasOfOneName()
@@ -420,6 +447,7 @@ static void TestMemoryFile()
 int main()
 {
     TestBuiltInTable();
+    TestBuiltInPresets();
     TestSeatMemory();
     TestEntriesAndSeats();
     TestLongMarkerName();

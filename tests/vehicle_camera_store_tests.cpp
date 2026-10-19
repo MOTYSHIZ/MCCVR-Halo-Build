@@ -89,7 +89,16 @@ static void TestMissingFileIsWrittenOnce()
     Check(first.created && first.changed, "a missing file is written and read");
     Check(std::filesystem::exists(path), "the file is there afterwards");
     Check(store.FromFile(), "and the table in use is the file's");
-    Check(AnyNoteHas(first, "built-in cameras were written") && AnyNoteHas(first, "read 1 vehicle entries and 2 cameras"),
+    std::size_t entries = 0, cameras = 0;
+    for (const auto& game : vehicle_camera_file::DefaultTable().games)
+        for (const auto& vehicle : game.vehicles)
+        {
+            ++entries;
+            cameras += vehicle.cameras.size();
+        }
+    const std::string counted =
+        "read " + std::to_string(entries) + " vehicle entries and " + std::to_string(cameras) + " cameras";
+    Check(AnyNoteHas(first, "built-in cameras were written") && AnyNoteHas(first, counted.c_str()),
           "the log is told of both");
     const std::string written = ReadFileText(path);
     Check(Has(written, "\"games\"") && Has(written, "Third Person"), "the file holds the built-in cameras");
@@ -141,7 +150,8 @@ static void TestEditsAreFollowed()
     std::filesystem::remove(path);
     const PollResult gone = store.Poll();
     Check(gone.created && gone.changed, "a file deleted while running is written afresh");
-    Check(store.Current().FindGame("halo3") != nullptr && store.Current().FindGame("halo3")->key == std::string(kDefaultKey),
+    Check(store.Current().FindGame("halo3") != nullptr && store.Current().FindGame("halo3")->key == std::string("halo3") &&
+              store.Current().FindGame("reach")->key == std::string(kDefaultKey),
           "and the built-in cameras are back in use");
 }
 
