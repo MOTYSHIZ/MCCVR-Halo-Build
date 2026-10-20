@@ -14,7 +14,8 @@
 // miss the last range held (sky has no range, and inventing one would swing the ring every time the ray crosses a
 // skyline); the trace's far end before anything has been hit in that seat. The ring is pulled back off the surface
 // by the crosshair's own surface offset (at most half the range), then drawn on the line from the eye through that
-// point. A RANGE crosses from the simulation's tick to the frame, never a point.
+// point, parked at the crosshair's far cap beyond it. A RANGE crosses from the simulation's tick to the frame, never
+// a point.
 //
 // HOW IT LOOKS. A generated ring, no centre dot, light purple, drawn on the headset's compositor over the scene and
 // under the crosshair. Its picture is 128 px square; the ring's radius is 0.40 of it, its half-thickness 0.008 of
@@ -159,6 +160,17 @@ inline float PullBack(float rangeWu, float offsetWu)
     if (off > rangeWu * 0.5f)
         off = rangeWu * 0.5f;
     return rangeWu - off;
+}
+
+// The distance the ring is DRAWN at, metres: its own, parked at the crosshair's cap (`capM`, reticle_max_dist_m)
+// beyond it, as the crosshair parks (aim_solve::traced_reticle_placement). On a ray from the eye every depth lands on
+// the same point of the picture, so parking it moves nothing but its depth in the two eyes, which then matches the
+// crosshair's when the two coincide. A cap that is not a distance parks nothing.
+inline float DrawDistance(float distanceM, float capM)
+{
+    if (!std::isfinite(distanceM) || distanceM <= 0.0f)
+        return 0.0f;
+    return std::isfinite(capM) && capM > 0.0f && distanceM > capM ? capM : distanceM;
 }
 
 // The picture's width at `distanceM`, metres: as wide as the crosshair (`crosshairSizeDeg`, its apparent size) there,

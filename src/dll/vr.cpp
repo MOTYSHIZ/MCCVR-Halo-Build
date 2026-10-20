@@ -18912,9 +18912,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         // THE VEHICLE AIM RING (Halo Campaign Evolved's "aimMarker"; vehicle_cameras.inl): where the
                         // VEHICLE aims, beside the crosshair, while a Halo 3 chase camera asks for it. The camera
                         // pass publishes the direction from the eye and the distance; it is drawn here from this
-                        // frame's stereo centre, as wide as the crosshair at that distance, and queued BEFORE the
-                        // crosshair so the crosshair draws over it. Not with the HUD hidden, in a cutscene theatre or
-                        // over Halo's pause presentation.
+                        // frame's stereo centre, parked at the crosshair's cap as the crosshair is, as wide as the
+                        // crosshair at that distance, and queued BEFORE the crosshair so the crosshair draws over
+                        // it. Not with the HUD hidden, in a cutscene theatre or over Halo's pause presentation.
                         {
                             float ringDir[3]{};
                             float ringDistanceM = 0.0f;
@@ -18933,6 +18933,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 const float leftPosition[3] = {left.position.x, left.position.y, left.position.z};
                                 const float rightPosition[3] = {right.position.x, right.position.y,
                                                                 right.position.z};
+                                ringDistanceM =
+                                    vehicle_aim_marker::DrawDistance(ringDistanceM, g_config.reticle_max_dist_m);
                                 const float ringWidth =
                                     vehicle_aim_marker::WidthAt(ringDistanceM, g_config.crosshair_size_deg);
                                 if (ringWidth > 0.0f &&

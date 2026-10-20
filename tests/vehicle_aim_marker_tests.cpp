@@ -160,6 +160,12 @@ static void TestSize()
     Check(Near(WidthAt(1000.0f, 4.0f) / 1000.0f, width / 10.0f, 1e-6f), "the same apparent size at any distance");
     Check(WidthAt(0.0f, 4.0f) == 0.0f && WidthAt(10.0f, 0.0f) == 0.0f && WidthAt(NAN, 4.0f) == 0.0f,
           "nothing from a bad distance or size");
+
+    Check(DrawDistance(12.0f, 50.0f) == 12.0f && DrawDistance(900.0f, 50.0f) == 50.0f,
+          "drawn where it is, parked at the crosshair's cap beyond it");
+    Check(DrawDistance(900.0f, 0.0f) == 900.0f && DrawDistance(900.0f, NAN) == 900.0f,
+          "a cap that is not a distance parks nothing");
+    Check(DrawDistance(0.0f, 50.0f) == 0.0f && DrawDistance(NAN, 50.0f) == 0.0f, "no distance, nothing to draw");
 }
 
 int main()
