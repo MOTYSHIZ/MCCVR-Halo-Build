@@ -5,7 +5,10 @@
 //   left X tap        the camera's next tethering mode
 //   left Y or X held  re-centre the view (the moment the hold is long enough, not on release)
 //   left stick click  the next way to control the seat (vehicle_control: hand, stick, wheel)
-//   right B           what left X does in the game everywhere else: use, exit the vehicle, reload
+//   right B           the game's own B -- in Halo 3 a vehicle's B action, the Banshee's bomb -- unless the action
+//                     mapper is on and binds B to nothing (its default): B then does nothing in the game, and right
+//                     B is what left X does there everywhere else (use, exit the vehicle, reload), the only way out
+//                     of a seat whose left X is the tethering button (RightBFor)
 //   support trigger   in a passenger's seat, switch weapon (what left Y does everywhere else)
 //
 // The three left buttons are the mod's alone while this holds: none of them reaches the game. A tap acts on
@@ -13,7 +16,7 @@
 // a seat records what is already down (the button that boarded the vehicle is still held when the seat comes
 // up) and acts on nothing. A left stick click joined by the right stick's is the menu's chord, not a click, and
 // left Y joined by right B is the pause chord (the caller reads it from the buttons as they were): that Y is
-// not a tap or a hold, and that B is not the game's use.
+// not a tap or a hold, and that B is neither the game's B nor its use.
 //
 // Pure: the caller hands in the poll's buttons and gets back what reaches the game and what was asked for. Keep ONE
 // instance for every thread that polls the pad and step it under a lock, with the time read inside the lock: a
@@ -27,6 +30,20 @@ namespace vehicle_seat_buttons
 inline constexpr float kTriggerPress = 0.6f;
 inline constexpr float kTriggerRelease = 0.3f;
 inline constexpr uint32_t kDefaultHoldMs = 1000;
+
+// What right B gives the game in a seat.
+enum class RightB : uint8_t
+{
+    Itself,    // the game's B
+    LeftXsJob, // what left X does in the game everywhere else: use, exit, reload
+};
+
+// `actionMapperOn`: vr_action_mapping, where a VR button reaches the game as the action bound to it.
+// `bBoundToAnAction`: the mapper binds right B to some action (by default it binds it to none).
+inline constexpr RightB RightBFor(bool actionMapperOn, bool bBoundToAnAction) noexcept
+{
+    return actionMapperOn && !bBoundToAnAction ? RightB::LeftXsJob : RightB::Itself;
+}
 
 // The buttons this works on, as the pad has them: the support trigger is the hand that does not hold the gun.
 struct Buttons
@@ -48,8 +65,10 @@ class Seat
 {
 public:
     // One poll. `live`: the vehicle cameras run in the seat the player is in. `passenger`: it is a passenger's.
-    // `holdMs`: how long a hold re-centres (0 = never). `buttons` is changed in place to what the game gets.
-    Requests Step(Buttons& buttons, bool live, bool passenger, uint64_t nowMs, uint32_t holdMs) noexcept
+    // `holdMs`: how long a hold re-centres (0 = never). `rightB`: what right B gives the game (RightBFor).
+    // `buttons` is changed in place to what the game gets.
+    Requests Step(Buttons& buttons, bool live, bool passenger, uint64_t nowMs, uint32_t holdMs,
+                  RightB rightB = RightB::Itself) noexcept
     {
         Requests asked;
         if (!live)
@@ -87,8 +106,9 @@ public:
         primed_ = true;
 
         // What reaches the game.
-        buttons.x = raw.b && !pauseChord_;
-        buttons.b = false;
+        const bool rightBDown = raw.b && !pauseChord_;
+        buttons.x = rightB == RightB::LeftXsJob && rightBDown;
+        buttons.b = rightB == RightB::Itself && rightBDown;
         buttons.y = false;
         buttons.clickL = false;
         if (passenger)

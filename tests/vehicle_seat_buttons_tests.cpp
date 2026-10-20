@@ -22,11 +22,12 @@ struct Poll
     Seat seat;
     uint64_t now = 1000;
     Buttons out;
+    RightB rightB = RightB::LeftXsJob;
     Requests Run(Buttons in, bool live = true, bool passenger = false, uint64_t step = 10)
     {
         now += step;
         out = in;
-        return seat.Step(out, live, passenger, now, kDefaultHoldMs);
+        return seat.Step(out, live, passenger, now, kDefaultHoldMs, rightB);
     }
 };
 
@@ -185,9 +186,24 @@ static void TestWhatTheGameGets()
 {
     Poll p;
     p.Run(With(false, false, true));
-    Check(p.out.x && !p.out.b, "right B is what left X is everywhere else: use, exit, reload");
+    Check(p.out.x && !p.out.b, "with the mapper binding B to nothing, right B is what left X is everywhere else");
     p.Run(With(true, false, false));
     Check(!p.out.x, "and left X is not");
+
+    Poll own;
+    own.rightB = RightB::Itself;
+    own.Run(With(false, false, true));
+    Check(own.out.b && !own.out.x, "otherwise right B is the game's own B: the Banshee's bomb");
+    own.Run(With(false, false, false));
+    Check(!own.out.b, "for as long as it is held");
+    own.Run(With(false, true, false));
+    own.Run(With(false, true, true));
+    Check(!own.out.b && !own.out.y, "and left Y with right B is the pause chord, not B");
+
+    Check(RightBFor(true, false) == RightB::LeftXsJob, "the mapper on, B bound to nothing: left X's job");
+    Check(RightBFor(true, true) == RightB::Itself, "the mapper on, B bound to an action: that action");
+    Check(RightBFor(false, false) == RightB::Itself && RightBFor(false, true) == RightB::Itself,
+          "the mapper off: the game's B");
     p.Run(With(false, false, false, false, false, 0.9f));
     Check(!p.out.y && p.out.supportTrigger == 0.9f, "a driver's or gunner's support trigger is its own");
 
