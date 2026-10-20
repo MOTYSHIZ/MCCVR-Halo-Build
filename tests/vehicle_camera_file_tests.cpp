@@ -60,8 +60,10 @@ static void TestBuiltInTable()
                        vehicle.cameras[0].type == CameraType::FirstPerson;
         thirdPersonSecond = thirdPersonSecond && vehicle.cameras[1].origin == Origin::ThirdPerson &&
                             vehicle.cameras[1].name == "Third Person";
+        // One match text, the vehicle's name; the Elephant's and the Prowler's also their stock tags' words.
+        const bool tagWord = vehicle.name.rfind("Elephant", 0) == 0 || vehicle.name.rfind("Prowler", 0) == 0;
         if (!vehicle.isDefault)
-            othersBeyond = othersBeyond && vehicle.cameras.size() >= 3 && vehicle.match.size() == 1;
+            othersBeyond = othersBeyond && vehicle.cameras.size() >= 3 && vehicle.match.size() == (tagWord ? 2u : 1u);
         for (const Vehicle& other : halo3.vehicles)
             namedOnce = namedOnce && (&other == &vehicle || other.name != vehicle.name);
     }
@@ -412,6 +414,25 @@ static void TestMatching()
     const Vehicle& pelican = game.vehicles[static_cast<std::size_t>(MatchVehicle(game, "pelican", 0))];
     Check(!pelican.enabled && pelican.cameras.empty(), "and may list no cameras");
     Check(game.vehicles[1].seats == kSeatPassenger && game.vehicles[2].seats == kSeatGunner, "seat lists as bits");
+
+    // The built-in Halo 3 entries: a mod's variant named by its tag finds the stock vehicle's cameras, the Elephant's
+    // and the Prowler's by their stock tags' words too.
+    const Table built = DefaultTable();
+    const Game& h3 = built.games[0];
+    const auto builtName = [&h3](const char* vehicle, uint8_t seat) -> std::string {
+        const int index = MatchVehicle(h3, vehicle, seat);
+        return index < 0 ? std::string("(none)") : h3.vehicles[static_cast<std::size_t>(index)].name;
+    };
+    Check(builtName("behemoth_fast", kSeatDriver) == "Elephant" &&
+              builtName("behemoth_fast", kSeatGunner) == "Elephant gunner" &&
+              builtName("elephant", kSeatDriver) == "Elephant",
+          "built in: behemoth_fast takes the Elephant's cameras, driver and gunner");
+    Check(builtName("mauler_fast", kSeatDriver) == "Prowler" && builtName("mauler_fast", kSeatGunner) == "Prowler gunner" &&
+              builtName("prowler", kSeatDriver) == "Prowler",
+          "built in: mauler_fast takes the Prowler's");
+    Check(builtName("warthog_fast", kSeatGunner) == "Warthog gunner" && builtName("ghost_aa", kSeatDriver) == "Ghost" &&
+              builtName("sparrowhawk", kSeatDriver) == "default",
+          "built in: other variants by their own words; a vehicle like no stock one, the default entry");
 
     Table bare;
     Check(Read("{ \"games\": { \"reach\": { \"vehicles\": { \"Ghost\": { \"cameras\": [ { } ] } } } } }", bare).ok,

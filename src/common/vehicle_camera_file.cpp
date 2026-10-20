@@ -1050,6 +1050,14 @@ Vehicle Entry(const char* key, const char* match, uint8_t seats, std::vector<Cam
     return vehicle;
 }
 
+// An entry that also matches another text: the stock tag's own word where it is not the vehicle's name, so a mod's
+// variant named by its tag ("behemoth_fast", "mauler_fast") finds the stock vehicle's cameras.
+Vehicle AlsoMatching(Vehicle vehicle, const char* match)
+{
+    vehicle.match.push_back(match);
+    return vehicle;
+}
+
 Vehicle AnyVehicle()
 {
     Vehicle any;
@@ -1084,8 +1092,11 @@ Table DefaultTable()
               {Chase("Follow", Origin::Vehicle, -450, 0, 220, true, 0.25f),
                Chase("Over the Shoulder", Origin::Vehicle, -10, 60, 135, true, 0.1f)}),
         Entry("Chopper", "chopper", driver, {Chase("Follow", Origin::Vehicle, -500, 0, 250, true, 0.25f)}),
-        Entry("Prowler", "prowler", driver, {Chase("Follow", Origin::Vehicle, -550, 0, 300, true, 0.25f)}),
-        Entry("Prowler gunner", "prowler", gunner, {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
+        AlsoMatching(Entry("Prowler", "prowler", driver, {Chase("Follow", Origin::Vehicle, -550, 0, 300, true, 0.25f)}),
+                     "mauler"),
+        AlsoMatching(Entry("Prowler gunner", "prowler", gunner,
+                           {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
+                     "mauler"),
         Entry("Banshee", "banshee", driver,
               {Chase("Over the Shoulder", Origin::Vehicle, -350, 150, 200, false, 0.2f),
                Chase("Chase", Origin::Vehicle, -600, 0, 150, false, 0.3f)}),
@@ -1097,9 +1108,12 @@ Table DefaultTable()
               {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
         Entry("Wraith", "wraith", driver, {Chase("High", Origin::Vehicle, -700, 100, 700, true, 0.3f)}),
         Entry("Wraith gunner", "wraith", gunner, {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
-        Entry("Elephant", "elephant", driver, {Chase("Over the Shoulder", Origin::Seat, -250, 100, 80, true, 0.15f)}),
-        Entry("Elephant gunner", "elephant", gunner,
-              {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
+        AlsoMatching(Entry("Elephant", "elephant", driver,
+                           {Chase("Over the Shoulder", Origin::Seat, -250, 100, 80, true, 0.15f)}),
+                     "behemoth"),
+        AlsoMatching(Entry("Elephant gunner", "elephant", gunner,
+                           {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
+                     "behemoth"),
         Entry("Turret", "turret", 0, {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
         AnyVehicle(),
     };
