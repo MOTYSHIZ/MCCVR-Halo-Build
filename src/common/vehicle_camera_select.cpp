@@ -390,8 +390,12 @@ bool Selector::Match()
         return !(before == active_);
     }
 
-    const bool sameRide = before.valid && SameName(previousEntry, entry->name) && rideGame_ == gameKey_ &&
-                          rideVehicle_ == vehicleName_ && (rideSeat_ == seat_ || rideSeat_ == 0);
+    // The same entry -- or "default" giving way to an entry since added for this vehicle (vehicle_camera_autoadd),
+    // which starts with the default entry's cameras: the player stays where he is.
+    const bool sameEntry = SameName(previousEntry, entry->name) ||
+        (!entry->isDefault && SameName(previousEntry, vehicle_camera_file::kDefaultKey));
+    const bool sameRide = before.valid && sameEntry && rideGame_ == gameKey_ && rideVehicle_ == vehicleName_ &&
+                          (rideSeat_ == seat_ || rideSeat_ == 0);
     rideGame_ = gameKey_;
     rideVehicle_ = vehicleName_;
     rideSeat_ = seat_;
@@ -438,8 +442,13 @@ bool Selector::Match()
                 break;
             }
     }
+    // The seat's last choice where it was made in this entry -- or in "default", for an entry since added for the
+    // vehicle (vehicle_camera_autoadd: it starts with the default entry's cameras, so the choice still names one).
     const auto found = memory_.find(MemoryKey());
-    if (found != memory_.end() && found->second.camera >= 0 && SameName(found->second.entry, entry->name))
+    const bool rememberedHere = found != memory_.end() &&
+        (SameName(found->second.entry, entry->name) ||
+         (!entry->isDefault && SameName(found->second.entry, vehicle_camera_file::kDefaultKey)));
+    if (rememberedHere && found->second.camera >= 0)
     {
         const int remembered = FindCamera(*entry, found->second.cameraName, found->second.camera);
         if (remembered >= 0)

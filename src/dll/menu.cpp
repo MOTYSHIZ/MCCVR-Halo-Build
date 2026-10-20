@@ -1362,6 +1362,7 @@ namespace
                                    &g_config.vehicle_cameras);
         changed |= ImGui::Combo("Note when the camera changes", &g_config.vehicle_camera_note,
                                 "Off\0In the game's HUD messages\0On the mod's panel\0");
+        changed |= ImGui::Checkbox("Add new vehicles to the camera file", &g_config.vehicle_camera_autoadd);
         changed |= ImGui::Checkbox("Ring where the vehicle aims",
                                    &g_config.vehicle_aim_marker);
         ImGui::TextDisabled(

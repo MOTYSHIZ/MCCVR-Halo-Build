@@ -15717,7 +15717,7 @@ int main()
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
         "vehicle_cam_right_m",
         "vehicle_view_follow", "vehicle_cam_smoothing",
-        "vehicle_motion", "vehicle_vr_controls", "vehicle_cameras", "vehicle_camera_note", "vehicle_aim_marker", "vehicle_control",
+        "vehicle_motion", "vehicle_vr_controls", "vehicle_cameras", "vehicle_camera_note", "vehicle_camera_autoadd", "vehicle_aim_marker", "vehicle_control",
         "vehicle_aim_reject_metres", "vehicle_aim_reject_dot", "vehicle_boom_rate_deg_s", "vehicle_boom_invert",
         "vehicle_wheel_max_deg",
         "vehicle_wheel_deadzone_deg",

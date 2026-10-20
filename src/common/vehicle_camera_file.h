@@ -236,6 +236,9 @@ ParseResult FromJson(const char* text, std::size_t len, Table& out);
 // The table as the file format, with a guide to every key at the top (`guide` = false leaves it out).
 // FromJson(ToJson(t)) gives t back.
 std::string ToJson(const Table& table, bool guide = true);
+// One vehicle entry exactly as ToJson writes it inside a section's "vehicles" (its key, its object, a line
+// end), with no comma after it.
+std::string VehicleJson(const Vehicle& vehicle);
 
 // Index in `game.vehicles` of the entry for this vehicle name and seat, else the "default" entry, else -1.
 // An entry with a "seat" list is considered only when the game has named the seat (`seat` != 0) and one of its

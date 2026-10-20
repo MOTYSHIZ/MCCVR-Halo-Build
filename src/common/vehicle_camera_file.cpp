@@ -808,8 +808,11 @@ const char* const kGuide[] = {
     "  exactly the modes whose rotationTracking turns the view with the vehicle's yaw;",
     "  leashMin / leashMax = the leash for every camera of this seat.",
     "Keys starting with _ are notes and are ignored: add your own anywhere (\"_why\": \"...\").",
-    "This file is yours: it is written once and never overwritten, and deleting it brings the built-in cameras",
-    "back.",
+    "This file is yours: it is never overwritten, and deleting it brings the built-in cameras back. The first time",
+    "you sit in a vehicle it has no entry of its own for, entries for that vehicle are ADDED at the end of its",
+    "section (the built-in ones where there are any, else one by the vehicle's name with the default cameras);",
+    "nothing else in the file changes, and the file as it first was is kept as <this file>.before-autoadd.",
+    "vehicle_camera_autoadd = 0 in halomccvr.cfg turns the adding off.",
 };
 
 void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
@@ -1200,6 +1203,13 @@ ParseResult FromJson(const char* text, std::size_t len, Table& out)
     result.ok = true;
     out = std::move(table);
     return result;
+}
+
+std::string VehicleJson(const Vehicle& vehicle)
+{
+    std::string out;
+    WriteVehicle(out, vehicle, true);
+    return out;
 }
 
 std::string ToJson(const Table& table, bool guide)

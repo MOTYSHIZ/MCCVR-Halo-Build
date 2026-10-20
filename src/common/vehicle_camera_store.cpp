@@ -118,6 +118,62 @@ bool Store::ReadAll(std::string& out, std::string& why) const
     return true;
 }
 
+bool Store::Add(const vehicle_camera_autoadd::Addition& addition, const char* gameKey, const std::string& vehicleName,
+                uint8_t seat, std::string& why)
+{
+    std::string text;
+    if (!ReadAll(text, why))
+        return false;
+    if (text.size() > vehicle_camera_file::kMaxFileBytes)
+    {
+        why = "the file is larger than 512 KB";
+        return false;
+    }
+    std::string bom;
+    if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+        static_cast<unsigned char>(text[1]) == 0xBB && static_cast<unsigned char>(text[2]) == 0xBF)
+    {
+        bom = text.substr(0, 3);
+        text.erase(0, 3);
+    }
+    if (!vehicle_camera_autoadd::Insert(text, addition, gameKey, vehicleName, seat, why))
+        return false;
+    text.insert(0, bom);
+
+    // The player's file as it was before the mod first added to it, kept once (an existing copy is never replaced).
+    const std::wstring backup = path_ + kBackupSuffix;
+    CopyFileW(path_.c_str(), backup.c_str(), TRUE);
+
+    // Written whole to a file beside it, then put in its place in one step: a reader never sees half of it.
+    const std::wstring temp = path_ + L".adding";
+    {
+        const File file(CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                    nullptr));
+        if (!file.Open())
+        {
+            why = ErrorText(GetLastError());
+            return false;
+        }
+        DWORD written = 0;
+        if (!WriteFile(file.Get(), text.data(), static_cast<DWORD>(text.size()), &written, nullptr) ||
+            written != text.size() || !FlushFileBuffers(file.Get()))
+        {
+            why = ErrorText(GetLastError());
+            FILE_DISPOSITION_INFO gone{};
+            gone.DeleteFile = TRUE;
+            SetFileInformationByHandle(file.Get(), FileDispositionInfo, &gone, sizeof(gone));
+            return false;
+        }
+    }
+    if (!MoveFileExW(temp.c_str(), path_.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        why = ErrorText(GetLastError());
+        DeleteFileW(temp.c_str());
+        return false;
+    }
+    return true;
+}
+
 PollResult Store::Poll()
 {
     PollResult result;

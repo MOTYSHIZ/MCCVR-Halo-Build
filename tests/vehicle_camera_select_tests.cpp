@@ -449,6 +449,42 @@ static void TestMemoryFile()
     moved.Update("halo3", true, "Warthog", kSeatDriver);
     Check(moved.Active().camera == 1, "another entry's memory is not this entry's camera");
     Check(moved.ControlChoice(1) == 2, "though the controls are the seat's own");
+
+    // A choice made while the vehicle rode on "default" carries into an entry added for it since, which starts
+    // with the default entry's cameras.
+    Selector added;
+    added.LoadMemory("halo3\tseraph_reach\tDriver\tdefault\t2\tThird Person\t1\tUntethered\t\t\r\n");
+    Table withOwn = DefaultTable();
+    for (Game& game : withOwn.games)
+    {
+        if (game.key != "halo3")
+            continue;
+        for (const Vehicle& vehicle : game.vehicles)
+            if (vehicle.isDefault)
+            {
+                Vehicle own = vehicle;
+                own.isDefault = false;
+                own.name = "seraph_reach";
+                own.match = {"seraph_reach"};
+                game.vehicles.push_back(own);
+                break;
+            }
+    }
+    added.SetTable(withOwn);
+    added.Update("halo3", true, "seraph_reach", kSeatDriver);
+    Check(added.Active().camera == 1, "a choice made on default carries into the vehicle's added entry");
+
+    // Seated when the entry is added (the file is read again under the player): he stays in his camera, and it
+    // is not a new ride.
+    Selector seated;
+    seated.Update("halo3", true, "seraph_reach", kSeatDriver);
+    seated.StepCamera(1);
+    const uint32_t changes = seated.Active().changes;
+    const int camera = seated.Active().camera;
+    seated.SetTable(withOwn);
+    seated.Update("halo3", true, "seraph_reach", kSeatDriver);
+    Check(seated.Active().camera == camera && seated.Active().changes == changes,
+          "an entry added under a seated player keeps his camera, with no change counted");
 }
 
 // THE BOOM'S MEMORY: per game, vehicle, seat and camera, on lines of their own that an older build skips.

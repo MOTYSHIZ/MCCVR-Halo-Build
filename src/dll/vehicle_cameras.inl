@@ -905,8 +905,12 @@ VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const ch
     // note. Cold worker only: the name lives in this buffer.
     static char customName[kHalo3VehicleNameCapacity];
     name = turret ? "turret" : Halo3SeatVehicleName(seat, customName);
-    seatBits = vehicle_camera_file::SeatBits(turret || Halo3SeatIsDriver(id, seat.seatIndex, seat.mounted),
-                                             turret || seat.mounted);
+    // A vehicle the mod cannot name has its driver's seat named by the seat's own tag flag (Halo3SeatRoleOf), so
+    // its pilot reads as a driver, not as a passenger.
+    const bool driver = turret ||
+        Halo3SeatRoleOf(id, static_cast<Halo3VehicleId>(seat.controlClass), seat.seatIndex, seat.mounted,
+                        Halo3OccupiedSeatFlags()).driver;
+    seatBits = vehicle_camera_file::SeatBits(driver, turret || seat.mounted);
     seatView = Halo3FindSeatPoint(id, seat.seatIndex, seat.mounted) != nullptr;
     wheelSeat = Halo3SeatAuthorsSteering(id, seat.seatIndex, seat.mounted, true) && Halo3VehicleUsesWheel(id);
     definitionIndex = seat.definitionIndex;
@@ -985,6 +989,9 @@ bool VehicleCameraWriteText(const std::wstring& path, const std::string& text)
     return true;
 }
 
+struct VehicleCameraRuntime;
+void VehicleCameraAutoAdd(VehicleCameraRuntime& r, const char* gameKey, const char* name, uint8_t seatBits);
+
 struct VehicleCameraRuntime
 {
     VehicleCameraRuntime(std::wstring path, std::wstring memory, std::wstring tuningFile)
@@ -1004,6 +1011,8 @@ struct VehicleCameraRuntime
     bool wheelSeat = false;
     uint8_t seatBits = 0;
     uint64_t nextFilePollMs = 0;
+    // The seats (game, vehicle, seat bits) the camera file has been offered entries for this session: each once.
+    std::vector<std::string> autoAddTried;
     VehicleCameraSeatKey seat{};
     vehicle_camera_select::ActiveCamera publishedCamera{};
     VehicleCameraSeatKey publishedSeat{};
@@ -1074,6 +1083,42 @@ bool VehicleBoomTrackApart(const vehicle_boom::Track& track, const float stood[3
     stoodCm = std::sqrt(vehicle_camera_frame::Dot(measured, measured)) / vehicle_camera_frame::kWorldUnitsPerCm;
     trackCm = std::sqrt(vehicle_camera_frame::Dot(place, place)) / vehicle_camera_frame::kWorldUnitsPerCm;
     return std::isfinite(apart);
+}
+
+// A VEHICLE OF ITS OWN IN THE FILE (vehicle_camera_autoadd.h): a seat riding on the file's "default" entry has
+// entries for its vehicle added to the file, once per game, vehicle and seat a session (a file that cannot take
+// them is tried once). The store reads the file again on the next poll, which is made at once.
+void VehicleCameraAutoAdd(VehicleCameraRuntime& r, const char* gameKey, const char* name, uint8_t seatBits)
+{
+    if (!g_config.vehicle_camera_autoadd || !r.store.FromFile() || !name || !name[0])
+        return;
+    const std::string seatKey = std::string(gameKey) + '\t' + name + '\t' + std::to_string(seatBits);
+    for (const std::string& tried : r.autoAddTried)
+        if (tried == seatKey)
+            return;
+    r.autoAddTried.push_back(seatKey);
+    static const vehicle_camera_file::Table builtIn = vehicle_camera_file::DefaultTable();
+    const vehicle_camera_autoadd::Addition addition =
+        vehicle_camera_autoadd::For(r.store.Current(), builtIn, gameKey, name, seatBits);
+    if (addition.entries.empty())
+        return;
+    std::string names;
+    for (const vehicle_camera_file::Vehicle& entry : addition.entries)
+        names += (names.empty() ? "\"" : ", \"") + entry.name + "\"";
+    std::string why;
+    if (!r.store.Add(addition, gameKey, name, seatBits, why))
+    {
+        LOG("Vehicle cameras: %s rides on the camera file's \"default\" entry, and %s could not be added to %s: %s",
+            name, names.c_str(), vehicle_camera_store::kFileNameText, why.c_str());
+        return;
+    }
+    LOG("Vehicle cameras: %s rode on the camera file's \"default\" entry, so %s %s added to %s (section \"%s\", %s); "
+        "the rest of the file is as it was, and the file as it first was is kept as %s%s",
+        name, names.c_str(), addition.entries.size() == 1 ? "was" : "were", vehicle_camera_store::kFileNameText,
+        addition.sectionKey.c_str(),
+        addition.fromBuiltIn ? "the built-in entries for it" : "the default entry's cameras under its own name",
+        vehicle_camera_store::kFileNameText, vehicle_camera_store::kBackupSuffixText);
+    r.nextFilePollMs = 0;
 }
 
 void VehicleBoomCheckLog(VehicleCameraRuntime& r)
@@ -1370,6 +1415,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.seat = key;
         r.seatBits = seatBits;
         r.wheelSeat = wheelSeat;
+        VehicleCameraAutoAdd(r, gameKey, name, seatBits);
     }
     else if (read == VehicleCameraSeatRead::OnFoot)
     {

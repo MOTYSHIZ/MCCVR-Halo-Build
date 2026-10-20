@@ -790,6 +790,12 @@ struct Config
     // (Halo 3; the mod's panel when the game's HUD cannot take it, and in a shared co-op simulation);
     // 2 = on the mod's own panel in the headset.
     int vehicle_camera_note = 1;
+    // With vehicle cameras on: the first time you sit in a vehicle the camera file has no entry of its own for (it
+    // rides on "default" -- a mod map's own vehicle, or a stock one the file is older than), entries for it are
+    // added to the file: the built-in ones where there are any, else one by the vehicle's name with the default
+    // entry's cameras, so nothing changes until you edit it. Only added to, never rewritten; the file as it was is
+    // kept once as halomccvr_vehicle_cameras.json.before-autoadd. false = the file is never written to.
+    bool vehicle_camera_autoadd = true;
     // With vehicle cameras on, in a chase camera whose "aimMarker" in the camera file asks for it (the built-in
     // cameras: their Tethered modes; a file that never says: the modes whose view turns with the vehicle): a purple
     // ring where the VEHICLE is aiming, beside the crosshair that shows where the hand points -- Halo Campaign

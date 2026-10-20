@@ -275,6 +275,7 @@ add_library(halo3xr SHARED
     src/common/scope_logic.cpp
     src/common/title_registry.cpp
     src/common/title_runtime_state.cpp
+    src/common/vehicle_camera_autoadd.cpp
     src/common/vehicle_camera_file.cpp
     src/common/vehicle_camera_select.cpp
     src/common/vehicle_camera_store.cpp
@@ -795,10 +796,17 @@ if(BUILD_TESTING)
     target_compile_options(halomccvr_vehicle_camera_select_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_vehicle_camera_select_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_camera_select_tests COMMAND halomccvr_vehicle_camera_select_tests)
-    # The camera file on disk: written once when missing, never written over, read again when edited
+    # A vehicle of its own in the player's camera file: what is added, and the text it is spliced into
+    # (src/common/vehicle_camera_autoadd.h). Pure logic.
+    add_executable(halomccvr_vehicle_camera_autoadd_tests tests/vehicle_camera_autoadd_tests.cpp
+        src/common/vehicle_camera_autoadd.cpp src/common/vehicle_camera_file.cpp)
+    target_compile_options(halomccvr_vehicle_camera_autoadd_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_camera_autoadd_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_camera_autoadd_tests COMMAND halomccvr_vehicle_camera_autoadd_tests)
+    # The camera file on disk: written once when missing, added to and never rewritten, read again when edited
     # (src/common/vehicle_camera_store.h). Works in a folder of its own under the temp folder.
     add_executable(halomccvr_vehicle_camera_store_tests tests/vehicle_camera_store_tests.cpp
-        src/common/vehicle_camera_store.cpp src/common/vehicle_camera_file.cpp)
+        src/common/vehicle_camera_store.cpp src/common/vehicle_camera_autoadd.cpp src/common/vehicle_camera_file.cpp)
     target_compile_options(halomccvr_vehicle_camera_store_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_vehicle_camera_store_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_camera_store_tests COMMAND halomccvr_vehicle_camera_store_tests)

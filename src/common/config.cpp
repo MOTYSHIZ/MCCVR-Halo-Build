@@ -1555,6 +1555,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.vehicle_cameras = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "vehicle_camera_autoadd"))
+        {
+            g_config.vehicle_camera_autoadd = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "vehicle_camera_note"))
         {
             const int note = atoi(val);
@@ -3000,6 +3005,14 @@ void ConfigSave()
     fprintf(f, "# cannot take the note, and in co-op.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_camera_note);
     fprintf(f, "vehicle_camera_note = %d\n\n", g_config.vehicle_camera_note);
+    fprintf(f, "# With vehicle cameras on: the first time you sit in a vehicle the\n");
+    fprintf(f, "# camera file has no entry of its own for, entries for it are added\n");
+    fprintf(f, "# to halomccvr_vehicle_cameras.json (the built-in ones where there are\n");
+    fprintf(f, "# any, else one by the vehicle's name with the default cameras), so\n");
+    fprintf(f, "# every vehicle you have ridden is there to edit. Only added to; the\n");
+    fprintf(f, "# file as it was is kept once as ...json.before-autoadd.\n");
+    fprintf(f, "# 0 = the file is never written to. (default %d)\n", d.vehicle_camera_autoadd ? 1 : 0);
+    fprintf(f, "vehicle_camera_autoadd = %d\n\n", g_config.vehicle_camera_autoadd ? 1 : 0);
     fprintf(f, "# With vehicle cameras on: a purple ring where the VEHICLE is aiming,\n");
     fprintf(f, "# beside the crosshair that shows where your hand points. In a mode\n");
     fprintf(f, "# where your view turns with the vehicle it is where the view comes to\n");

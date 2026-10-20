@@ -177,6 +177,46 @@ static void TestFolderThatCannotBeWritten()
     Check(blocked.Poll().notes.empty(), "told once");
 }
 
+// A vehicle the file has no entry of its own for is added to it: the rest of the text stays exactly as it was,
+// the file as the player had it is kept once beside it, and the table in use follows on the next Poll.
+static void TestNewVehiclesAreAdded()
+{
+    const std::filesystem::path folder = g_folder / "autoadd";
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    const std::filesystem::path path = folder / kFileName;
+    Store store(path.wstring());
+    Check(store.Poll().created, "a fresh file to add to");
+    const std::string original = ReadFileText(path);
+    const uint8_t driver = SeatBits(true, false);
+
+    std::string why;
+    const vehicle_camera_autoadd::Addition seraph =
+        vehicle_camera_autoadd::For(store.Current(), DefaultTable(), "halo3", "seraph_reach", driver);
+    Check(store.Add(seraph, "halo3", "seraph_reach", driver, why), "a mod vehicle is added to the file");
+    const std::filesystem::path backup = folder / (std::wstring(kFileName) + kBackupSuffix);
+    Check(std::filesystem::exists(backup) && ReadFileText(backup) == original, "the file as it was is kept beside it");
+    const std::string once = ReadFileText(path);
+    Check(once.size() > original.size() && Has(once, "\"seraph_reach\"") && Has(once, "\r\n") && !Has(once, "\r\r"),
+          "the entry is in the file, in its line ends");
+    Check(!std::filesystem::exists(folder / (std::wstring(kFileName) + L".adding")), "no half-way file is left");
+
+    const PollResult reread = store.Poll();
+    Check(reread.changed, "the table in use follows the addition");
+    const Game* game = store.Current().FindGame("halo3");
+    const int matched = game ? MatchVehicle(*game, "seraph_reach", driver) : -1;
+    Check(matched >= 0 && game->vehicles[static_cast<std::size_t>(matched)].name == "seraph_reach",
+          "and the vehicle now has its own entry");
+
+    const vehicle_camera_autoadd::Addition longsword =
+        vehicle_camera_autoadd::For(store.Current(), DefaultTable(), "halo3", "longswordh2a", driver);
+    Check(store.Add(longsword, "halo3", "longswordh2a", driver, why), "a second vehicle is added");
+    Check(ReadFileText(backup) == original, "and the kept copy is still the player's original");
+    const vehicle_camera_autoadd::Addition again =
+        vehicle_camera_autoadd::For(store.Current(), DefaultTable(), "halo3", "seraph_reach", driver);
+    Check(again.entries.empty(), "a vehicle already added is not added twice");
+}
+
 int main()
 {
     wchar_t temp[MAX_PATH]{};
@@ -194,6 +234,7 @@ int main()
     TestMissingFileIsWrittenOnce();
     TestEditsAreFollowed();
     TestFolderThatCannotBeWritten();
+    TestNewVehiclesAreAdded();
 
     RemoveFolder();
     std::printf("PASS: %u vehicle camera store checks\n", g_checks);
