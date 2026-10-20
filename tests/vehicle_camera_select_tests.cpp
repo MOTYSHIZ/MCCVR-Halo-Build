@@ -89,22 +89,22 @@ static void TestBuiltInTable()
           "its offset is the file's");
     Check(behind.locYaw && !behind.locPitch && !behind.locRoll && !behind.locView,
           "its position turns with the vehicle and stays level");
-    Check(behind.rotYaw && !behind.rotPitch && !behind.rotRoll, "its first mode turns the view with the vehicle");
+    Check(!behind.rotYaw && !behind.rotPitch && !behind.rotRoll, "its first mode does not turn the view");
     Check(behind.origin == static_cast<uint8_t>(Origin::ThirdPerson) && behind.marker[0] == '\0',
           "it is measured from where the game's own third-person camera rests and names no marker");
     Check(behind.collide && behind.collideMarginCm == 30.0f, "it is pulled in from obstacles by the default margin");
     Check(behind.changes == 2, "a step counts as a change");
     Check(selector.Describe() ==
-              "default (Driver): camera 2 of 2 \"Third Person\", mode 1 of 2 \"Tethered\", chase from thirdperson, "
-              "offset 0 0 0 cm, location Yaw, rotation Yaw, leash None, lag 0.5 s, aim ring",
+              "default (Driver): camera 2 of 2 \"Third Person\", mode 1 of 2 \"Untethered\", chase from thirdperson, "
+              "offset 0 0 0 cm, location Yaw, rotation None, leash None, lag 0.5 s",
           "the chase camera's log line");
     Check(behind.lagSeconds == 0.5f && behind.lagDamping == 1.5f, "it follows on a spring, without overshoot");
 
-    Check(behind.aimMarker, "and shows the ring where the vehicle aims");
+    Check(!behind.aimMarker, "no aim ring while the world holds still");
     Check(selector.StepMode(1), "stepping to the next mode");
-    Check(selector.Active().mode == 1 && !selector.Active().rotYaw, "the second mode holds the world still");
-    Check(!selector.Active().aimMarker && !Has(selector.Describe(), "aim ring"),
-          "no aim ring while the world holds still, and its line says so");
+    Check(selector.Active().mode == 1 && selector.Active().rotYaw, "the second mode turns the view with the vehicle");
+    Check(selector.Active().aimMarker && Has(selector.Describe(), "lag 0.5 s, aim ring"),
+          "and shows the ring where the vehicle aims, and its line says so");
     Check(selector.Active().changes == 3, "a mode step counts as a change");
     Check(selector.StepMode(1) && selector.Active().mode == 0, "the modes wrap round forwards");
     Check(selector.StepMode(-1) && selector.Active().mode == 1, "and backwards");
@@ -320,7 +320,7 @@ static void TestBuiltInPresets()
     Check(Has(selector.Describe(), "Warthog (Driver): camera 1 of 4 \"Seat\""), "a Warthog driver has four cameras");
     Check(selector.Note() == L"Warthog \u00B7 Seat", "the headset note names the vehicle and the camera");
     Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Third Person\""), "the second the game's own");
-    Check(selector.Note() == L"Warthog \u00B7 Third Person, Tethered", "and the mode where there is more than one, Tethered first");
+    Check(selector.Note() == L"Warthog \u00B7 Third Person, Untethered", "and the mode where there is more than one");
     Check(selector.TuningKey("halo3") == "halo3\tWarthog\tThird Person", "lag tuning keys the camera by game, entry, name");
     Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Over the Shoulder\"") &&
               selector.Active().lagSeconds > 0.0f && selector.Active().origin == static_cast<uint8_t>(Origin::Seat),

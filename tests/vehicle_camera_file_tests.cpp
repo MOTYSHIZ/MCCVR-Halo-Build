@@ -70,7 +70,7 @@ static void TestBuiltInTable()
     Check(any.cameras.size() == 2 && any.defaultCamera == 0, "two cameras, starting in the first");
     Check(any.cameras[0].type == CameraType::FirstPerson, "the first is the seat view the player already has");
     Check(any.cameras[1].type == CameraType::Chase && any.cameras[1].ModeCount() == 2, "the second has two modes");
-    Check(any.cameras[1].Mode(0).rotYaw && !any.cameras[1].Mode(1).rotYaw, "tethered to yaw first, then untethered");
+    Check(!any.cameras[1].Mode(0).rotYaw && any.cameras[1].Mode(1).rotYaw, "untethered first, then tethered to yaw");
     Check(any.cameras[1].origin == Origin::ThirdPerson && any.cameras[1].offset[0] == 0.0f &&
               any.cameras[1].offset[1] == 0.0f && any.cameras[1].offset[2] == 0.0f,
           "and sits where the game's own third-person camera rests, so it suits a vehicle of any size");
