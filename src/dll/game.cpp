@@ -9370,8 +9370,18 @@ namespace
         uint32_t defIndex = 0xFFFFFFFFu;
         uint32_t generation = 0;
         Halo3VehicleId id = Halo3VehicleId::Unknown;
+        bool radiusChecked = false; // resolved with the live vehicle's sphere in hand
     };
     Halo3IdentitySlot g_halo3IdentityCache[16];
+    // The last resolution made with the live sphere in hand, for the cold worker's log line.
+    std::atomic<uint32_t> g_halo3DefRadiusSerial{0};
+    std::atomic<uint32_t> g_halo3DefRadiusDef{0xFFFFFFFFu};
+    std::atomic<int32_t> g_halo3DefRadiusPhysics{-1};
+    std::atomic<uint32_t> g_halo3DefRadiusId{0};
+    std::atomic<float> g_halo3DefRadiusWu{-1.0f};
+    std::atomic<float> g_halo3DefRadiusLiveWu{-1.0f};
+    // A definition's own bounding radius (kHalo3ObjectDefBoundingRadiusOffset), world units. Guarded.
+    bool Halo3ReadDefinitionBoundingRadius(uint32_t defIndex, float& radiusWu);
 
     // Defined with the identity probe below; SEH-guarded internally.
     bool Halo3ReadDefinitionFields(uint32_t defIndex, int32_t counts[10],
@@ -9382,21 +9392,32 @@ namespace
     // C7 session confirmed in process (engine_moment 2000 hog / 650 mongoose;
     // alien_scout specific_type 1/3/4) turn it into an identity. A read that
     // fails, or a value matching nothing, yields Unknown â€” never a guess.
+    // `liveRadiusWu`: the vehicle object's own bounding sphere radius (object +0x28), or <= 0 when not read. A
+    // resolution made without it is made again once it is in hand.
     Halo3VehicleId Halo3ResolveIdentityCached(uint32_t defIndex,
                                               int physicsType,
-                                              uint32_t generation)
+                                              uint32_t generation,
+                                              float liveRadiusWu)
     {
         if (defIndex > 0xFFFFu)
             return Halo3VehicleId::Unknown;
+        const bool haveLive = std::isfinite(liveRadiusWu) && liveRadiusWu > 0.0f;
         // Mix the high nibble in: a seated gunner resolves both the gun and
         // its carrier every frame, and adjacent tag indices must not collide
         // into the same slot and thrash.
         Halo3IdentitySlot& slot =
             g_halo3IdentityCache[(defIndex ^ (defIndex >> 4)) & 15u];
-        if (slot.defIndex == defIndex && slot.generation == generation)
+        if (slot.defIndex == defIndex && slot.generation == generation &&
+            (slot.radiusChecked || !haveLive))
             return slot.id;
         Halo3DefinitionFields fields;
         fields.physicsType = physicsType;
+        float definitionRadius = -1.0f;
+        const bool haveDefinitionRadius =
+            Halo3ReadDefinitionBoundingRadius(defIndex, definitionRadius);
+        if (haveDefinitionRadius &&
+            Halo3DefinitionRadiusAgrees(definitionRadius, liveRadiusWu))
+            fields.boundingRadius = definitionRadius;
         int32_t counts[10] = {};
         float jeep[2] = {-1.0f, -1.0f};
         int32_t scoutSpecific = -1;
@@ -9413,6 +9434,16 @@ namespace
         slot.defIndex = defIndex;
         slot.generation = generation;
         slot.id = Halo3ResolveVehicleId(fields);
+        slot.radiusChecked = haveLive;
+        if (haveLive)
+        {
+            g_halo3DefRadiusDef.store(defIndex, std::memory_order_relaxed);
+            g_halo3DefRadiusPhysics.store(physicsType, std::memory_order_relaxed);
+            g_halo3DefRadiusId.store(static_cast<uint32_t>(slot.id), std::memory_order_relaxed);
+            g_halo3DefRadiusWu.store(haveDefinitionRadius ? definitionRadius : -1.0f, std::memory_order_relaxed);
+            g_halo3DefRadiusLiveWu.store(liveRadiusWu, std::memory_order_relaxed);
+            g_halo3DefRadiusSerial.fetch_add(1, std::memory_order_release);
+        }
         return slot.id;
     }
 
@@ -9451,6 +9482,29 @@ namespace
             instances + static_cast<size_t>(index) * 8 + 4);
         return address
             ? tagBase + static_cast<size_t>(address) * 4 : nullptr;
+    }
+
+    // An object definition opens with its type (int16), flags (int16) and bounding radius (float) -- Halo 1's
+    // object_definition, kept by every later Blam game. The value is only USED once it agrees with the live
+    // object's own sphere (Halo3DefinitionRadiusAgrees), which is what proves this offset on a given build.
+    inline constexpr uintptr_t kHalo3ObjectDefBoundingRadiusOffset = 0x04;
+
+    bool Halo3ReadDefinitionBoundingRadius(uint32_t defIndex, float& radiusWu)
+    {
+        radiusWu = -1.0f;
+        __try
+        {
+            const unsigned char* def = Halo3LoadedTagDefinition(defIndex);
+            if (!def)
+                return false;
+            radiusWu = *reinterpret_cast<const float*>(def + kHalo3ObjectDefBoundingRadiusOffset);
+            return std::isfinite(radiusWu) && radiusWu > 0.0f;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            radiusWu = -1.0f;
+            return false;
+        }
     }
 
     // Cache the selected node's default inverse once per concrete vehicle/seat,
@@ -9989,8 +10043,13 @@ namespace
         // C8: identity, resolved outside the sampler's SEH block (the tag walk
         // carries its own) and cached, so this is a lookup on all but the
         // first frame of a seat session.
+        // Each object's own bounding sphere radius (object +0x28) from the windows captured above: the proof that
+        // the definition's radius was read from the right field (Halo3ResolveIdentityCached).
+        constexpr size_t kRadiusSlot = (0x28 - kHalo3ParentCaptureBase) / 4;
+        const float directLiveRadius = parentWindowValid ? parentWindow[kRadiusSlot] : -1.0f;
+        const float carrierLiveRadius = grandWindowValid ? grandWindow[kRadiusSlot] : -1.0f;
         const Halo3VehicleId directId =
-            Halo3ResolveIdentityCached(defIndex, directType, generation);
+            Halo3ResolveIdentityCached(defIndex, directType, generation, directLiveRadius);
         // A mounted turret gunner: the direct parent is the gun (physics type
         // 5) but the native flag still reports the ULTIMATE parent as a
         // non-turret, i.e. there is a carrier under it. C7 log: chaingun
@@ -10000,7 +10059,7 @@ namespace
             grandWindowValid && !chainTooDeep;
         const Halo3VehicleId carrierId = mountedTurret
             ? Halo3ResolveIdentityCached(carrierDefIndex, carrierType,
-                                         generation)
+                                         generation, carrierLiveRadius)
             : Halo3VehicleId::Unknown;
         // A turret with no carrier under it is one the player walked up to.
         const bool stationaryTurret =
@@ -11770,6 +11829,29 @@ namespace
                     ? "the seat's own camera flag is restored"
                     : "the director is given the game's own answer again; nothing was written");
             nativeSeatSerialLogged = nativeSeatSerial;
+        }
+
+        // A vehicle's bounding radius, once per vehicle per map (Halo3ResolveIdentityCached): its definition's and
+        // its live sphere's, and the identity they gave. With the definition fields, the data an identity rule
+        // for a vehicle the mod does not know yet (the Elephant) is written from.
+        static uint32_t defRadiusLogged = 0;
+        const uint32_t defRadiusSerial = g_halo3DefRadiusSerial.load(std::memory_order_acquire);
+        if (defRadiusSerial != defRadiusLogged)
+        {
+            defRadiusLogged = defRadiusSerial;
+            const uint32_t radiusDef = g_halo3DefRadiusDef.load(std::memory_order_relaxed);
+            const float definitionWu = g_halo3DefRadiusWu.load(std::memory_order_relaxed);
+            const float liveWu = g_halo3DefRadiusLiveWu.load(std::memory_order_relaxed);
+            const bool agrees = Halo3DefinitionRadiusAgrees(definitionWu, liveWu);
+            LOG("H3 vehicle definition %04X (physics type %d, read as %s): bounding radius %.3f wu (%.0f cm) in its "
+                "definition, %.3f wu on the live vehicle; %s",
+                radiusDef, g_halo3DefRadiusPhysics.load(std::memory_order_relaxed),
+                Halo3VehicleIdName(g_halo3DefRadiusId.load(std::memory_order_relaxed)),
+                static_cast<double>(definitionWu), static_cast<double>(definitionWu * 304.8f),
+                static_cast<double>(liveWu),
+                agrees ? "they agree, so the definition's radius is the one identification uses"
+                       : "they do not agree, so identification does not use it");
+            LogHalo3DefinitionProbe(radiusDef, g_halo3DefRadiusPhysics.load(std::memory_order_relaxed));
         }
 
         // The seat's eye, once its occupant's head has settled (the sampler's THE EYE).

@@ -17942,6 +17942,33 @@ int main()
                 "Vehicle identity separates same-type cousins and an "
                 "unidentified vehicle resolves to no point at all");
 
+            // A tank's bounding radius tells the Scorpion from the Elephant,
+            // once the definition's radius is proven by the live sphere.
+            Check(Halo3DefinitionRadiusAgrees(2.5f, 2.5f) &&
+                  Halo3DefinitionRadiusAgrees(2.5f, 2.51f) &&
+                  !Halo3DefinitionRadiusAgrees(2.5f, 2.7f) &&
+                  !Halo3DefinitionRadiusAgrees(2.5f, -1.0f) &&
+                  !Halo3DefinitionRadiusAgrees(-1.0f, 2.5f) &&
+                  !Halo3DefinitionRadiusAgrees(std::nanf(""), 2.5f),
+                "A definition's radius is proven only by the live vehicle "
+                "carrying the same one");
+            Check(Halo3TankIsScorpion(2.5f, 2.5f) &&
+                  Halo3TankIsScorpion(2.6f, 2.5f) &&
+                  !Halo3TankIsScorpion(8.0f, 2.5f) &&
+                  !Halo3TankIsScorpion(2.0f, 2.5f) &&
+                  Halo3TankIsScorpion(-1.0f, 2.5f) &&
+                  Halo3TankIsScorpion(8.0f, 0.0f),
+                "A tank is the Scorpion at the Scorpion's radius, another "
+                "vehicle at any other, and the Scorpion when either radius "
+                "is unknown");
+            Halo3DefinitionFields unprovenTank;
+            unprovenTank.physicsType = 0;
+            unprovenTank.boundingRadius = -1.0f;
+            Check(Halo3ResolveVehicleId(unprovenTank) ==
+                      Halo3VehicleId::Scorpion,
+                "A tank whose radius is not proven still reads as the "
+                "Scorpion");
+
         }
 
         // O1: ODST's own identity rules. ODST ships the same authored vehicles
