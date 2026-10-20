@@ -545,10 +545,14 @@ void TestStockPaths()
     // HugeGrass, read offline: by physics a Hornet, a Hornet, a Warthog, a Ghost, a Wraith and a Mauler.
     const auto sparrowhawk = Def(7, 3.4f), falcon = Def(7, 5.0f), mammoth = Def(1, 22.0f, 1800.0f),
                spectre = Def(3, 1.3f, -1.0f, 1), shadow = Def(3, 5.0f, -1.0f, 3), skiff = Def(3, 7.5f, -1.0f, 4);
-    Check(Halo3ResolveVehicleId(sparrowhawk) == Halo3VehicleId::Hornet &&
-              Halo3ResolveVehicleId(mammoth) == Halo3VehicleId::Warthog &&
+    Check(Halo3ResolveVehicleId(mammoth) == Halo3VehicleId::Warthog &&
               Halo3ResolveVehicleId(spectre) == Halo3VehicleId::Ghost,
-          "HugeGrass without names: its Sparrowhawk reads as a Hornet, its Mammoth as a Warthog");
+          "HugeGrass without names: its Mammoth reads as a Warthog, its Spectre as a Ghost");
+    Check(Halo3ResolveVehicleId(sparrowhawk) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleId(falcon) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleId(Def(7, 2.268f)) == Halo3VehicleId::Hornet &&
+              Halo3ResolveVehicleId(Def(7, -1.0f)) == Halo3VehicleId::Hornet,
+          "without names a flyer with the Hornet's physics is the Hornet only at its radius (2.268 wu), or unproven");
     const Halo3DefinitionFields mods[] = {sparrowhawk, falcon, mammoth, spectre, shadow, skiff};
     bool unknown = true;
     for (const auto& def : mods)

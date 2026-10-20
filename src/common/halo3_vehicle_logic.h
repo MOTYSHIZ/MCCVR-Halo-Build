@@ -1687,10 +1687,13 @@ struct Halo3DefinitionFields
 //
 // The stock radii, read in play (Halo 3, 2026-10-19, "H3 vehicle definition" log lines): a vehicle its physics reads
 // as one of these whose radius is another is not that vehicle. 0 = not measured: the physics alone decides.
+// The Hornet's is read offline from the stock maps' own vehicle tags (objects\vehicles\hornet\hornet and Avalanche's
+// hornet_lite alike, on every map that has one), the same definition field at +4 that play read for the three above
+// -- and offline those three read exactly what play measured.
 inline constexpr float kHalo3ScorpionBoundingRadiusWu = 2.200f; // 671 cm
 inline constexpr float kHalo3ElephantBoundingRadiusWu = 5.129f; // 1563 cm
 inline constexpr float kHalo3BansheeBoundingRadiusWu = 1.400f;  // 427 cm, the same in two sessions
-inline constexpr float kHalo3HornetBoundingRadiusWu = 0.0f;     // not measured yet
+inline constexpr float kHalo3HornetBoundingRadiusWu = 2.268f;   // 691 cm
 // How far a radius may stand from a measured one, as a fraction of it, and still be that vehicle.
 inline constexpr float kHalo3BoundingRadiusTolerance = 0.05f;
 
