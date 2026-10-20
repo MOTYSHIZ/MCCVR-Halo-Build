@@ -433,10 +433,17 @@ bool Selector::StepCamera(int direction)
     const int to = Wrap(active_.camera + (direction > 0 ? 1 : -1), count);
     if (to == active_.camera)
         return false;
-    const Tether from = active_.modeCount > 1 || !haveChoice_
-                            ? entry->cameras[static_cast<std::size_t>(active_.camera)].Mode(active_.mode)
-                            : choice_;
-    Select(to, vehicle_camera_file::CarryMode(entry->cameras[static_cast<std::size_t>(to)], from), true);
+    // The tethering carries over: from a camera that has modes, its own; from one that has none (the seat view), the
+    // player's last choice. With no choice made yet, the next camera starts in its first mode (the built-in cameras'
+    // Tethered).
+    const vehicle_camera_file::Camera& next = entry->cameras[static_cast<std::size_t>(to)];
+    int mode = 0;
+    if (active_.modeCount > 1)
+        mode = vehicle_camera_file::CarryMode(
+            next, entry->cameras[static_cast<std::size_t>(active_.camera)].Mode(active_.mode));
+    else if (haveChoice_)
+        mode = vehicle_camera_file::CarryMode(next, choice_);
+    Select(to, mode, true);
     Remember();
     return true;
 }

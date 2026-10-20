@@ -967,9 +967,10 @@ Camera SeatView()
     return seat;
 }
 
-// Two modes: the world held still, and the view turning with the vehicle's heading. The aim ring only in the second,
-// as Halo Campaign Evolved's built-in cameras have it: there it is where the view comes to rest.
-void UntetheredAndTethered(Camera& camera)
+// Two modes: the view turning with the vehicle's heading, first, so every camera starts tethered; and the world held
+// still. The aim ring only in the first, as Halo Campaign Evolved's built-in cameras have it: there it is where the
+// view comes to rest.
+void TetheredAndUntethered(Camera& camera)
 {
     Tether still = camera.Mode(0);
     still.name = "Untethered";
@@ -977,7 +978,7 @@ void UntetheredAndTethered(Camera& camera)
     turning.name = "Tethered";
     turning.rotYaw = true;
     still.aimMarker = 0;
-    camera.tethering = {still, turning};
+    camera.tethering = {turning, still};
 }
 
 Camera ThirdPerson()
@@ -991,7 +992,7 @@ Camera ThirdPerson()
     behind.locRoll = false;
     behind.lag = kThirdPersonLagSeconds;
     behind.lagDamping = kThirdPersonLagDamping;
-    UntetheredAndTethered(behind);
+    TetheredAndUntethered(behind);
     return behind;
 }
 
@@ -1007,7 +1008,7 @@ Camera Chase(const char* name, Origin origin, float forward, float right, float 
     camera.offset[2] = up;
     camera.locPitch = camera.locRoll = !level;
     camera.lag = lag;
-    UntetheredAndTethered(camera);
+    TetheredAndUntethered(camera);
     return camera;
 }
 
