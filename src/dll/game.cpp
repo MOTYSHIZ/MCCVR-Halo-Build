@@ -9468,6 +9468,10 @@ namespace
         slot.generation = generation;
         slot.namesSerial = namesSerial;
         slot.id = Halo3ResolveVehicleIdByPath(fields, pathVerdict);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        if (g_config.dev_vehicle_unnamed)
+            slot.id = Halo3VehicleId::Unknown;   // the dev test of a mod map's own vehicle on a stock map
+#endif
         slot.controlClass = Halo3ControlClass(fields);
         slot.radiusChecked = haveLive;
         if (haveLive)

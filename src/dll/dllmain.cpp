@@ -208,6 +208,9 @@ static DWORD WINAPI InitThread(LPVOID)
             g_config.dev_sim_trace, g_config.dev_sim_probe);
     if (g_config.dev_synthetic_pad)
         DevPad_Start(dir.c_str());
+    if (g_config.dev_vehicle_unnamed)
+        LOG("DEV OVERRIDE: dev_vehicle_unnamed = 1 (every Halo 3 vehicle is taken as one the mod cannot name, as a "
+            "mod map's own: no identity, no tuned eye, no built-in camera preset)");
 #endif
 
     if (MH_Initialize() != MH_OK)

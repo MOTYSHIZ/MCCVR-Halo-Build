@@ -1129,6 +1129,11 @@ struct Config
     // mod folder press its buttons (tools/Send-MccPad.ps1; the language is src/common/dev_pad_script.h).
     // Read once at startup. Leave at 0 to play.
     int dev_synthetic_pad = 0;
+    // DEV BUILD ONLY (not parsed otherwise), for automated tests: 1 = every Halo 3 vehicle is taken as one the mod
+    // cannot name -- no identity, so no tuned eye point and no built-in camera preset -- the way a mod map's own
+    // vehicles are, so that path can be run on a stock map. Its control class (Halo3ControlClass) is kept. Takes
+    // effect for each vehicle the first time it is resolved on a map. Not written to the file.
+    int dev_vehicle_unnamed = 0;
     // DEV BUILD ONLY (not parsed and compiled out otherwise), Halo: Reach (src/dll/reach_sim_trace.inl).
     // dev_sim_trace: 1 = every object's state at each simulation tick goes to HaloMCCVR-simtrace-<stamp>.bin beside
     // the log (about 35 MB a minute), to compare two replays of one saved film, or a game with its own film.
