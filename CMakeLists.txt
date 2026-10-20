@@ -815,6 +815,12 @@ if(BUILD_TESTING)
     target_compile_options(halomccvr_vehicle_control_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_vehicle_control_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_control_tests COMMAND halomccvr_vehicle_control_tests)
+    # A look-steered driver's hand aim refused behind and near the vehicle, in its own ground plane
+    # (src/common/vehicle_aim_reject_logic.h).
+    add_executable(halomccvr_vehicle_aim_reject_tests tests/vehicle_aim_reject_tests.cpp)
+    target_compile_options(halomccvr_vehicle_aim_reject_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_aim_reject_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_aim_reject_tests COMMAND halomccvr_vehicle_aim_reject_tests)
     # The player's lag tuning laid over the camera file (src/common/vehicle_camera_tuning.h).
     add_executable(halomccvr_vehicle_camera_tuning_tests tests/vehicle_camera_tuning_tests.cpp)
     target_compile_options(halomccvr_vehicle_camera_tuning_tests PRIVATE /W4 /WX)
