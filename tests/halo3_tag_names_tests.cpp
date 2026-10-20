@@ -1,8 +1,10 @@
 // Halo 3 tag names (src/common/halo3_tag_names.h): the cache header as halo3.dll checks it, both layouts of the
 // name table's addresses (a stock map's section-relative ones and a mod-built map's file offsets) on small
 // synthetic files, every refusal of a name, the short name a vehicle the mod does not know goes by, and the decode
-// of the two signatures on images built from their own patterns.
+// of the two signatures on images built from their own patterns; and the stock vehicles by tag path
+// (src/common/halo3_vehicle_logic.h), with what the rule makes of vehicles read offline from Sandtrap and HugeGrass.
 #include "halo3_tag_names.h"
+#include "halo3_vehicle_logic.h"
 
 #include <cstdio>
 #include <cstring>
@@ -451,6 +453,113 @@ void TestSignatures()
     for (int why = 0; why < static_cast<int>(Bind::Count); ++why)
         Check(std::strcmp(BindName(static_cast<Bind>(why)), "?") != 0, "every bind result is named");
 }
+
+Halo3DefinitionFields Def(int physics, float radius, float moment = -1.0f, int specific = -1)
+{
+    Halo3DefinitionFields def;
+    def.physicsType = physics;
+    def.boundingRadius = radius;
+    def.jeepValid = moment >= 0.0f;
+    def.engineMoment = moment;
+    def.scoutValid = specific >= 0;
+    def.specificType = specific;
+    return def;
+}
+uint8_t Verdict(std::string_view path)
+{
+    return Halo3PathVerdict(path.data(), path.size());
+}
+uint8_t Stock(Halo3VehicleId id)
+{
+    return static_cast<uint8_t>(id);
+}
+
+void TestStockPaths()
+{
+    bool wellFormed = true;
+    for (const Halo3StockVehiclePath& stock : kHalo3StockVehiclePaths)
+    {
+        const std::string_view path = stock.path;
+        wellFormed = wellFormed && path.rfind("objects\\", 0) == 0 && stock.id != Halo3VehicleId::Unknown &&
+                     stock.id != Halo3VehicleId::StationaryTurret && Verdict(path) == Stock(stock.id);
+        for (const char c : path)
+            wellFormed = wellFormed && !(c >= 'A' && c <= 'Z');
+        int same = 0;
+        for (const Halo3StockVehiclePath& other : kHalo3StockVehiclePaths)
+            same += path == other.path ? 1 : 0;
+        wellFormed = wellFormed && same == 1;
+    }
+    Check(wellFormed, "every stock path is lower case, under objects\\, listed once, and names its own vehicle");
+    Check(Stock(Halo3VehicleId::Elephant) < kHalo3PathNotStock, "no identity is a verdict code");
+    Check(Verdict("objects\\levels\\multi\\shrine\\behemoth\\behemoth") == Stock(Halo3VehicleId::Elephant),
+          "the Elephant's tag is a stock path");
+    Check(Verdict("Objects\\Vehicles\\Warthog\\Warthog") == Stock(Halo3VehicleId::Warthog),
+          "a path is matched case aside");
+    Check(Verdict("objects\\vehicles\\sparrowhawk\\sparrowhawk") == kHalo3PathNotStock &&
+              Verdict("objects\\vehicles\\warthog\\warthog_fast") == kHalo3PathNotStock &&
+              Verdict("objects\\vehicles\\warthog\\warthog\\x") == kHalo3PathNotStock &&
+              Verdict("objects\\vehicles\\warthog") == kHalo3PathNotStock,
+          "any other path, a stock one's prefix or extension included, is not a stock vehicle's");
+    Check(Verdict("") == kHalo3PathNoName && Halo3PathVerdict(nullptr, 4) == kHalo3PathNoName, "no name");
+
+    // Sandtrap, read offline (physics type, definition radius, jeep engine moment, scout specific type).
+    const auto elephant = Def(0, 5.129f), scorpion = Def(0, 2.2f), banshee = Def(4, 1.4f),
+               mongoose = Def(1, 0.8f, 650.0f), warthog = Def(1, 1.0f, 2000.0f), elephantGun = Def(5, 0.8f),
+               hornet = Def(7, 2.268f), chopper = Def(8, 1.307f), ghost = Def(3, 0.85f, -1.0f, 1),
+               wraith = Def(3, 1.8f, -1.0f, 3), mauler = Def(3, 1.435f, -1.0f, 4);
+    Check(Halo3ResolveVehicleIdByPath(elephant, Stock(Halo3VehicleId::Elephant)) == Halo3VehicleId::Elephant &&
+              Halo3ResolveVehicleIdByPath(scorpion, Stock(Halo3VehicleId::Scorpion)) == Halo3VehicleId::Scorpion &&
+              Halo3ResolveVehicleIdByPath(banshee, Stock(Halo3VehicleId::Banshee)) == Halo3VehicleId::Banshee &&
+              Halo3ResolveVehicleIdByPath(mongoose, Stock(Halo3VehicleId::Mongoose)) == Halo3VehicleId::Mongoose &&
+              Halo3ResolveVehicleIdByPath(warthog, Stock(Halo3VehicleId::Warthog)) == Halo3VehicleId::Warthog &&
+              Halo3ResolveVehicleIdByPath(hornet, Stock(Halo3VehicleId::Hornet)) == Halo3VehicleId::Hornet &&
+              Halo3ResolveVehicleIdByPath(chopper, Stock(Halo3VehicleId::Chopper)) == Halo3VehicleId::Chopper &&
+              Halo3ResolveVehicleIdByPath(ghost, Stock(Halo3VehicleId::Ghost)) == Halo3VehicleId::Ghost &&
+              Halo3ResolveVehicleIdByPath(wraith, Stock(Halo3VehicleId::Wraith)) == Halo3VehicleId::Wraith &&
+              Halo3ResolveVehicleIdByPath(mauler, Stock(Halo3VehicleId::Mauler)) == Halo3VehicleId::Mauler,
+          "every stock vehicle at its own path, with its own physics: that vehicle");
+    Check(Halo3ResolveVehicleIdByPath(elephantGun, kHalo3PathNotStock) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleId(elephantGun) == Halo3VehicleId::Unknown,
+          "the Elephant's gun reads as nothing either way (a mounted gun takes its carrier's identity)");
+    const Halo3DefinitionFields allDefs[] = {elephant, scorpion, banshee, mongoose, warthog, hornet,
+                                             chopper,  ghost,    wraith,  mauler,   elephantGun};
+    bool unchanged = true;
+    for (const auto& def : allDefs)
+        unchanged = unchanged && Halo3ResolveVehicleIdByPath(def, kHalo3PathNoName) == Halo3ResolveVehicleId(def);
+    Check(unchanged, "with no name the rule is the physics and the radius, unchanged");
+    auto elephantUnproven = elephant;
+    elephantUnproven.boundingRadius = -1.0f;
+    Check(Halo3ResolveVehicleIdByPath(elephantUnproven, Stock(Halo3VehicleId::Elephant)) == Halo3VehicleId::Elephant &&
+              Halo3ResolveVehicleId(elephantUnproven) == Halo3VehicleId::Scorpion,
+          "the Elephant's path with an unproven radius is the Elephant (physics alone would say Scorpion)");
+    Check(Halo3ResolveVehicleIdByPath(scorpion, Stock(Halo3VehicleId::Elephant)) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(mongoose, Stock(Halo3VehicleId::Warthog)) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(Def(4, 2.6f), Stock(Halo3VehicleId::Banshee)) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(ghost, Stock(Halo3VehicleId::Wraith)) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(chopper, Stock(Halo3VehicleId::Hornet)) == Halo3VehicleId::Unknown,
+          "a stock path whose physics or radius is another vehicle's is one the mod does not know");
+    Check(Halo3ResolveVehicleIdByPath(warthog, Stock(Halo3VehicleId::Unknown)) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(warthog, Stock(Halo3VehicleId::StationaryTurret)) == Halo3VehicleId::Unknown,
+          "a verdict that names no vehicle resolves to none");
+
+    // HugeGrass, read offline: by physics a Hornet, a Hornet, a Warthog, a Ghost, a Wraith and a Mauler.
+    const auto sparrowhawk = Def(7, 3.4f), falcon = Def(7, 5.0f), mammoth = Def(1, 22.0f, 1800.0f),
+               spectre = Def(3, 1.3f, -1.0f, 1), shadow = Def(3, 5.0f, -1.0f, 3), skiff = Def(3, 7.5f, -1.0f, 4);
+    Check(Halo3ResolveVehicleId(sparrowhawk) == Halo3VehicleId::Hornet &&
+              Halo3ResolveVehicleId(mammoth) == Halo3VehicleId::Warthog &&
+              Halo3ResolveVehicleId(spectre) == Halo3VehicleId::Ghost,
+          "HugeGrass without names: its Sparrowhawk reads as a Hornet, its Mammoth as a Warthog");
+    const Halo3DefinitionFields mods[] = {sparrowhawk, falcon, mammoth, spectre, shadow, skiff};
+    bool unknown = true;
+    for (const auto& def : mods)
+        unknown = unknown && Halo3ResolveVehicleIdByPath(def, kHalo3PathNotStock) == Halo3VehicleId::Unknown;
+    Check(unknown, "HugeGrass with names: none of them is a stock vehicle");
+    Check(Halo3ResolveVehicleIdByPath(Def(7, 2.268f), Verdict("objects\\vehicles\\hornet\\hornet")) ==
+                  Halo3VehicleId::Hornet &&
+              Halo3ResolveVehicleIdByPath(Def(1, 1.0f, 2000.0f), Verdict("objects\\vehicles\\warthog\\warthog")) ==
+                  Halo3VehicleId::Warthog,
+          "HugeGrass's own copies of the stock Hornet and Warthog stay those vehicles");
+}
 } // namespace
 
 int main()
@@ -462,6 +571,7 @@ int main()
     TestNameRefusals();
     TestDisplayName();
     TestSignatures();
+    TestStockPaths();
     std::printf("halo3_tag_names_tests: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

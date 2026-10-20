@@ -1770,6 +1770,103 @@ inline Halo3VehicleId Halo3ResolveVehicleId(const Halo3DefinitionFields& def)
     }
 }
 
+// THE STOCK VEHICLES BY TAG PATH. A physics type says what CLASS a vehicle is; its tag path (halo3_tag_names.h) says
+// which vehicle: HugeGrass's Sparrowhawk and Falcon have the Hornet's physics, its Mammoth the Warthog's, its
+// Spectre the Ghost's. This is every vehicle tag of the 38 stock Halo 3 maps whose physics reads as one of the
+// vehicles above, read offline from the maps' tag indices with the definition fields Halo3ResolveVehicleId reads.
+// The stock tags that read as none (the turret guns, which take their carrier's identity, the stationary turrets,
+// the Pelican, the Phantom, the Shade and the props) need no entry: they are Unknown either way.
+struct Halo3StockVehiclePath
+{
+    const char* path;
+    Halo3VehicleId id;
+};
+inline constexpr Halo3StockVehiclePath kHalo3StockVehiclePaths[] = {
+    {"objects\\vehicles\\scorpion\\scorpion", Halo3VehicleId::Scorpion},
+    {"objects\\vehicles\\scorpion\\scorpion_snow", Halo3VehicleId::Scorpion},
+    {"objects\\levels\\multi\\shrine\\behemoth\\behemoth", Halo3VehicleId::Elephant},
+    {"objects\\vehicles\\warthog\\warthog", Halo3VehicleId::Warthog},
+    {"objects\\vehicles\\warthog\\warthog_snow", Halo3VehicleId::Warthog},
+    {"objects\\vehicles\\warthog\\warthog_gauss", Halo3VehicleId::Warthog},
+    {"objects\\vehicles\\warthog\\warthog_gauss_snow", Halo3VehicleId::Warthog},
+    {"objects\\vehicles\\warthog\\warthog_troop", Halo3VehicleId::Warthog},
+    {"objects\\vehicles\\warthog\\warthog_wrecked_turret", Halo3VehicleId::Warthog},
+    {"objects\\vehicles\\mongoose\\mongoose", Halo3VehicleId::Mongoose},
+    {"objects\\vehicles\\mongoose\\mongoose_snow", Halo3VehicleId::Mongoose},
+    {"objects\\vehicles\\ghost\\ghost", Halo3VehicleId::Ghost},
+    {"objects\\vehicles\\ghost\\ghost_snow", Halo3VehicleId::Ghost},
+    {"objects\\vehicles\\wraith\\wraith", Halo3VehicleId::Wraith},
+    {"objects\\vehicles\\wraith\\wraith_anti_air", Halo3VehicleId::Wraith},
+    {"objects\\vehicles\\mauler\\mauler", Halo3VehicleId::Mauler},
+    {"objects\\vehicles\\banshee\\banshee", Halo3VehicleId::Banshee},
+    {"objects\\vehicles\\banshee\\banshee_ambient", Halo3VehicleId::Banshee},
+    {"objects\\vehicles\\hornet\\hornet", Halo3VehicleId::Hornet},
+    {"objects\\levels\\dlc\\sidewinder\\hornet_lite\\hornet_lite", Halo3VehicleId::Hornet},
+    {"objects\\vehicles\\brute_chopper\\brute_chopper", Halo3VehicleId::Chopper},
+};
+
+// What a definition's tag path says, as one byte (the camera thread reads it per tag index): a stock vehicle's
+// Halo3VehicleId, or one of these two.
+inline constexpr uint8_t kHalo3PathNoName = 0xFF;   // no name to go by: the physics and the radius decide alone
+inline constexpr uint8_t kHalo3PathNotStock = 0xFE; // a name that is no stock vehicle's
+
+inline uint8_t Halo3PathVerdict(const char* path, size_t length) noexcept
+{
+    if (!path || !length)
+        return kHalo3PathNoName;
+    const auto lower = [](char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; };
+    for (const Halo3StockVehiclePath& stock : kHalo3StockVehiclePaths)
+    {
+        size_t i = 0;
+        while (i < length && stock.path[i] && lower(path[i]) == stock.path[i])
+            ++i;
+        if (i == length && !stock.path[i])
+            return static_cast<uint8_t>(stock.id);
+    }
+    return kHalo3PathNotStock;
+}
+
+// Does a definition pass stock vehicle `id`'s physics and radius checks? Where there is nothing to compare (a radius
+// not proven on this build, or not measured) the class decides, as in Halo3ResolveVehicleId -- so the Elephant's
+// path with tank physics is the Elephant even when its radius could not be read.
+inline bool Halo3FitsStockVehicle(const Halo3DefinitionFields& def, Halo3VehicleId id) noexcept
+{
+    switch (id)
+    {
+    case Halo3VehicleId::Scorpion:
+        return def.physicsType == 0 && Halo3StockRadiusFits(def.boundingRadius, kHalo3ScorpionBoundingRadiusWu);
+    case Halo3VehicleId::Elephant:
+        return def.physicsType == 0 && Halo3StockRadiusFits(def.boundingRadius, kHalo3ElephantBoundingRadiusWu);
+    case Halo3VehicleId::Banshee:
+        return def.physicsType == 4 && Halo3StockRadiusFits(def.boundingRadius, kHalo3BansheeBoundingRadiusWu);
+    case Halo3VehicleId::Hornet:
+        return def.physicsType == 7 && Halo3StockRadiusFits(def.boundingRadius, kHalo3HornetBoundingRadiusWu);
+    case Halo3VehicleId::Chopper:
+        return def.physicsType == 8;
+    case Halo3VehicleId::Warthog:
+    case Halo3VehicleId::Mongoose:
+    case Halo3VehicleId::Ghost:
+    case Halo3VehicleId::Wraith:
+    case Halo3VehicleId::Mauler:
+        return Halo3ResolveVehicleId(def) == id;
+    default:
+        return false;
+    }
+}
+
+// THE RULE WITH NAMES. No name: the physics and the radius, exactly as without names. A stock vehicle's path: that
+// vehicle when its physics and radius agree, else one the mod does not know (a mod map can put another vehicle at a
+// stock path). Any other path: one the mod does not know -- the Sparrowhawk is not a Hornet, whatever its physics.
+inline Halo3VehicleId Halo3ResolveVehicleIdByPath(const Halo3DefinitionFields& def, uint8_t pathVerdict) noexcept
+{
+    if (pathVerdict == kHalo3PathNoName)
+        return Halo3ResolveVehicleId(def);
+    if (pathVerdict == kHalo3PathNotStock || pathVerdict == static_cast<uint8_t>(Halo3VehicleId::Unknown))
+        return Halo3VehicleId::Unknown;
+    const auto id = static_cast<Halo3VehicleId>(pathVerdict);
+    return Halo3FitsStockVehicle(def, id) ? id : Halo3VehicleId::Unknown;
+}
+
 // User-authored first-person seat points (Blender kit, vehicle/carrier tag
 // space in world units).
 // Keyed by RESOLVED VEHICLE IDENTITY, not physics type, so a mongoose can

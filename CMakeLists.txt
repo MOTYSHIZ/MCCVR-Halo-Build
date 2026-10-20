@@ -1087,7 +1087,8 @@ if(BUILD_TESTING)
     add_test(NAME halomccvr_halo3_head_relative_tests COMMAND halomccvr_halo3_head_relative_tests)
     # Halo 3 tag names (src/common/halo3_tag_names.h): the cache header as halo3.dll checks it, the name table in
     # both address layouts on synthetic files, every refusal of a name, the short name an unknown vehicle goes by,
-    # and the decode of the two signatures on images built from their own patterns.
+    # the decode of the two signatures on images built from their own patterns, and the stock vehicles by tag path
+    # (src/common/halo3_vehicle_logic.h) with what the rule makes of vehicles read offline from Sandtrap and HugeGrass.
     add_executable(halomccvr_halo3_tag_names_tests tests/halo3_tag_names_tests.cpp)
     target_include_directories(halomccvr_halo3_tag_names_tests PRIVATE src/common)
     add_test(NAME halomccvr_halo3_tag_names_tests COMMAND halomccvr_halo3_tag_names_tests)
