@@ -5,15 +5,21 @@
 //   left X tap        the camera's next tethering mode
 //   left Y or X held  re-centre the view (the moment the hold is long enough, not on release)
 //   left stick click  the next way to control the seat (vehicle_control: hand, stick, wheel)
-//   right B           what left X does in the game everywhere else: use, exit the vehicle, reload
-//   support trigger   in a passenger's seat, switch weapon (what left Y does everywhere else)
+//   right B tap       switch weapon (what left Y does in the game everywhere else): the Banshee's bomb, any
+//                     vehicle's next weapon, a mod's own vehicle too -- the game's own input, not a vehicle's
+//   right B held      what left X does in the game everywhere else: use, exit the vehicle, reload, from
+//                     kUseHoldMs on and for as long as it stays down (with the action mapper on, left X is the
+//                     game's use, so this is how a seat is left)
+//   support trigger   in a passenger's seat, switch weapon too
 //
 // The three left buttons are the mod's alone while this holds: none of them reaches the game. A tap acts on
 // RELEASE, so a hold can mean something else. Only a press that STARTS in the seat counts: the first poll in
 // a seat records what is already down (the button that boarded the vehicle is still held when the seat comes
 // up) and acts on nothing. A left stick click joined by the right stick's is the menu's chord, not a click, and
 // left Y joined by right B is the pause chord (the caller reads it from the buttons as they were): that Y is
-// not a tap or a hold, and that B is not the game's use.
+// not a tap or a hold, and that B is neither a switch nor the game's use. A right B tap is sent as the game's
+// switch for kSwitchPulseMs after it is let go -- long enough for the game's tick to see it, from whichever thread
+// polls the pad.
 //
 // Pure: the caller hands in the poll's buttons and gets back what reaches the game and what was asked for. Keep ONE
 // instance for every thread that polls the pad and step it under a lock, with the time read inside the lock: a
@@ -27,6 +33,9 @@ namespace vehicle_seat_buttons
 inline constexpr float kTriggerPress = 0.6f;
 inline constexpr float kTriggerRelease = 0.3f;
 inline constexpr uint32_t kDefaultHoldMs = 1000;
+// Right B: held this long it is the game's use, not a switch; a tap's switch lasts this long.
+inline constexpr uint32_t kUseHoldMs = 500;
+inline constexpr uint32_t kSwitchPulseMs = 120;
 
 // The buttons this works on, as the pad has them: the support trigger is the hand that does not hold the gun.
 struct Buttons
@@ -63,11 +72,25 @@ public:
         else if (!raw.y && !raw.b)
             pauseChord_ = false;
         if (pauseChord_)
+        {
             y_.downMs = 0;
+            b_.downMs = 0;
+        }
+        bool use = false;
         if (primed_)
         {
             Tap(x_, raw.x, nowMs, holdMs, asked.recenter, asked.mode);
             Tap(y_, raw.y, nowMs, holdMs, asked.recenter, asked.camera);
+            if (raw.b && !b_.was)
+                b_.downMs = nowMs ? nowMs : 1;
+            if (raw.b && b_.downMs && nowMs - b_.downMs >= kUseHoldMs)
+                use = true;
+            if (!raw.b && b_.was)
+            {
+                if (b_.downMs && nowMs - b_.downMs < kUseHoldMs)
+                    switchUntilMs_ = nowMs + kSwitchPulseMs;
+                b_.downMs = 0;
+            }
             if (raw.clickL && !clickWas_)
             {
                 clickArmed_ = true;
@@ -83,19 +106,20 @@ public:
         }
         x_.was = raw.x;
         y_.was = raw.y;
+        b_.was = raw.b;
         clickWas_ = raw.clickL;
         primed_ = true;
 
         // What reaches the game.
-        buttons.x = raw.b && !pauseChord_;
+        buttons.x = use && !pauseChord_;
         buttons.b = false;
-        buttons.y = false;
+        buttons.y = nowMs < switchUntilMs_;
         buttons.clickL = false;
         if (passenger)
         {
             const float pull = std::isfinite(raw.supportTrigger) ? raw.supportTrigger : 0.0f;
             triggerDown_ = triggerDown_ ? pull > kTriggerRelease : pull > kTriggerPress;
-            buttons.y = triggerDown_;
+            buttons.y = buttons.y || triggerDown_;
             buttons.supportTrigger = 0.0f;
         }
         else
@@ -135,7 +159,8 @@ private:
 
     bool primed_ = false;
     bool pauseChord_ = false; // left Y and right B have been down together since both were last up
-    Press x_, y_;
+    Press x_, y_, b_;
+    uint64_t switchUntilMs_ = 0; // a right B tap's switch reaches the game until then
     bool clickWas_ = false, clickArmed_ = false, clickChord_ = false;
     bool triggerDown_ = false;
 };
