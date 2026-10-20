@@ -128,18 +128,16 @@ static void TestPauseChord()
     p.Run(With(false, false));
     p.Run(With(false, true));
     Requests r = p.Run(With(false, true, true));
-    Check(!p.out.x && !p.out.y, "left Y with right B: the chord, so B is neither a switch nor the game's use");
+    Check(!p.out.x && !p.out.y, "left Y with right B: the chord, so B is not the game's use");
     r = p.Run(With(false, true, true), true, false, 1200);
     Check(!r.recenter, "held together they do not re-centre");
     r = p.Run(With(false, false, true));
     Check(r.camera == 0 && !p.out.x, "letting go of Y steps no camera, and B still held is not use");
     r = p.Run(With(false, false, false));
-    Check(r.camera == 0 && !p.out.y, "nor does letting go of B switch weapon");
-    p.Run(With(false, false, false), true, false, 200);
+    Check(r.camera == 0, "nor does letting go of B");
     p.Run(With(false, false, true));
+    Check(p.out.x, "a later B on its own is the game's use again");
     p.Run(With(false, false, false));
-    Check(p.out.y, "a later B tap on its own is the game's switch again");
-    p.Run(With(false, false, false), true, false, 200);
     p.Run(With(false, true));
     Check(p.Run(With(false, false)).camera == 1, "and a later Y on its own steps the camera");
 }
@@ -186,35 +184,8 @@ static void TestStickClick()
 static void TestWhatTheGameGets()
 {
     Poll p;
-    p.Run(With(false, false));
     p.Run(With(false, false, true));
-    Check(!p.out.x && !p.out.y && !p.out.b, "right B pressed: nothing yet, it may be a hold");
-    p.Run(With(false, false, false));
-    Check(p.out.y && !p.out.x, "a right B tap is the game's weapon switch, on its release");
-    p.Run(With(false, false, false), true, false, kSwitchPulseMs / 2);
-    Check(p.out.y, "held long enough for the game's tick to see it");
-    p.Run(With(false, false, false), true, false, kSwitchPulseMs);
-    Check(!p.out.y, "and then let go");
-    // Polled from another thread inside the switch's time, the same state machine gives the same answer.
-    Buttons other = With(false, false, true);
-    p.seat.Step(other, true, false, p.now + 10, kDefaultHoldMs);
-    other = With(false, false, false);
-    p.seat.Step(other, true, false, p.now + 20, kDefaultHoldMs);
-    Buttons third = With(false, false, false);
-    p.seat.Step(third, true, false, p.now + 20 + kSwitchPulseMs - 1, kDefaultHoldMs);
-    Check(third.y, "a switch from one thread's poll is seen by the next thread's");
-    p.now += 20 + kSwitchPulseMs + 50;
-    p.Run(With(false, false, false));
-
-    p.Run(With(false, false, true));
-    p.Run(With(false, false, true), true, false, kUseHoldMs - 20);
-    Check(!p.out.x && !p.out.y, "right B held: not use before the hold time");
-    p.Run(With(false, false, true), true, false, 30);
-    Check(p.out.x && !p.out.y, "held past it, right B is what left X is everywhere else: use, exit, reload");
-    p.Run(With(false, false, true), true, false, 400);
-    Check(p.out.x, "for as long as it stays down");
-    p.Run(With(false, false, false));
-    Check(!p.out.x && !p.out.y, "and its release is no switch");
+    Check(p.out.x && !p.out.b, "right B is what left X is everywhere else: use, exit, reload");
     p.Run(With(true, false, false));
     Check(!p.out.x, "and left X is not");
     p.Run(With(false, false, false, false, false, 0.9f));
@@ -230,15 +201,6 @@ static void TestWhatTheGameGets()
     Check(!rider.out.y, "and released below the release point");
     rider.Run(With(false, true, false, false, false, 0.0f), true, true);
     Check(!rider.out.y, "left Y is the camera's in a passenger seat too");
-    rider.Run(With(false, false), true, true);
-    rider.Run(With(false, false, true), true, true);
-    rider.Run(With(false, false), true, true);
-    Check(rider.out.y, "a passenger's right B tap switches weapon too");
-
-    Poll boarded;
-    boarded.Run(With(false, false, true));
-    boarded.Run(With(false, false, false));
-    Check(!boarded.out.y && !boarded.out.x, "a right B that was down when the seat came up is no switch");
 }
 
 int main()

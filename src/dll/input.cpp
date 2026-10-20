@@ -255,11 +255,9 @@ namespace
 
         // THE VEHICLE CAMERA BUTTONS (vehicle_seat_buttons.h): in a seat the vehicle cameras run in, left Y steps
         // the camera, left X its tethering mode, either held re-centres the view, and the left stick click moves the
-        // seat to its next way of being controlled; a right B tap is the game's weapon switch (what left Y does in
-        // the game: the Banshee's bomb, any vehicle's next weapon) and right B held is what left X does (use, exit),
-        // and in a passenger's seat the support trigger switches weapon too. Before anything below reads a button,
-        // so every route to the game -- the action mapper, the native bridge, legacy routing -- sees the seat's
-        // buttons.
+        // seat to its next way of being controlled; right B takes over what left X does in the game, and in a
+        // passenger's seat the support trigger switches weapon. Before anything below reads a button, so every
+        // route to the game -- the action mapper, the native bridge, legacy routing -- sees the seat's buttons.
         {
             bool passenger = false;
             const bool live = Game_VehicleSeatButtonsLive(passenger) && !Menu_IsOpen() && !pad.exclusiveInput;
@@ -278,15 +276,11 @@ namespace
                                            vehicle_seat_buttons::kDefaultHoldMs);
             }
 #if HALOMCCVR_DEV_DIAGNOSTICS
-            // What the seat handed the game, on each start: the switch (a right B tap, or a passenger's support
-            // trigger) and use (right B held).
-            static std::atomic<uint32_t> seatOutWas{0};
-            const uint32_t seatOut = live ? (buttons.y ? 1u : 0u) | (buttons.x ? 2u : 0u) : 0u;
-            const uint32_t seatStarted = seatOut & ~seatOutWas.exchange(seatOut, std::memory_order_relaxed);
-            if (seatStarted & 1u)
-                LOG("Vehicle cameras (dev): the seat handed the game its weapon switch (left Y's job)");
-            if (seatStarted & 2u)
-                LOG("Vehicle cameras (dev): right B held in the seat; handed to the game as use (left X's job)");
+            static std::atomic<bool> seatBWas{false};
+            const bool seatB = live && rawPadB;
+            if (seatB != seatBWas.exchange(seatB, std::memory_order_relaxed) && seatB)
+                LOG("Vehicle cameras (dev): right B pressed in the seat; handed to the game as %s",
+                    buttons.x ? "use (left X's job)" : "nothing (the pause chord)");
 #endif
             if (live)
             {
