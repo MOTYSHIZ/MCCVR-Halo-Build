@@ -418,6 +418,25 @@ void LegacySightTraceTick(GameTitle title, uint32_t unit, int32_t localUnit, boo
         }
         Sight_PublishCameraTrace(title, generation, cameraHit, cameraHit ? cameraRangeWu : 0.0f);
     }
+    // THE VEHICLE AIM RING RAY (vehicle_cameras.inl): from the game's own camera along the way the vehicle aims, while
+    // the ring is shown, for the depth it is drawn at. The same query, flags and ignores, so the player's own vehicle
+    // is looked past. Only while the camera thread published one.
+    SightAuxRay markerRay{};
+    if (Sight_ReadMarkerRay(title, generation, kSightRayFreshMs, markerRay))
+    {
+        bool markerHit = false;
+        float markerRangeWu = 0.0f;
+        if (!SightAuxTraceVector(original, flags, kReachAimTraceMode, markerRay, length, kSightTraceSkipWu,
+                                 kLegacySightSelfStepWu, seated ? kLegacySightSelfPasses : 1, ignoreA, ignoreB,
+                                 ignoreC, isOurs, markerHit, markerRangeWu))
+        {
+            Sight_NoteTraceFault(title);
+            LOG("SIGHT %s: the vehicle aim ring trace raised a native fault; the trace stays off until the title "
+                "reinstalls", LegacySightTitleName(title));
+            return;
+        }
+        Sight_PublishMarkerTrace(title, generation, markerHit, markerHit ? markerRangeWu : 0.0f);
+    }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
     // DEV ASSESSMENT (honest_reticle_assess): the game's own aim ray from its shot origin (the engine eye, or the

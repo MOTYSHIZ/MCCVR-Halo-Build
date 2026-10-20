@@ -19,7 +19,8 @@
 // game draws the player's character in the seat and no first-person arms. Nothing the simulation reads is
 // touched. The camera's mode turns the view (Halo3ApplySeatYawFollow): rotationTracking yaw follows the hull's
 // heading, and pitch with it where the seat takes the hull's pitch. How the seat is steered is a separate
-// choice (vehicle_control).
+// choice (vehicle_control). A chase camera whose "aimMarker" says so shows a ring where the vehicle aims
+// (Halo3VehicleAimMarkerStep), drawn on the headset's compositor.
 // Not applied in this game yet: rotationTracking roll, pitch without yaw, the leash, collide, and an origin
 // naming a marker (the vehicle's origin stands in). The cold worker says so in the log for a camera that asks
 // for one.
@@ -181,6 +182,10 @@ struct Halo3VehicleCameraPass
     float reach = 1.0f;
     vehicle_camera_select::ActiveCamera camera{};
     vehicle_camera_place::Placed where{};
+    // The seat the camera was placed for, and the way its vehicle faces in the snapshot it was placed from (the
+    // frame a camera that turns with the vehicle follows): the aim ring's heading (Halo3VehicleAimMarkerStep).
+    VehicleCameraSeatKey seat{};
+    float vehicleForward[3]{};
 };
 Halo3VehicleCameraPass g_halo3VehicleCameraPass;
 uint64_t g_halo3VehicleCameraReachAt = 0;
@@ -479,6 +484,8 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
     g_halo3VehicleCameraPass.reach = reachUsed;
     g_halo3VehicleCameraPass.camera = camera;
     g_halo3VehicleCameraPass.where = placed;
+    g_halo3VehicleCameraPass.seat = key;
+    memcpy(g_halo3VehicleCameraPass.vehicleForward, seat.rawFwd, sizeof(g_halo3VehicleCameraPass.vehicleForward));
 
     Halo3VehicleCameraPoint& published = g_halo3VehicleCameraPoint;
     published.seq.fetch_add(1, std::memory_order_acq_rel);
@@ -528,6 +535,130 @@ bool Halo3VehicleCameraPublishedPoint(float out[3])
         if (GetTickCount64() - ms > kHalo3VehicleCameraPointFreshMs)
             return false;
         memcpy(out, point, sizeof(point));
+        return true;
+    }
+    return false;
+}
+
+// THE VEHICLE AIM RING (Halo Campaign Evolved's "aimMarker"; vehicle_aim_marker_logic.h): a ring where the VEHICLE
+// aims, beside the crosshair, while a chase camera whose file entry asks for it is up. Placed by the camera thread once
+// a camera pass, against that pass's own view: the eye the view is seen from and the way the pass maps the world into
+// the headset's space (ApplyHeadLook). Drawn by the frame thread from the stereo centre of the frame it submits. What
+// crosses between them is a direction in the headset's space and a distance; the head pose never enters it, so a
+// fresher head at submit cannot pull the ring off its point. Its depth is the simulation's trace of the ring's own ray
+// (Sight_PublishMarkerRay), a tick or two behind: a range crosses that boundary, never a world point. Nothing the
+// simulation reads is written.
+struct Halo3VehicleAimMarkerMark
+{
+    std::atomic<uint32_t> seq{0};
+    std::atomic<uint64_t> ms{0}; // when it was placed; 0 = no ring
+    float vrYaw = 0.0f, vrPitch = 0.0f, distanceM = 0.0f;
+};
+Halo3VehicleAimMarkerMark g_halo3VehicleAimMarker;
+inline constexpr uint64_t kHalo3VehicleAimMarkerFreshMs = 100;
+// The range along the ring's ray, held for the seat it was measured in. Camera thread.
+vehicle_aim_marker::HeldRange g_halo3VehicleAimMarkerRange;
+VehicleCameraSeatKey g_halo3VehicleAimMarkerSeat{};
+// Passes that placed the ring, and those of them with no fresh trace of its ray (drawn at a held depth or the trace's
+// far end). Counted by the camera thread, taken by the cold worker for its log line.
+std::atomic<uint32_t> g_halo3VehicleAimMarkerFrames{0};
+std::atomic<uint32_t> g_halo3VehicleAimMarkerUntracedFrames{0};
+
+void Halo3VehicleAimMarkerClear()
+{
+    Halo3VehicleAimMarkerMark& mark = g_halo3VehicleAimMarker;
+    if (!mark.ms.load(std::memory_order_relaxed))
+        return;
+    mark.seq.fetch_add(1, std::memory_order_acq_rel);
+    mark.ms.store(0, std::memory_order_relaxed);
+    mark.seq.fetch_add(1, std::memory_order_release);
+}
+
+// Camera thread, at the end of a camera pass, once the view is where it will be drawn from: `eye` that point (world
+// units), and `followed` with `hullYaw` / `hullPitch` the vehicle frame the view's rotation was composed in, when it
+// was (Halo3ReadRollStableFollow). The ring is placed only in a pass that placed a chase camera asking for it, and is
+// taken down in any other.
+void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw, float hullPitch)
+{
+    const Halo3VehicleCameraPass& pass = g_halo3VehicleCameraPass;
+    if (!g_config.vehicle_aim_marker || !pass.placed || !pass.camera.aimMarker || !eye)
+    {
+        Halo3VehicleAimMarkerClear();
+        return;
+    }
+    // A seat measures afresh: the range held in the last one says nothing of this one's surroundings.
+    if (!(pass.seat == g_halo3VehicleAimMarkerSeat))
+    {
+        g_halo3VehicleAimMarkerSeat = pass.seat;
+        g_halo3VehicleAimMarkerRange.Reset();
+    }
+    // The line the vehicle aims along: from the game's own camera, the vehicle's heading at the game's aim pitch.
+    float at[3], about[3], looks[3], dir[3];
+    if (!Halo3ReadObserverCamera(at, about, looks) || !vehicle_aim_marker::Direction(pass.vehicleForward, looks, dir))
+    {
+        Halo3VehicleAimMarkerClear();
+        return;
+    }
+    const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_relaxed);
+    SightAuxRay ray{};
+    ray.generation = generation;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        ray.origin[axis] = at[axis];
+        ray.dir[axis] = dir[axis];
+    }
+    Sight_PublishMarkerRay(GameTitle::Halo3, ray);
+    bool hit = false;
+    float rangeWu = 0.0f;
+    const bool traced = Sight_ReadMarkerTrace(GameTitle::Halo3, generation, kSightFreshMs, hit, rangeWu);
+    const float range = g_halo3VehicleAimMarkerRange.Use(traced, hit, rangeWu, kSightTraceLengthWu);
+    // Pulled back off the surface as the crosshair is, then seen from the eye this pass's view is drawn from.
+    const float unitsPerVrMetre = g_worldScale.load(std::memory_order_relaxed);
+    const float along = vehicle_aim_marker::PullBack(range, g_config.reticle_surface_offset_m * unitsPerVrMetre);
+    float point[3], fromEye[3], lengthWu = 0.0f, vrYaw = 0.0f, vrPitch = 0.0f;
+    if (!(unitsPerVrMetre > 0.0f) || !shot_point::PointAlongRay(at, dir, along, point) ||
+        !shot_point::FromHead(eye, point, fromEye, lengthWu) ||
+        !Halo3SeatAimToVrReticle(fromEye, followed, hullYaw, hullPitch, g_gameYawRef, g_headYawRef, g_yawSign.load(),
+                                 g_pitchSign.load(), vrYaw, vrPitch))
+    {
+        Halo3VehicleAimMarkerClear();
+        return;
+    }
+    Halo3VehicleAimMarkerMark& mark = g_halo3VehicleAimMarker;
+    mark.seq.fetch_add(1, std::memory_order_acq_rel);
+    mark.vrYaw = vrYaw;
+    mark.vrPitch = vrPitch;
+    mark.distanceM = lengthWu / unitsPerVrMetre;
+    mark.ms.store(GetTickCount64(), std::memory_order_relaxed);
+    mark.seq.fetch_add(1, std::memory_order_release);
+    g_halo3VehicleAimMarkerFrames.fetch_add(1, std::memory_order_relaxed);
+    if (!traced)
+        g_halo3VehicleAimMarkerUntracedFrames.fetch_add(1, std::memory_order_relaxed);
+}
+
+// Any thread (the frame thread draws it). The ring's direction in the headset's space (yaw about +Y, pitch up, the
+// reticle's convention) and its distance from the eye in metres, while the camera thread keeps placing it.
+bool Halo3VehicleAimMarkerRead(float& vrYaw, float& vrPitch, float& distanceM)
+{
+    const Halo3VehicleAimMarkerMark& mark = g_halo3VehicleAimMarker;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = mark.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const uint64_t ms = mark.ms.load(std::memory_order_relaxed);
+        const float yaw = mark.vrYaw, pitch = mark.vrPitch, distance = mark.distanceM;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (mark.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        const uint64_t nowMs = GetTickCount64();
+        if (!ms || nowMs < ms || nowMs - ms > kHalo3VehicleAimMarkerFreshMs)
+            return false;
+        if (!std::isfinite(yaw) || !std::isfinite(pitch) || !std::isfinite(distance) || distance <= 0.0f)
+            return false;
+        vrYaw = yaw;
+        vrPitch = pitch;
+        distanceM = distance;
         return true;
     }
     return false;
@@ -664,6 +795,7 @@ struct VehicleCameraRuntime
     int frameSourceLogged = -1; // 0 = the drawn root node, 1 = the simulation's frame
     bool standInLogged = false;
     bool noTraceLogged = false;
+    bool markerNoTraceLogged = false;
     float restLoggedWu = 0.0f;
     float restSeenWu = 0.0f;
     uint32_t heldFramesStint = 0;
@@ -696,6 +828,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 runtime->frameSourceLogged = -1;
                 runtime->standInLogged = false;
                 runtime->noTraceLogged = false;
+                runtime->markerNoTraceLogged = false;
             }
             LOG("Vehicle cameras: off (vehicle_cameras = 0); every seat keeps the view it has without them");
         }
@@ -936,6 +1069,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.frameSourceLogged = -1;
         r.standInLogged = false;
         r.noTraceLogged = false;
+        r.markerNoTraceLogged = false;
         if (r.heldFramesStint)
             LOG("Vehicle cameras (Halo 3): in that seat the camera was held short of something on %u frames",
                 r.heldFramesStint);
@@ -975,6 +1109,14 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.noTraceLogged = true;
         LOG("Vehicle cameras (Halo 3): this camera asks to be kept out of walls (\"collide\"), but the game's trace is "
             "not running for this seat, so it goes all the way out");
+    }
+    const uint32_t markerFrames = g_halo3VehicleAimMarkerFrames.exchange(0, std::memory_order_relaxed);
+    const uint32_t markerUntracedFrames = g_halo3VehicleAimMarkerUntracedFrames.exchange(0, std::memory_order_relaxed);
+    if (markerFrames > 60 && markerUntracedFrames == markerFrames && !r.markerNoTraceLogged)
+    {
+        r.markerNoTraceLogged = true;
+        LOG("Vehicle cameras (Halo 3): the ring where the vehicle aims is shown, but the game's trace is not running "
+            "for this seat, so it is drawn at the last depth measured, else far out along its line");
     }
     if (standInFrames && !r.standInLogged)
     {
