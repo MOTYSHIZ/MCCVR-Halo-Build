@@ -1092,6 +1092,12 @@ if(BUILD_TESTING)
     add_executable(halomccvr_halo3_tag_names_tests tests/halo3_tag_names_tests.cpp)
     target_include_directories(halomccvr_halo3_tag_names_tests PRIVATE src/common)
     add_test(NAME halomccvr_halo3_tag_names_tests COMMAND halomccvr_halo3_tag_names_tests)
+    # Halo 3 tag names at runtime (src/dll/halo3_tag_names.inl) on a synthetic halo3.dll image: the install's decode,
+    # the cold worker reading each map once and proving it, a new map and a map ending under one generation, every
+    # refusal logged once with backoff, the camera thread's verdicts, and the removal.
+    add_executable(halomccvr_halo3_tag_names_runtime_tests tests/halo3_tag_names_runtime_tests.cpp)
+    target_include_directories(halomccvr_halo3_tag_names_runtime_tests PRIVATE src/common)
+    add_test(NAME halomccvr_halo3_tag_names_runtime_tests COMMAND halomccvr_halo3_tag_names_runtime_tests)
     # Halo 3: the motion tracker's blips move with the HUD height (src/common/halo3_tracker_hud_height_logic.h;
     # retail-derived and run): the decode of the five sites on an image built from the header's patterns and
     # every way it refuses (a missing site, a call elsewhere, a neighbouring field, a scale pair not beside its

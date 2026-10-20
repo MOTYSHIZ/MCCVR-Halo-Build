@@ -43,6 +43,7 @@
 #include "../common/director_camera_logic.h"
 #include "../common/halo3_head_relative_logic.h"
 #include "../common/halo3_tracker_hud_height_logic.h"
+#include "../common/halo3_tag_names.h"
 #include "host_unload_gate.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -9241,6 +9242,9 @@ namespace
         float hullFwd[3];
         float hullUp[3];
         uint32_t definitionIndex = 0xFFFFFFFFu;
+        // The carrier's definition for a mounted gunner (whose identity is the carrier's), else 0xFFFFFFFF: what the
+        // seat is named by (Halo3SeatVehicleName).
+        uint32_t carrierDefinitionIndex = 0xFFFFFFFFu;
         // The vehicle's root node as it is DRAWN, for a camera the mod places beside the vehicle
         // (vehicle_cameras.inl): the object frame above moves on the simulation's tick. Read only while
         // vehicle_cameras is on; valid only where it agrees with that object frame.
@@ -9360,15 +9364,21 @@ namespace
             : 0.0;
     }
 
+    // The loaded map's tag names (a vehicle's tag path): the camera thread's verdict per tag index, the cold worker's
+    // copy of the names.
+    #include "halo3_tag_names.inl"
+
     // C8: definition index -> vehicle identity, resolved once per distinct
     // vehicle instead of per frame. Direct-mapped and tiny; a collision only
     // costs a re-read. Tag data is immutable while a map is loaded, and the
     // runtime generation keys the entries so a title change cannot serve a
-    // previous session's identity.
+    // previous session's identity. The tag names' publication keys them too: the
+    // map's names arriving (or going) resolves every vehicle again.
     struct Halo3IdentitySlot
     {
         uint32_t defIndex = 0xFFFFFFFFu;
         uint32_t generation = 0;
+        uint32_t namesSerial = ~0u; // g_halo3TagPaths.serial the verdict was read at
         Halo3VehicleId id = Halo3VehicleId::Unknown;
         bool radiusChecked = false; // resolved with the live vehicle's sphere in hand
     };
@@ -9396,6 +9406,9 @@ namespace
     // fails, or a value matching nothing, yields Unknown â€” never a guess.
     // `liveRadiusWu`: the vehicle object's own bounding sphere radius (object +0x28), or <= 0 when not read. A
     // resolution made without it is made again once it is in hand.
+    // With the map's tag names read (halo3_tag_names.inl), the definition's tag path decides too
+    // (Halo3ResolveVehicleIdByPath): a stock vehicle's path must still pass that vehicle's physics and radius, any
+    // other path is a vehicle the mod does not know. Without them, physics and radius alone, as before.
     Halo3VehicleId Halo3ResolveIdentityCached(uint32_t defIndex,
                                               int physicsType,
                                               uint32_t generation,
@@ -9410,6 +9423,7 @@ namespace
         Halo3IdentitySlot& slot =
             g_halo3IdentityCache[(defIndex ^ (defIndex >> 4)) & 15u];
         if (slot.defIndex == defIndex && slot.generation == generation &&
+            slot.namesSerial == g_halo3TagPaths.serial.load(std::memory_order_acquire) &&
             (slot.radiusChecked || !haveLive))
             return slot.id;
         Halo3DefinitionFields fields;
@@ -9434,9 +9448,12 @@ namespace
             fields.scoutValid = counts[3] == 1;
             fields.specificType = scoutSpecific;
         }
+        uint32_t namesSerial = ~0u;
+        const uint8_t pathVerdict = Halo3TagPathVerdictNow(defIndex, generation, namesSerial);
         slot.defIndex = defIndex;
         slot.generation = generation;
-        slot.id = Halo3ResolveVehicleId(fields);
+        slot.namesSerial = namesSerial;
+        slot.id = Halo3ResolveVehicleIdByPath(fields, pathVerdict);
         slot.radiusChecked = haveLive;
         if (haveLive)
         {
@@ -10506,6 +10523,7 @@ namespace
                 memcpy(xf.hullFwd, world.fwd, sizeof(xf.hullFwd));
                 memcpy(xf.hullUp, world.up, sizeof(xf.hullUp));
                 xf.definitionIndex = defIndex;
+                xf.carrierDefinitionIndex = mountedTurret ? carrierDefIndex : 0xFFFFFFFFu;
                 memcpy(xf.rootPos, rootNode.position, sizeof(xf.rootPos));
                 memcpy(xf.rootFwd, rootNode.forward, sizeof(xf.rootFwd));
                 memcpy(xf.rootLeft, rootNode.left, sizeof(xf.rootLeft));
@@ -10752,6 +10770,7 @@ namespace
         float hullFwd[3] = {0.0f, 0.0f, 0.0f};
         float hullUp[3] = {0.0f, 0.0f, 0.0f};
         uint32_t definitionIndex = 0xFFFFFFFFu;
+        uint32_t carrierDefinitionIndex = 0xFFFFFFFFu; // a mounted gunner's carrier (Halo3VehicleTransform)
         // The vehicle's drawn root node (Halo3VehicleTransform); false leaves the object frame above.
         bool rootValid = false;
         float rootPos[3] = {0.0f, 0.0f, 0.0f};
@@ -10790,6 +10809,7 @@ namespace
         memcpy(out.hullFwd, xf.hullFwd, sizeof(out.hullFwd));
         memcpy(out.hullUp, xf.hullUp, sizeof(out.hullUp));
         out.definitionIndex = xf.definitionIndex;
+        out.carrierDefinitionIndex = xf.carrierDefinitionIndex;
         out.rootValid = xf.rootValid != 0;
         memcpy(out.rootPos, xf.rootPos, sizeof(out.rootPos));
         memcpy(out.rootFwd, xf.rootFwd, sizeof(out.rootFwd));
@@ -11572,17 +11592,80 @@ namespace
         return fingerprint;
     }
 
-    // The seat's vehicle by name: a known one's (Halo3VehicleIdName), else "custom_" and its fingerprint, so each
-    // custom vehicle has a name of its own; "unidentified" when even that cannot be read. Cold worker.
-    const char* Halo3SeatVehicleName(uint32_t identity, uint32_t defIndex, char (&buffer)[24])
+    // The seat's vehicle by name: a known one's (Halo3VehicleIdName); else its tag's short name in the map being
+    // played ("sparrowhawk", halo3_tag_names.inl), so each vehicle the mod does not know goes by its own name; while
+    // the map's names are not read, "custom_" and its tags' fingerprint; "unidentified" when even that cannot be
+    // read. A gunner on a vehicle's own gun is named by the vehicle that carries it, as his identity is the
+    // carrier's. Cold worker.
+    const char* Halo3SeatVehicleName(const Halo3SeatSnapshot& seat, char (&buffer)[kHalo3VehicleNameCapacity])
     {
-        if (static_cast<Halo3VehicleId>(identity) != Halo3VehicleId::Unknown)
-            return Halo3VehicleIdName(identity);
-        const uint32_t fingerprint = Halo3CustomVehicleFingerprint(defIndex);
+        if (static_cast<Halo3VehicleId>(seat.identity) != Halo3VehicleId::Unknown)
+            return Halo3VehicleIdName(seat.identity);
+        const uint32_t vehicle = seat.mounted ? seat.carrierDefinitionIndex : seat.definitionIndex;
+        if (halo3_tag_names::DisplayName(Halo3TagNameOf(vehicle), buffer, sizeof(buffer)))
+            return buffer;
+        const uint32_t fingerprint = Halo3CustomVehicleFingerprint(vehicle);
         if (!fingerprint)
-            return Halo3VehicleIdName(identity);
+            return Halo3VehicleIdName(seat.identity);
         std::snprintf(buffer, sizeof(buffer), "custom_%08x", fingerprint);
         return buffer;
+    }
+
+    // Once per vehicle per map: the tag of the vehicle the player sits in, and what it was read as -- the name a
+    // camera file entry or a report can use. Logged only once the map's names are read. Cold worker.
+    void LogHalo3SeatTagIfNew()
+    {
+        static uint32_t loggedNames = 0; // the publication (g_halo3TagPaths.serial) the list below is for
+        static std::vector<uint32_t> logged;
+        Halo3SeatSnapshot seat;
+        if (!Halo3TagNamesSettled() || !Halo3ReadSeatSnapshot(seat))
+            return;
+        const uint32_t names = g_halo3TagPaths.serial.load(std::memory_order_acquire);
+        if (names != loggedNames)
+        {
+            logged.clear();
+            loggedNames = names;
+        }
+        const auto once = [](uint32_t definition) {
+            for (const uint32_t done : logged)
+                if (done == definition)
+                    return false;
+            if (logged.size() >= 64)
+                return false;
+            logged.push_back(definition);
+            return true;
+        };
+        const auto id = static_cast<Halo3VehicleId>(seat.identity);
+        const uint32_t vehicle = seat.mounted ? seat.carrierDefinitionIndex : seat.definitionIndex;
+        const std::string_view path = Halo3TagNameOf(vehicle);
+        if (!path.empty() && once(vehicle))
+        {
+            char readAs[160];
+            if (id == Halo3VehicleId::StationaryTurret)
+                std::snprintf(readAs, sizeof(readAs), "a turret");
+            else if (id != Halo3VehicleId::Unknown)
+                std::snprintf(readAs, sizeof(readAs), "%s", Halo3VehicleIdName(seat.identity));
+            else
+            {
+                char name[kHalo3VehicleNameCapacity];
+                halo3_tag_names::DisplayName(path, name, sizeof(name));
+                const uint8_t verdict = Halo3TagPathVerdictOf(vehicle);
+                if (verdict == kHalo3PathNotStock)
+                    std::snprintf(readAs, sizeof(readAs), "unidentified, named %s: not a stock vehicle's tag", name);
+                else
+                    std::snprintf(readAs, sizeof(readAs),
+                                  "unidentified, named %s: the stock %s's tag, but its physics or radius is not", name,
+                                  Halo3VehicleIdName(verdict));
+            }
+            LOG("H3 vehicle %04X: tag %.*s (read as %s)", vehicle, static_cast<int>(path.size()), path.data(), readAs);
+        }
+        if (seat.mounted)
+        {
+            const std::string_view gun = Halo3TagNameOf(seat.definitionIndex);
+            if (!gun.empty() && once(seat.definitionIndex))
+                LOG("H3 vehicle %04X: tag %.*s (read as a gun mounted on %04X)", seat.definitionIndex,
+                    static_cast<int>(gun.size()), gun.data(), vehicle);
+        }
     }
 
     const char* Halo3VehicleIdName(uint32_t id)
@@ -11809,14 +11892,13 @@ namespace
                         g_halo3SeatAimReOrigins.load(std::memory_order_relaxed));
                 else
                 {
-                    // Named from the seat snapshot; a vehicle this build has no entry for reads "unidentified".
+                    // Named from the seat snapshot (Halo3SeatVehicleName).
                     Halo3SeatSnapshot occupied;
-                    char seatName[64] = "seat not read yet";
-                    char occupiedName[24];
+                    char seatName[kHalo3VehicleNameCapacity + 32] = "seat not read yet";
+                    char occupiedName[kHalo3VehicleNameCapacity];
                     if (Halo3ReadSeatSnapshot(occupied))
                         std::snprintf(seatName, sizeof(seatName), "%s, seat %d%s",
-                                      Halo3SeatVehicleName(occupied.identity, occupied.definitionIndex,
-                                                           occupiedName),
+                                      Halo3SeatVehicleName(occupied, occupiedName),
                                       occupied.seatIndex, occupied.mounted ? " mounted" : "");
                     LOG("H3 first-person seat: Active (%s); the camera director "
                         "is told the occupied seat is first person, so Halo stops drawing "
@@ -11864,6 +11946,9 @@ namespace
             LogHalo3DefinitionProbe(radiusDef, g_halo3DefRadiusPhysics.load(std::memory_order_relaxed));
         }
 
+        // The seated vehicle's tag, once per vehicle per map.
+        LogHalo3SeatTagIfNew();
+
         // The seat's eye, once its occupant's head has settled (the sampler's THE EYE).
         static uint32_t seatEyeLogged = 0;
         const uint32_t seatEye = g_halo3SeatEyeSerial.load(std::memory_order_acquire);
@@ -11871,11 +11956,11 @@ namespace
         {
             seatEyeLogged = seatEye;
             Halo3SeatSnapshot eyeSeat;
-            char eyeSeatName[64] = "a seat";
-            char eyeVehicleName[24];
+            char eyeSeatName[kHalo3VehicleNameCapacity + 32] = "a seat";
+            char eyeVehicleName[kHalo3VehicleNameCapacity];
             if (Halo3ReadSeatSnapshot(eyeSeat))
                 std::snprintf(eyeSeatName, sizeof(eyeSeatName), "%s, seat %d%s",
-                              Halo3SeatVehicleName(eyeSeat.identity, eyeSeat.definitionIndex, eyeVehicleName),
+                              Halo3SeatVehicleName(eyeSeat, eyeVehicleName),
                               eyeSeat.seatIndex, eyeSeat.mounted ? " mounted" : "");
             const bool fromHead = g_halo3SeatEyeFromHead.load(std::memory_order_relaxed) != 0;
             const float apartCm = g_halo3SeatEyeApartCm.load(std::memory_order_relaxed);
@@ -17452,6 +17537,7 @@ namespace
         RemoveHalo3GunBand();
         if (!RemoveHalo3HeadRelative()) return false;
         RemoveHalo3HudNote();
+        RemoveHalo3TagNames();
         if (!RemoveHalo3TrackerHudHeight()) return false;
         if (!LegacyDriveRemove(GameTitle::Halo3)) return false;
         if (!DisableAndRemoveHalo3ContactMelee()) return false;
@@ -18505,6 +18591,9 @@ namespace
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
+        // The loaded map's tag names (halo3_tag_names.inl): two sites, no hook, read-only; not bound, vehicles are
+        // identified by their physics alone, as before.
+        (void)InstallHalo3TagNames(base,size,runtimeGeneration);
         // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): its own transaction too.
         (void)InstallHalo3TrackerHudHeight(base,size,runtimeGeneration);
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -50347,6 +50436,7 @@ namespace
             ReportOdstScope();
             LogOdstFpLayoutSelfCheckIfNew(); // emit FP weapon-layout self-check
             LogOdstNativeHudRouteOnce();    // bounded in-place CHUD route result
+            Halo3TagNames_ColdTick();      // the loaded H3 map's tag names, read once per map
             LogHalo3VehicleProbeIfNew();   // live H3 feature status/fallback
             if constexpr (kEnableRetiredHalo3Diagnostics)
             {
@@ -50360,6 +50450,7 @@ namespace
             VR_FramePacingWorkerPoll();
             Sleep(50);
 #else
+            Halo3TagNames_ColdTick();      // the loaded H3 map's tag names, read once per map
             LogHalo3VehicleProbeIfNew();   // live H3 feature status/fallback
             if constexpr (kEnableRetiredHalo3Diagnostics)
             {
