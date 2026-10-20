@@ -63,7 +63,9 @@ inline bool LeashSet(const float side[3]) noexcept
 
 // ONE TETHERING MODE of a camera: what carries the camera's position round (locationTracking), what turns the
 // player's view (rotationTracking), where it sits (offset), what that is measured from (origin) and the leash.
-// Whatever a mode leaves out in the file is its camera's own; the reader fills those in, so a Tether is complete.
+// Whatever a mode leaves out in the file is its camera's own; the reader fills those in, so a Tether is complete --
+// except "aimMarker", which a mode keeps unset (-1) when it leaves it out, so the camera's and then the seat's own
+// can answer for it (EffectiveAimMarker).
 struct Tether
 {
     std::string name;
@@ -72,6 +74,7 @@ struct Tether
     float leashMax[3] = {kUnleashed, kUnleashed, kUnleashed};
     bool locYaw = true, locPitch = true, locRoll = true, locView = false;
     bool rotYaw = false, rotPitch = false, rotRoll = false;
+    int aimMarker = -1;       // "aimMarker": -1 = the camera's; 0 / 1 = off / on
     int origin = -1;          // -1 = the camera's; else an Origin
     std::string originMarker; // origin Marker: the marker's or node's name
 };
@@ -106,6 +109,8 @@ struct Camera
     // Seconds to catch up with a turn or a bump; < 0 = not set (LagSecondsOf). lagDamping 1 = no overshoot.
     float lag = -1.0f;
     float lagDamping = 1.0f;
+    // "aimMarker": the ring where the vehicle aims (vehicle_aim_marker_logic.h) in this camera. -1 = the seat's.
+    int aimMarker = -1;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -153,6 +158,12 @@ struct Vehicle
     bool enabled = true;
     int defaultCamera = 0;
     int defaultMode = 0;
+    // "aimMarker": a ring where the VEHICLE aims, beside the crosshair, in this seat's chase cameras: 1 = on, 0 = off,
+    // and a camera and then a tethering mode may say otherwise (Halo Campaign Evolved's key; its built-in cameras say
+    // true for the seat and false for each Untethered mode, and so do these). -1 (left out everywhere, as in a file
+    // written before the key existed): on exactly in the modes whose view turns with the vehicle's heading, which is
+    // what those built-in values amount to.
+    int aimMarker = -1;
     // The seat's own leash: every camera starts from it, and a camera and then a mode may override it. The
     // reader resolves that, so each Camera and Tether already holds its effective limits.
     float leashMin[3] = {-kUnleashed, -kUnleashed, -kUnleashed};
@@ -213,6 +224,11 @@ int MatchVehicle(const Game& game, const std::string& vehicleName, uint8_t seat 
 // same name, else one turning the view on the same axes, else the first. A comfort choice is not undone by
 // changing camera.
 int CarryMode(const Camera& to, const Tether& from);
+
+// Whether camera `camera`, mode `mode` of `vehicle` shows the aim ring: the mode's own "aimMarker", else the
+// camera's, else the seat's, else whether that mode turns the view with the vehicle's heading. A camera index out of
+// range answers with the seat's (off when the seat leaves it unset).
+bool EffectiveAimMarker(const Vehicle& vehicle, int camera, int mode);
 
 const char* TypeName(CameraType type) noexcept;
 // As the file writes it: the marker's name for a Marker origin.
