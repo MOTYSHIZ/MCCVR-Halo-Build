@@ -796,6 +796,15 @@ struct Config
     // stick or wheel steers a look-steered driver whose view turns with the vehicle. Halo 3 for now; in the
     // other games the stick or wheel still steers only a view that follows the vehicle.
     int vehicle_control = 1;
+    // Where the hand steers a look-steered driver's heading (Motion, or 0 with a view the world holds still), a
+    // point the aim resolves to that is BEHIND the vehicle and NEAR it turns nothing: the vehicle keeps its forward,
+    // and the aim's pitch is left as it is (vehicle_aim_reject_logic.h). Measured in the vehicle's own ground plane:
+    // near = no further from its origin than vehicle_aim_reject_metres (0 = off, at most 20), behind = the 2D dot of
+    // the point's direction with the vehicle's forward below vehicle_aim_reject_dot (-0.5: more than 120 deg off the
+    // nose; -1 refuses nothing). For a camera placed outside the vehicle, whose hand ray easily lands on the ground
+    // just behind it. Every camera, the seat view included. Halo 3 for now. Live.
+    float vehicle_aim_reject_metres = 5.0f;
+    float vehicle_aim_reject_dot = -0.5f;
     float vehicle_wheel_max_deg = 75.0f;      // wheel angle at full lock
     float vehicle_wheel_deadzone_deg = 6.0f;  // slack around centre
 
