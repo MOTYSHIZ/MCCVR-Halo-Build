@@ -447,6 +447,11 @@ static void Clamp()
         std::clamp(g_config.vehicle_wheel_max_deg, 30.0f, 180.0f);
     g_config.vehicle_wheel_deadzone_deg =
         std::clamp(g_config.vehicle_wheel_deadzone_deg, 0.0f, 30.0f);
+    // vehicle_aim_reject_logic.h holds the same bounds (kMaxMetres) for a value set between loads.
+    g_config.vehicle_aim_reject_metres = std::isfinite(g_config.vehicle_aim_reject_metres)
+        ? std::clamp(g_config.vehicle_aim_reject_metres, 0.0f, 20.0f) : Config{}.vehicle_aim_reject_metres;
+    g_config.vehicle_aim_reject_dot = std::isfinite(g_config.vehicle_aim_reject_dot)
+        ? std::clamp(g_config.vehicle_aim_reject_dot, -1.0f, 1.0f) : Config{}.vehicle_aim_reject_dot;
     // Hand trims are deliberately small: they nudge an authored placement, not
     // relocate the weapon across the room. A wild value here would put the gun
     // outside the first-person node envelope the engine validates against.
@@ -1553,6 +1558,16 @@ void ConfigLoad(const wchar_t* path)
         {
             const int mode = atoi(val);
             g_config.vehicle_control = mode >= 0 && mode <= 3 ? mode : 0;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_aim_reject_metres"))
+        {
+            g_config.vehicle_aim_reject_metres = static_cast<float>(atof(val));
+            continue;
+        }
+        if (!strcmp(key, "vehicle_aim_reject_dot"))
+        {
+            g_config.vehicle_aim_reject_dot = static_cast<float>(atof(val));
             continue;
         }
         // C-H2-85: handled by table, not by the else-if chain below - that
@@ -2979,6 +2994,21 @@ void ConfigSave()
     fprintf(f, "#       wheel steers those vehicles while the view turns with them.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_control);
     fprintf(f, "vehicle_control = %d\n\n", g_config.vehicle_control);
+    fprintf(f, "# While your hand steers one of those vehicles (Halo 3 for now), a\n");
+    fprintf(f, "# point you aim at that is BEHIND the vehicle and this close to it\n");
+    fprintf(f, "# does not turn it: the vehicle keeps its forward. With a camera\n");
+    fprintf(f, "# outside the vehicle your hand easily lands on the ground just\n");
+    fprintf(f, "# behind it, which would swing the vehicle round. Measured along the\n");
+    fprintf(f, "# vehicle's own floor, in metres; 0 = off (at most 20). Every camera,\n");
+    fprintf(f, "# the seat view too.\n");
+    fprintf(f, "# (default %.1f)\n", d.vehicle_aim_reject_metres);
+    fprintf(f, "vehicle_aim_reject_metres = %.2f\n", g_config.vehicle_aim_reject_metres);
+    fprintf(f, "# How far round counts as behind: the point's direction from the\n");
+    fprintf(f, "# vehicle against its forward, as a dot product from -1 to 1. Below\n");
+    fprintf(f, "# this is behind: -0.5 = more than 120 degrees off the nose, 0 = more\n");
+    fprintf(f, "# than 90, -1 = nothing.\n");
+    fprintf(f, "# (default %.2f)\n", d.vehicle_aim_reject_dot);
+    fprintf(f, "vehicle_aim_reject_dot = %.2f\n\n", g_config.vehicle_aim_reject_dot);
     fprintf(f, "# Motion steering (Halo 3, ODST and Reach). In a Warthog,\n");
     fprintf(f, "# Mongoose, Ghost, Prowler or Chopper, DOUBLE-CLICK both grips to\n");
     fprintf(f, "# take hold of an invisible steering wheel: hold your hands as if\n");

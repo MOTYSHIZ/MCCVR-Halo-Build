@@ -1328,6 +1328,17 @@ namespace
             "those vehicles while the view turns with them.\n"
             "With vehicle cameras on, the left stick click changes this for the\n"
             "seat you are in, and each seat keeps its own choice.");
+        changed |= vr_menu::SliderFloat("Ignore aim behind, within (m)",
+            &g_config.vehicle_aim_reject_metres, 0.0f, 20.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Behind is a dot below",
+            &g_config.vehicle_aim_reject_dot, -1.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled(
+            "While your hand steers one of those vehicles, a point you aim at\n"
+            "that is behind the vehicle and this close to it does not turn it:\n"
+            "it keeps its forward. With a camera outside the vehicle your hand\n"
+            "easily lands on the ground just behind it. Measured along the\n"
+            "vehicle's own floor; 0 m = off. Behind: -0.5 = more than 120\n"
+            "degrees off the nose, 0 = more than 90, -1 = nothing.");
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Motion steering (Halo 3, ODST, Reach)");
