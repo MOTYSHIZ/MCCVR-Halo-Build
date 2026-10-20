@@ -1694,8 +1694,36 @@ inline constexpr float kHalo3ScorpionBoundingRadiusWu = 2.200f; // 671 cm
 inline constexpr float kHalo3ElephantBoundingRadiusWu = 5.129f; // 1563 cm
 inline constexpr float kHalo3BansheeBoundingRadiusWu = 1.400f;  // 427 cm, the same in two sessions
 inline constexpr float kHalo3HornetBoundingRadiusWu = 2.268f;   // 691 cm
+// The rest of the stock vehicles, read the same way offline from their base tags (and play agrees: Warthog 1.000,
+// Mongoose 0.800, Chopper 1.307). Every stock variant (snow, gauss, troop, anti-air, ...) has its base vehicle's
+// radius. These six serve ONLY Halo3SameSizeStockVehicle: the physics rules above do not compare them, as before.
+inline constexpr float kHalo3WarthogBoundingRadiusWu = 1.000f;  // 305 cm
+inline constexpr float kHalo3MongooseBoundingRadiusWu = 0.800f; // 244 cm
+inline constexpr float kHalo3GhostBoundingRadiusWu = 0.850f;    // 259 cm
+inline constexpr float kHalo3WraithBoundingRadiusWu = 1.800f;   // 549 cm
+inline constexpr float kHalo3MaulerBoundingRadiusWu = 1.435f;   // 437 cm (1.4348 in the tag)
+inline constexpr float kHalo3ChopperBoundingRadiusWu = 1.307f;  // 398 cm (1.30717 in the tag)
 // How far a radius may stand from a measured one, as a fraction of it, and still be that vehicle.
 inline constexpr float kHalo3BoundingRadiusTolerance = 0.05f;
+
+// A stock vehicle's definition radius; 0 for anything else.
+inline float Halo3StockBoundingRadiusWu(Halo3VehicleId id) noexcept
+{
+    switch (id)
+    {
+    case Halo3VehicleId::Scorpion: return kHalo3ScorpionBoundingRadiusWu;
+    case Halo3VehicleId::Elephant: return kHalo3ElephantBoundingRadiusWu;
+    case Halo3VehicleId::Banshee: return kHalo3BansheeBoundingRadiusWu;
+    case Halo3VehicleId::Hornet: return kHalo3HornetBoundingRadiusWu;
+    case Halo3VehicleId::Warthog: return kHalo3WarthogBoundingRadiusWu;
+    case Halo3VehicleId::Mongoose: return kHalo3MongooseBoundingRadiusWu;
+    case Halo3VehicleId::Ghost: return kHalo3GhostBoundingRadiusWu;
+    case Halo3VehicleId::Wraith: return kHalo3WraithBoundingRadiusWu;
+    case Halo3VehicleId::Mauler: return kHalo3MaulerBoundingRadiusWu;
+    case Halo3VehicleId::Chopper: return kHalo3ChopperBoundingRadiusWu;
+    default: return 0.0f;
+    }
+}
 
 inline bool Halo3RadiusMatches(float radiusWu, float measuredWu) noexcept
 {
@@ -1857,17 +1885,54 @@ inline bool Halo3FitsStockVehicle(const Halo3DefinitionFields& def, Halo3Vehicle
     }
 }
 
+// THE SAME SIZE AS A STOCK VEHICLE. A tag at a path of its own (a mod's warthog_fast) whose physics read as a stock
+// vehicle AND whose PROVEN definition radius is that vehicle's (Halo3RadiusMatches) is taken for it: its tuned seat
+// points, cameras and steering. Anything else is one the mod does not know: another size (a Spectre has the Ghost's
+// physics at 1.3 wu against 0.85), a radius not proven on this build (it never promotes), or no stock radius.
+inline Halo3VehicleId Halo3SameSizeStockVehicle(const Halo3DefinitionFields& def) noexcept
+{
+    const Halo3VehicleId candidate = Halo3ResolveVehicleId(def);
+    if (candidate == Halo3VehicleId::Unknown || candidate == Halo3VehicleId::StationaryTurret ||
+        !(def.boundingRadius >= 0.0f))
+        return Halo3VehicleId::Unknown;
+    return Halo3RadiusMatches(def.boundingRadius, Halo3StockBoundingRadiusWu(candidate)) ? candidate
+                                                                                          : Halo3VehicleId::Unknown;
+}
+
 // THE RULE WITH NAMES. No name: the physics and the radius, exactly as without names. A stock vehicle's path: that
 // vehicle when its physics and radius agree, else one the mod does not know (a mod map can put another vehicle at a
-// stock path). Any other path: one the mod does not know -- the Sparrowhawk is not a Hornet, whatever its physics.
+// stock path). Any other path: the stock vehicle it is the same size as (Halo3SameSizeStockVehicle), else one the mod
+// does not know -- the Sparrowhawk is not a Hornet, whatever its physics.
 inline Halo3VehicleId Halo3ResolveVehicleIdByPath(const Halo3DefinitionFields& def, uint8_t pathVerdict) noexcept
 {
     if (pathVerdict == kHalo3PathNoName)
         return Halo3ResolveVehicleId(def);
-    if (pathVerdict == kHalo3PathNotStock || pathVerdict == static_cast<uint8_t>(Halo3VehicleId::Unknown))
+    if (pathVerdict == kHalo3PathNotStock)
+        return Halo3SameSizeStockVehicle(def);
+    if (pathVerdict == static_cast<uint8_t>(Halo3VehicleId::Unknown))
         return Halo3VehicleId::Unknown;
     const auto id = static_cast<Halo3VehicleId>(pathVerdict);
     return Halo3FitsStockVehicle(def, id) ? id : Halo3VehicleId::Unknown;
+}
+
+// What a seat's vehicle is called (Halo3SeatVehicleName): the name its camera file entry, seat memory and note go by.
+enum class Halo3VehicleNameSource : uint8_t
+{
+    Identity,    // the identity's own name ("warthog")
+    Tag,         // its tag's short name ("warthog_fast", "sparrowhawk")
+    Fingerprint, // "custom_" and its tags' fingerprint
+};
+// A stock vehicle (a stock path, or no names to go by) and a stationary turret: the identity's name. A stand-in at a
+// path of its own (a known identity whose path is no stock vehicle's: Halo3SameSizeStockVehicle) keeps its own name,
+// so a variant has its own seat memory and note. One the mod does not know: its tag's name, else its fingerprint.
+inline Halo3VehicleNameSource Halo3SeatNameSource(Halo3VehicleId id, uint8_t pathVerdict, bool haveTagName) noexcept
+{
+    if (id == Halo3VehicleId::StationaryTurret)
+        return Halo3VehicleNameSource::Identity;
+    if (id != Halo3VehicleId::Unknown)
+        return pathVerdict == kHalo3PathNotStock && haveTagName ? Halo3VehicleNameSource::Tag
+                                                                : Halo3VehicleNameSource::Identity;
+    return haveTagName ? Halo3VehicleNameSource::Tag : Halo3VehicleNameSource::Fingerprint;
 }
 
 // User-authored first-person seat points (Blender kit, vehicle/carrier tag

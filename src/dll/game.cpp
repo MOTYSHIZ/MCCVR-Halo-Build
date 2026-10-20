@@ -11594,18 +11594,23 @@ namespace
         return fingerprint;
     }
 
-    // The seat's vehicle by name: a known one's (Halo3VehicleIdName); else its tag's short name in the map being
-    // played ("sparrowhawk", halo3_tag_names.inl), so each vehicle the mod does not know goes by its own name; while
-    // the map's names are not read, "custom_" and its tags' fingerprint; "unidentified" when even that cannot be
-    // read. A gunner on a vehicle's own gun is named by the vehicle that carries it, as his identity is the
-    // carrier's. Cold worker.
+    // The seat's vehicle by name (Halo3SeatNameSource): a stock one's identity name (Halo3VehicleIdName); a
+    // same-size stand-in at a path of its own, and a vehicle the mod does not know, by its tag's short name in the
+    // map being played ("warthog_fast", "sparrowhawk"; halo3_tag_names.inl), so each goes by its own name; while the
+    // map's names are not read, a known one by its identity and an unknown one by "custom_" and its tags'
+    // fingerprint; "unidentified" when even that cannot be read. A gunner on a vehicle's own gun is named by the
+    // vehicle that carries it, as his identity is the carrier's. Cold worker.
     const char* Halo3SeatVehicleName(const Halo3SeatSnapshot& seat, char (&buffer)[kHalo3VehicleNameCapacity])
     {
-        if (static_cast<Halo3VehicleId>(seat.identity) != Halo3VehicleId::Unknown)
-            return Halo3VehicleIdName(seat.identity);
+        const auto id = static_cast<Halo3VehicleId>(seat.identity);
         const uint32_t vehicle = seat.mounted ? seat.carrierDefinitionIndex : seat.definitionIndex;
-        if (halo3_tag_names::DisplayName(Halo3TagNameOf(vehicle), buffer, sizeof(buffer)))
+        const bool tagNamed = id != Halo3VehicleId::StationaryTurret &&
+                              halo3_tag_names::DisplayName(Halo3TagNameOf(vehicle), buffer, sizeof(buffer));
+        const Halo3VehicleNameSource source = Halo3SeatNameSource(id, Halo3TagPathVerdictOf(vehicle), tagNamed);
+        if (source == Halo3VehicleNameSource::Tag)
             return buffer;
+        if (source == Halo3VehicleNameSource::Identity)
+            return Halo3VehicleIdName(seat.identity);
         const uint32_t fingerprint = Halo3CustomVehicleFingerprint(vehicle);
         if (!fingerprint)
             return Halo3VehicleIdName(seat.identity);
@@ -11642,23 +11647,24 @@ namespace
         const std::string_view path = Halo3TagNameOf(vehicle);
         if (!path.empty() && once(vehicle))
         {
-            char readAs[160];
+            char readAs[192];
+            char name[kHalo3VehicleNameCapacity];
+            halo3_tag_names::DisplayName(path, name, sizeof(name));
+            const uint8_t verdict = Halo3TagPathVerdictOf(vehicle);
             if (id == Halo3VehicleId::StationaryTurret)
                 std::snprintf(readAs, sizeof(readAs), "a turret");
+            else if (id != Halo3VehicleId::Unknown && verdict == kHalo3PathNotStock)
+                std::snprintf(readAs, sizeof(readAs), "%s: same size as the stock %s, named %s",
+                              Halo3VehicleIdName(seat.identity), Halo3VehicleIdName(seat.identity), name);
             else if (id != Halo3VehicleId::Unknown)
                 std::snprintf(readAs, sizeof(readAs), "%s", Halo3VehicleIdName(seat.identity));
+            else if (verdict == kHalo3PathNotStock)
+                std::snprintf(readAs, sizeof(readAs),
+                              "unidentified, named %s: not a stock vehicle's tag, nor the same size as one", name);
             else
-            {
-                char name[kHalo3VehicleNameCapacity];
-                halo3_tag_names::DisplayName(path, name, sizeof(name));
-                const uint8_t verdict = Halo3TagPathVerdictOf(vehicle);
-                if (verdict == kHalo3PathNotStock)
-                    std::snprintf(readAs, sizeof(readAs), "unidentified, named %s: not a stock vehicle's tag", name);
-                else
-                    std::snprintf(readAs, sizeof(readAs),
-                                  "unidentified, named %s: the stock %s's tag, but its physics or radius is not", name,
-                                  Halo3VehicleIdName(verdict));
-            }
+                std::snprintf(readAs, sizeof(readAs),
+                              "unidentified, named %s: the stock %s's tag, but its physics or radius is not", name,
+                              Halo3VehicleIdName(verdict));
             LOG("H3 vehicle %04X: tag %.*s (read as %s)", vehicle, static_cast<int>(path.size()), path.data(), readAs);
         }
         if (seat.mounted)

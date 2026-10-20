@@ -557,12 +557,92 @@ void TestStockPaths()
     bool unknown = true;
     for (const auto& def : mods)
         unknown = unknown && Halo3ResolveVehicleIdByPath(def, kHalo3PathNotStock) == Halo3VehicleId::Unknown;
-    Check(unknown, "HugeGrass with names: none of them is a stock vehicle");
+    Check(unknown, "HugeGrass with names: none of them is a stock vehicle, nor the same size as one");
     Check(Halo3ResolveVehicleIdByPath(Def(7, 2.268f), Verdict("objects\\vehicles\\hornet\\hornet")) ==
                   Halo3VehicleId::Hornet &&
               Halo3ResolveVehicleIdByPath(Def(1, 1.0f, 2000.0f), Verdict("objects\\vehicles\\warthog\\warthog")) ==
                   Halo3VehicleId::Warthog,
           "HugeGrass's own copies of the stock Hornet and Warthog stay those vehicles");
+}
+
+void TestSameSize()
+{
+    // The stock radii as the base tags hold them (float32), each within the tolerance of the table's.
+    struct StockRadius
+    {
+        Halo3VehicleId id;
+        float tag;
+    };
+    const StockRadius stock[] = {{Halo3VehicleId::Scorpion, 2.200000047683716f}, {Halo3VehicleId::Elephant, 5.1290202140808105f},
+                           {Halo3VehicleId::Banshee, 1.399999976158142f},  {Halo3VehicleId::Hornet, 2.26774001121521f},
+                           {Halo3VehicleId::Warthog, 1.0f},                {Halo3VehicleId::Mongoose, 0.800000011920929f},
+                           {Halo3VehicleId::Ghost, 0.8500000238418579f},   {Halo3VehicleId::Wraith, 1.7999999523162842f},
+                           {Halo3VehicleId::Mauler, 1.4348019361495972f},  {Halo3VehicleId::Chopper, 1.307170033454895f}};
+    bool table = true;
+    for (const StockRadius& s : stock)
+        table = table && Halo3StockBoundingRadiusWu(s.id) > 0.0f &&
+                Halo3RadiusMatches(s.tag, Halo3StockBoundingRadiusWu(s.id)) &&
+                std::fabs(s.tag - Halo3StockBoundingRadiusWu(s.id)) < 0.001f;
+    Check(table, "every stock vehicle has its base tag's radius");
+    Check(Halo3StockBoundingRadiusWu(Halo3VehicleId::Unknown) == 0.0f &&
+              Halo3StockBoundingRadiusWu(Halo3VehicleId::StationaryTurret) == 0.0f && !Halo3RadiusMatches(1.0f, 0.0f),
+          "no other identity has one, and no radius matches an unknown one");
+
+    // HugeGrass's variants at paths of their own, read offline: the same size as their stock vehicles.
+    const Halo3DefinitionFields fast[] = {
+        Def(1, 1.0f, 2000.0f),     Def(1, 0.800000011920929f, 650.0f), Def(3, 0.8500000238418579f, -1.0f, 1),
+        Def(3, 1.7999999523162842f, -1.0f, 3), Def(3, 1.4348019361495972f, -1.0f, 4), Def(8, 1.307170033454895f),
+        Def(4, 1.399999976158142f), Def(0, 2.200000047683716f), Def(0, 5.1290202140808105f),
+        Def(7, 2.26774001121521f)};
+    const Halo3VehicleId as[] = {Halo3VehicleId::Warthog, Halo3VehicleId::Mongoose, Halo3VehicleId::Ghost,
+                                 Halo3VehicleId::Wraith,  Halo3VehicleId::Mauler,   Halo3VehicleId::Chopper,
+                                 Halo3VehicleId::Banshee, Halo3VehicleId::Scorpion, Halo3VehicleId::Elephant,
+                                 Halo3VehicleId::Hornet};
+    bool promoted = true;
+    for (size_t i = 0; i < sizeof(as) / sizeof(as[0]); ++i)
+        promoted = promoted && Halo3SameSizeStockVehicle(fast[i]) == as[i] &&
+                   Halo3ResolveVehicleIdByPath(fast[i], kHalo3PathNotStock) == as[i];
+    Check(promoted, "a variant at a path of its own with a stock vehicle's physics and size is that vehicle "
+                    "(warthog_fast, mongoose_fast, ghost_fast, wraith_fast, mauler_fast, brute_chopper_fast, "
+                    "banshee_fast, scorpion_fast, behemoth_fast)");
+
+    Check(Halo3SameSizeStockVehicle(Def(1, 1.04f, 2000.0f)) == Halo3VehicleId::Warthog &&
+              Halo3SameSizeStockVehicle(Def(1, 0.96f, 2000.0f)) == Halo3VehicleId::Warthog,
+          "within the tolerance (5%): the same size");
+    Check(Halo3SameSizeStockVehicle(Def(1, 1.06f, 2000.0f)) == Halo3VehicleId::Unknown &&
+              Halo3SameSizeStockVehicle(Def(1, 0.94f, 2000.0f)) == Halo3VehicleId::Unknown &&
+              Halo3SameSizeStockVehicle(Def(3, 1.3f, -1.0f, 1)) == Halo3VehicleId::Unknown &&
+              Halo3SameSizeStockVehicle(Def(1, 22.0f, 1800.0f)) == Halo3VehicleId::Unknown,
+          "off by more than the tolerance: not promoted (a Spectre against the Ghost, the Mammoth against the Warthog)");
+    Check(Halo3SameSizeStockVehicle(Def(1, -1.0f, 2000.0f)) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(Def(1, -1.0f, 2000.0f), kHalo3PathNotStock) == Halo3VehicleId::Unknown &&
+              Halo3ResolveVehicleIdByPath(Def(1, -1.0f, 2000.0f), kHalo3PathNoName) == Halo3VehicleId::Warthog &&
+              Halo3ResolveVehicleIdByPath(Def(4, -1.0f), kHalo3PathNotStock) == Halo3VehicleId::Unknown,
+          "an unproven radius never promotes (HugeGrass's Lich, 32 wu, is past the proven range)");
+    Check(Halo3SameSizeStockVehicle(Def(0, 1.0f)) == Halo3VehicleId::Unknown &&
+              Halo3SameSizeStockVehicle(Def(5, 0.8f)) == Halo3VehicleId::Unknown &&
+              Halo3SameSizeStockVehicle(Def(7, 3.4f)) == Halo3VehicleId::Unknown &&
+              Halo3SameSizeStockVehicle(Def(1, 1.0f, 1200.0f)) == Halo3VehicleId::Unknown,
+          "physics that read as no stock vehicle are not promoted (a 1 wu tank, a turret, the Sparrowhawk, an engine "
+          "moment of no stock jeep)");
+
+    // The names they go by.
+    const uint8_t warthogPath = Stock(Halo3VehicleId::Warthog);
+    Check(Halo3SeatNameSource(Halo3VehicleId::Warthog, warthogPath, true) == Halo3VehicleNameSource::Identity &&
+              Halo3SeatNameSource(Halo3VehicleId::Warthog, kHalo3PathNoName, false) == Halo3VehicleNameSource::Identity,
+          "a stock vehicle, or one with no names to go by: the identity's name");
+    Check(Halo3SeatNameSource(Halo3VehicleId::Warthog, kHalo3PathNotStock, true) == Halo3VehicleNameSource::Tag &&
+              Halo3SeatNameSource(Halo3VehicleId::Warthog, kHalo3PathNotStock, false) ==
+                  Halo3VehicleNameSource::Identity,
+          "a same-size variant keeps its own name (warthog_fast), the identity's only when it has none");
+    Check(Halo3SeatNameSource(Halo3VehicleId::Unknown, kHalo3PathNotStock, true) == Halo3VehicleNameSource::Tag &&
+              Halo3SeatNameSource(Halo3VehicleId::Unknown, warthogPath, true) == Halo3VehicleNameSource::Tag &&
+              Halo3SeatNameSource(Halo3VehicleId::Unknown, kHalo3PathNoName, false) ==
+                  Halo3VehicleNameSource::Fingerprint,
+          "one the mod does not know: its tag's name, else its fingerprint");
+    Check(Halo3SeatNameSource(Halo3VehicleId::StationaryTurret, kHalo3PathNotStock, true) ==
+              Halo3VehicleNameSource::Identity,
+          "a stationary turret stays a turret");
 }
 } // namespace
 
@@ -576,6 +656,7 @@ int main()
     TestDisplayName();
     TestSignatures();
     TestStockPaths();
+    TestSameSize();
     std::printf("halo3_tag_names_tests: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }
