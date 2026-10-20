@@ -452,6 +452,11 @@ static void Clamp()
         ? std::clamp(g_config.vehicle_aim_reject_metres, 0.0f, 20.0f) : Config{}.vehicle_aim_reject_metres;
     g_config.vehicle_aim_reject_dot = std::isfinite(g_config.vehicle_aim_reject_dot)
         ? std::clamp(g_config.vehicle_aim_reject_dot, -1.0f, 1.0f) : Config{}.vehicle_aim_reject_dot;
+    // vehicle_boom_logic.h holds the same bounds (kMinRateDegPerSecond, kMaxRateDegPerSecond) for a value set
+    // between loads.
+    g_config.vehicle_boom_rate_deg_s = std::isfinite(g_config.vehicle_boom_rate_deg_s)
+        ? std::clamp(g_config.vehicle_boom_rate_deg_s, 5.0f, 360.0f) : Config{}.vehicle_boom_rate_deg_s;
+    g_config.vehicle_boom_invert = std::clamp(g_config.vehicle_boom_invert, -1, 1);
     // Hand trims are deliberately small: they nudge an authored placement, not
     // relocate the weapon across the room. A wild value here would put the gun
     // outside the first-person node envelope the engine validates against.
@@ -1574,6 +1579,17 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "vehicle_aim_reject_dot"))
         {
             g_config.vehicle_aim_reject_dot = static_cast<float>(atof(val));
+            continue;
+        }
+        if (!strcmp(key, "vehicle_boom_rate_deg_s"))
+        {
+            g_config.vehicle_boom_rate_deg_s = static_cast<float>(atof(val));
+            continue;
+        }
+        if (!strcmp(key, "vehicle_boom_invert"))
+        {
+            const int invert = atoi(val);
+            g_config.vehicle_boom_invert = invert < -1 || invert > 1 ? -1 : invert;
             continue;
         }
         // C-H2-85: handled by table, not by the else-if chain below - that
@@ -3026,6 +3042,22 @@ void ConfigSave()
     fprintf(f, "# than 90, -1 = nothing.\n");
     fprintf(f, "# (default %.2f)\n", d.vehicle_aim_reject_dot);
     fprintf(f, "vehicle_aim_reject_dot = %.2f\n\n", g_config.vehicle_aim_reject_dot);
+    fprintf(f, "# Vehicle cameras (Halo 3 for now): a camera that stands where the\n");
+    fprintf(f, "# game's own third-person camera does is raised and lowered by the\n");
+    fprintf(f, "# right stick pushed up or down, in a seat where the stick does not\n");
+    fprintf(f, "# aim (your hand or the wheel does). It moves the way the game's own\n");
+    fprintf(f, "# stick moves its camera -- push up to look up and the camera drops --\n");
+    fprintf(f, "# within the range the game gives your look there, and it never\n");
+    fprintf(f, "# follows your aim. Each seat and camera keeps its angle; holding left\n");
+    fprintf(f, "# X or Y puts it back. Speed in degrees of look a second at full push\n");
+    fprintf(f, "# (5-360).\n");
+    fprintf(f, "# (default %.0f)\n", d.vehicle_boom_rate_deg_s);
+    fprintf(f, "vehicle_boom_rate_deg_s = %.1f\n", g_config.vehicle_boom_rate_deg_s);
+    fprintf(f, "# Its up and down: -1 = as the game's own look inversion (its flight\n");
+    fprintf(f, "# inversion when you pilot an aircraft; not inverted if the game's\n");
+    fprintf(f, "# setting cannot be read), 0 = not inverted, 1 = inverted.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_boom_invert);
+    fprintf(f, "vehicle_boom_invert = %d\n\n", g_config.vehicle_boom_invert);
     fprintf(f, "# Motion steering (Halo 3, ODST and Reach). In a Warthog,\n");
     fprintf(f, "# Mongoose, Ghost, Prowler or Chopper, DOUBLE-CLICK both grips to\n");
     fprintf(f, "# take hold of an invisible steering wheel: hold your hands as if\n");

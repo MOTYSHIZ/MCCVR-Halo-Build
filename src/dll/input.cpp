@@ -223,6 +223,7 @@ namespace
         VR_GetPadState(pad);
         if (!pad.valid)
         {
+            Game_VehicleBoomStick(0.0f);
             g_vrActionMapper.ready=false;
             g_scopeInput.Suspend();
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
@@ -307,6 +308,8 @@ namespace
             if (asked.recenter)
             {
                 Game_RecenterManual();
+                // A third-person camera's boom goes back to where its camera starts with the view.
+                Game_VehicleBoomRecenter();
                 LOG("Vehicle cameras: view re-centred (left X or Y held)");
             }
             if (asked.camera || asked.mode || asked.control || asked.recenter)
@@ -397,6 +400,7 @@ namespace
         if(!scopeFeatureAvailable) VR_SetScopeActive(false);
         if(menuOpen)
         {
+            Game_VehicleBoomStick(0.0f);
             g_vrActionMapper.ready=false;
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
             PhysicalCrouchCamera_Invalidate();
@@ -412,6 +416,7 @@ namespace
 
         if(pad.exclusiveInput&&!Menu_IsOpen())
         {
+            Game_VehicleBoomStick(0.0f);
 #if HALOMCCVR_DEV_DIAGNOSTICS
             g_witness.route = seat_witness::RouteExclusive;
             g_witness.weapon = 0;   // the exclusive route never forwards weapon-gesture buttons
@@ -853,6 +858,12 @@ namespace
         else
 #endif
             haveStick = Game_ComputeAimStick(rx, ry);
+        // THE THIRD-PERSON BOOM (vehicle_boom_logic.h): in a Halo 3 seat whose camera stands where the game's own
+        // third-person camera does, the right stick's Y raises and lowers that camera -- only where it aims nothing.
+        // On this path the game's Y is the aim servo's (the hand's pitch, or nothing while the wheel steers), never
+        // the stick's, except in a stick-aimed seat, where the boom holds; the scope's magnification keeps the axis
+        // while the scope is open. Off this path the stick's Y goes to the game as it always has, and the boom holds.
+        Game_VehicleBoomStick(haveStick && !VR_IsScopeActive() && Game_VehicleBoomTakesStick() ? pad.turnY : 0.0f);
         if (haveStick)
         {
             state->Gamepad.sThumbRX = ToRawStick(rx);

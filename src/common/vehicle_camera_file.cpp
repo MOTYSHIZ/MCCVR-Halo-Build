@@ -401,6 +401,19 @@ struct Reader
                 if (ok && !(camera.lagDamping >= kMinLagDamping && camera.lagDamping <= kMaxLagDamping))
                     return TypeError(item, at, "a damping from 0.1 to 2 (1 = no overshoot)");
             }
+            else if (key == "boomPitch")
+            {
+                if (item.IsNull())
+                {
+                    camera.boomPitch = kBoomPitchUnset;
+                    continue;
+                }
+                ok = Number(item, at, camera.boomPitch);
+                if (ok && !BoomPitchSet(camera.boomPitch))
+                    return TypeError(item, at,
+                                     "degrees above level from -89 to 89, or null (where the game's own camera stands "
+                                     "looking level, a little higher)");
+            }
             else if (key == "aimMarker")
             {
                 ok = TriState(item, at, camera.aimMarker, "true, false or null (null = the seat's aimMarker)");
@@ -748,8 +761,9 @@ const char* const kGuide[] = {
     "                    without this file; the fields below are then not used)",
     "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
     "                    vehicle's own origin, your seat, your character's head, or where the game's own",
-    "                    third-person camera rests for that seat -- with a zero offset, the view the game gives",
-    "                    that vehicle); or any other name: a marker on the vehicle, for the camera to ride (markers",
+    "                    third-person camera stands for that seat at the boom's angle, see boomPitch -- with a",
+    "                    zero offset, the view the game gives that vehicle, without its swing with your aim); or",
+    "                    any other name: a marker on the vehicle, for the camera to ride (markers",
     "                    are not looked up yet: the vehicle's origin is used, and the log says so)",
     "  offset            [forward, right, up] in cm from the origin (negative forward = behind);",
     "                    locationTracking decides whether those directions turn with the vehicle",
@@ -776,6 +790,13 @@ const char* const kGuide[] = {
     "                    for an origin of \"thirdperson\", 0 for any other. lagDamping: 1 = no overshoot, lower =",
     "                    a softer spring that swings past its place and back, higher = slower to settle (left",
     "                    out: 1.5 for \"thirdperson\", 1 for any other)",
+    "  boomPitch         for an origin of \"thirdperson\": the angle in degrees above level (-89 to 89) at",
+    "                    which the camera first stands from the game's own pivot. In the seat the right stick",
+    "                    raises and lowers it, inside the range the game gives your look, the way the game's",
+    "                    own stick moves its camera (and with its look inversion); your angle is kept per seat",
+    "                    and camera, and holding left X or Y puts it back here. null or left out = where the",
+    "                    game's own camera stands when you look level, a little higher. Its distance is always",
+    "                    the game's own at that angle.",
     "Per vehicle entry: defaultCamera / defaultMode = where you start (from 0);",
     "  seat = \"driver\" | \"gunner\" | \"passenger\" (or a list): this entry is only for that seat. Left out: the",
     "  driver's entry, and the one any other seat of the vehicle uses when it has none of its own;",
@@ -824,6 +845,11 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += ", \"lag\": " + NumberText(camera.lag);
     if (camera.lag >= 0.0f || camera.lagDamping >= 0.0f)
         out += ", \"lagDamping\": " + NumberText(LagDampingOf(camera));
+    // A camera where the game's own rests names its boom, so the file shows it is there to set.
+    if (BoomPitchSet(camera.boomPitch))
+        out += ", \"boomPitch\": " + NumberText(camera.boomPitch);
+    else if (all && camera.origin == Origin::ThirdPerson)
+        out += ", \"boomPitch\": null";
     if (camera.aimMarker >= 0)
         out += std::string(", \"aimMarker\": ") + (camera.aimMarker ? "true" : "false");
     if (camera.tethering.empty())

@@ -1415,6 +1415,37 @@ namespace
             {
                 ImGui::TextDisabled("Camera lag: sit in a vehicle with a chase camera to tune it.");
             }
+            // The third-person boom of the camera in use (vehicle_boom_logic.h).
+            float boomDegrees = 0.0f, boomLow = 0.0f, boomHigh = 0.0f;
+            bool boomTrack = false, boomInverted = false;
+            if (Game_VehicleBoom(boomDegrees, boomLow, boomHigh, boomTrack, boomInverted))
+            {
+                ImGui::Text("Third-person boom: %.1f deg above level (it goes from %.0f to %.0f)%s", boomDegrees,
+                            boomLow, boomHigh, boomInverted ? ", stick inverted" : "");
+                if (ImGui::Button("Back to the camera's start"))
+                    Game_VehicleBoomRecenter();
+                ImGui::TextDisabled(boomTrack
+                    ? "Where the game's own third-person camera would stand at that\n"
+                      "angle, from the game's camera track for this seat."
+                    : "The game's camera track could not be read for this seat, so\n"
+                      "the camera orbits the game's pivot at the game's distance.");
+            }
+            changed |= vr_menu::SliderFloat("Third-person boom speed (deg/s)",
+                &g_config.vehicle_boom_rate_deg_s, 5.0f, 360.0f, "%.0f");
+            int boomInvert = g_config.vehicle_boom_invert + 1;
+            if (ImGui::Combo("Third-person boom up and down", &boomInvert,
+                             "As the game's look inversion\0Not inverted\0Inverted\0"))
+            {
+                g_config.vehicle_boom_invert = boomInvert - 1;
+                changed = true;
+            }
+            ImGui::TextDisabled(
+                "A camera that stands where the game's own third-person camera\n"
+                "does: push the right stick up or down to lower or raise it, the\n"
+                "way the game's own stick moves its camera, in a seat where the\n"
+                "stick does not aim (your hand or the wheel does). It never\n"
+                "follows your aim. Each seat and camera keeps its angle; hold\n"
+                "left X or Y to put it back.");
         }
         }
 

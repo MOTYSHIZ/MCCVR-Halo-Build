@@ -451,6 +451,62 @@ static void TestMemoryFile()
     Check(moved.ControlChoice(1) == 2, "though the controls are the seat's own");
 }
 
+// THE BOOM'S MEMORY: per game, vehicle, seat and camera, on lines of their own that an older build skips.
+static void TestBoomMemory()
+{
+    Selector selector;
+    selector.Update("halo3", true, "Warthog", kSeatDriver);
+    float degrees = 0.0f;
+    Check(selector.Active().camera == 0 && !selector.BoomPitch(degrees), "the seat view has no boom");
+    selector.SetBoomPitch(30.0f, false);
+    Check(!selector.BoomPitch(degrees), "and keeps none");
+    selector.StepCamera(1);
+    Check(selector.Active().origin == static_cast<uint8_t>(Origin::ThirdPerson) && !selector.BoomPitch(degrees),
+          "the third-person camera starts with none kept");
+    Check(!BoomPitchSet(selector.Active().boomPitchDeg), "and the built-in camera names no angle of its own");
+    selector.MemorySaved();
+    selector.SetBoomPitch(25.0f, false);
+    Check(selector.MemoryDirty() && selector.BoomPitch(degrees) && degrees == 25.0f, "the player's angle is kept");
+    selector.MemorySaved();
+    selector.SetBoomPitch(25.02f, false);
+    Check(!selector.MemoryDirty(), "a still boom does not keep the file dirty");
+    selector.StepCamera(1);
+    Check(!selector.BoomPitch(degrees), "each camera keeps its own");
+    selector.StepCamera(-1);
+    Check(selector.BoomPitch(degrees) && degrees == 25.0f, "and has it back");
+    selector.Update("halo3", true, "Warthog", kSeatPassenger);
+    selector.StepCamera(1);
+    Check(!selector.BoomPitch(degrees), "each seat too");
+    selector.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(selector.BoomPitch(degrees) && degrees == 25.0f, "getting back in the seat finds it");
+
+    const std::string text = selector.MemoryText();
+    Check(Has(text, "boom\thalo3\tWarthog\tDriver\tWarthog\tThird Person\t25.0\r\n"), "the boom's line");
+    Check(Has(text, "# boom\t"), "the file says what the line is");
+    Selector fresh;
+    Check(fresh.LoadMemory(text) == 2 && fresh.BoomKept() == 1, "both seats and the one boom read back");
+    fresh.Update("halo3", true, "Warthog", kSeatDriver);
+    Check(fresh.Active().camera == 1 && fresh.BoomPitch(degrees) && degrees == 25.0f,
+          "the next session starts the seat's camera at the player's angle");
+    fresh.SetBoomPitch(26.0f, true);
+    Check(!fresh.BoomPitch(degrees) && fresh.BoomKept() == 0, "back at the camera's own start, nothing is kept");
+    Check(!Has(fresh.MemoryText(), "boom\thalo3"), "and the line goes");
+
+    Selector bad;
+    Check(bad.LoadMemory("boom\thalo3\tWarthog\tDriver\tWarthog\tThird Person\t95\r\n"
+                         "boom\thalo3\tWarthog\tDriver\tWarthog\tThird Person\thigh\r\n"
+                         "boom\thalo3\tWarthog\tDriver\r\n") == 0 &&
+              bad.BoomKept() == 0,
+          "a boom line past straight up, not a number, or cut short is skipped");
+
+    // A camera file's own angle is the camera's.
+    Selector own;
+    own.SetTable(Read("{ \"games\": { \"default\": { \"vehicles\": { \"default\": { \"cameras\": ["
+                      "  { \"name\": \"Low\", \"origin\": \"thirdperson\", \"boomPitch\": 12 } ] } } } } }"));
+    own.Update("halo3", true, "Mongoose", kSeatDriver);
+    Check(own.Active().boomPitchDeg == 12.0f && Has(own.Describe(), "boom from 12 deg"), "the file's angle, said in the log");
+}
+
 // "aimMarker" in a file: in the camera published, and an edit that only switches it is applied in place, not as a
 // change of camera.
 static void TestAimMarker()
@@ -491,6 +547,7 @@ int main()
     TestMemoryPerVehicleAndSeat();
     TestControlChoice();
     TestMemoryFile();
+    TestBoomMemory();
     std::printf("PASS: %u vehicle camera selection checks\n", g_checks);
     return 0;
 }

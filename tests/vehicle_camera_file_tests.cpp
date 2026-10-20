@@ -99,6 +99,13 @@ static void TestBuiltInTable()
     Check(any.cameras[1].lag == kThirdPersonLagSeconds && Has(text, "\"lag\": 0.5, \"lagDamping\": 1.5") &&
               back.games[1].vehicles[0].cameras[1].lag == kThirdPersonLagSeconds,
           "the built-in third-person camera follows on a spring, and the file says so");
+    Check(!BoomPitchSet(any.cameras[1].boomPitch) && Has(text, "\"boomPitch\": null") &&
+              !BoomPitchSet(back.games[1].vehicles[0].cameras[1].boomPitch),
+          "the built-in third-person camera names its boom, unset: where the game's camera looks level, a little higher");
+    Check(!Has(ToJson(built, false), "\"origin\": \"seat\", \"offset\": [-200, 90, 70], \"locationTracking\": [\"yaw\"], "
+                                     "\"rotationTracking\": [], \"collide\": true, \"collideMargin\": 30, \"lag\": 0.15, "
+                                     "\"lagDamping\": 1, \"boomPitch\""),
+          "a camera measured from anything else has no boom");
 
     // A camera that does not say: one at the game's own third-person place lags, any other does not.
     Camera unset;
@@ -489,6 +496,20 @@ static void TestBoundsAndErrors()
     Check(!bad.ok && Has(bad.error, "seconds"), "a lag past five seconds");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"lagDamping\": 0.05 } ] }"), table);
     Check(!bad.ok && Has(bad.error, "lagDamping"), "a damping too small to settle");
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"origin\": \"thirdperson\", \"boomPitch\": 25.5 } ] }"), table).ok &&
+              table.games[0].vehicles[0].cameras[0].boomPitch == 25.5f,
+          "a boom angle is read");
+    Check(Has(ToJson(table, false), "\"boomPitch\": 25.5"), "and written back");
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"origin\": \"thirdperson\", \"boomPitch\": null } ] }"), table).ok &&
+              !BoomPitchSet(table.games[0].vehicles[0].cameras[0].boomPitch),
+          "null is no boom angle of its own");
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"boomPitch\": -89 } ] }"), table).ok &&
+              table.games[0].vehicles[0].cameras[0].boomPitch == -89.0f && Has(ToJson(table, false), "\"boomPitch\": -89"),
+          "straight down is the end of it, and any camera may name one");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"boomPitch\": 95 } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "boomPitch") && Has(bad.error, "-89 to 89"), "a boom angle past straight up");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"boomPitch\": \"high\" } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "boomPitch"), "a boom angle that is not a number");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"collide\": 1 } ] }"), table);
     Check(!bad.ok && Has(bad.error, "true or false"), "a number where true or false belongs");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"origin\": \"\" } ] }"), table);
