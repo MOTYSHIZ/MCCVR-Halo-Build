@@ -472,6 +472,15 @@ std::wstring Selector::Note() const
     return line;
 }
 
+std::string Selector::TuningKey(const char* gameKey) const
+{
+    const Vehicle* entry = Entry();
+    if (!entry || !active_.valid || !gameKey)
+        return {};
+    return std::string(gameKey) + "\t" + entry->name + "\t" +
+           (cameraName_.empty() ? "camera " + std::to_string(active_.camera + 1) : cameraName_);
+}
+
 std::string Selector::Describe() const
 {
     const Vehicle* entry = Entry();

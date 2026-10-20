@@ -318,6 +318,7 @@ static void TestBuiltInPresets()
     Check(selector.Note() == L"Warthog \u00B7 Seat", "the headset note names the vehicle and the camera");
     Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Third Person\""), "the second the game's own");
     Check(selector.Note() == L"Warthog \u00B7 Third Person, Untethered", "and the mode where there is more than one");
+    Check(selector.TuningKey("halo3") == "halo3\tWarthog\tThird Person", "lag tuning keys the camera by game, entry, name");
     Check(selector.StepCamera(1) && Has(selector.Describe(), "\"Over the Shoulder\"") &&
               selector.Active().lagSeconds > 0.0f && selector.Active().origin == static_cast<uint8_t>(Origin::Seat),
           "then one over the shoulder, from the seat, on a spring");

@@ -815,6 +815,11 @@ if(BUILD_TESTING)
     target_compile_options(halomccvr_vehicle_control_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_vehicle_control_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_control_tests COMMAND halomccvr_vehicle_control_tests)
+    # The player's lag tuning laid over the camera file (src/common/vehicle_camera_tuning.h).
+    add_executable(halomccvr_vehicle_camera_tuning_tests tests/vehicle_camera_tuning_tests.cpp)
+    target_compile_options(halomccvr_vehicle_camera_tuning_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_camera_tuning_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_camera_tuning_tests COMMAND halomccvr_vehicle_camera_tuning_tests)
     # The vehicle camera buttons in a seat: taps, holds, the left stick click, and what reaches the game
     # (src/common/vehicle_seat_buttons.h).
     add_executable(halomccvr_vehicle_seat_buttons_tests tests/vehicle_seat_buttons_tests.cpp)

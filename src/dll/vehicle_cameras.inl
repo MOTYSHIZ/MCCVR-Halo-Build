@@ -592,6 +592,19 @@ std::string Halo3VehicleCameraNotApplied(const vehicle_camera_select::ActiveCame
 // the player's own, written by the mod and never shipped. Replaced whole through a temporary file, so a reader
 // never finds half of one.
 inline constexpr wchar_t kVehicleCameraMemoryFile[] = L"halomccvr_vehicle_cameras_last.txt";
+// THE PLAYER'S LAG TUNING (vehicle_camera_tuning.h), from F1 > Vehicles: a file of its own beside the camera file.
+inline constexpr wchar_t kVehicleCameraTuningFile[] = L"halomccvr_vehicle_cameras_tuning.txt";
+inline constexpr uint64_t kVehicleCameraTuningSaveMs = 1000;
+// The menu's lag sliders. Render thread to the cold worker: an edit (1 = set the camera in use to these values,
+// 2 = back to the camera file's), counted so the worker takes each once. Cold worker to the menu: the camera in
+// use's lag as it applies, and whether it is a chase camera and tuned.
+std::atomic<uint32_t> g_vehicleCameraLagEditSerial{0};
+std::atomic<uint32_t> g_vehicleCameraLagEditAction{0};
+std::atomic<float> g_vehicleCameraLagEditSeconds{0.0f};
+std::atomic<float> g_vehicleCameraLagEditDamping{1.0f};
+std::atomic<float> g_vehicleCameraLagShownSeconds{0.0f};
+std::atomic<float> g_vehicleCameraLagShownDamping{1.0f};
+std::atomic<uint32_t> g_vehicleCameraLagShownState{0}; // bit 0: a chase camera is in use; bit 1: it is tuned
 inline constexpr uint64_t kVehicleCameraMemorySaveMs = 2000;
 
 bool VehicleCameraReadText(const std::wstring& path, std::string& out)
@@ -626,10 +639,18 @@ bool VehicleCameraWriteText(const std::wstring& path, const std::string& text)
 
 struct VehicleCameraRuntime
 {
-    VehicleCameraRuntime(std::wstring path, std::wstring memory) : store(std::move(path)), memoryPath(std::move(memory)) {}
+    VehicleCameraRuntime(std::wstring path, std::wstring memory, std::wstring tuningFile)
+        : store(std::move(path)), memoryPath(std::move(memory)), tuningPath(std::move(tuningFile))
+    {
+    }
     vehicle_camera_store::Store store;
     vehicle_camera_select::Selector selector;
     std::wstring memoryPath;
+    vehicle_camera_tuning::Overlay tuning;
+    std::wstring tuningPath;
+    uint64_t nextTuningSaveMs = 0;
+    uint32_t tuningEditSeen = 0;
+    bool tuningFailureLogged = false;
     uint64_t nextMemorySaveMs = 0;
     bool memoryFailureLogged = false;
     bool wheelSeat = false;
@@ -686,13 +707,19 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         if (path.empty())
             return;
         std::wstring memory = path + kVehicleCameraMemoryFile;
+        std::wstring tuningFile = path + kVehicleCameraTuningFile;
         path += vehicle_camera_store::kFileName;
-        runtime = std::make_unique<VehicleCameraRuntime>(std::move(path), std::move(memory));
+        runtime = std::make_unique<VehicleCameraRuntime>(std::move(path), std::move(memory), std::move(tuningFile));
         std::string kept;
         if (VehicleCameraReadText(runtime->memoryPath, kept))
             LOG("Vehicle cameras: your last camera, tethering mode and controls kept for %d seat(s), from "
                 "halomccvr_vehicle_cameras_last.txt",
                 runtime->selector.LoadMemory(kept));
+        std::string tuned;
+        if (VehicleCameraReadText(runtime->tuningPath, tuned))
+            LOG("Vehicle cameras: your lag tuning for %d camera(s), from halomccvr_vehicle_cameras_tuning.txt",
+                runtime->tuning.Load(tuned));
+        runtime->tuningEditSeen = g_vehicleCameraLagEditSerial.load(std::memory_order_acquire);
     }
     VehicleCameraRuntime& r = *runtime;
     if (!wasOn)
@@ -797,7 +824,56 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         }
     }
 
-    const vehicle_camera_select::ActiveCamera& active = r.selector.Active();
+    // THE PLAYER'S LAG TUNING: an edit from the menu sliders applies to the camera in use; the camera published to
+    // the camera thread carries the tuned lag in place of the file's.
+    const std::string tuningKey = r.selector.Active().chase ? r.selector.TuningKey(gameKey) : std::string();
+    const uint32_t tuningEdit = g_vehicleCameraLagEditSerial.load(std::memory_order_acquire);
+    if (tuningEdit != r.tuningEditSeen)
+    {
+        r.tuningEditSeen = tuningEdit;
+        if (!tuningKey.empty())
+        {
+            if (g_vehicleCameraLagEditAction.load(std::memory_order_relaxed) == 2)
+            {
+                if (r.tuning.Clear(tuningKey))
+                    LOG("Vehicle cameras: %s is back to the camera file's lag", r.selector.Describe().c_str());
+            }
+            else
+            {
+                r.tuning.Set(tuningKey, vehicle_camera_tuning::Tuning{
+                                            g_vehicleCameraLagEditSeconds.load(std::memory_order_relaxed),
+                                            g_vehicleCameraLagEditDamping.load(std::memory_order_relaxed)});
+            }
+        }
+    }
+    if (r.tuning.Dirty() && nowMs >= r.nextTuningSaveMs)
+    {
+        r.nextTuningSaveMs = nowMs + kVehicleCameraTuningSaveMs;
+        if (VehicleCameraWriteText(r.tuningPath, r.tuning.Text()))
+        {
+            r.tuning.Saved();
+            r.tuningFailureLogged = false;
+        }
+        else if (!r.tuningFailureLogged)
+        {
+            r.tuningFailureLogged = true;
+            LOG("Vehicle cameras: halomccvr_vehicle_cameras_tuning.txt could not be written (%lu); your lag tuning "
+                "is kept for this session and tried again",
+                GetLastError());
+        }
+    }
+    vehicle_camera_select::ActiveCamera active = r.selector.Active();
+    vehicle_camera_tuning::Tuning tuned;
+    const bool isTuned = !tuningKey.empty() && r.tuning.Find(tuningKey, tuned);
+    if (isTuned)
+    {
+        active.lagSeconds = tuned.lag;
+        active.lagDamping = tuned.damping;
+    }
+    g_vehicleCameraLagShownSeconds.store(active.lagSeconds, std::memory_order_relaxed);
+    g_vehicleCameraLagShownDamping.store(active.lagDamping, std::memory_order_relaxed);
+    g_vehicleCameraLagShownState.store((active.valid && active.chase ? 1u : 0u) | (isTuned ? 2u : 0u),
+                                       std::memory_order_release);
     if (!(active == r.publishedCamera) || !(r.seat == r.publishedSeat))
     {
         VehicleCameraPublish(active, r.seat);
@@ -821,6 +897,13 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     }
     else
     {
+        if (isTuned)
+        {
+            char tunedText[96];
+            std::snprintf(tunedText, sizeof(tunedText), "; your tuning: lag %.2f s, damping %.2f",
+                          static_cast<double>(tuned.lag), static_cast<double>(tuned.damping));
+            line += tunedText;
+        }
         line += std::string("; controls: ") + vehicle_control::Name(vehicle_control::FromConfig(control));
         if (const std::string missing = Halo3VehicleCameraNotApplied(active); !missing.empty())
             line += ". Not applied in Halo 3 yet: " + missing;

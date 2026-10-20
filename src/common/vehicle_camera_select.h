@@ -95,6 +95,9 @@ public:
     // has more than one; the vehicle by its entry's name, or by its own where the default entry has it. Empty
     // when nothing is selected.
     std::wstring Note() const;
+    // The camera in use as the player's lag tuning keys it (vehicle_camera_tuning.h): "<game>\t<entry>\t<camera>",
+    // the camera by its name, or "camera N" where it has none. Empty when nothing is selected.
+    std::string TuningKey(const char* gameKey) const;
     // Why nothing is selected, for the log; empty when a camera is.
     const std::string& StandDownReason() const noexcept { return standDown_; }
 

@@ -1375,6 +1375,27 @@ namespace
             char cameraLine[384];
             if (Game_VehicleCameraReadout(cameraLine, sizeof(cameraLine)))
                 ImGui::TextWrapped("%s", cameraLine);
+            // Lag of the camera in use, kept for that camera (halomccvr_vehicle_cameras_tuning.txt).
+            float lagSeconds = 0.0f, lagDamping = 1.0f;
+            bool lagTuned = false;
+            if (Game_VehicleCameraLag(lagSeconds, lagDamping, lagTuned))
+            {
+                bool lagChanged = vr_menu::SliderFloat("Camera lag (s)", &lagSeconds, 0.0f, 2.0f, "%.2f");
+                lagChanged |= vr_menu::SliderFloat("Lag damping", &lagDamping, 0.1f, 2.0f, "%.2f");
+                if (lagChanged)
+                    Game_VehicleCameraSetLag(lagSeconds, lagDamping);
+                if (lagTuned && ImGui::Button("Back to the camera file's lag"))
+                    Game_VehicleCameraResetLag();
+                ImGui::TextDisabled(
+                    "For the camera you are in: seconds it takes to catch up\n"
+                    "with a turn or a bump (0 = rigid). Damping 1 settles\n"
+                    "without overshoot; lower swings past and back. Kept for\n"
+                    "this camera in halomccvr_vehicle_cameras_tuning.txt.");
+            }
+            else
+            {
+                ImGui::TextDisabled("Camera lag: sit in a vehicle with a chase camera to tune it.");
+            }
         }
         }
 

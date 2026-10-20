@@ -332,6 +332,13 @@ bool Game_Halo3VehicleWheelActive();
 // camera is in use, or why none is; false when there is nothing to say (the feature is off).
 void Game_VehicleCameraStep(int cameraDirection, int modeDirection);
 bool Game_VehicleCameraReadout(char* out, size_t capacity);
+// The lag of the vehicle camera in use (F1 > Vehicles): false when no chase camera is in use. `tuned`: the player
+// has set it from the menu, in place of the camera file's.
+bool Game_VehicleCameraLag(float& seconds, float& damping, bool& tuned);
+// Sets the lag of the chase camera in use, kept for that camera in halomccvr_vehicle_cameras_tuning.txt.
+void Game_VehicleCameraSetLag(float seconds, float damping);
+// Back to the camera file's lag for the camera in use.
+void Game_VehicleCameraResetLag();
 // The vehicle camera buttons (vehicle_seat_buttons.h), for the input hook. Live: the seat the player is in is one
 // the vehicle cameras run in, so left X, left Y and the left stick click are theirs; `passenger` says it is a
 // passenger's. ControlStep asks for the seat's next way to be controlled (the left stick click).

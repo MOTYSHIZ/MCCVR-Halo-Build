@@ -98,6 +98,7 @@
 #include "../common/seat_view_logic.h"
 #include "../common/vehicle_camera_place_logic.h"
 #include "../common/vehicle_camera_store.h"
+#include "../common/vehicle_camera_tuning.h"
 #include "../common/vehicle_control_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
@@ -57496,6 +57497,29 @@ void Game_VehicleControlStep()
 bool Game_VehicleCameraReadout(char* out, size_t capacity)
 {
     return VehicleCameraGetReadout(out, capacity);
+}
+
+bool Game_VehicleCameraLag(float& seconds, float& damping, bool& tuned)
+{
+    const uint32_t state = g_vehicleCameraLagShownState.load(std::memory_order_acquire);
+    seconds = g_vehicleCameraLagShownSeconds.load(std::memory_order_relaxed);
+    damping = g_vehicleCameraLagShownDamping.load(std::memory_order_relaxed);
+    tuned = (state & 2u) != 0;
+    return (state & 1u) != 0;
+}
+
+void Game_VehicleCameraSetLag(float seconds, float damping)
+{
+    g_vehicleCameraLagEditSeconds.store(seconds, std::memory_order_relaxed);
+    g_vehicleCameraLagEditDamping.store(damping, std::memory_order_relaxed);
+    g_vehicleCameraLagEditAction.store(1, std::memory_order_relaxed);
+    g_vehicleCameraLagEditSerial.fetch_add(1, std::memory_order_release);
+}
+
+void Game_VehicleCameraResetLag()
+{
+    g_vehicleCameraLagEditAction.store(2, std::memory_order_relaxed);
+    g_vehicleCameraLagEditSerial.fetch_add(1, std::memory_order_release);
 }
 
 Halo3VehicleStateSnapshot Game_Halo3VehicleState()
