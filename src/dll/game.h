@@ -339,6 +339,11 @@ bool Game_VehicleCameraLag(float& seconds, float& damping, bool& tuned);
 void Game_VehicleCameraSetLag(float seconds, float damping);
 // Back to the camera file's lag for the camera in use.
 void Game_VehicleCameraResetLag();
+// THE VEHICLE AIM RING (vehicle_cameras.inl; src/common/vehicle_aim_marker_logic.h): true while a Halo 3 chase
+// camera whose "aimMarker" asks for it is up and its ring was placed within the last tenth of a second. `outDir`: the
+// direction from the rendered centre eye to the point the vehicle aims at, a VR-space unit vector in the reticle's
+// convention; `outDistanceM`: how far along it the ring is drawn, VR metres.
+bool Game_GetVehicleAimMarker(float outDir[3], float& outDistanceM);
 // The vehicle camera buttons (vehicle_seat_buttons.h), for the input hook. Live: the seat the player is in is one
 // the vehicle cameras run in, so left X, left Y and the left stick click are theirs; `passenger` says it is a
 // passenger's. ControlStep asks for the seat's next way to be controlled (the left stick click).

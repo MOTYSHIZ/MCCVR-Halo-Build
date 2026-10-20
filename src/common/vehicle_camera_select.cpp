@@ -170,6 +170,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.collideMarginCm = chosen.collideMargin;
     next.lagSeconds = vehicle_camera_file::LagSecondsOf(chosen);
     next.lagDamping = vehicle_camera_file::LagDampingOf(chosen);
+    next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
@@ -517,6 +518,8 @@ std::string Selector::Describe() const
     line += ", leash " + vehicle_camera_file::LeashText(active_.leashMinCm, active_.leashMaxCm);
     if (active_.lagSeconds > 0.0f)
         line += ", lag " + Number(active_.lagSeconds) + " s";
+    if (active_.aimMarker)
+        line += ", aim ring";
     return line;
 }
 } // namespace vehicle_camera_select

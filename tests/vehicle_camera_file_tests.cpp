@@ -219,6 +219,111 @@ static void TestCamerasAndTethering()
           "origins as the file writes them");
 }
 
+// "aimMarker": the ring where the vehicle aims -- the seat's, a camera's over it, a mode's over that.
+static void TestAimMarker()
+{
+    // The built-in cameras have it as Halo Campaign Evolved's do: on for the seat, off in each Untethered mode, so
+    // it shows only where the view turns with the vehicle.
+    const Table built = DefaultTable();
+    bool seatOn = true, untetheredOff = true, tetheredOn = true;
+    int chaseModes = 0;
+    for (const Game& game : built.games)
+        for (const Vehicle& vehicle : game.vehicles)
+        {
+            seatOn = seatOn && vehicle.aimMarker == 1;
+            for (std::size_t c = 0; c < vehicle.cameras.size(); ++c)
+            {
+                const Camera& camera = vehicle.cameras[c];
+                if (camera.type != CameraType::Chase)
+                    continue;
+                for (int m = 0; m < camera.ModeCount(); ++m)
+                {
+                    ++chaseModes;
+                    const bool shown = EffectiveAimMarker(vehicle, static_cast<int>(c), m);
+                    if (camera.Mode(m).rotYaw)
+                        tetheredOn = tetheredOn && shown && camera.Mode(m).aimMarker == -1;
+                    else
+                        untetheredOff = untetheredOff && !shown && camera.Mode(m).aimMarker == 0;
+                }
+            }
+        }
+    Check(chaseModes > 20 && seatOn && untetheredOff && tetheredOn,
+          "built in: the ring in every Tethered mode and in no Untethered one");
+    const std::string builtText = ToJson(built, false);
+    Check(Has(builtText, "\"aimMarker\": true,") && Has(builtText, "{ \"name\": \"Untethered\", \"aimMarker\": false }") &&
+              Has(builtText, "{ \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"] }"),
+          "and the file says so: on for each seat, off in each Untethered mode");
+
+    // The cascade, read from a file: mode over camera over seat, null and left out passing it up.
+    Table table;
+    const std::string text = OneVehicle(
+        "{ \"aimMarker\": false, \"cameras\": ["
+        "  { \"name\": \"A\", \"tethering\": [ { \"name\": \"one\" }, { \"name\": \"two\", \"aimMarker\": true },"
+        "                                   { \"name\": \"three\", \"aimMarker\": null } ] },"
+        "  { \"name\": \"B\", \"aimMarker\": true, \"tethering\": [ { \"name\": \"one\", \"aimMarker\": false },"
+        "                                                          { \"name\": \"two\" } ] },"
+        "  { \"name\": \"C\", \"aimMarker\": null },"
+        "  { \"name\": \"D\", \"aimMarker\": true } ] }");
+    const ParseResult result = Read(text, table);
+    Check(result.ok && result.ignored.empty(), "aimMarker is read at every level");
+    const Vehicle& seat = table.games[0].vehicles[0];
+    Check(seat.aimMarker == 0, "the seat's own");
+    Check(!EffectiveAimMarker(seat, 0, 0) && EffectiveAimMarker(seat, 0, 1) && !EffectiveAimMarker(seat, 0, 2),
+          "a mode that says nothing, or null, is the seat's through its camera; one that says, its own");
+    Check(seat.cameras[0].Mode(2).aimMarker == -1, "null is unset");
+    Check(!EffectiveAimMarker(seat, 1, 0) && EffectiveAimMarker(seat, 1, 1), "a camera's own over the seat's");
+    Check(!EffectiveAimMarker(seat, 2, 0) && seat.cameras[2].aimMarker == -1, "a camera's null is the seat's");
+    Check(EffectiveAimMarker(seat, 3, 0) && EffectiveAimMarker(seat, 3, 7), "a camera without modes, any mode");
+    Check(!EffectiveAimMarker(seat, 9, 0) && !EffectiveAimMarker(seat, -1, 0), "a camera out of range: the seat's");
+    Check(EffectiveAimMarker(seat, 1, 3), "a mode index wraps, as Mode's does");
+    const Vehicle unset{};
+    Check(unset.aimMarker == -1 && !EffectiveAimMarker(unset, 0, 0), "a seat that says nothing, with no camera: none");
+
+    // Left out at every level, as in a file written before the key: shown exactly where the mode turns the view with
+    // the vehicle's heading -- what the built-in values amount to.
+    Table older;
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"name\": \"Seat\", \"type\": \"firstperson\" },"
+                          "  { \"tethering\": [ { \"name\": \"Untethered\" },"
+                          "                     { \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"] },"
+                          "                     { \"name\": \"Pitch\", \"rotationTracking\": [\"pitch\"] } ] },"
+                          "  { \"rotationTracking\": [\"yaw\", \"pitch\"] }, { } ] }"),
+               older)
+              .ok,
+          "a file without aimMarker reads");
+    const Vehicle& plain = older.games[0].vehicles[0];
+    Check(plain.aimMarker == -1 && !EffectiveAimMarker(plain, 1, 0) && EffectiveAimMarker(plain, 1, 1) &&
+              !EffectiveAimMarker(plain, 1, 2),
+          "on in the mode that turns the view with the vehicle's yaw, off where it does not");
+    Check(EffectiveAimMarker(plain, 2, 0) && !EffectiveAimMarker(plain, 3, 0), "and so for a camera without modes");
+    Check(!Has(ToJson(older, false), "aimMarker"), "nothing is written that the file did not say");
+    Check(Read(OneVehicle("{ \"aimMarker\": null, \"cameras\": [ { \"rotationTracking\": [\"yaw\"] } ] }"), older)
+                  .ok &&
+              older.games[0].vehicles[0].aimMarker == -1 && EffectiveAimMarker(older.games[0].vehicles[0], 0, 0),
+          "the seat's null is the same as leaving it out");
+
+    const std::string written = ToJson(table, false);
+    Table back;
+    Check(Read(written, back).ok && ToJson(back, false) == written, "it round-trips");
+    Check(Has(written, "\"aimMarker\": false,") && Has(written, "{ \"name\": \"two\", \"aimMarker\": true }") &&
+              Has(written, "{ \"name\": \"three\" }") && Has(written, "{ \"name\": \"one\", \"aimMarker\": false }"),
+          "written where a mode sets it, left out where it does not");
+    const char* const cameraC = "{ \"name\": \"C\", \"type\": \"chase\", \"origin\": \"vehicle\", \"offset\": [0, 0, 0], "
+                                "\"locationTracking\": [\"yaw\", \"pitch\", \"roll\"], \"rotationTracking\": [], "
+                                "\"collide\": true, \"collideMargin\": 30 }";
+    const char* const cameraD = "\"name\": \"D\", \"type\": \"chase\", \"origin\": \"vehicle\", \"offset\": [0, 0, 0], "
+                                "\"locationTracking\": [\"yaw\", \"pitch\", \"roll\"], \"rotationTracking\": [], "
+                                "\"collide\": true, \"collideMargin\": 30, \"aimMarker\": true }";
+    Check(Has(written, cameraC) && Has(written, cameraD), "a camera writes it only where it sets it");
+
+    // Wrong types are refused, naming where.
+    ParseResult bad = Read(OneVehicle("{ \"aimMarker\": 0, \"cameras\": [ {} ] }"), table);
+    Check(!bad.ok && Has(bad.error, "Warthog.aimMarker"), "the seat's is true, false or null");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"aimMarker\": \"yes\" } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "cameras[0].aimMarker"), "a camera's is true, false or null");
+    bad = Read(OneVehicle("{ \"cameras\": [ { \"tethering\": [ { \"aimMarker\": 1 } ] } ] }"), table);
+    Check(!bad.ok && Has(bad.error, "tethering[0].aimMarker"), "and so is a mode's");
+}
+
 static void TestLeash()
 {
     Table table;
@@ -477,6 +582,7 @@ int main()
     TestBuiltInTable();
     TestGames();
     TestCamerasAndTethering();
+    TestAimMarker();
     TestLeash();
     TestMatching();
     TestCarryMode();

@@ -75,6 +75,20 @@ struct Reader
         return true;
     }
 
+    // true / false (1 / 0), or null = unset (-1).
+    bool TriState(const Value& value, const std::string& where, int& out, const char* want)
+    {
+        if (value.IsNull())
+        {
+            out = -1;
+            return true;
+        }
+        if (!value.IsBool())
+            return TypeError(value, where, want);
+        out = value.boolean ? 1 : 0;
+        return true;
+    }
+
     bool Index(const Value& value, const std::string& where, int& out, const char* want)
     {
         // Bounded before the cast: a huge number would otherwise wrap to a negative index.
@@ -269,6 +283,10 @@ struct Reader
             {
                 ok = Leash(item, at, false, raw.leashMax);
             }
+            else if (key == "aimMarker")
+            {
+                ok = TriState(item, at, raw.mode.aimMarker, "true, false or null (null = the camera's)");
+            }
             else if (key == "origin")
             {
                 if (item.IsNull())
@@ -382,6 +400,10 @@ struct Reader
                 ok = Number(item, at, camera.lagDamping);
                 if (ok && !(camera.lagDamping >= kMinLagDamping && camera.lagDamping <= kMaxLagDamping))
                     return TypeError(item, at, "a damping from 0.1 to 2 (1 = no overshoot)");
+            }
+            else if (key == "aimMarker")
+            {
+                ok = TriState(item, at, camera.aimMarker, "true, false or null (null = the seat's aimMarker)");
             }
             else if (key == "tethering")
             {
@@ -529,6 +551,12 @@ struct Reader
                 if (!item.IsBool())
                     return TypeError(item, at, "true or false (false = the seat view as it is without this file)");
                 out.enabled = item.boolean;
+            }
+            else if (field == "aimMarker")
+            {
+                if (!TriState(item, at, out.aimMarker,
+                              "true, false or null (null = shown where the view turns with the vehicle)"))
+                    return false;
             }
             else if (field == "seat")
             {
@@ -738,8 +766,10 @@ const char* const kGuide[] = {
     "                    a whole seat (in the vehicle entry), for a camera, or for a tethering mode; each",
     "                    overrides the one above it.",
     "  tethering         the camera's MODES: a list of { name, origin, offset, leashMin, leashMax,",
-    "                    locationTracking, rotationTracking }, each taking the camera's own for what it leaves",
-    "                    out -- e.g. the same camera held still, and turning with the vehicle",
+    "                    locationTracking, rotationTracking, aimMarker }, each taking the camera's own for what",
+    "                    it leaves out -- e.g. the same camera held still, and turning with the vehicle",
+    "  aimMarker         true | false: the purple ring where the VEHICLE is aiming, beside the crosshair, in",
+    "                    this camera (left out = the seat's). A tethering mode may say otherwise",
     "  collide           pull the camera in when a wall is in the way; collideMargin = cm to stop short",
     "  lag               seconds the camera takes to catch up when the vehicle turns or bumps: it follows on a",
     "                    spring instead of a rigid boom (0 = rigid). A steady speed does not lag. Left out: 0.5",
@@ -750,6 +780,11 @@ const char* const kGuide[] = {
     "  seat = \"driver\" | \"gunner\" | \"passenger\" (or a list): this entry is only for that seat. Left out: the",
     "  driver's entry, and the one any other seat of the vehicle uses when it has none of its own;",
     "  enabled = false: none of this in this seat; its cameras may then be left out;",
+    "  aimMarker = true | false: a purple ring where the VEHICLE is aiming, beside the crosshair, in this seat's",
+    "  chase cameras (vehicle_aim_marker = 0 in halomccvr.cfg turns it off everywhere). The built-in cameras",
+    "  turn it off in their Untethered modes, so it shows while your view turns with the vehicle: aim at the",
+    "  ring to keep going straight without turning. Left out here and in a camera and its mode: shown in",
+    "  exactly the modes whose rotationTracking turns the view with the vehicle's yaw;",
     "  leashMin / leashMax = the leash for every camera of this seat.",
     "Keys starting with _ are notes and are ignored: add your own anywhere (\"_why\": \"...\").",
     "This file is yours: it is written once and never overwritten, and deleting it brings the built-in cameras",
@@ -789,6 +824,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += ", \"lag\": " + NumberText(camera.lag);
     if (camera.lag >= 0.0f || camera.lagDamping >= 0.0f)
         out += ", \"lagDamping\": " + NumberText(LagDampingOf(camera));
+    if (camera.aimMarker >= 0)
+        out += std::string(", \"aimMarker\": ") + (camera.aimMarker ? "true" : "false");
     if (camera.tethering.empty())
     {
         out += " }";
@@ -820,6 +857,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
                 (mode.locView ? std::string("\"view\"") : AxesJson(mode.locYaw, mode.locPitch, mode.locRoll)));
         if (mode.rotYaw != camera.rotYaw || mode.rotPitch != camera.rotPitch || mode.rotRoll != camera.rotRoll)
             add("\"rotationTracking\": " + AxesJson(mode.rotYaw, mode.rotPitch, mode.rotRoll));
+        if (mode.aimMarker >= 0)
+            add(std::string("\"aimMarker\": ") + (mode.aimMarker ? "true" : "false"));
         out += "                { " + fields + (fields.empty() ? "}" : " }") +
                (m + 1 < camera.tethering.size() ? ",\n" : "\n");
     }
@@ -853,6 +892,8 @@ void WriteVehicle(std::string& out, const Vehicle& vehicle, bool last)
     out += "          \"defaultCamera\": " + std::to_string(vehicle.defaultCamera) + ",\n";
     if (vehicle.defaultMode != 0)
         out += "          \"defaultMode\": " + std::to_string(vehicle.defaultMode) + ",\n";
+    if (vehicle.aimMarker >= 0)
+        out += std::string("          \"aimMarker\": ") + (vehicle.aimMarker ? "true" : "false") + ",\n";
     if (LeashSet(vehicle.leashMin))
         out += "          \"leashMin\": " + LeashJson(vehicle.leashMin) + ",\n";
     if (LeashSet(vehicle.leashMax))
@@ -926,7 +967,8 @@ Camera SeatView()
     return seat;
 }
 
-// Two modes: the world held still, and the view turning with the vehicle's heading.
+// Two modes: the world held still, and the view turning with the vehicle's heading. The aim ring only in the second,
+// as Halo Campaign Evolved's built-in cameras have it: there it is where the view comes to rest.
 void UntetheredAndTethered(Camera& camera)
 {
     Tether still = camera.Mode(0);
@@ -934,6 +976,7 @@ void UntetheredAndTethered(Camera& camera)
     Tether turning = still;
     turning.name = "Tethered";
     turning.rotYaw = true;
+    still.aimMarker = 0;
     camera.tethering = {still, turning};
 }
 
@@ -974,6 +1017,7 @@ Vehicle Entry(const char* key, const char* match, uint8_t seats, std::vector<Cam
     vehicle.name = key;
     vehicle.match = {match};
     vehicle.seats = seats;
+    vehicle.aimMarker = 1;
     vehicle.cameras = {SeatView(), ThirdPerson()};
     for (Camera& camera : extra)
         vehicle.cameras.push_back(std::move(camera));
@@ -985,6 +1029,7 @@ Vehicle AnyVehicle()
     Vehicle any;
     any.name = kDefaultKey;
     any.isDefault = true;
+    any.aimMarker = 1;
     any.cameras = {SeatView(), ThirdPerson()};
     return any;
 }
@@ -1193,6 +1238,21 @@ int CarryMode(const Camera& to, const Tether& from)
             return i;
     }
     return 0;
+}
+
+bool EffectiveAimMarker(const Vehicle& vehicle, int camera, int mode)
+{
+    if (camera < 0 || camera >= static_cast<int>(vehicle.cameras.size()))
+        return vehicle.aimMarker > 0;
+    const Camera& chosen = vehicle.cameras[static_cast<std::size_t>(camera)];
+    const Tether tether = chosen.Mode(mode);
+    if (!chosen.tethering.empty() && tether.aimMarker >= 0)
+        return tether.aimMarker != 0;
+    if (chosen.aimMarker >= 0)
+        return chosen.aimMarker != 0;
+    if (vehicle.aimMarker >= 0)
+        return vehicle.aimMarker != 0;
+    return tether.rotYaw;
 }
 
 const char* TypeName(CameraType type) noexcept

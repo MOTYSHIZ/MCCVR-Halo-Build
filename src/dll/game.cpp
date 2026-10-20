@@ -96,6 +96,7 @@
 #include "title_adapter.h"
 #include "../common/authored_reticle_logic.h"
 #include "../common/seat_view_logic.h"
+#include "../common/vehicle_aim_marker_logic.h"
 #include "../common/vehicle_camera_place_logic.h"
 #include "../common/vehicle_camera_store.h"
 #include "../common/vehicle_camera_tuning.h"
@@ -5157,6 +5158,10 @@ namespace
     bool Halo3VehicleCameraLeashHead(float head[3]);
     bool Halo3VehicleCameraPublishedPoint(float out[3]);
     bool Halo3VehicleCameraThirdPerson();
+    // ...and the ring where the vehicle aims, placed at the end of the same pass from the eye the view is drawn from
+    // and the vehicle frame its rotation was composed in; Read is the frame thread's.
+    void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw, float hullPitch);
+    bool Halo3VehicleAimMarkerRead(float& vrYaw, float& vrPitch, float& distanceM);
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     // O2: ODST's equivalent, so the shared hand solver can hang the arms off an
     // ODST seat too. Declared here because the solver runs long before the ODST
@@ -8995,6 +9000,9 @@ namespace
         // The head this frame is seen with, for what must turn with the head instead of the aim (the motion
         // tracker: halo3_head_relative.inl).
         Halo3HeadRelativePublish(fwd, up, !cinematic);
+        // The ring where the vehicle aims (vehicle_cameras.inl), from the eye this view is drawn from and through the
+        // frame its rotation was composed in. A pass that placed no chase camera takes it down.
+        Halo3VehicleAimMarkerStep(pos, rotationFollows, hullYaw, hullPitch);
         return rotationFollows;
     }
 
@@ -57614,6 +57622,21 @@ void Game_VehicleCameraResetLag()
 {
     g_vehicleCameraLagEditAction.store(2, std::memory_order_relaxed);
     g_vehicleCameraLagEditSerial.fetch_add(1, std::memory_order_release);
+}
+
+bool Game_GetVehicleAimMarker(float outDir[3], float& outDistanceM)
+{
+    outDistanceM = 0.0f;
+    float yaw = 0.0f, pitch = 0.0f, distance = 0.0f;
+    if (!outDir || TitleAdapter_GetActiveTitle() != GameTitle::Halo3 ||
+        !Halo3VehicleAimMarkerRead(yaw, pitch, distance))
+        return false;
+    const float cp = cosf(pitch);
+    outDir[0] = sinf(yaw) * cp;
+    outDir[1] = sinf(pitch);
+    outDir[2] = -cosf(yaw) * cp;
+    outDistanceM = distance;
+    return true;
 }
 
 Halo3VehicleStateSnapshot Game_Halo3VehicleState()

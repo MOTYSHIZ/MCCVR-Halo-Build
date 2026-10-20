@@ -787,6 +787,12 @@ struct Config
     // (Halo 3; the mod's panel when the game's HUD cannot take it, and in a shared co-op simulation);
     // 2 = on the mod's own panel in the headset.
     int vehicle_camera_note = 1;
+    // With vehicle cameras on, in a chase camera whose "aimMarker" in the camera file asks for it (the built-in
+    // cameras: their Tethered modes; a file that never says: the modes whose view turns with the vehicle): a purple
+    // ring where the VEHICLE is aiming, beside the crosshair that shows where the hand points -- Halo Campaign
+    // Evolved's vehicle aim marker. In a mode that turns the view with the vehicle it is where the view comes to
+    // rest: aim at it to keep going straight. 0 = never shown, whatever the file says.
+    bool vehicle_aim_marker = true;
     // How a vehicle seat is controlled, apart from how the view turns (vehicle_control_logic.h):
     // 1 = Motion, the hand aims every seat, and a look-steered vehicle (Warthog, Mongoose, Ghost, Prowler,
     // Chopper, Banshee, Hornet) turns toward it; 2 = Stick, the right stick aims and steers in every seat, as
