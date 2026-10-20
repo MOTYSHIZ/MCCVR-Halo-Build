@@ -316,7 +316,8 @@ static void TestLag()
     // A sudden move of one world unit: about four fifths of it made up after the lag's seconds, never overshot.
     camera.changes = 2;
     place[0] = 0.0f;
-    FollowLag(camera, place, dt, state, out);
+    for (int i = 0; i < 5; ++i)
+        FollowLag(camera, place, dt, state, out);
     place[0] = 1.0f;
     float most = 0.0f, atLag = 0.0f;
     for (int i = 1; i <= 270; ++i)
@@ -334,7 +335,8 @@ static void TestLag()
     camera.changes = 3;
     camera.lagDamping = 0.3f;
     place[0] = 0.0f;
-    FollowLag(camera, place, dt, state, out);
+    for (int i = 0; i < 5; ++i)
+        FollowLag(camera, place, dt, state, out);
     place[0] = 1.0f;
     most = 0.0f;
     for (int i = 1; i <= 270; ++i)
@@ -369,12 +371,116 @@ static void TestLag()
     camera.changes = 4;
     FollowLag(camera, place, dt, state, out);
     Check(out[0] == 1.5f, "another camera starts on its place");
+    for (int i = 0; i < 5; ++i)
+        FollowLag(camera, place, dt, state, out);
     place[0] = 10.0f;
     FollowLag(camera, place, dt, state, out);
-    Check(out[0] == 10.0f, "so does a place too far to swing to");
+    Check(out[0] == 10.0f && state.recentCount == 0, "so does a place that leaps metres in one frame");
     place[0] = 10.5f;
     FollowLag(camera, place, 1.0f, state, out);
     Check(out[0] == 10.5f, "and a gap of a second");
+}
+
+// LAG AT SPEED: no speed is too fast to follow, and trailing is never a reason to start over. The follower used to
+// hold the place's velocity to 20 world units a second and start over 3 world units behind, so anything faster
+// fell behind, snapped onto its place, and fell behind again: a fast flyer's camera jumped over and over.
+static void TestLagAtSpeed()
+{
+    ActiveCamera camera = Behind();
+    camera.lagSeconds = 0.5f;
+    camera.lagDamping = 1.5f;
+    camera.changes = 7;
+    LagState state;
+    float out[3]{};
+    const float dt = 1.0f / 90.0f;
+    float place[3] = {0.0f, 0.0f, 0.0f};
+    float x = 0.0f, speed = 0.0f;
+
+    // From rest to 80 world units a second (about 240 m/s) in four seconds, then four seconds at that speed.
+    bool restarted = false;
+    float worst = 0.0f;
+    for (int i = 0; i < 720; ++i)
+    {
+        if (i < 360)
+            speed += 20.0f * dt;
+        x += speed * dt;
+        place[0] = x;
+        FollowLag(camera, place, dt, state, out);
+        if (i > 3 && state.recentCount < 3)
+            restarted = true;
+        const float gap = std::fabs(out[0] - place[0]);
+        worst = gap > worst ? gap : worst;
+    }
+    Check(!restarted && state.jumps == 0 && state.runaways == 0,
+          "a flyer speeding up to 240 m/s never sends its camera back to its place");
+    // Speeding up is a change of motion, so it lags: about 0.28 s of the acceleration, here 5.6 world units at six g
+    // -- far inside the runaway bound, so the camera falls back smoothly and comes up again, never snapping.
+    Check(worst < 7.0f, "and its camera falls back from a speeding flyer smoothly, inside the runaway bound");
+    Check(std::fabs(out[0] - place[0]) < 0.02f, "and sits on its place at a steady 240 m/s");
+
+    // Turns at speed. A lagged camera trails in a turn by design (the swing comes through slowly); what it must
+    // never do is start over. A hard turn at 120 m/s (40 degrees a second), and a 300 m/s flyer turning at 60.
+    const float turns[2][2] = {{40.0f, 40.0f}, {100.0f, 60.0f}};
+    const float bounds[2] = {10.0f, 30.0f};
+    for (int k = 0; k < 2; ++k)
+    {
+        camera.changes = 8 + 10 * k;
+        const float rate = turns[k][1] * 3.14159265f / 180.0f, radius = turns[k][0] / rate;
+        restarted = false;
+        worst = 0.0f;
+        for (int i = 0; i < 360; ++i)
+        {
+            const float a = rate * dt * static_cast<float>(i);
+            place[0] = radius * std::cos(a);
+            place[1] = radius * std::sin(a);
+            FollowLag(camera, place, dt, state, out);
+            if (i > 3 && state.recentCount < 3)
+                restarted = true;
+            const float gap = std::sqrt((out[0] - place[0]) * (out[0] - place[0]) +
+                                        (out[1] - place[1]) * (out[1] - place[1]));
+            worst = gap > worst ? gap : worst;
+        }
+        Check(!restarted && worst < bounds[k], k == 0 ? "a hard turn at 120 m/s is followed, never restarted"
+                                                       : "and so is a 300 m/s flyer's turn");
+    }
+
+    // A camera chosen in flight moves with its place from the start, instead of dropping back and catching up.
+    camera.changes = 9;
+    place[1] = 0.0f;
+    x = 0.0f;
+    worst = 0.0f;
+    for (int i = 0; i < 90; ++i)
+    {
+        x += 40.0f * dt;
+        place[0] = x;
+        FollowLag(camera, place, dt, state, out);
+        const float gap = std::fabs(out[0] - place[0]);
+        worst = gap > worst ? gap : worst;
+    }
+    Check(worst < 0.05f, "a camera chosen at 120 m/s keeps up from its first frame");
+
+    // In flight, a one-frame step of a world unit (a bump) is followed on the spring, not taken for a speed...
+    x += 40.0f * dt + 1.0f;
+    place[0] = x;
+    FollowLag(camera, place, dt, state, out);
+    Check(state.recentCount == 3 && out[0] < place[0], "a bump in flight is followed, not jumped to");
+    float most = 0.0f;
+    for (int i = 0; i < 180; ++i)
+    {
+        x += 40.0f * dt;
+        place[0] = x;
+        FollowLag(camera, place, dt, state, out);
+        most = out[0] - place[0] > most ? out[0] - place[0] : most;
+    }
+    Check(most < 0.1f && std::fabs(out[0] - place[0]) < 0.02f,
+          "and the camera does not fly past its place afterwards: the step's speed is never the median");
+
+    // ...and a leap of seven world units in one frame (a respawn, a seat change) starts over on the place.
+    x += 40.0f * dt + 7.0f;
+    place[0] = x;
+    FollowLag(camera, place, dt, state, out);
+    Check(out[0] == place[0] && state.recentCount == 0 && state.jumps == 1 && state.runaways == 0,
+          "a leap in flight starts over on the place, counted as a jump");
 }
 
 int main()
@@ -389,6 +495,7 @@ int main()
     TestLeash();
     TestRefusals();
     TestLag();
+    TestLagAtSpeed();
     std::printf("PASS: %u vehicle camera placement checks\n", g_checks);
     return 0;
 }

@@ -223,6 +223,11 @@ std::atomic<uint32_t> g_halo3VehicleCameraStandInFrames{0};
 // asked with no trace to go on (the title's trace is not running for this seat).
 std::atomic<uint32_t> g_halo3VehicleCameraCollideFrames{0};
 std::atomic<uint32_t> g_halo3VehicleCameraHeldFrames{0};
+// The lag follower's own count of starting over (on a leap of its place, on a runaway), as the camera thread last
+// read it, and the furthest the camera has trailed its place since the cold worker last took it, in cm.
+std::atomic<uint32_t> g_halo3VehicleCameraLagJumps{0};
+std::atomic<uint32_t> g_halo3VehicleCameraLagRunaways{0};
+std::atomic<uint32_t> g_halo3VehicleCameraLagTrailCm{0};
 std::atomic<uint32_t> g_halo3VehicleCameraNoTraceFrames{0};
 // How much of the way out the camera may go, eased (vehicle_camera_place::EaseReach). Camera thread.
 float g_halo3VehicleCameraReach = 1.0f;
@@ -612,6 +617,16 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
             : -1.0f;
         g_halo3VehicleCameraLagAt = now;
         vehicle_camera_place::FollowLag(camera, point, seconds, g_halo3VehicleCameraLag, point);
+        g_halo3VehicleCameraLagJumps.store(g_halo3VehicleCameraLag.jumps, std::memory_order_relaxed);
+        g_halo3VehicleCameraLagRunaways.store(g_halo3VehicleCameraLag.runaways, std::memory_order_relaxed);
+        const float trailCm = g_halo3VehicleCameraLag.trailWu * 304.8f;
+        const uint32_t trail = std::isfinite(trailCm) && trailCm > 0.0f
+            ? static_cast<uint32_t>(trailCm < 1.0e8f ? trailCm : 1.0e8f) : 0u;
+        uint32_t furthest = g_halo3VehicleCameraLagTrailCm.load(std::memory_order_relaxed);
+        while (trail > furthest &&
+               !g_halo3VehicleCameraLagTrailCm.compare_exchange_weak(furthest, trail, std::memory_order_relaxed))
+        {
+        }
     }
 
     // HELD SHORT OF A WALL ("collide"): the line from the pivot to the camera's place is traced by the title's own
@@ -1001,6 +1016,12 @@ struct VehicleCameraRuntime
     float restLoggedWu = 0.0f;
     float restSeenWu = 0.0f;
     uint32_t heldFramesStint = 0;
+    // The lag follower in this seat: its counts as last read, how often it started over, and how far it trailed.
+    uint32_t lagJumpsSeen = 0;
+    uint32_t lagRunawaysSeen = 0;
+    uint32_t lagJumpsStint = 0;
+    uint32_t lagRunawaysStint = 0;
+    uint32_t lagTrailCmStint = 0;
     // THE BOOM, as the cold worker last published it.
     struct Boom
     {
@@ -1524,8 +1545,25 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.loggedLine = line;
         LOG("Vehicle cameras: %s", line.c_str());
     }
+    {
+        const uint32_t jumps = g_halo3VehicleCameraLagJumps.load(std::memory_order_relaxed);
+        const uint32_t runaways = g_halo3VehicleCameraLagRunaways.load(std::memory_order_relaxed);
+        r.lagJumpsStint += jumps - r.lagJumpsSeen;
+        r.lagRunawaysStint += runaways - r.lagRunawaysSeen;
+        r.lagJumpsSeen = jumps;
+        r.lagRunawaysSeen = runaways;
+        const uint32_t trail = g_halo3VehicleCameraLagTrailCm.exchange(0, std::memory_order_relaxed);
+        r.lagTrailCmStint = trail > r.lagTrailCmStint ? trail : r.lagTrailCmStint;
+    }
     if (onFoot)
     {
+        // A lagged camera trails its place in a turn or a speed change, and starts over only on a leap of its place
+        // (a respawn, a seat change) or a runaway: never for going fast.
+        if (r.lagTrailCmStint || r.lagJumpsStint || r.lagRunawaysStint)
+            LOG("Vehicle cameras (Halo 3): in that seat the lagged camera trailed its place by at most %u cm, and "
+                "started over %u time(s) on a leap of its place and %u on a runaway",
+                r.lagTrailCmStint, r.lagJumpsStint, r.lagRunawaysStint);
+        r.lagJumpsStint = r.lagRunawaysStint = r.lagTrailCmStint = 0;
         r.loggedLine.clear();
         r.frameSourceLogged = -1;
         r.standInLogged = false;

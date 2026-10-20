@@ -206,10 +206,17 @@ inline float EaseReach(float& held, float wanted, float seconds, float releasePe
 
 // LAG ("lag", "lagDamping"): the camera follows its place on a spring and damper instead of being carried there
 // rigidly. A camera on a long boom is swung through a wide arc by every turn and bump of the vehicle; the spring
-// lets those swings through slowly. It damps against the place's own velocity, so at a steady speed it sits on its
-// place and only a change of motion lags -- but against that velocity SMOOTHED over the lag's seconds and held to
-// a vehicle's speed: steered by the raw one, a bump's jolt reaches the camera within a twentieth of a second, and a
-// place that jumps in one frame (a speed no vehicle has) throws it past. World units.
+// lets those swings through slowly. It damps against the place's own velocity, so at ANY steady speed it sits on its
+// place and only a change of motion lags. That velocity is SMOOTHED over the lag's seconds (steered by the raw one,
+// a bump's jolt would reach the camera within a twentieth of a second), and each frame's sample is the MEDIAN of
+// the place's last three frame velocities, so a place that steps in one frame does not throw the camera past: the
+// step's one wild velocity is never the median. World units.
+//
+// No speed is too fast to follow and no distance behind is a reason to start over. An earlier version held the
+// velocity to about 60 m/s and started over 9 m behind: a flyer faster than that fell behind its place by more
+// every frame, snapped onto it, and fell behind again, over and over. Starting over is kept for what is not motion:
+// a place that leaves its own course by metres in a single frame (a respawn, a seat change, a source change), a
+// gap of half a second, another camera, and a camera that has somehow ended up far from its place.
 struct LagState
 {
     bool valid = false;
@@ -218,22 +225,44 @@ struct LagState
     float vel[3]{};
     float place[3]{};    // the place at the last step, for its velocity
     float placeVel[3]{}; // the place's velocity, smoothed
+    float recent[3][3]{}; // the place's last three frame velocities, newest first
+    int recentCount = 0;  // how many of them this run has (the camera stands on its place until it has three)
+    // What the follower has done, for its caller's log: how often it started over on a jump and on a runaway, and
+    // how far behind its place the camera stood after the last step.
+    uint32_t jumps = 0;
+    uint32_t runaways = 0;
+    float trailWu = 0.0f;
 };
 inline constexpr float kLagStiffness = 3.0f;      // the spring's frequency is this over the lag's seconds
-inline constexpr float kLagMaxPlaceSpeedWu = 20.0f; // about 60 m/s: past any vehicle, or a boom end in a hard turn
 inline constexpr float kLagSubstepSeconds = 0.004f;
 inline constexpr float kLagMaxStepSeconds = 0.1f; // a longer frame is stepped as this long
 inline constexpr float kLagRestartSeconds = 0.5f; // a longer gap starts over on the place
-inline constexpr float kLagRestartWu = 3.0f;      // so does a place this far from the camera (about 9 m)
+// A JUMP: the place lands this far off the course its smoothed velocity predicts, in one frame, and that fast. Both
+// at once: a step of a world unit (a vehicle bounced, a seat point re-chosen) is followed on the spring, and only a
+// leap of several metres at hundreds of metres a second -- no vehicle's motion -- starts over.
+inline constexpr float kLagJumpWu = 3.0f;         // about 9 m
+inline constexpr float kLagJumpSpeedWu = 150.0f;  // about 460 m/s off course
+// A camera this far from its place (about 300 m) starts over: a safety net only. A lagged camera trails in a turn by
+// design -- a Banshee at 45 m/s turning 90 degrees a second, about 4.6 world units with a half-second lag; a flyer at
+// 300 m/s turning 60 a second, about 24 -- and none of that is a reason to start over.
+inline constexpr float kLagRunawayWu = 100.0f;
+
+inline float Median3(float a, float b, float c) noexcept
+{
+    const float lo = a < b ? a : b, hi = a < b ? b : a;
+    return c < lo ? lo : (c > hi ? hi : c);
+}
 
 // The camera's point this frame, in `out`. `seconds` since the last call: 0 (the same frame again) moves nothing.
-// A camera without lag, a different camera, a long gap or a far jump puts the point on its place.
+// A camera without lag, a different camera, a long gap, a jump or a runaway puts the point on its place.
 inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const float place[3], float seconds,
                       LagState& state, float out[3]) noexcept
 {
     const auto restart = [&]() {
         state.valid = Finite3(place);
         state.changes = camera.changes;
+        state.recentCount = 0;
+        state.trailWu = 0.0f;
         for (int axis = 0; axis < 3; ++axis)
         {
             state.pos[axis] = place[axis];
@@ -252,16 +281,47 @@ inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const f
             state.valid = false;
         return;
     }
-    float apart = 0.0f;
-    for (int axis = 0; axis < 3; ++axis)
-        apart += (place[axis] - state.pos[axis]) * (place[axis] - state.pos[axis]);
-    if (!(apart <= kLagRestartWu * kLagRestartWu))
-    {
-        restart();
-        return;
-    }
     if (seconds > 0.0f)
     {
+        float raw[3];
+        float offCourse = 0.0f;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            raw[axis] = (place[axis] - state.place[axis]) / seconds;
+            const float miss = place[axis] - (state.place[axis] + state.placeVel[axis] * seconds);
+            offCourse += miss * miss;
+        }
+        offCourse = std::sqrt(offCourse);
+        if (state.recentCount >= 3 && offCourse > kLagJumpWu && offCourse > kLagJumpSpeedWu * seconds)
+        {
+            ++state.jumps;
+            restart();
+            return;
+        }
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            state.recent[2][axis] = state.recent[1][axis];
+            state.recent[1][axis] = state.recent[0][axis];
+            state.recent[0][axis] = raw[axis];
+        }
+        if (state.recentCount < 3)
+        {
+            // A fresh run stands on its place while it learns the place's motion, three frames; then it starts
+            // moving WITH it, so a camera chosen in flight does not fall back from a moving place and catch up.
+            ++state.recentCount;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                const float moving = state.recentCount == 3
+                    ? Median3(state.recent[0][axis], state.recent[1][axis], state.recent[2][axis])
+                    : 0.0f;
+                state.pos[axis] = place[axis];
+                state.vel[axis] = moving;
+                state.placeVel[axis] = moving;
+                state.place[axis] = place[axis];
+                out[axis] = place[axis];
+            }
+            return;
+        }
         const float step = seconds > kLagMaxStepSeconds ? kLagMaxStepSeconds : seconds;
         const float w = kLagStiffness / lag;
         float zeta = camera.lagDamping;
@@ -272,19 +332,12 @@ inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const f
                                                           : zeta;
         int count = static_cast<int>(step / kLagSubstepSeconds) + 1;
         const float h = step / static_cast<float>(count);
-        // The place's velocity this frame, held to a vehicle's speed, folded into the smoothed one.
-        float raw[3];
-        float rawSpeed = 0.0f;
-        for (int axis = 0; axis < 3; ++axis)
-        {
-            raw[axis] = (place[axis] - state.place[axis]) / seconds;
-            rawSpeed += raw[axis] * raw[axis];
-        }
-        rawSpeed = std::sqrt(rawSpeed);
-        const float hold = rawSpeed > kLagMaxPlaceSpeedWu ? kLagMaxPlaceSpeedWu / rawSpeed : 1.0f;
         const float blend = 1.0f - std::exp(-seconds / lag);
         for (int axis = 0; axis < 3; ++axis)
-            state.placeVel[axis] += (raw[axis] * hold - state.placeVel[axis]) * blend;
+        {
+            const float sample = Median3(state.recent[0][axis], state.recent[1][axis], state.recent[2][axis]);
+            state.placeVel[axis] += (sample - state.placeVel[axis]) * blend;
+        }
         // The place moves in a straight line across the frame; each substep pulls toward where it is at its start.
         for (int i = 0; i < count; ++i)
         {
@@ -298,11 +351,16 @@ inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const f
                 state.pos[axis] += state.vel[axis] * h;
             }
         }
-        if (!Finite3(state.pos) || !Finite3(state.vel))
+        float apart = 0.0f;
+        for (int axis = 0; axis < 3; ++axis)
+            apart += (place[axis] - state.pos[axis]) * (place[axis] - state.pos[axis]);
+        if (!Finite3(state.pos) || !Finite3(state.vel) || !(apart <= kLagRunawayWu * kLagRunawayWu))
         {
+            ++state.runaways;
             restart();
             return;
         }
+        state.trailWu = std::sqrt(apart);
         for (int axis = 0; axis < 3; ++axis)
             state.place[axis] = place[axis];
     }
