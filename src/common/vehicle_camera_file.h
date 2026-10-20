@@ -85,6 +85,16 @@ inline constexpr float kMaxLagSeconds = 5.0f;
 inline constexpr float kMinLagDamping = 0.1f;
 inline constexpr float kMaxLagDamping = 2.0f;
 
+// THE BOOM ("boomPitch", vehicle_boom_logic.h): for a camera where the game's own rests, the angle in degrees above
+// level at which it first stands from the game's pivot; the right stick then raises and lowers it. Unset (null in
+// the file, or left out): where the game's own camera stands looking level, a little higher.
+inline constexpr float kBoomPitchUnset = -1000.0f;
+inline constexpr float kMaxBoomPitch = 89.0f;
+inline bool BoomPitchSet(float degrees) noexcept
+{
+    return degrees >= -kMaxBoomPitch && degrees <= kMaxBoomPitch;
+}
+
 struct Camera
 {
     std::string name; // optional; an unnamed camera is shown by its number
@@ -109,6 +119,7 @@ struct Camera
     // slower to settle; < 0 = not set (LagDampingOf).
     float lag = -1.0f;
     float lagDamping = -1.0f;
+    float boomPitch = kBoomPitchUnset; // "boomPitch": degrees above level, or unset
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 

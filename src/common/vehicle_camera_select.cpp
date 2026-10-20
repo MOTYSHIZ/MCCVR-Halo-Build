@@ -1,6 +1,7 @@
 #include "vehicle_camera_select.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -113,6 +114,46 @@ std::string Selector::MemoryKey() const
     return FieldText(gameKey_) + '\t' + FieldText(vehicleName_) + '\t' + (seat.empty() ? std::string("any seat") : seat);
 }
 
+std::string Selector::BoomKey() const
+{
+    return MemoryKey() + '\t' + FieldText(entryName_) + '\t' +
+           (cameraName_.empty() ? "camera " + std::to_string(active_.camera + 1) : FieldText(cameraName_));
+}
+
+bool Selector::BoomPitch(float& degrees) const
+{
+    if (!seated_ || !active_.valid || !active_.chase)
+        return false;
+    const auto found = boom_.find(BoomKey());
+    if (found == boom_.end())
+        return false;
+    degrees = found->second;
+    return true;
+}
+
+void Selector::SetBoomPitch(float degrees, bool isDefault)
+{
+    if (!seated_ || !active_.valid || !active_.chase)
+        return;
+    const std::string key = BoomKey();
+    const auto found = boom_.find(key);
+    if (isDefault || !vehicle_camera_file::BoomPitchSet(degrees))
+    {
+        if (found != boom_.end())
+        {
+            boom_.erase(found);
+            memoryDirty_ = true;
+        }
+        return;
+    }
+    // A twentieth of a degree is no change: the camera thread's angle is taken every poll, and a still boom must not
+    // keep the file dirty.
+    if (found != boom_.end() && std::fabs(found->second - degrees) < 0.05f)
+        return;
+    boom_[key] = degrees;
+    memoryDirty_ = true;
+}
+
 void Selector::Clear(std::string reason)
 {
     const uint32_t changes = active_.changes + (active_.valid ? 1u : 0u);
@@ -170,6 +211,8 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.collideMarginCm = chosen.collideMargin;
     next.lagSeconds = vehicle_camera_file::LagSecondsOf(chosen);
     next.lagDamping = vehicle_camera_file::LagDampingOf(chosen);
+    next.boomPitchDeg = vehicle_camera_file::BoomPitchSet(chosen.boomPitch) ? chosen.boomPitch
+                                                                           : vehicle_camera_file::kBoomPitchUnset;
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
@@ -242,7 +285,8 @@ std::string Selector::MemoryText() const
         "# Your last camera, tethering mode and controls in each vehicle seat -- written by the mod, read when it\r\n"
         "# starts. Delete this file to start every seat in its default camera, mode and controls again.\r\n"
         "# game\tvehicle\tseat\tentry\tcamera number\tcamera name\tmode number\tmode name\tcontrols you chose\t"
-        "the default you chose them against\r\n";
+        "the default you chose them against\r\n"
+        "# boom\tgame\tvehicle\tseat\tentry\tcamera\tyour third-person boom, degrees above level\r\n";
     for (const auto& [key, kept] : memory_)
     {
         if (kept.camera < 0 && kept.control < 0)
@@ -250,6 +294,12 @@ std::string Selector::MemoryText() const
         out += key + '\t' + FieldText(kept.entry) + '\t' + std::to_string(kept.camera + 1) + '\t' +
                FieldText(kept.cameraName) + '\t' + std::to_string(kept.mode + 1) + '\t' + FieldText(kept.modeName) +
                '\t' + ControlWord(kept.control) + '\t' + ControlWord(kept.controlBase) + "\r\n";
+    }
+    for (const auto& [key, degrees] : boom_)
+    {
+        char text[32];
+        std::snprintf(text, sizeof(text), "%.1f", static_cast<double>(degrees));
+        out += "boom\t" + key + '\t' + text + "\r\n";
     }
     return out;
 }
@@ -278,6 +328,17 @@ int Selector::LoadMemory(const std::string& text)
             if (tab == std::string::npos)
                 break;
             from = tab + 1;
+        }
+        if (fields.size() == 7 && fields[0] == "boom")
+        {
+            // boom, game, vehicle, seat, entry, camera, degrees.
+            char* stop = nullptr;
+            const double degrees = std::strtod(fields[6].c_str(), &stop);
+            if (stop != fields[6].c_str() && !fields[1].empty() && !fields[2].empty() && !fields[3].empty() &&
+                vehicle_camera_file::BoomPitchSet(static_cast<float>(degrees)))
+                boom_[fields[1] + '\t' + fields[2] + '\t' + fields[3] + '\t' + fields[4] + '\t' + fields[5]] =
+                    static_cast<float>(degrees);
+            continue;
         }
         if (fields.size() != 10 || fields[0].empty() || fields[1].empty() || fields[2].empty())
             continue;
@@ -517,6 +578,8 @@ std::string Selector::Describe() const
     line += ", leash " + vehicle_camera_file::LeashText(active_.leashMinCm, active_.leashMaxCm);
     if (active_.lagSeconds > 0.0f)
         line += ", lag " + Number(active_.lagSeconds) + " s";
+    if (vehicle_camera_file::BoomPitchSet(active_.boomPitchDeg))
+        line += ", boom from " + Number(active_.boomPitchDeg) + " deg";
     return line;
 }
 } // namespace vehicle_camera_select
