@@ -1071,6 +1071,9 @@ Table DefaultTable()
               {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
         Entry("Wraith", "wraith", driver, {Chase("High", Origin::Vehicle, -700, 100, 700, true, 0.3f)}),
         Entry("Wraith gunner", "wraith", gunner, {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
+        Entry("Elephant", "elephant", driver, {Chase("Over the Shoulder", Origin::Seat, -250, 100, 80, true, 0.15f)}),
+        Entry("Elephant gunner", "elephant", gunner,
+              {Chase("Behind the Gun", Origin::Seat, -150, 0, 60, true, 0.1f)}),
         Entry("Turret", "turret", 0, {Chase("Behind the Gun", Origin::Seat, -150, 0, 50, true, 0.1f)}),
         AnyVehicle(),
     };

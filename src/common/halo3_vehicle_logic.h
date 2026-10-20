@@ -1658,6 +1658,11 @@ enum class Halo3VehicleId : uint8_t
     // their authored eye points sit within 0.09 wu (27 cm) of each other, so
     // one shared point is within authoring noise for all three.
     StationaryTurret,
+    // The Elephant: tank physics like the Scorpion, told apart by its definition's bounding radius
+    // (kHalo3ElephantBoundingRadiusWu). After every other entry so their numbers stay as they are; it has no
+    // per-seat trim slot (config.h kVehicleTrimNames mirrors the ones before it) and no tuned eye point, so its
+    // seats see from the occupant's head.
+    Elephant,
 };
 
 // Definition-resident fields the sampler resolves ONCE per seat session (on a
@@ -1674,12 +1679,18 @@ struct Halo3DefinitionFields
     float boundingRadius = -1.0f;
 };
 
-// A TANK IS NOT ALWAYS A SCORPION: the Elephant has tank physics too. The definition's bounding radius tells them
-// apart -- a value of the vehicle's tag, which damage, riders and attachments never change. The live vehicle's own
-// sphere is NOT that value in Halo 3: measured in play it stands 1.26 to 1.82 times the definition's (Warthog 1.0
-// against 1.52 wu, Banshee 1.4 against 1.8), so it takes in more than the definition, and is not used.
-// kHalo3ScorpionBoundingRadiusWu 0 = not measured yet: every tank reads as a Scorpion, as before.
-inline constexpr float kHalo3ScorpionBoundingRadiusWu = 0.0f;
+// A PHYSICS TYPE IS A CLASS, NOT A VEHICLE: the Elephant has the Scorpion's tank physics, and a mod map's own
+// vehicles take a stock one's (HugeGrass has flyers that read as Banshees and Hornets). The definition's bounding
+// radius tells them apart -- a value of the vehicle's tag, which damage, riders and attachments never change. The
+// live vehicle's own sphere is NOT that value in Halo 3: measured in play it stands 1.0 to 1.82 times the
+// definition's (Warthog 1.0 against 1.52 wu, Banshee 1.4 against 1.5-1.8), so it is not used.
+//
+// The stock radii, read in play (Halo 3, 2026-10-19, "H3 vehicle definition" log lines): a vehicle its physics reads
+// as one of these whose radius is another is not that vehicle. 0 = not measured: the physics alone decides.
+inline constexpr float kHalo3ScorpionBoundingRadiusWu = 2.200f; // 671 cm
+inline constexpr float kHalo3ElephantBoundingRadiusWu = 5.129f; // 1563 cm
+inline constexpr float kHalo3BansheeBoundingRadiusWu = 1.400f;  // 427 cm, the same in two sessions
+inline constexpr float kHalo3HornetBoundingRadiusWu = 0.0f;     // not measured yet
 // How far a radius may stand from a measured one, as a fraction of it, and still be that vehicle.
 inline constexpr float kHalo3BoundingRadiusTolerance = 0.05f;
 
@@ -1697,13 +1708,24 @@ inline bool Halo3DefinitionRadiusUsable(int objectType, float radiusWu) noexcept
     return objectType == kHalo3ObjectKindVehicle && std::isfinite(radiusWu) && radiusWu >= 0.1f && radiusWu <= 30.0f;
 }
 
-// A tank: the Scorpion when its radius is the Scorpion's, or when either radius is unknown; another tank (the
-// Elephant) otherwise, which the mod does not know.
-inline bool Halo3TankIsScorpion(float boundingRadiusWu, float scorpionRadiusWu) noexcept
+// Is a vehicle the stock one its physics reads as? Yes when its radius is the stock one's, and when either radius is
+// unknown (not proven, or not measured): with nothing to compare, the physics decides as it always has.
+inline bool Halo3StockRadiusFits(float boundingRadiusWu, float stockRadiusWu) noexcept
 {
-    if (!(scorpionRadiusWu > 0.0f) || !(boundingRadiusWu >= 0.0f))
+    if (!(stockRadiusWu > 0.0f) || !(boundingRadiusWu >= 0.0f))
         return true;
-    return Halo3RadiusMatches(boundingRadiusWu, scorpionRadiusWu);
+    return Halo3RadiusMatches(boundingRadiusWu, stockRadiusWu);
+}
+
+// A tank: the Scorpion or the Elephant by its radius; another tank is one the mod does not know. Unproven: the
+// Scorpion, as before.
+inline Halo3VehicleId Halo3ResolveTank(float boundingRadiusWu) noexcept
+{
+    if (!(boundingRadiusWu >= 0.0f) || Halo3RadiusMatches(boundingRadiusWu, kHalo3ScorpionBoundingRadiusWu))
+        return Halo3VehicleId::Scorpion;
+    if (Halo3RadiusMatches(boundingRadiusWu, kHalo3ElephantBoundingRadiusWu))
+        return Halo3VehicleId::Elephant;
+    return Halo3VehicleId::Unknown;
 }
 
 // Tolerances are wide enough for any float representation of the authored
@@ -1718,11 +1740,13 @@ inline Halo3VehicleId Halo3ResolveVehicleId(const Halo3DefinitionFields& def)
 {
     switch (def.physicsType)
     {
-    case 0:                                        // human_tank: the Scorpion, or the Elephant
-        return Halo3TankIsScorpion(def.boundingRadius, kHalo3ScorpionBoundingRadiusWu) ? Halo3VehicleId::Scorpion
+    case 0: return Halo3ResolveTank(def.boundingRadius); // human_tank: the Scorpion, or the Elephant
+    case 4:                                        // alien_fighter: the Banshee, or a mod's own flyer
+        return Halo3StockRadiusFits(def.boundingRadius, kHalo3BansheeBoundingRadiusWu) ? Halo3VehicleId::Banshee
+                                                                                         : Halo3VehicleId::Unknown;
+    case 7:                                        // vtol: the Hornet, or a mod's own flyer
+        return Halo3StockRadiusFits(def.boundingRadius, kHalo3HornetBoundingRadiusWu) ? Halo3VehicleId::Hornet
                                                                                         : Halo3VehicleId::Unknown;
-    case 4: return Halo3VehicleId::Banshee;       // alien_fighter
-    case 7: return Halo3VehicleId::Hornet;        // vtol
     case 8: return Halo3VehicleId::Chopper;       // chopper
     case 1:                                        // human_jeep
         if (!def.jeepValid || !std::isfinite(def.engineMoment))

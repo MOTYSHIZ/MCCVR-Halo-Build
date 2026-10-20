@@ -17954,15 +17954,37 @@ int main()
                                                std::nanf("")),
                 "A definition's radius is used only from a definition that "
                 "reads as a vehicle's, at a size a vehicle can have");
-            Check(Halo3TankIsScorpion(2.5f, 2.5f) &&
-                  Halo3TankIsScorpion(2.6f, 2.5f) &&
-                  !Halo3TankIsScorpion(8.0f, 2.5f) &&
-                  !Halo3TankIsScorpion(2.0f, 2.5f) &&
-                  Halo3TankIsScorpion(-1.0f, 2.5f) &&
-                  Halo3TankIsScorpion(8.0f, 0.0f),
-                "A tank is the Scorpion at the Scorpion's radius, another "
-                "vehicle at any other, and the Scorpion when either radius "
-                "is unknown");
+            Check(Halo3ResolveTank(2.200f) == Halo3VehicleId::Scorpion &&
+                  Halo3ResolveTank(2.25f) == Halo3VehicleId::Scorpion &&
+                  Halo3ResolveTank(5.129f) == Halo3VehicleId::Elephant &&
+                  Halo3ResolveTank(3.5f) == Halo3VehicleId::Unknown &&
+                  Halo3ResolveTank(-1.0f) == Halo3VehicleId::Scorpion,
+                "A tank is the Scorpion at the Scorpion's radius (2.2 wu), "
+                "the Elephant at the Elephant's (5.129), another vehicle at "
+                "any other, and the Scorpion when its radius is unknown");
+            Check(Halo3StockRadiusFits(1.4f, 1.4f) &&
+                  !Halo3StockRadiusFits(2.6f, 1.4f) &&
+                  Halo3StockRadiusFits(-1.0f, 1.4f) &&
+                  Halo3StockRadiusFits(2.6f, 0.0f),
+                "A vehicle is the stock one its physics reads as at that "
+                "one's radius, and whenever either radius is unknown");
+            Halo3DefinitionFields modFlyer;
+            modFlyer.physicsType = 4;
+            modFlyer.boundingRadius = 2.6f;
+            Halo3DefinitionFields stockBanshee = modFlyer;
+            stockBanshee.boundingRadius = 1.4f;
+            Halo3DefinitionFields elephantDef;
+            elephantDef.physicsType = 0;
+            elephantDef.boundingRadius = 5.129f;
+            Check(Halo3ResolveVehicleId(stockBanshee) == Halo3VehicleId::Banshee &&
+                      Halo3ResolveVehicleId(modFlyer) == Halo3VehicleId::Unknown &&
+                      Halo3ResolveVehicleId(elephantDef) == Halo3VehicleId::Elephant &&
+                      Halo3FindSeatPoint(Halo3VehicleId::Elephant, 0, false) == nullptr &&
+                      Halo3FindSeatPoint(Halo3VehicleId::Elephant, 0, true) == nullptr &&
+                      !Halo3VehicleIsLookSteered(Halo3VehicleId::Elephant),
+                "A mod's flyer with another radius is not a Banshee; the "
+                "Elephant is known, has no tuned eye point and is not "
+                "look-steered");
             Halo3DefinitionFields unprovenTank;
             unprovenTank.physicsType = 0;
             unprovenTank.boundingRadius = -1.0f;

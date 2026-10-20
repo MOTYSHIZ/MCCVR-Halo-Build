@@ -11598,6 +11598,7 @@ namespace
         case Halo3VehicleId::Banshee:  return "banshee";
         case Halo3VehicleId::Hornet:   return "hornet";
         case Halo3VehicleId::Chopper:  return "chopper";
+        case Halo3VehicleId::Elephant: return "elephant";
         default: return "unidentified";
         }
     }
