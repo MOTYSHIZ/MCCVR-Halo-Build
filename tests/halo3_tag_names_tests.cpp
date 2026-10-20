@@ -1,0 +1,467 @@
+// Halo 3 tag names (src/common/halo3_tag_names.h): the cache header as halo3.dll checks it, both layouts of the
+// name table's addresses (a stock map's section-relative ones and a mod-built map's file offsets) on small
+// synthetic files, every refusal of a name, the short name a vehicle the mod does not know goes by, and the decode
+// of the two signatures on images built from their own patterns.
+#include "halo3_tag_names.h"
+
+#include <cstdio>
+#include <cstring>
+#include <initializer_list>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace
+{
+unsigned checks{}, failures{};
+void Check(bool ok, const char* what)
+{
+    ++checks;
+    if (!ok)
+    {
+        ++failures;
+        std::printf("FAIL: %s\n", what);
+    }
+}
+
+using namespace halo3_tag_names;
+
+void PutU32(std::vector<uint8_t>& bytes, size_t at, uint32_t value)
+{
+    if (bytes.size() < at + 4)
+        bytes.resize(at + 4);
+    std::memcpy(bytes.data() + at, &value, 4);
+}
+void PutText(std::vector<uint8_t>& bytes, size_t at, std::string_view text)
+{
+    if (bytes.size() < at + text.size() + 1)
+        bytes.resize(at + text.size() + 1);
+    std::memcpy(bytes.data() + at, text.data(), text.size());
+    bytes[at + text.size()] = 0;
+}
+
+std::vector<uint8_t> MakeHeader(const char* scenarioName = "shrine",
+                                const char* scenarioPath = "levels\\multi\\shrine\\shrine")
+{
+    std::vector<uint8_t> header(kHeaderSize, 0);
+    PutU32(header, 0, kHeadMagic);
+    PutU32(header, 4, static_cast<uint32_t>(kVersion));
+    header[kEngineOffset] = kEngineHalo3;
+    header[kEngineOffset + 1] = 2;
+    PutU32(header, kFootOffset, kFootMagic);
+    PutText(header, kScenarioNameOffset, scenarioName);
+    PutText(header, kScenarioPathOffset, scenarioPath);
+    return header;
+}
+
+void TestHeader()
+{
+    std::vector<uint8_t> bytes = MakeHeader();
+    PutU32(bytes, kNameCountOffset, 11921);
+    PutU32(bytes, kNameBufferOffset, 0x0593F000);
+    PutU32(bytes, kNameBufferSizeOffset, 0x9ED1D);
+    PutU32(bytes, kNameTableOffset, 0x059DE000);
+    PutU32(bytes, kSectionMasksOffset, static_cast<uint32_t>(-0x058D2000));
+    PutU32(bytes, kSectionsOffset, 0x058D6000);
+    PutU32(bytes, kSectionsOffset + 4, 0x114000);
+    Header header;
+    Check(ParseHeader(bytes.data(), bytes.size(), header) == HeaderFault::None, "a Halo 3 header parses");
+    Check(header.nameCount == 11921 && header.nameBuffer == 0x0593F000 && header.nameBufferSize == 0x9ED1D &&
+              header.nameTable == 0x059DE000,
+          "the name fields are +0x20 count, +0x24 buffer, +0x28 size, +0x2C table");
+    Check(header.masks[0] == -0x058D2000 && header.sections[0].address == 0x058D6000 &&
+              header.sections[0].size == 0x114000,
+          "the section table: +0x4CC masks, +0x4DC {address, size}");
+    Check(std::string_view(header.scenarioName) == "shrine" &&
+              std::string_view(header.scenarioPath) == "levels\\multi\\shrine\\shrine",
+          "the scenario name at +0xC0 and its path at +0xE0");
+
+    Check(ParseHeader(bytes.data(), kHeaderSize - 1, header) == HeaderFault::Short, "a short header is refused");
+    Check(ParseHeader(nullptr, kHeaderSize, header) == HeaderFault::Short, "no header is refused");
+    auto broken = bytes;
+    broken[0] = 'h';
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::Magic, "no 'head': refused");
+    broken = bytes;
+    PutU32(broken, 4, 12);
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::Version, "version 12: refused");
+    broken = bytes;
+    PutU32(broken, kFootOffset, 0);
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::Footer, "no 'foot': refused");
+    for (const uint8_t other : {uint8_t{0}, uint8_t{3}, uint8_t{4}, uint8_t{5}, uint8_t{6}})
+    {
+        broken = bytes;
+        broken[kEngineOffset] = other;
+        Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::Engine,
+              "another title's map (CE 0, Halo 4 3, H2A 4, ODST 5, Reach 6): refused");
+    }
+    broken = bytes;
+    std::memset(broken.data() + kScenarioNameOffset, 'a', kScenarioNameRoom);
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::ScenarioName,
+          "a scenario name with no terminator in its 32 bytes is refused, as halo3.dll refuses it");
+    broken = bytes;
+    broken[kScenarioNameOffset] = 0;
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::ScenarioName, "no scenario name");
+    broken = bytes;
+    broken[kScenarioNameOffset + 1] = 0x07;
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::ScenarioName,
+          "a scenario name that is not printable");
+    broken = bytes;
+    std::memset(broken.data() + kScenarioPathOffset, 'a', kScenarioPathRoom);
+    Check(ParseHeader(broken.data(), broken.size(), header) == HeaderFault::ScenarioPath,
+          "a scenario path with no terminator in its 256 bytes is refused");
+    auto longest = MakeHeader("abcdefghijklmnopqrstuvwxyz01234", std::string(255, 'p').c_str());
+    Check(ParseHeader(longest.data(), longest.size(), header) == HeaderFault::None &&
+              std::strlen(header.scenarioName) == 31 && std::strlen(header.scenarioPath) == 255,
+          "the longest scenario name (31) and path (255) are read whole");
+    for (int fault = 0; fault < static_cast<int>(HeaderFault::Count); ++fault)
+        Check(std::strcmp(HeaderFaultName(static_cast<HeaderFault>(fault)), "?") != 0, "every header fault is named");
+}
+
+void TestFileOffset()
+{
+    Header header;
+    // Sandtrap's own section table: debug, resource, tag, localization.
+    header.masks[0] = -0x058D2000;
+    header.masks[1] = 0x118000;
+    header.masks[2] = -0x93C000;
+    header.masks[3] = 0x03701000;
+    header.sections[0] = {0x058D6000, 0x114000};
+    header.sections[1] = {0, 0x04F96000};
+    header.sections[2] = {0x059EA000, 0x03DD0000};
+    header.sections[3] = {0x0577D000, 0x159000};
+    const uint64_t fileSize = 0x08FD7000;
+    uint64_t offset = 0;
+    int section = -1;
+    Check(FileOffset(header, 0x0593F000, 0x9ED1D, fileSize, offset, &section) && offset == 0x6D000 && section == 0,
+          "Sandtrap: the names buffer 0x0593F000 is at file 0x6D000 in the debug section");
+    Check(FileOffset(header, 0x059DE000, 11921 * 4, fileSize, offset, &section) && offset == 0x10C000 &&
+              section == 0,
+          "Sandtrap: the offset table 0x059DE000 is at file 0x10C000");
+    Check(FileOffset(header, 0x059EA000, 0x10, fileSize, offset, &section) && offset == 0x050AE000 && section == 2,
+          "an address of the tag section takes the tag section's mask");
+    Check(!FileOffset(header, 0x059E9FF0, 0x20, fileSize, offset),
+          "a range that runs past its section's end is in no one section");
+    Check(!FileOffset(header, 0x0A000000, 4, fileSize, offset), "an address of no section is refused");
+    Check(!FileOffset(header, 0x0593F000, 0x9ED1D, 0x6D000, offset), "a range past the file's end is refused");
+    Header negative = header;
+    negative.masks[0] = -0x7FFFFFFF;
+    Check(!FileOffset(negative, 0x0593F000, 4, fileSize, offset), "a mask that lands before the file is refused");
+
+    // A mod-built map (HugeGrass): every mask 0, every address a file offset.
+    Header mod;
+    mod.sections[0] = {0x7A885000, 0x1D1000};
+    mod.sections[1] = {0x4000, 0x7A711000};
+    mod.sections[2] = {0x7AA56000, 0x05CD0000};
+    mod.sections[3] = {0x7A715000, 0x170000};
+    Check(FileOffset(mod, 0x7A932000, 0x10F1A0, 0x80726000, offset, &section) && offset == 0x7A932000 &&
+              section == 0,
+          "HugeGrass: the names buffer is at its own address, in the debug section");
+    Check(FileOffset(mod, 0x7AA42000, 19940 * 4, 0x80726000, offset, &section) && offset == 0x7AA42000,
+          "HugeGrass: the offset table is at its own address");
+    Header empty;
+    Check(!FileOffset(empty, 0, 0, 0x1000, offset), "a header with no sections places nothing");
+    Header wrap = mod;
+    wrap.sections[0] = {0xFFFFF000, 0x1000};
+    Check(!FileOffset(wrap, 0xFFFFFF00, 0x200, ~0ull, offset), "a range that wraps past 4 GB is in no section");
+}
+
+// One small cache file in either layout: header, then a debug section holding the names buffer at +0x100 and the
+// offset table at +0x1000. `base` is the debug section's address; the file holds it at 0x4000.
+struct SyntheticFile
+{
+    std::vector<uint8_t> bytes;
+    std::vector<std::string> names;
+};
+SyntheticFile MakeFile(uint32_t base, bool stockLayout)
+{
+    SyntheticFile file;
+    file.names = {"", "globals\\globals", "objects\\vehicles\\sparrowhawk\\sparrowhawk",
+                  "levels\\multi\\hugeass\\hugeass", "objects\\Vehicles\\Pelican_Multiplayer\\Pelican_Multiplayer"};
+    file.bytes = MakeHeader("hugeass", "levels\\multi\\hugeass\\hugeass");
+    const uint32_t filePos = 0x4000;
+    const uint32_t sectionSize = 0x2000;
+    file.bytes.resize(filePos + sectionSize, 0);
+    std::vector<int32_t> offsets;
+    uint32_t cursor = 0;
+    std::vector<uint8_t> buffer;
+    for (size_t i = 0; i < file.names.size(); ++i)
+    {
+        if (i == 0)
+        {
+            offsets.push_back(-1);
+            continue;
+        }
+        offsets.push_back(static_cast<int32_t>(cursor));
+        buffer.insert(buffer.end(), file.names[i].begin(), file.names[i].end());
+        buffer.push_back(0);
+        cursor = static_cast<uint32_t>(buffer.size());
+    }
+    std::memcpy(file.bytes.data() + filePos + 0x100, buffer.data(), buffer.size());
+    std::memcpy(file.bytes.data() + filePos + 0x1000, offsets.data(), offsets.size() * 4);
+    const uint32_t address = stockLayout ? base : filePos;
+    PutU32(file.bytes, kNameCountOffset, static_cast<uint32_t>(offsets.size()));
+    PutU32(file.bytes, kNameBufferOffset, address + 0x100);
+    PutU32(file.bytes, kNameBufferSizeOffset, static_cast<uint32_t>(buffer.size()));
+    PutU32(file.bytes, kNameTableOffset, address + 0x1000);
+    PutU32(file.bytes, kSectionMasksOffset, stockLayout ? filePos - base : 0);
+    PutU32(file.bytes, kSectionsOffset, address);
+    PutU32(file.bytes, kSectionsOffset + 4, sectionSize);
+    return file;
+}
+
+void TestFileTable(bool stockLayout)
+{
+    const SyntheticFile file = MakeFile(0x058D6000, stockLayout);
+    Header header;
+    Check(ParseHeader(file.bytes.data(), file.bytes.size(), header) == HeaderFault::None,
+          stockLayout ? "stock layout: the header parses" : "mod layout: the header parses");
+    uint64_t tableAt = 0, bufferAt = 0;
+    int tableSection = -1, bufferSection = -1;
+    const bool placed = FileOffset(header, header.nameTable, header.nameCount * 4, file.bytes.size(), tableAt,
+                                   &tableSection) &&
+                        FileOffset(header, header.nameBuffer, header.nameBufferSize, file.bytes.size(), bufferAt,
+                                   &bufferSection);
+    Check(placed && tableAt == 0x5000 && bufferAt == 0x4100 && tableSection == kDebugSection &&
+              bufferSection == kDebugSection,
+          stockLayout ? "stock layout: table and buffer translate to their file places"
+                      : "mod layout: table and buffer are at their own addresses");
+    if (!placed)
+        return;
+    NameTable table{file.bytes.data() + tableAt, header.nameCount,
+                    reinterpret_cast<const char*>(file.bytes.data() + bufferAt), header.nameBufferSize};
+    Check(NameAt(table, 0).empty(), "a tag with no offset has no name");
+    Check(NameAt(table, 2) == "objects\\vehicles\\sparrowhawk\\sparrowhawk", "a tag's name by its index");
+    Check(NameAt(table, 0x189E & 0xFFFF).empty(), "an index past the table has no name");
+    uint32_t scenario = 0;
+    Check(FindName(table, header.scenarioPath, scenario) && scenario == 3,
+          "the header's scenario path names one of the table's tags: the table is that map's");
+    Check(!FindName(table, "levels\\multi\\shrine\\shrine", scenario), "another map's scenario is not in it");
+    Check(FindName(table, "OBJECTS\\VEHICLES\\SPARROWHAWK\\SPARROWHAWK", scenario) && scenario == 2,
+          "names are found case aside");
+    char name[64];
+    Check(DisplayName(NameAt(table, 4), name, sizeof(name)) && std::string_view(name) == "pelican_multiplayer",
+          "a vehicle's short name, lower case");
+}
+
+void TestNameRefusals()
+{
+    std::string buffer;
+    std::vector<int32_t> offsets;
+    const auto add = [&](const std::string& text, bool terminate = true) {
+        offsets.push_back(static_cast<int32_t>(buffer.size()));
+        buffer += text;
+        if (terminate)
+            buffer.push_back('\0');
+    };
+    add("objects\\vehicles\\warthog\\warthog");     // 0
+    add(std::string(kMaxPathLength, 'a'));          // 1: the longest read
+    add(std::string(kMaxPathLength + 1, 'b'));      // 2: one longer
+    add(std::string("objects\\bad\x01name"));       // 3: not printable
+    add("");                                        // 4: empty
+    add("object\\vehicles\\tx130 turret\\turret_test"); // 5: a space, as some mod tags have
+    offsets.push_back(-5);                          // 6: negative
+    offsets.push_back(0x7FFFFFFF);                  // 7: past the buffer
+    add("objects\\unterminated", false);            // 8: the buffer ends inside it
+    NameTable table{reinterpret_cast<const uint8_t*>(offsets.data()), static_cast<uint32_t>(offsets.size()),
+                    buffer.data(), static_cast<uint32_t>(buffer.size())};
+    Check(NameAt(table, 0) == "objects\\vehicles\\warthog\\warthog", "a plain name");
+    Check(NameAt(table, 1).size() == kMaxPathLength, "a name of the longest length read is read whole");
+    Check(NameAt(table, 2).empty(), "a longer name is refused, not cut");
+    Check(NameAt(table, 3).empty(), "a name with a character a path does not have is refused");
+    Check(NameAt(table, 4).empty(), "an empty name is no name");
+    Check(NameAt(table, 5) == "object\\vehicles\\tx130 turret\\turret_test", "a name with a space is read");
+    Check(NameAt(table, 6).empty(), "a negative offset is no name");
+    Check(NameAt(table, 7).empty(), "an offset past the buffer is no name");
+    Check(NameAt(table, 8).empty(), "a name the buffer ends inside is refused");
+    Check(NameAt(table, static_cast<uint32_t>(offsets.size())).empty(), "an index past the table");
+    Check(NameAt(NameTable{}, 0).empty(), "an empty table has no names");
+    // Offsets in a raw byte copy need not be aligned.
+    std::vector<uint8_t> unaligned(1 + offsets.size() * 4);
+    std::memcpy(unaligned.data() + 1, offsets.data(), offsets.size() * 4);
+    NameTable shifted = table;
+    shifted.offsets = unaligned.data() + 1;
+    Check(NameAt(shifted, 0) == NameAt(table, 0), "offsets are read at any alignment");
+}
+
+void TestDisplayName()
+{
+    char out[64];
+    Check(DisplayName("objects\\vehicles\\sparrowhawk\\sparrowhawk", out, sizeof(out)) &&
+              std::string_view(out) == "sparrowhawk",
+          "the last path component");
+    Check(DisplayName("objects\\levels\\multi\\shrine\\behemoth\\behemoth", out, sizeof(out)) &&
+              std::string_view(out) == "behemoth",
+          "the Elephant's tag is called behemoth");
+    Check(DisplayName("Objects\\Vehicles\\Falcon\\Falcon_GL", out, sizeof(out)) &&
+              std::string_view(out) == "falcon_gl",
+          "lower case");
+    Check(DisplayName("object\\vehicles\\v-wing\\v-wing 2.0", out, sizeof(out)) &&
+              std::string_view(out) == "v-wing_2.0",
+          "'-' and '.' stay, a space is '_'");
+    Check(DisplayName("objects\\vehicles\\a\tb", out, sizeof(out)) && std::string_view(out) == "a_b",
+          "a tab (the seat memory file's separator) cannot get through");
+    Check(DisplayName("plain", out, sizeof(out)) && std::string_view(out) == "plain", "a name with no path");
+    Check(DisplayName("objects/vehicles/mammoth/mammoth", out, sizeof(out)) && std::string_view(out) == "mammoth",
+          "a forward slash separates too");
+    Check(!DisplayName("objects\\vehicles\\", out, sizeof(out)) && out[0] == '\0', "no last component: no name");
+    Check(!DisplayName("", out, sizeof(out)) && out[0] == '\0', "an empty path: no name");
+    char small[8];
+    Check(DisplayName("objects\\vehicles\\sparrowhawk_weapons_dummy", small, sizeof(small)) &&
+              std::string_view(small) == "sparrow",
+          "cut to fit, terminated");
+    Check(!DisplayName("x", nullptr, 8) && !DisplayName("x", out, 0), "no room: nothing written");
+}
+
+std::vector<uint8_t> FromPattern(const char* pattern)
+{
+    std::vector<uint8_t> out;
+    for (const char* p = pattern; *p;)
+    {
+        if (*p == ' ')
+        {
+            ++p;
+            continue;
+        }
+        if (p[0] == '?')
+            out.push_back(0xCC);
+        else
+            out.push_back(static_cast<uint8_t>(std::stoul(std::string(p, 2), nullptr, 16)));
+        p += 2;
+    }
+    return out;
+}
+bool Matches(const char* pattern, const std::vector<uint8_t>& bytes)
+{
+    const auto fixed = FromPattern(pattern);
+    if (fixed.size() != bytes.size())
+        return false;
+    size_t i = 0;
+    for (const char* p = pattern; *p; ++i)
+    {
+        while (*p == ' ')
+            ++p;
+        if (!*p)
+            break;
+        if (p[0] != '?' && fixed[i] != bytes[i])
+            return false;
+        p += 2;
+    }
+    return true;
+}
+void PutRip(std::vector<uint8_t>& site, size_t disp, int64_t siteRva, int64_t target)
+{
+    const int32_t value = static_cast<int32_t>(target - (siteRva + static_cast<int64_t>(disp) + 4));
+    std::memcpy(site.data() + disp, &value, 4);
+}
+void PutCall(std::vector<uint8_t>& site, size_t opcode, int64_t siteRva, int64_t target)
+{
+    const int32_t value = static_cast<int32_t>(target - (siteRva + static_cast<int64_t>(opcode) + 5));
+    std::memcpy(site.data() + opcode + 1, &value, 4);
+}
+bool OpcodeBefore(const std::vector<uint8_t>& site, size_t disp, std::initializer_list<uint8_t> opcode)
+{
+    size_t at = disp - opcode.size();
+    for (const uint8_t b : opcode)
+        if (site[at++] != b)
+            return false;
+    return true;
+}
+
+void TestSignatures()
+{
+    // The halo3.dll this was read from: the loader's read at +0xA6AE7, the lookup at +0x273565, the header copy at
+    // +0x20A9058 and the block's pointer at +0xA49148.
+    const int64_t loaderRva = 0xA6AE7, lookupRva = 0x273565, header = 0x20A9058, block = 0xA49148, reader = 0xA73B8;
+    const int64_t image = 0x4800000;
+    auto loader = FromPattern(kLoaderPattern);
+    auto lookup = FromPattern(kLookupPattern);
+    Check(loader.size() == kLoaderBytes && lookup.size() == kLookupBytes, "the patterns' lengths");
+    Check(OpcodeBefore(loader, kLoaderSize, {0x44, 0x8B, 0x05}) && OpcodeBefore(loader, kLoaderBlockA, {0x4C, 0x8B, 0x0D}) &&
+              OpcodeBefore(loader, kLoaderBuffer, {0x8B, 0x15}) && loader[kLoaderReadA] == 0xE8 &&
+              OpcodeBefore(loader, kLoaderCount, {0x44, 0x8B, 0x05}) &&
+              OpcodeBefore(loader, kLoaderBlockB, {0x4C, 0x8B, 0x0D}) && OpcodeBefore(loader, kLoaderTable, {0x8B, 0x15}) &&
+              loader[kLoaderReadB] == 0xE8 && OpcodeBefore(loader, kLoaderBlockC, {0x48, 0x8B, 0x2D}),
+          "each loader position is the disp32 (or call) its comment names");
+    Check(OpcodeBefore(lookup, kLookupBlock, {0x48, 0x8B, 0x3D}) && OpcodeBefore(lookup, kLookupCount, {0x3B, 0x05}),
+          "each lookup position is the disp32 its comment names");
+    // The layout constants are bytes of the patterns themselves.
+    const uint8_t addNames[] = {0x49, 0x81, 0xC1, 0x00, 0x00, 0x02, 0x00};
+    const uint8_t clearPointers[] = {0x4C, 0x8D, 0xB5, 0x00, 0x00, 0x82, 0x00};
+    const uint8_t limit[] = {0x81, 0x3C, 0x87, 0xFF, 0xFF, 0x7F, 0x00};
+    Check(std::memcmp(loader.data() + 36, addNames, sizeof(addNames)) == 0 &&
+              std::memcmp(loader.data() + 128, clearPointers, sizeof(clearPointers)) == 0 &&
+              std::memcmp(lookup.data() + 18, limit, sizeof(limit)) == 0 && kLoadedBufferAt == 0x20000,
+          "the names at block+0x20000, the pointer array at +0x820000, offsets up to 0x7FFFFF: in the code itself");
+
+    PutRip(loader, kLoaderSize, loaderRva, header + 0x28);
+    PutRip(loader, kLoaderBlockA, loaderRva, block);
+    PutRip(loader, kLoaderBuffer, loaderRva, header + 0x24);
+    PutCall(loader, kLoaderReadA, loaderRva, reader);
+    PutRip(loader, kLoaderCount, loaderRva, header + 0x20);
+    PutRip(loader, kLoaderBlockB, loaderRva, block);
+    PutRip(loader, kLoaderTable, loaderRva, header + 0x2C);
+    PutCall(loader, kLoaderReadB, loaderRva, reader);
+    PutRip(loader, kLoaderBlockC, loaderRva, block);
+    PutRip(lookup, kLookupBlock, lookupRva, block);
+    PutRip(lookup, kLookupCount, lookupRva, header + 0x20);
+    Check(Matches(kLoaderPattern, loader) && Matches(kLookupPattern, lookup), "the built sites match their patterns");
+
+    Sites sites;
+    Check(DecodeSites(loader.data(), loaderRva, lookup.data(), lookupRva, image, sites) == Bind::Bound &&
+              sites.headerRva == header && sites.blockSlotRva == block,
+          "the header copy and the block's pointer decode from the two sites");
+    Check(DecodeSites(nullptr, loaderRva, lookup.data(), lookupRva, image, sites) == Bind::LoaderMissing,
+          "no loader: not bound");
+    Check(DecodeSites(loader.data(), loaderRva, nullptr, lookupRva, image, sites) == Bind::LookupMissing,
+          "no lookup: not bound");
+    auto bad = loader;
+    PutRip(bad, kLoaderBlockC, loaderRva, block + 8);
+    Check(DecodeSites(bad.data(), loaderRva, lookup.data(), lookupRva, image, sites) == Bind::BlockDisagrees,
+          "the loader's reads of the block's pointer must agree");
+    bad = loader;
+    PutCall(bad, kLoaderReadB, loaderRva, reader + 0x10);
+    Check(DecodeSites(bad.data(), loaderRva, lookup.data(), lookupRva, image, sites) == Bind::ReadsDisagree,
+          "both section reads must call one function");
+    for (const size_t field : {kLoaderSize, kLoaderBuffer, kLoaderTable})
+    {
+        bad = loader;
+        PutRip(bad, field, loaderRva, header + 0x30);
+        Check(DecodeSites(bad.data(), loaderRva, lookup.data(), lookupRva, image, sites) == Bind::NotOneHeader,
+              "a name field that is not its place in one header (a neighbouring field) is refused");
+    }
+    auto badLookup = lookup;
+    PutRip(badLookup, kLookupBlock, lookupRva, block + 8);
+    Check(DecodeSites(loader.data(), loaderRva, badLookup.data(), lookupRva, image, sites) == Bind::LookupDisagrees,
+          "the lookup must name the loader's block pointer");
+    badLookup = lookup;
+    PutRip(badLookup, kLookupCount, lookupRva, header + 0x24);
+    Check(DecodeSites(loader.data(), loaderRva, badLookup.data(), lookupRva, image, sites) == Bind::LookupDisagrees,
+          "the lookup must bound by the loader's count");
+    Check(DecodeSites(loader.data(), loaderRva, lookup.data(), lookupRva, header + kHeaderSize - 4, sites) ==
+              Bind::Implausible,
+          "a header that does not fit inside the module is refused");
+    auto misaligned = loader;
+    auto misalignedLookup = lookup;
+    for (const size_t at : {kLoaderBlockA, kLoaderBlockB, kLoaderBlockC})
+        PutRip(misaligned, at, loaderRva, block + 4);
+    PutRip(misalignedLookup, kLookupBlock, lookupRva, block + 4);
+    Check(DecodeSites(misaligned.data(), loaderRva, misalignedLookup.data(), lookupRva, image, sites) ==
+              Bind::Implausible,
+          "a pointer that is not on eight bytes is refused");
+    for (int why = 0; why < static_cast<int>(Bind::Count); ++why)
+        Check(std::strcmp(BindName(static_cast<Bind>(why)), "?") != 0, "every bind result is named");
+}
+} // namespace
+
+int main()
+{
+    TestHeader();
+    TestFileOffset();
+    TestFileTable(true);
+    TestFileTable(false);
+    TestNameRefusals();
+    TestDisplayName();
+    TestSignatures();
+    std::printf("halo3_tag_names_tests: %u checks, %u failures\n", checks, failures);
+    return failures ? 1 : 0;
+}
