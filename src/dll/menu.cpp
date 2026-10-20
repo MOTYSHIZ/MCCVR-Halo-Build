@@ -1351,6 +1351,14 @@ namespace
                                    &g_config.vehicle_cameras);
         changed |= ImGui::Checkbox("Note in the headset when the camera changes",
                                    &g_config.vehicle_camera_note);
+        changed |= ImGui::Checkbox("Ring where the vehicle aims",
+                                   &g_config.vehicle_aim_marker);
+        ImGui::TextDisabled(
+            "A purple ring beside the crosshair, where the vehicle itself is\n"
+            "aiming. While your view turns with the vehicle (Tethered) it is\n"
+            "where the view comes to rest: aim at it to go straight without\n"
+            "turning. The file's \"aimMarker\" turns it on or off per seat,\n"
+            "camera or mode; the built-in cameras show it when Tethered.");
         ImGui::TextDisabled(
             "In a seat, step through the cameras that file lists for it. The\n"
             "file is in the mod's folder, written the first time this is on;\n"
