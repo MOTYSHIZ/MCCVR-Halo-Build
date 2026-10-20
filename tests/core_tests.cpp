@@ -17943,6 +17943,56 @@ int main()
                 "Vehicle identity separates same-type cousins and an "
                 "unidentified vehicle resolves to no point at all");
 
+            // A vehicle the mod cannot name is still aimed like the stock vehicle it is DRIVEN like: its physics
+            // gives the class, its seat's driver flag the role. (HugeGrass's Sparrowhawk was left on the stick
+            // servo in every seat because it had no identity.)
+            Halo3DefinitionFields planeDef;   planeDef.physicsType = 2;   // the Pelican, the Phantom
+            Halo3DefinitionFields fighterDef; fighterDef.physicsType = 4; // the Seraph, the Longsword
+            Halo3DefinitionFields vtolDef;    vtolDef.physicsType = 7;    // the Sparrowhawk
+            Halo3DefinitionFields mantisDef;  mantisDef.physicsType = 6;
+            Halo3DefinitionFields blindScout; blindScout.physicsType = 3;
+            Check(Halo3ControlClass(tankDef) == Halo3VehicleId::Scorpion &&
+                  Halo3ControlClass(oddJeep) == Halo3VehicleId::Warthog &&
+                  Halo3ControlClass(planeDef) == Halo3VehicleId::Hornet &&
+                  Halo3ControlClass(ghostDef) == Halo3VehicleId::Ghost &&
+                  Halo3ControlClass(scoutOdd) == Halo3VehicleId::Ghost &&
+                  Halo3ControlClass(wraithDef) == Halo3VehicleId::Wraith &&
+                  Halo3ControlClass(blindScout) == Halo3VehicleId::Unknown &&
+                  Halo3ControlClass(fighterDef) == Halo3VehicleId::Banshee &&
+                  Halo3ControlClass(turretDef) == Halo3VehicleId::StationaryTurret &&
+                  Halo3ControlClass(vtolDef) == Halo3VehicleId::Hornet &&
+                  Halo3ControlClass(choppDef) == Halo3VehicleId::Chopper &&
+                  Halo3ControlClass(mantisDef) == Halo3VehicleId::Unknown &&
+                  Halo3ControlClass(Halo3DefinitionFields{}) == Halo3VehicleId::Unknown,
+                "Every Halo 3 physics class names the stock vehicle it is driven like");
+
+            const Halo3SeatRole sparrowhawkPilot =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Hornet, 0, false, 0x4000801Cu);
+            const Halo3SeatRole seraphPilot =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Banshee, 0, false, 0x4080801Du);
+            const Halo3SeatRole modTankDriver =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Scorpion, 0, false, 0x0010801Cu);
+            const Halo3SeatRole modGunner =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Hornet, 0, true, 0x0010801Cu);
+            const Halo3SeatRole modPassenger =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Hornet, 2, false, 0x00001070u);
+            const Halo3SeatRole giantSeat =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Unknown, 0, false, 0x0000801Cu);
+            const Halo3SeatRole stockHog =
+                Halo3SeatRoleOf(Halo3VehicleId::Warthog, Halo3VehicleId::Warthog, 0, false, 0u);
+            Check(sparrowhawkPilot.driver && sparrowhawkPilot.lookSteered && sparrowhawkPilot.aircraft &&
+                  seraphPilot.driver && seraphPilot.lookSteered && seraphPilot.aircraft &&
+                  modTankDriver.driver && !modTankDriver.lookSteered && !modTankDriver.aircraft &&
+                  !modGunner.driver && !modPassenger.driver && modPassenger.aircraft &&
+                  giantSeat.driver && !giantSeat.lookSteered && !giantSeat.aircraft &&
+                  stockHog.driver && stockHog.lookSteered && !stockHog.aircraft,
+                "A seat of a vehicle the mod cannot name takes its role from its own driver flag and its class; "
+                "a named vehicle's seat is as before");
+            Check(Halo3IsSeatParentKind(0) && Halo3IsSeatParentKind(kHalo3ObjectKindVehicle) &&
+                  Halo3IsSeatParentKind(kHalo3ObjectKindGiant) && !Halo3IsSeatParentKind(2) &&
+                  !Halo3IsSeatParentKind(11) && !Halo3IsSeatParentKind(13) && !Halo3IsSeatParentKind(200),
+                "A unit is seated on a biped, a vehicle or a giant (the Scarab), the kinds Halo 3's own seat code takes");
+
             // A tank's bounding radius tells the Scorpion from the Elephant,
             // once the definition's radius is proven by the live sphere.
             Check(Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 1.0f) &&

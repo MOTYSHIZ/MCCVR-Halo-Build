@@ -35,6 +35,16 @@ inline constexpr size_t kHalo3ObjectEntryStride = 0x18;
 inline constexpr uintptr_t kHalo3ObjectEntryDataOffset = 0x10;
 inline constexpr uintptr_t kHalo3ObjectEntryKindOffset = 3;
 inline constexpr uint8_t kHalo3ObjectKindVehicle = 1;
+inline constexpr uint8_t kHalo3ObjectKindGiant = 12;
+// What Halo 3 seats a unit on: a biped (0), a vehicle (1) or a giant (12) -- `1 << kind & 0x1003`, the test the
+// game's own unit camera (+0x17DB83), seat-state check (+0x39A7A9) and collision filter (+0x1FC518) make. A giant
+// (the Scarab, a mod map's walkers) is not a vehicle and the game's unit_in_vehicle (+0x3A36F4) answers false for
+// one, but its seats are seats all the same, in the seat block every unit's definition has at the same place.
+inline constexpr uint32_t kHalo3SeatParentKindMask = 0x1003u;
+inline constexpr bool Halo3IsSeatParentKind(uint8_t kind)
+{
+    return kind < 32 && ((1u << kind) & kHalo3SeatParentKindMask) != 0;
+}
 inline constexpr uintptr_t kHalo3ObjectParentOffset = 0x10;
 inline constexpr uintptr_t kHalo3UnitSeatWordOffset = 0x24E;
 
@@ -1561,6 +1571,10 @@ inline constexpr uintptr_t kHalo3DefBlurSpeedOffset = 0x3B4;
 inline constexpr uintptr_t kHalo3VehicleSeatsBlockOffset = 0x258;
 inline constexpr size_t kHalo3VehicleSeatStride = 0xD4;
 inline constexpr uint32_t kHalo3SeatThirdPersonCameraBit = 1u << 4;
+// Seat flags bit 2, `driver`: the seat that drives its vehicle (bit 3 is `gunner`; ODST's kOdstSeatDriverBit is the
+// same bit). Every driver's seat logged in play carries it -- Warthog 0x48014, Elephant 0x10801C, Banshee
+// 0x4080801C, Chopper 0x801C -- and neither of the Elephant's mounted guns does (0x101198, 0x5500018).
+inline constexpr uint32_t kHalo3SeatDriverBit = 1u << 2;
 // Seat flags bit 5, `allows weapons`: the occupant fires their OWN weapon
 // rather than a vehicle barrel. Read straight off the loaded seat record, and
 // confirmed against real Halo 3 values recorded during the ODST O5 work - the
@@ -2054,6 +2068,61 @@ inline constexpr bool Halo3VehicleUsesWheel(Halo3VehicleId id)
 {
     return Halo3VehicleIsLookSteered(id) &&
         id != Halo3VehicleId::Banshee && id != Halo3VehicleId::Hornet;
+}
+
+// THE CONTROL CLASS: the stock vehicle a vehicle is DRIVEN like, from its physics alone. A vehicle the mod cannot name
+// (a mod map's own) still says in its physics whether it is a tank, a jeep, a flyer or a turret, and its seat's tag
+// says whether a seat drives it; that is all the seat aim policy (seat_drive_policy.h) needs, so such a seat is aimed
+// like the stock seat it is driven like instead of not at all. The class never keys a camera, an eye point or a
+// name: those stay by identity. halo3.dll names the physics blocks in this order: human_tank, human_jeep,
+// human_plane, alien_scout, alien_fighter, turret, mantis, vtol, chopper, guardian; in play the Pelican and the
+// Phantom read as human_plane, the Sparrowhawk as vtol, and the Seraph, the Longsword and HugeGrass's other fighters
+// as alien_fighter.
+inline Halo3VehicleId Halo3ControlClass(const Halo3DefinitionFields& def)
+{
+    switch (def.physicsType)
+    {
+    case 0: return Halo3VehicleId::Scorpion;          // human_tank: the look aims a turret on the hull
+    case 1: return Halo3VehicleId::Warthog;           // human_jeep
+    case 2: return Halo3VehicleId::Hornet;            // human_plane: flown like the vtol
+    case 3:                                           // alien_scout: the Wraith's look aims its mortar
+        if (!def.scoutValid)
+            return Halo3VehicleId::Unknown;
+        return def.specificType == 3 ? Halo3VehicleId::Wraith : Halo3VehicleId::Ghost;
+    case 4: return Halo3VehicleId::Banshee;           // alien_fighter
+    case 5: return Halo3VehicleId::StationaryTurret;  // turret
+    case 7: return Halo3VehicleId::Hornet;            // vtol
+    case 8: return Halo3VehicleId::Chopper;           // chopper
+    default: return Halo3VehicleId::Unknown;          // mantis, guardian, a giant or a biped (no physics block)
+    }
+}
+
+// The seat as the aim policy sees it: whether it drives the vehicle, whether the vehicle turns toward its look, and
+// whether it flies (an aircraft's seat has no turning stop). A named vehicle answers by its identity, as before. A
+// vehicle the mod cannot name answers from its seat's own tag flags (the occupied seat's, as loaded) and its control
+// class; with neither it is a seat that does not drive, whose aim the hand then owns -- every write is still held
+// until the seat proves its record holds the game's aim (seat_drive::StintCheck).
+struct Halo3SeatRole
+{
+    bool driver = false;
+    bool lookSteered = false;
+    bool aircraft = false;
+};
+inline Halo3SeatRole Halo3SeatRoleOf(Halo3VehicleId id, Halo3VehicleId controlClass, int seatIndex, bool mounted,
+                                     uint32_t seatFlags)
+{
+    Halo3SeatRole role;
+    if (id != Halo3VehicleId::Unknown)
+    {
+        role.driver = Halo3SeatIsDriver(id, seatIndex, mounted);
+        role.lookSteered = Halo3VehicleIsLookSteered(id);
+        role.aircraft = id == Halo3VehicleId::Banshee || id == Halo3VehicleId::Hornet;
+        return role;
+    }
+    role.driver = !mounted && (seatFlags & kHalo3SeatDriverBit) != 0;
+    role.lookSteered = Halo3VehicleIsLookSteered(controlClass);
+    role.aircraft = controlClass == Halo3VehicleId::Banshee || controlClass == Halo3VehicleId::Hornet;
+    return role;
 }
 
 // Which seats may take the hull-follow view at all. The hazard the follow
