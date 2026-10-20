@@ -538,15 +538,15 @@ bool Halo3VehicleBoomReadSeat(uint32_t definitionIndex, int seatIndex, Halo3Boom
     return true;
 }
 
-// The look range the flat game holds a seat camera's look to (+0xF7DF0), from its facts.
+// The look range the flat game holds a seat camera's look to (+0xF7DF0), from its facts. The camera's two range
+// fields are the ones the look update's clamp names: without that proof neither is used, only +-85.5 deg.
 vehicle_boom::Range Halo3VehicleBoomRange(const Halo3BoomSeatFacts& facts)
 {
     const Halo3VehicleBoomBinding& boom = g_halo3VehicleBoom;
-    const bool limits = Halo3VehicleBoomBound() && boom.limits;
-    const float flatMin = limits ? boom.flatMin : -vehicle_boom::kFlatLookLimit;
-    const float flatMax = limits ? boom.flatMax : vehicle_boom::kFlatLookLimit;
-    return facts.read ? vehicle_boom::LookRange(facts.rangeMin, facts.rangeMax, flatMin, flatMax)
-                      : vehicle_boom::LookRange(0.0f, 0.0f, flatMin, flatMax);
+    if (!Halo3VehicleBoomBound() || !boom.limits)
+        return vehicle_boom::LookRange(0.0f, 0.0f);
+    return facts.read ? vehicle_boom::LookRange(facts.rangeMin, facts.rangeMax, boom.flatMin, boom.flatMax)
+                      : vehicle_boom::LookRange(0.0f, 0.0f, boom.flatMin, boom.flatMax);
 }
 
 // The player pilots an aircraft in this seat, as +0xF91F4 tells: its driver's seat on a flyer.

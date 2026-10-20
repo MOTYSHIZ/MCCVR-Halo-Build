@@ -43,9 +43,10 @@ enum class CameraType : uint8_t { Chase = 0, FirstPerson = 1 };
 // Where a camera's offset is measured FROM: the vehicle's own origin, the seat the player sits in, the seated
 // character's head, or -- any other name in the file -- a marker or node of the vehicle, so a camera can ride a
 // part that turns on its own (a turret). A marker that is not found falls back to the vehicle's origin.
-// ThirdPerson ("thirdperson") is where the GAME'S OWN third-person camera rests for the seat: the point it
-// turns about and its own distance behind, so a zero offset is the view the game gives that vehicle, whatever
-// its size. It is what a vehicle nobody wrote an entry for gets.
+// ThirdPerson ("thirdperson") is where the GAME'S OWN third-person camera stands for the seat: the point it
+// turns about, and where it stands from that point at the boom's angle ("boomPitch", vehicle_boom_logic.h), so a
+// zero offset is the view the game gives that vehicle, whatever its size, without its swing with the aim. It is
+// what a vehicle nobody wrote an entry for gets.
 enum class Origin : uint8_t { Vehicle = 0, Seat = 1, Head = 2, Marker = 3, ThirdPerson = 4 };
 
 // THE LEASH ("leashMin" / "leashMax"): a box the player's HEAD stays inside, in the same space as "offset" --
