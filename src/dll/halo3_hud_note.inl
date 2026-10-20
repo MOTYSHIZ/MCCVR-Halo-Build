@@ -4,7 +4,9 @@
 // The note ("Mongoose - Over the Shoulder, Untethered - Motion") is posted through the function the game posts its
 // own short HUD lines with, so it is drawn in the HUD's font, in the HUD's place, for as long as the HUD keeps any
 // such line. MCC's own use of it is the "no navpoints" line: halo3 +0x2DDC60 posts it to the local user's queue
-// with type 3 after checking the game is in progress ([TLS+0x48]+0x10 == 1); this posts the same way.
+// with type 3 after checking the game is a campaign ([TLS+0x48]+0x10 == 1: the game mode, which halo3.dll compares
+// with 1, 2 and 3 at some 190 sites -- campaign, multiplayer, the main menu; its line is campaign-only). This posts
+// the same way, in a campaign or a multiplayer game (custom games, Forge).
 //
 //   +0x2D3F2C  post(user, text, type)  user < 4: the user's HUD block, [TLS+0xF0] + user*0x28C8 + 0x1F8C, to:
 //   +0x2D4C34  the queue: five slots of 0xE8 bytes; the text is COPIED (96 characters with the terminator),
@@ -13,14 +15,14 @@
 // PROOF (addrcascade: resolved + guarded, nothing hardcoded): the post function by a unique signature that names
 // the HUD block's layout (0xF0, 0x28C8, 0x1F8C); its one call lands on the queue, matched in place by a second
 // signature that names [TLS+0xC8]; both read the SAME TLS index variable, and so does MCC's own caller, found by a
-// third unique signature that names the in-progress check -- and whose type-3 call lands on the post function.
+// third unique signature that names the game-mode check -- and whose type-3 call lands on the post function.
 // Any one missing or disagreeing: not bound, and the note uses the mod's panel (NativeNotice_Show) as before.
 //
 // THREAD. The post runs on the thread that owns the HUD: the main loop's frame (+0xB2538) runs the HUD update
 // (+0x2D1390, at +0xB2B0B) and then the sound listener update (+0xAB650, via +0xA9508 at +0xB2B63), which
 // halo3_head_relative.inl already hooks. That hook's detour calls Halo3HudNotePost after the game's update, so the
 // note is posted between two of the game's own HUD updates, never during a HUD draw. Every post also requires the
-// calling thread's TLS block to hold the HUD block, the game clock and an in-progress game.
+// calling thread's TLS block to hold the HUD block, the game clock and a campaign or multiplayer game.
 //
 // CO-OP. A HUD line is presentation, but it lives in the game's own state; in a shared co-op simulation the mod
 // leaves that state as the game keeps it (Sight_FireTimeChangesAllowed false) and shows the note on its panel.
@@ -36,7 +38,21 @@ inline constexpr char kHalo3HudQueueSig[] =
     "48 85 D2 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 45 33 "
     "F6 41 8B F0 4C 8B D9 66 44 39 32 0F 84 ?? ?? ?? ?? 44 8B 0D ?? ?? ?? ?? 41 83 CA FF 65 48 8B 04 25 58 00 00 "
     "00 45 8B C6 BD C8 00 00 00";
-inline constexpr size_t kHalo3HudQueueSigBytes = 80;
+// How many bytes a signature's text names ("48 ?? 8B" is three).
+constexpr size_t Halo3HudPatternBytes(const char* pattern)
+{
+    size_t count = 0;
+    bool inByte = false;
+    for (; *pattern; ++pattern)
+    {
+        const bool space = *pattern == ' ';
+        if (!space && !inByte)
+            ++count;
+        inByte = !space;
+    }
+    return count;
+}
+inline constexpr size_t kHalo3HudQueueSigBytes = Halo3HudPatternBytes(kHalo3HudQueueSig);
 inline constexpr size_t kHalo3HudQueueTlsDisp = 56;
 inline constexpr char kHalo3HudNavpointCallerSig[] =
     "48 89 5C 24 08 48 89 74 24 10 57 48 81 EC 30 08 00 00 65 48 8B 04 25 58 00 00 00 8B 15 ?? ?? ?? ?? 48 63 F1 "
@@ -45,8 +61,16 @@ inline constexpr size_t kHalo3HudNavpointCallerTlsDisp = 29;
 inline constexpr size_t kHalo3HudNavpointCallerBytes = 0xD5;
 inline constexpr char kHalo3HudNavpointPostSig[] = "85 F6 78 ?? 41 B8 03 00 00 00 48 8D 54 24 30 8B CE E8";
 inline constexpr size_t kHalo3HudNavpointPostRel = 18;
+// Each offset into a matched signature lies inside it (a rel32 or displacement is the 4 bytes after its opcode).
+static_assert(kHalo3HudQueueSigBytes == 81 && kHalo3HudQueueTlsDisp + 4 <= kHalo3HudQueueSigBytes);
+static_assert(Halo3HudPatternBytes(kHalo3HudMessageSig) == 68 && kHalo3HudMessageCallRel + 4 < 68 &&
+              kHalo3HudMessageTlsDisp + 4 < 68);
+static_assert(kHalo3HudNavpointCallerTlsDisp + 4 <= Halo3HudPatternBytes(kHalo3HudNavpointCallerSig));
+static_assert(kHalo3HudNavpointPostRel == Halo3HudPatternBytes(kHalo3HudNavpointPostSig));
 // The fields the post and MCC's caller read, named by the signatures above.
-inline constexpr size_t kHalo3TlsGameGlobals = 0x48; // -> +0x10: 1 while a game is in progress
+inline constexpr size_t kHalo3TlsGameGlobals = 0x48; // -> +0x10: the game mode, 1 campaign, 2 multiplayer
+inline constexpr uint8_t kHalo3GameModeCampaign = 1;
+inline constexpr uint8_t kHalo3GameModeMultiplayer = 2;
 inline constexpr size_t kHalo3TlsGameTime = 0xC8;
 inline constexpr size_t kHalo3TlsHudUsers = 0xF0;
 inline constexpr int32_t kHalo3HudMessageType = 3;
@@ -66,6 +90,7 @@ struct Halo3HudNote
     std::atomic<uint32_t> wanted{0};
     std::atomic<uint32_t> shown{0}; // claimed by whichever side showed it: the game's HUD or the mod's panel
     std::atomic<uint32_t> posted{0}, notReady{0}, faults{0}, panelFallbacks{0};
+    std::atomic<int> notReadyWhy{0}; // the last Halo3HudNoteThreadReady refusal (Halo3HudNoteNotReadyText)
     uint32_t reportedPosted = 0, reportedFallbacks = 0, reportedFaults = 0; // cold worker
 };
 Halo3HudNote g_halo3HudNote;
@@ -88,7 +113,7 @@ bool InstallHalo3HudNote(uintptr_t base, size_t size, uint32_t generation)
         why = "the TLS index against the engine's";
     else if (!(caller = mcc_clock::FindUnique(base, size, kHalo3HudNavpointCallerSig)) ||
              rip(caller, kHalo3HudNavpointCallerTlsDisp) != tls)
-        why = "MCC's own caller (the in-progress check)";
+        why = "MCC's own caller (the game-mode check)";
     else if (!(site = sig::Find(caller, kHalo3HudNavpointCallerBytes, kHalo3HudNavpointPostSig)) ||
              rip(site, kHalo3HudNavpointPostRel) != fn)
         why = "MCC's own type-3 post";
@@ -115,22 +140,44 @@ void RemoveHalo3HudNote()
 
 namespace
 {
-// The calling thread holds the HUD block, the game clock and a game in progress. Guarded: no C++ object here.
-bool Halo3HudNoteThreadReady(const uint32_t* tlsIndex)
+// The calling thread holds the HUD block, the game clock and a campaign or multiplayer game: 0. Otherwise the first
+// thing missing (Halo3HudNoteNotReadyText). Guarded: no C++ object here.
+int Halo3HudNoteThreadReady(const uint32_t* tlsIndex)
 {
     __try
     {
         const auto* slots = reinterpret_cast<const uint8_t* const*>(__readgsqword(0x58));
         const uint8_t* block = slots ? slots[*tlsIndex] : nullptr;
         if (!block)
-            return false;
+            return 1;
         const auto* game = *reinterpret_cast<const uint8_t* const*>(block + kHalo3TlsGameGlobals);
-        return game && game[0x10] == 1 && *reinterpret_cast<void* const*>(block + kHalo3TlsGameTime) &&
-               *reinterpret_cast<void* const*>(block + kHalo3TlsHudUsers);
+        if (!game)
+            return 2;
+        if (game[0x10] != kHalo3GameModeCampaign && game[0x10] != kHalo3GameModeMultiplayer)
+            return 3;
+        if (!*reinterpret_cast<void* const*>(block + kHalo3TlsGameTime))
+            return 4;
+        if (!*reinterpret_cast<void* const*>(block + kHalo3TlsHudUsers))
+            return 5;
+        return 0;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
-        return false;
+        return 6;
+    }
+}
+
+const char* Halo3HudNoteNotReadyText(int why)
+{
+    switch (why)
+    {
+    case 1: return "the thread holds no game block";
+    case 2: return "no game globals";
+    case 3: return "not a campaign or multiplayer game";
+    case 4: return "no game clock";
+    case 5: return "no HUD block";
+    case 6: return "a read faulted";
+    default: return "none";
     }
 }
 
@@ -170,9 +217,10 @@ void Halo3HudNotePost()
     const uint64_t now = GetTickCount64();
     if (!hud_note::Due(serial, shown, now >= askedMs ? now - askedMs : 0))
         return;
-    if (!Halo3HudNoteThreadReady(note.tlsIndex))
+    if (const int why = Halo3HudNoteThreadReady(note.tlsIndex))
     {
         note.notReady.fetch_add(1, std::memory_order_relaxed);
+        note.notReadyWhy.store(why, std::memory_order_relaxed);
         return;
     }
     uint32_t expected = shown;
@@ -250,7 +298,8 @@ void Halo3VehicleNoteTick()
         note.reportedFallbacks = fallbacks;
         note.reportedFaults = faults;
         LOG("HUD NOTE Halo 3: %u in the game's HUD messages, %u on the mod's panel after the game did not take them "
-            "(%u frames not ready), %u faulted",
-            posted, fallbacks, note.notReady.load(std::memory_order_relaxed), faults);
+            "(%u frames not ready, the last because %s), %u faulted",
+            posted, fallbacks, note.notReady.load(std::memory_order_relaxed),
+            Halo3HudNoteNotReadyText(note.notReadyWhy.load(std::memory_order_relaxed)), faults);
     }
 }

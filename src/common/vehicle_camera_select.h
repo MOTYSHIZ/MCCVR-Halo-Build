@@ -37,6 +37,7 @@ struct ActiveCamera
     float lagSeconds = 0.0f; // vehicle_camera_file::LagSecondsOf: 0 = rigid
     float lagDamping = 1.0f;
     float boomPitchDeg = vehicle_camera_file::kBoomPitchUnset; // the camera's "boomPitch"
+    bool aimMarker = false;  // vehicle_camera_file::EffectiveAimMarker: the ring where the vehicle aims
     int camera = 0, cameraCount = 0;
     int mode = 0, modeCount = 0;
     // Counts the times the camera or mode in use became a different one by the player's doing or the seat's:

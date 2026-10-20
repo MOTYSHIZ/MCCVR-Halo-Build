@@ -15717,7 +15717,7 @@ int main()
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
         "vehicle_cam_right_m",
         "vehicle_view_follow", "vehicle_cam_smoothing",
-        "vehicle_motion", "vehicle_vr_controls", "vehicle_cameras", "vehicle_camera_note", "vehicle_control",
+        "vehicle_motion", "vehicle_vr_controls", "vehicle_cameras", "vehicle_camera_note", "vehicle_aim_marker", "vehicle_control",
         "vehicle_aim_reject_metres", "vehicle_aim_reject_dot", "vehicle_boom_rate_deg_s", "vehicle_boom_invert",
         "vehicle_wheel_max_deg",
         "vehicle_wheel_deadzone_deg",
@@ -17942,6 +17942,57 @@ int main()
                   lookupOk,
                 "Vehicle identity separates same-type cousins and an "
                 "unidentified vehicle resolves to no point at all");
+
+            // A tank's bounding radius tells the Scorpion from the Elephant,
+            // once the definition's radius is proven by the live sphere.
+            Check(Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 1.0f) &&
+                  Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 0.8f) &&
+                  !Halo3DefinitionRadiusUsable(0, 1.0f) &&
+                  !Halo3DefinitionRadiusUsable(-1, 1.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 0.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 500.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle,
+                                               std::nanf("")),
+                "A definition's radius is used only from a definition that "
+                "reads as a vehicle's, at a size a vehicle can have");
+            Check(Halo3ResolveTank(2.200f) == Halo3VehicleId::Scorpion &&
+                  Halo3ResolveTank(2.25f) == Halo3VehicleId::Scorpion &&
+                  Halo3ResolveTank(5.129f) == Halo3VehicleId::Elephant &&
+                  Halo3ResolveTank(3.5f) == Halo3VehicleId::Unknown &&
+                  Halo3ResolveTank(-1.0f) == Halo3VehicleId::Scorpion,
+                "A tank is the Scorpion at the Scorpion's radius (2.2 wu), "
+                "the Elephant at the Elephant's (5.129), another vehicle at "
+                "any other, and the Scorpion when its radius is unknown");
+            Check(Halo3StockRadiusFits(1.4f, 1.4f) &&
+                  !Halo3StockRadiusFits(2.6f, 1.4f) &&
+                  Halo3StockRadiusFits(-1.0f, 1.4f) &&
+                  Halo3StockRadiusFits(2.6f, 0.0f),
+                "A vehicle is the stock one its physics reads as at that "
+                "one's radius, and whenever either radius is unknown");
+            Halo3DefinitionFields modFlyer;
+            modFlyer.physicsType = 4;
+            modFlyer.boundingRadius = 2.6f;
+            Halo3DefinitionFields stockBanshee = modFlyer;
+            stockBanshee.boundingRadius = 1.4f;
+            Halo3DefinitionFields elephantDef;
+            elephantDef.physicsType = 0;
+            elephantDef.boundingRadius = 5.129f;
+            Check(Halo3ResolveVehicleId(stockBanshee) == Halo3VehicleId::Banshee &&
+                      Halo3ResolveVehicleId(modFlyer) == Halo3VehicleId::Unknown &&
+                      Halo3ResolveVehicleId(elephantDef) == Halo3VehicleId::Elephant &&
+                      Halo3FindSeatPoint(Halo3VehicleId::Elephant, 0, false) == nullptr &&
+                      Halo3FindSeatPoint(Halo3VehicleId::Elephant, 0, true) == nullptr &&
+                      !Halo3VehicleIsLookSteered(Halo3VehicleId::Elephant),
+                "A mod's flyer with another radius is not a Banshee; the "
+                "Elephant is known, has no tuned eye point and is not "
+                "look-steered");
+            Halo3DefinitionFields unprovenTank;
+            unprovenTank.physicsType = 0;
+            unprovenTank.boundingRadius = -1.0f;
+            Check(Halo3ResolveVehicleId(unprovenTank) ==
+                      Halo3VehicleId::Scorpion,
+                "A tank whose radius is not proven still reads as the "
+                "Scorpion");
 
         }
 

@@ -66,6 +66,7 @@
 #include "../common/vr_blit_shader.h"
 #include "../common/reticle_tint_shader.h"
 #include "../common/mono_view_logic.h"
+#include "../common/vehicle_aim_marker_logic.h"
 #include "haloce_controls.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
@@ -274,6 +275,14 @@ namespace
     uint32_t g_secondaryReticleGeneration=0;
     GameTitle g_secondaryReticleTitle=GameTitle::None;
     halo_ce::Snapshot<dual_reticle::ProjectedRay> g_weaponReticleRays[7][2];
+    // THE VEHICLE AIM RING (vehicle_aim_marker_logic.h): its own small swapchain, painted once with Halo Campaign
+    // Evolved's purple ring, so neither crosshair's chain is ever touched.
+    XrSwapchain g_vehicleRingChain = XR_NULL_HANDLE;
+    std::vector<ID3D11Texture2D*> g_vehicleRingImages;
+    std::vector<ID3D11RenderTargetView*> g_vehicleRingRtvs;
+    bool g_vehicleRingAcquired = false, g_vehicleRingReady = false, g_vehicleRingFailed = false;
+    uint32_t g_vehicleRingIndex = 0;
+    uint64_t g_vehicleRingRetryMs = 0;
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
     // DEV ASSESSMENT MARKER (honest_reticle_assess): its own small swapchain, painted once with the magenta ring
@@ -9010,6 +9019,76 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    // The vehicle aim ring's image (vehicle_aim_marker_logic.h): created lazily, painted once, never repainted (the
+    // compositor keeps showing the last released image). Non-blocking, like the dual reticles: a busy image is retried
+    // next frame, and any failure leaves the ring off for the session -- the crosshair is unaffected either way.
+    bool PrepareVehicleRingImage()
+    {
+        if (g_vehicleRingFailed)
+            return false;
+        if (g_vehicleRingReady && !g_vehicleRingAcquired)
+            return true;
+        const bool rgba = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM || g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        const bool bgra = g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM || g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        if (!rgba && !bgra)
+            return false;
+        const bool srgb = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        constexpr uint32_t size = static_cast<uint32_t>(vehicle_aim_marker::kTextureSize);
+        if (g_vehicleRingChain == XR_NULL_HANDLE)
+        {
+            const uint64_t now = GetTickCount64();
+            if (now < g_vehicleRingRetryMs)
+                return false;
+            g_vehicleRingRetryMs = now + 5000;
+            if (!CreateChain(size, size, g_vehicleRingChain, g_vehicleRingImages, g_vehicleRingRtvs,
+                             "vehicle aim ring"))
+                return false;
+        }
+        XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+        XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        wait.timeout = 0;
+        if (!g_vehicleRingAcquired)
+        {
+            if (xrAcquireSwapchainImage(g_vehicleRingChain, &acquire, &g_vehicleRingIndex) != XR_SUCCESS)
+                return false;
+            g_vehicleRingAcquired = true;
+        }
+        const XrResult ready = xrWaitSwapchainImage(g_vehicleRingChain, &wait);
+        if (ready == XR_TIMEOUT_EXPIRED)
+            return false;
+        if (ready != XR_SUCCESS)
+        {
+            g_vehicleRingFailed = true;
+            LOG("Vehicle aim ring: image wait failed (%d); the ring stays off, the crosshair is unaffected", ready);
+            return false;
+        }
+        const bool valid = g_vehicleRingIndex < g_vehicleRingImages.size();
+        if (valid)
+        {
+            std::vector<uint32_t> pixels(size * size);
+            for (uint32_t y = 0; y < size; ++y)
+                for (uint32_t x = 0; x < size; ++x)
+                    pixels[y * size + x] = vehicle_aim_marker::Pixel(static_cast<int>(x), static_cast<int>(y),
+                                                                     static_cast<int>(size), bgra, srgb);
+            g_context->UpdateSubresource(g_vehicleRingImages[g_vehicleRingIndex], 0, nullptr, pixels.data(),
+                                         size * 4, 0);
+        }
+        const XrResult released = xrReleaseSwapchainImage(g_vehicleRingChain, &release);
+        g_vehicleRingAcquired = false;
+        if (!valid || released != XR_SUCCESS)
+        {
+            g_vehicleRingFailed = true;
+            LOG("Vehicle aim ring: image release failed (%d); the ring stays off, the crosshair is unaffected",
+                released);
+            return false;
+        }
+        g_vehicleRingReady = true;
+        LOG("Vehicle aim ring: a %ux%u purple ring image is ready (%s swapchain)", size, size,
+            srgb ? "sRGB" : "linear");
+        return true;
+    }
+
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
     // The dev assessment marker's image: created lazily, painted once, never repainted (its colour is fixed so it
@@ -17205,6 +17284,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
 
         XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, secondaryReticleQuad, scopeQuad, fadeQuad, nativeCursorQuad, nativeSubtitleQuad, noticeQuad;
+        // The vehicle aim ring's quad, queued under the crosshair (Game_GetVehicleAimMarker).
+        XrCompositionLayerQuad vehicleRingQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
         // The crosshair layer's colour scale (crosshair_opacity / crosshair_brightness). It lives as long as the
         // quads above: the layer points at it until xrEndFrame has returned.
         XrCompositionLayerColorScaleBiasKHR reticleTint{XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR};
@@ -18828,6 +18909,80 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             }
                         }
 #endif
+                        // THE VEHICLE AIM RING (Halo Campaign Evolved's "aimMarker"; vehicle_cameras.inl): where the
+                        // VEHICLE aims, beside the crosshair, while a Halo 3 chase camera asks for it. The camera
+                        // pass publishes the direction from the eye and the distance; it is drawn here from this
+                        // frame's stereo centre, parked at the crosshair's cap as the crosshair is, as wide as the
+                        // crosshair at that distance, and queued BEFORE the crosshair so the crosshair draws over
+                        // it. Not with the HUD hidden, in a cutscene theatre or over Halo's pause presentation.
+                        {
+                            float ringDir[3]{};
+                            float ringDistanceM = 0.0f;
+                            bool ringShown = false;
+                            ReachStereoCenterPose ringCenter{};
+                            if (reticleOwnerAdmitted && reticleTitle == GameTitle::Halo3 && !VR_HudHidden() &&
+                                !theaterPresentation && !VR_IsPausePresentation() && projection.viewCount == 2 &&
+                                projectionViews.size() == 2 && Game_GetVehicleAimMarker(ringDir, ringDistanceM))
+                            {
+                                const XrPosef& left = projectionViews[0].pose;
+                                const XrPosef& right = projectionViews[1].pose;
+                                const float leftQuaternion[4] = {left.orientation.x, left.orientation.y,
+                                                                 left.orientation.z, left.orientation.w};
+                                const float rightQuaternion[4] = {right.orientation.x, right.orientation.y,
+                                                                  right.orientation.z, right.orientation.w};
+                                const float leftPosition[3] = {left.position.x, left.position.y, left.position.z};
+                                const float rightPosition[3] = {right.position.x, right.position.y,
+                                                                right.position.z};
+                                ringDistanceM =
+                                    vehicle_aim_marker::DrawDistance(ringDistanceM, g_config.reticle_max_dist_m);
+                                const float ringWidth =
+                                    vehicle_aim_marker::WidthAt(ringDistanceM);
+                                if (ringWidth > 0.0f &&
+                                    ReachBuildStereoCenterPose(leftQuaternion, leftPosition, rightQuaternion,
+                                                               rightPosition, ringCenter) &&
+                                    PrepareVehicleRingImage())
+                                {
+                                    // Facing back along its own ray, never rolled: the crosshair's orientation.
+                                    const float ringYaw = atan2f(ringDir[0], -ringDir[2]);
+                                    const float ringPitch = asinf(fminf(fmaxf(ringDir[1], -1.0f), 1.0f));
+                                    const XrQuaternionf ry{0, sinf(-ringYaw * 0.5f), 0, cosf(-ringYaw * 0.5f)};
+                                    const XrQuaternionf rp{sinf(ringPitch * 0.5f), 0, 0, cosf(ringPitch * 0.5f)};
+                                    vehicleRingQuad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                                    vehicleRingQuad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
+                                                                 XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+                                    vehicleRingQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                                    vehicleRingQuad.space = g_localSpace;
+                                    vehicleRingQuad.subImage.swapchain = g_vehicleRingChain;
+                                    vehicleRingQuad.subImage.imageRect = {
+                                        {0, 0},
+                                        {static_cast<int32_t>(vehicle_aim_marker::kTextureSize),
+                                         static_cast<int32_t>(vehicle_aim_marker::kTextureSize)}};
+                                    vehicleRingQuad.subImage.imageArrayIndex = 0;
+                                    vehicleRingQuad.pose.orientation = {
+                                        ry.w * rp.x + ry.x * rp.w + ry.y * rp.z - ry.z * rp.y,
+                                        ry.w * rp.y - ry.x * rp.z + ry.y * rp.w + ry.z * rp.x,
+                                        ry.w * rp.z + ry.x * rp.y - ry.y * rp.x + ry.z * rp.w,
+                                        ry.w * rp.w - ry.x * rp.x - ry.y * rp.y - ry.z * rp.z};
+                                    vehicleRingQuad.pose.position = {
+                                        ringCenter.position[0] + ringDir[0] * ringDistanceM,
+                                        ringCenter.position[1] + ringDir[1] * ringDistanceM,
+                                        ringCenter.position[2] + ringDir[2] * ringDistanceM};
+                                    vehicleRingQuad.size = {ringWidth, ringWidth};
+                                    layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&vehicleRingQuad));
+                                    ringShown = true;
+                                }
+                            }
+                            static bool loggedRing = false;
+                            if (ringShown != loggedRing)
+                            {
+                                loggedRing = ringShown;
+                                if (ringShown)
+                                    LOG("Vehicle aim ring: shown, %.1f m away (where the vehicle aims)",
+                                        ringDistanceM);
+                                else
+                                    LOG("Vehicle aim ring: hidden");
+                            }
+                        }
                         if (reticleQuadSubmitted)
                         {
                             XrPosef rawAim{{aimQ[0],aimQ[1],aimQ[2],aimQ[3]},
@@ -19793,15 +19948,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // Evaluate against this frame's actual native quad before composition.
         // The cursor follows the last successfully delivered smoothed mouse UV.
         // MONO: nothing in the one picture has disparity, so a layer left at its true distance would be the only
-        // thing that has, and would double over what it marks. The crosshairs and the scope's pane slide out along
-        // their own rays from the midpoint of the eyes (mono_view::FlattenQuad). The panels keep their depth.
+        // thing that has, and would double over what it marks. The crosshairs, the vehicle aim ring and the scope's
+        // pane slide out along their own rays from the midpoint of the eyes (mono_view::FlattenQuad). The panels keep
+        // their depth.
         if (monoFrame && projection.viewCount == 2 && projectionViews.size() == 2)
         {
             const XrVector3f& leftEye = projectionViews[0].pose.position;
             const XrVector3f& rightEye = projectionViews[1].pose.position;
             const float centre[3]{(leftEye.x + rightEye.x) * 0.5f, (leftEye.y + rightEye.y) * 0.5f,
                                   (leftEye.z + rightEye.z) * 0.5f};
-            for (XrCompositionLayerQuad* quad : {&reticleQuad, &secondaryReticleQuad, &scopeQuad})
+            for (XrCompositionLayerQuad* quad : {&reticleQuad, &secondaryReticleQuad, &scopeQuad, &vehicleRingQuad})
             {
                 // Only a quad queued this frame has been filled in.
                 if (std::find(layers.begin(), layers.end(),

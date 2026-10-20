@@ -213,6 +213,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.lagDamping = vehicle_camera_file::LagDampingOf(chosen);
     next.boomPitchDeg = vehicle_camera_file::BoomPitchSet(chosen.boomPitch) ? chosen.boomPitch
                                                                            : vehicle_camera_file::kBoomPitchUnset;
+    next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
@@ -580,6 +581,8 @@ std::string Selector::Describe() const
         line += ", lag " + Number(active_.lagSeconds) + " s";
     if (vehicle_camera_file::BoomPitchSet(active_.boomPitchDeg))
         line += ", boom from " + Number(active_.boomPitchDeg) + " deg";
+    if (active_.aimMarker)
+        line += ", aim ring";
     return line;
 }
 } // namespace vehicle_camera_select

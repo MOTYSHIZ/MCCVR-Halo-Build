@@ -100,8 +100,11 @@ static void TestBuiltInTable()
           "the chase camera's log line");
     Check(behind.lagSeconds == 0.5f && behind.lagDamping == 1.5f, "it follows on a spring, without overshoot");
 
+    Check(!behind.aimMarker, "no aim ring while the world holds still");
     Check(selector.StepMode(1), "stepping to the next mode");
     Check(selector.Active().mode == 1 && selector.Active().rotYaw, "the second mode turns the view with the vehicle");
+    Check(selector.Active().aimMarker && Has(selector.Describe(), "lag 0.5 s, aim ring"),
+          "and shows the ring where the vehicle aims, and its line says so");
     Check(selector.Active().changes == 3, "a mode step counts as a change");
     Check(selector.StepMode(1) && selector.Active().mode == 0, "the modes wrap round forwards");
     Check(selector.StepMode(-1) && selector.Active().mode == 1, "and backwards");
@@ -504,10 +507,36 @@ static void TestBoomMemory()
     Check(own.Active().boomPitchDeg == 12.0f && Has(own.Describe(), "boom from 12 deg"), "the file's angle, said in the log");
 }
 
+// "aimMarker" in a file: in the camera published, and an edit that only switches it is applied in place, not as a
+// change of camera.
+static void TestAimMarker()
+{
+    Selector selector;
+    selector.SetTable(Read(Halo3Table(kWarthogCameras)));
+    selector.Update("halo3", true, "warthog", kSeatDriver);
+    Check(selector.Active().camera == 1 && selector.Active().mode == 1 && selector.Active().aimMarker,
+          "a file that says nothing has the ring in a mode that turns the view with the vehicle");
+    Check(selector.StepMode(1) && selector.Active().mode == 0 && !selector.Active().aimMarker,
+          "and not in one that holds the world still");
+    Check(selector.StepMode(1) && selector.Active().mode == 1, "back to the turning mode");
+    const uint32_t changes = selector.Active().changes;
+    const std::string off = Halo3Table(
+        "[ { \"name\": \"Seat\", \"type\": \"firstperson\" },"
+        "  { \"name\": \"Behind\", \"offset\": [-450, 0, 180], \"leashMax\": [null, null, 360],"
+        "    \"tethering\": [ { \"name\": \"Untethered\" },"
+        "                     { \"name\": \"Tethered\", \"rotationTracking\": [\"yaw\"], \"aimMarker\": false } ] } ]");
+    selector.SetTable(Read(off));
+    Check(!selector.Active().aimMarker && selector.Active().camera == 1 && selector.Active().mode == 1,
+          "a mode's own aimMarker turns it off, and the player stays where he is");
+    Check(selector.Active().changes == changes, "which is not a change of camera");
+    Check(!Has(selector.Describe(), "aim ring"), "and the line no longer names the ring");
+}
+
 int main()
 {
     TestBuiltInTable();
     TestBuiltInPresets();
+    TestAimMarker();
     TestSeatMemory();
     TestEntriesAndSeats();
     TestLongMarkerName();

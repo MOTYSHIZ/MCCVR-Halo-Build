@@ -256,7 +256,8 @@ namespace
 
         // THE VEHICLE CAMERA BUTTONS (vehicle_seat_buttons.h): in a seat the vehicle cameras run in, left Y steps
         // the camera, left X its tethering mode, either held re-centres the view, and the left stick click moves the
-        // seat to its next way of being controlled; right B takes over what left X does in the game, and in a
+        // seat to its next way of being controlled; right B is the game's own B (the Banshee's bomb), or left X's job
+        // (use, exit) where the action mapper binds B to nothing (vehicle_seat_buttons::RightBFor); and in a
         // passenger's seat the support trigger switches weapon. Before anything below reads a button, so every
         // route to the game -- the action mapper, the native bridge, legacy routing -- sees the seat's buttons.
         {
@@ -269,19 +270,28 @@ namespace
             buttons.clickL = pad.clickL;
             buttons.clickR = pad.clickR;
             buttons.supportTrigger = pad.trigL;
+            // Does the action mapper bind right B to anything in this game? (By default it binds it to nothing.)
+            bool bBound = false;
+            const int seatTitle = weapon_interaction::TitleIndex(TitleAdapter_GetActiveTitle());
+            if (seatTitle >= 0)
+                for (unsigned action = 0; action < vr_mapping::Count; ++action)
+                    bBound = bBound || vr_mapping::Resolve(static_cast<vr_mapping::Action>(action),
+                                                           g_config.vr_bindings[seatTitle][action]) == vr_mapping::B;
+            const vehicle_seat_buttons::RightB rightB =
+                vehicle_seat_buttons::RightBFor(g_config.vr_action_mapping, bBound);
             vehicle_seat_buttons::Requests asked;
             {
                 // The clock is read under the lock, so the polls the state machine sees are in time order.
                 std::lock_guard<std::mutex> lock(g_seatButtonsLock);
                 asked = g_seatButtons.Step(buttons, live, passenger, GetTickCount64(),
-                                           vehicle_seat_buttons::kDefaultHoldMs);
+                                           vehicle_seat_buttons::kDefaultHoldMs, rightB);
             }
 #if HALOMCCVR_DEV_DIAGNOSTICS
             static std::atomic<bool> seatBWas{false};
             const bool seatB = live && rawPadB;
             if (seatB != seatBWas.exchange(seatB, std::memory_order_relaxed) && seatB)
                 LOG("Vehicle cameras (dev): right B pressed in the seat; handed to the game as %s",
-                    buttons.x ? "use (left X's job)" : "nothing (the pause chord)");
+                    buttons.b ? "its own B" : (buttons.x ? "use (left X's job)" : "nothing (the pause chord)"));
 #endif
             if (live)
             {

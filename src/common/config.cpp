@@ -1560,6 +1560,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.vehicle_camera_note = note < 0 || note > 2 ? 1 : note;
             continue;
         }
+        if (!strcmp(key, "vehicle_aim_marker"))
+        {
+            g_config.vehicle_aim_marker = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "vehicle_control"))
         {
             const int mode = atoi(val);
@@ -2994,6 +2999,15 @@ void ConfigSave()
     fprintf(f, "# cannot take the note, and in co-op.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_camera_note);
     fprintf(f, "vehicle_camera_note = %d\n\n", g_config.vehicle_camera_note);
+    fprintf(f, "# With vehicle cameras on: a purple ring where the VEHICLE is aiming,\n");
+    fprintf(f, "# beside the crosshair that shows where your hand points. In a mode\n");
+    fprintf(f, "# where your view turns with the vehicle it is where the view comes to\n");
+    fprintf(f, "# rest: aim at it to keep going straight without turning. Each seat,\n");
+    fprintf(f, "# camera and tethering mode can turn it on or off with \"aimMarker\" in\n");
+    fprintf(f, "# halomccvr_vehicle_cameras.json (the built-in cameras show it only in\n");
+    fprintf(f, "# their Tethered modes). 0 = never shown, whatever the file says.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_aim_marker ? 1 : 0);
+    fprintf(f, "vehicle_aim_marker = %d\n\n", g_config.vehicle_aim_marker ? 1 : 0);
     fprintf(f, "# How you control a vehicle seat (Halo 3 for now). This is apart from\n");
     fprintf(f, "# how your view turns: each works with a view the world holds still\n");
     fprintf(f, "# and with one that turns with the vehicle.\n");

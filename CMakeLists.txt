@@ -843,6 +843,12 @@ if(BUILD_TESTING)
     target_compile_options(halomccvr_vehicle_seat_buttons_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_vehicle_seat_buttons_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_vehicle_seat_buttons_tests COMMAND halomccvr_vehicle_seat_buttons_tests)
+    # The ring where the vehicle aims, beside the crosshair: its picture, colour, direction, range and size
+    # (src/common/vehicle_aim_marker_logic.h).
+    add_executable(halomccvr_vehicle_aim_marker_tests tests/vehicle_aim_marker_tests.cpp)
+    target_compile_options(halomccvr_vehicle_aim_marker_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_vehicle_aim_marker_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_vehicle_aim_marker_tests COMMAND halomccvr_vehicle_aim_marker_tests)
     add_executable(halomccvr_halo4_vehicle_input_tests tests/halo4_vehicle_input_tests.cpp)
     target_compile_definitions(halomccvr_halo4_vehicle_input_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_halo4_vehicle_input_tests COMMAND halomccvr_halo4_vehicle_input_tests)
