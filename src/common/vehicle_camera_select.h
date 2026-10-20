@@ -36,6 +36,7 @@ struct ActiveCamera
     float collideMarginCm = 0.0f;
     float lagSeconds = 0.0f; // vehicle_camera_file::LagSecondsOf: 0 = rigid
     float lagDamping = 1.0f;
+    float boomPitchDeg = vehicle_camera_file::kBoomPitchUnset; // the camera's "boomPitch"
     bool aimMarker = false;  // vehicle_camera_file::EffectiveAimMarker: the ring where the vehicle aims
     int camera = 0, cameraCount = 0;
     int mode = 0, modeCount = 0;
@@ -86,6 +87,15 @@ public:
     bool MemoryDirty() const noexcept { return memoryDirty_; }
     void MemorySaved() noexcept { memoryDirty_ = false; }
 
+    // THE PLAYER'S BOOM ANGLE for the camera in use (vehicle_boom_logic.h): degrees above level, kept per game,
+    // vehicle, seat and camera with the rest of the seat memory, on lines of their own (a build that does not know
+    // them skips them). False: none is kept, and the camera's own start applies.
+    bool BoomPitch(float& degrees) const;
+    // Keeps `degrees` for the camera in use. `isDefault`: it is where the camera starts anyway, so nothing is kept,
+    // and anything kept is forgotten.
+    void SetBoomPitch(float degrees, bool isDefault);
+    int BoomKept() const noexcept { return static_cast<int>(boom_.size()); }
+
     const ActiveCamera& Active() const noexcept { return active_; }
     // One line for the log, empty when nothing is selected:
     //   Warthog gunner (Gunner): camera 2 of 3 "Behind", mode 1 of 2 "Untethered", chase from vehicle,
@@ -123,9 +133,12 @@ private:
     void Remember();
     // Per game, vehicle and seat: not per entry, so one "default" entry still keeps each vehicle's own choice.
     std::string MemoryKey() const;
+    // The boom's: the seat's key, the entry and the camera in use (by its name, else its number).
+    std::string BoomKey() const;
 
     vehicle_camera_file::Table table_ = vehicle_camera_file::DefaultTable();
     std::map<std::string, Remembered> memory_;
+    std::map<std::string, float> boom_;
     bool memoryDirty_ = false;
     std::string gameKey_;
     std::string vehicleName_;

@@ -169,26 +169,27 @@ static void TestThirdPersonRest()
     State state;
     float point[3]{};
 
-    // The vehicle faces +Y; the game's camera turns about a point above it and rests 2 world units behind.
+    // The vehicle faces +Y; the game's camera turns about a point above it and stands 2 world units behind.
     Inputs in = At(10.0f, 20.0f, 3.0f, kQuarterTurn, 0.0f, 0.0f);
     in.restValid = true;
     in.rest[0] = 10.0f;
     in.rest[1] = 20.5f;
     in.rest[2] = 4.0f;
-    in.restDistance = 2.0f;
+    in.restOffset[0] = -2.0f;
     Check(Place(camera, in, state, point), "a camera at the game's own third-person place");
-    Check(Near3(point, 10.0f, 18.5f, 4.0f), "rests the game's own distance behind the game's own turning point");
+    Check(Near3(point, 10.0f, 18.5f, 4.0f), "stands where the game's own stands from its own turning point");
     Check(!state.standIn, "and that is not the stand-in");
 
-    // Part of the game's distance is height: its camera stands above the point it turns about when it looks
-    // level. The camera stands that high, and behind by the rest of the distance.
-    in.restRise = 1.2f;
-    Check(Place(camera, in, state, point) && Near3(point, 10.0f, 18.9f, 5.2f),
-          "the game's own height above its turning point, and the rest of its distance behind");
-    in.restRise = 5.0f;
-    Check(Place(camera, in, state, point) && Near3(point, 10.0f, 20.5f, 6.0f),
-          "a height of more than the whole distance is the whole distance, straight up");
-    in.restRise = 0.0f;
+    // The boom's place is behind, to the side and above the turning point, along the carrier: forward, LEFT, up.
+    // The vehicle faces +Y, so its left is -X.
+    in.restOffset[0] = -1.6f;
+    in.restOffset[1] = 0.25f;
+    in.restOffset[2] = 1.2f;
+    Check(Place(camera, in, state, point) && Near3(point, 9.75f, 18.9f, 5.2f),
+          "behind, to the left and above its turning point, as the boom says");
+    in.restOffset[0] = in.restOffset[1] = in.restOffset[2] = 0.0f;
+    Check(Place(camera, in, state, point) && state.standIn, "no place from the turning point is no resting place");
+    in.restOffset[0] = -2.0f;
 
     camera.offsetCm[0] = 100.0f;
     camera.offsetCm[2] = 50.0f;
@@ -208,9 +209,9 @@ static void TestThirdPersonRest()
           "gets the mod's stand-in behind and above the vehicle's origin");
     Check(state.standIn, "and the caller is told");
     in.restValid = true;
-    in.restDistance = 0.0f;
-    Check(Place(camera, in, state, point) && state.standIn, "a distance of nothing is no resting place either");
-    in.restDistance = 2.0f;
+    in.restOffset[0] = std::numeric_limits<float>::quiet_NaN();
+    Check(Place(camera, in, state, point) && state.standIn, "a place that is not a number is no resting place either");
+    in.restOffset[0] = -2.0f;
     Check(Place(camera, in, state, point) && !state.standIn, "and a place given again is used again");
 }
 

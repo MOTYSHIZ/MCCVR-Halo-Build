@@ -43,9 +43,10 @@ enum class CameraType : uint8_t { Chase = 0, FirstPerson = 1 };
 // Where a camera's offset is measured FROM: the vehicle's own origin, the seat the player sits in, the seated
 // character's head, or -- any other name in the file -- a marker or node of the vehicle, so a camera can ride a
 // part that turns on its own (a turret). A marker that is not found falls back to the vehicle's origin.
-// ThirdPerson ("thirdperson") is where the GAME'S OWN third-person camera rests for the seat: the point it
-// turns about and its own distance behind, so a zero offset is the view the game gives that vehicle, whatever
-// its size. It is what a vehicle nobody wrote an entry for gets.
+// ThirdPerson ("thirdperson") is where the GAME'S OWN third-person camera stands for the seat: the point it
+// turns about, and where it stands from that point at the boom's angle ("boomPitch", vehicle_boom_logic.h), so a
+// zero offset is the view the game gives that vehicle, whatever its size, without its swing with the aim. It is
+// what a vehicle nobody wrote an entry for gets.
 enum class Origin : uint8_t { Vehicle = 0, Seat = 1, Head = 2, Marker = 3, ThirdPerson = 4 };
 
 // THE LEASH ("leashMin" / "leashMax"): a box the player's HEAD stays inside, in the same space as "offset" --
@@ -88,6 +89,16 @@ inline constexpr float kMaxLagSeconds = 5.0f;
 inline constexpr float kMinLagDamping = 0.1f;
 inline constexpr float kMaxLagDamping = 2.0f;
 
+// THE BOOM ("boomPitch", vehicle_boom_logic.h): for a camera where the game's own rests, the angle in degrees above
+// level at which it first stands from the game's pivot; the right stick then raises and lowers it. Unset (null in
+// the file, or left out): where the game's own camera stands looking level, a little higher.
+inline constexpr float kBoomPitchUnset = -1000.0f;
+inline constexpr float kMaxBoomPitch = 89.0f;
+inline bool BoomPitchSet(float degrees) noexcept
+{
+    return degrees >= -kMaxBoomPitch && degrees <= kMaxBoomPitch;
+}
+
 struct Camera
 {
     std::string name; // optional; an unnamed camera is shown by its number
@@ -112,6 +123,7 @@ struct Camera
     // slower to settle; < 0 = not set (LagDampingOf).
     float lag = -1.0f;
     float lagDamping = -1.0f;
+    float boomPitch = kBoomPitchUnset; // "boomPitch": degrees above level, or unset
     // "aimMarker": the ring where the vehicle aims (vehicle_aim_marker_logic.h) in this camera. -1 = the seat's.
     int aimMarker = -1;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
