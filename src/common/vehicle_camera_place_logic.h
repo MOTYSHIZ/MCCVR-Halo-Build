@@ -24,15 +24,13 @@ struct Inputs
     float seat[3]{};
     bool headValid = false;
     float head[3]{};
-    // Where the game's own third-person camera rests for this seat ("origin": "thirdperson"): the point it
-    // turns about, its own distance from that point in world units, and how much of that distance is height
-    // above the point (a game's chase camera looking level usually stands above the point it turns about; the
-    // rest of the distance is behind). A game that cannot say leaves restValid false, and such a camera then
-    // stands behind the vehicle's origin at a distance of the mod's own.
+    // Where the game's own third-person camera stands for this seat ("origin": "thirdperson"): the point it
+    // turns about, and where it stands from that point -- world units along the carrier's forward, LEFT and up --
+    // at the boom's angle (vehicle_boom_logic.h), never at the aim's. A game that cannot say leaves restValid
+    // false, and such a camera then stands behind the vehicle's origin at a distance of the mod's own.
     bool restValid = false;
     float rest[3]{};
-    float restDistance = 0.0f;
-    float restRise = 0.0f;
+    float restOffset[3]{};
     // The heading the player's room faces (the stick turns it; his head does not): what an orbiting camera
     // ("locationTracking": "view") rides.
     float viewYaw = 0.0f;
@@ -62,7 +60,7 @@ inline bool Finite3(const float v[3]) noexcept
 // What else a placement settled, for a caller that needs it: the point the camera is measured from (its origin,
 // as this frame resolved it -- a camera pulled in from a wall moves toward it), the frame its offset was laid out
 // in, and the offset as laid out, in cm along that frame's forward, right and up (a "thirdperson" camera's
-// includes the game's own distance behind).
+// includes where the game's own stands from its pivot).
 struct Placed
 {
     float pivot[3]{};
@@ -88,17 +86,16 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
     switch (static_cast<Origin>(camera.origin))
     {
     case Origin::ThirdPerson:
-        // The game's own distance from its own turning point, laid along whatever carries this camera's offset:
-        // its height above the point, and the rest of it behind. So the camera rests where the game's does when
-        // it looks level, and does not swing with the aim as the game's does.
-        if (in.restValid && Finite3(in.rest) && std::isfinite(in.restDistance) && in.restDistance > 0.0f)
+        // Where the game's camera stands from its own turning point at the boom's angle, laid along whatever
+        // carries this camera's offset. So the camera stands where the game's would at that look pitch, and does
+        // not swing with the aim as the game's does.
+        if (in.restValid && Finite3(in.rest) && Finite3(in.restOffset) &&
+            vehicle_camera_frame::Dot(in.restOffset, in.restOffset) > 1.0e-8f)
         {
-            float rise = std::isfinite(in.restRise) ? in.restRise : 0.0f;
-            rise = rise > in.restDistance ? in.restDistance : (rise < -in.restDistance ? -in.restDistance : rise);
-            const float back = std::sqrt(in.restDistance * in.restDistance - rise * rise);
             origin = in.rest;
-            offsetCm[0] -= back / vehicle_camera_frame::kWorldUnitsPerCm;
-            offsetCm[2] += rise / vehicle_camera_frame::kWorldUnitsPerCm;
+            offsetCm[0] += in.restOffset[0] / vehicle_camera_frame::kWorldUnitsPerCm;
+            offsetCm[1] -= in.restOffset[1] / vehicle_camera_frame::kWorldUnitsPerCm;
+            offsetCm[2] += in.restOffset[2] / vehicle_camera_frame::kWorldUnitsPerCm;
         }
         else
         {

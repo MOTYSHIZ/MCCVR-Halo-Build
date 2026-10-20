@@ -23,6 +23,13 @@
 // Not applied in this game yet: rotationTracking roll, pitch without yaw, the leash, collide, and an origin
 // naming a marker (the vehicle's origin stands in). The cold worker says so in the log for a camera that asks
 // for one.
+//
+// THE THIRD-PERSON BOOM (vehicle_boom_logic.h; halo3_vehicle_boom.inl reads the game's side). A camera of origin
+// "thirdperson" stands where the game's own third-person camera would stand at a look pitch of the boom's own --
+// never the aim's. The cold worker works out the seat's shape (the game's camera track across the flat game's look
+// range, or an orbit of the pivot where the track cannot be read) and where the boom starts, and keeps the player's
+// angle per seat and camera; the camera thread moves it with the right stick's Y, which the input hook hands over
+// only where that axis aims nothing (Motion, the wheel), and puts it back on the hold that re-centres the view.
 
 const char* Halo3VehicleIdName(uint32_t id);
 const char* Halo3SeatVehicleName(uint32_t identity, uint32_t defIndex, char (&buffer)[24]);
@@ -102,6 +109,51 @@ vehicle_control::Mode VehicleControlModeNow()
     const int effective = g_vehicleControlEffective.load(std::memory_order_acquire);
     return vehicle_control::FromConfig(effective >= 0 ? effective : g_config.vehicle_control);
 }
+
+// ---- the boom's shared state ----
+// The cold worker's: the seat's boom, for the camera thread. One writer; `serial` moves with every publication.
+struct VehicleBoomPublished
+{
+    std::atomic<uint32_t> seq{0}; // even = stable
+    std::atomic<uint32_t> serial{0};
+    VehicleCameraSeatKey seat{};
+    int camera = -1;          // the camera (ActiveCamera::camera) it is for
+    uint32_t startSerial = 0; // moved: the boom starts over at `start`
+    float start = 0.0f;       // look pitch, radians
+    float home = 0.0f;        // the camera's own start, where a re-centre puts it
+    vehicle_boom::Shape shape{};
+};
+VehicleBoomPublished g_vehicleBoomPublished;
+// The stick's Y is inverted for the boom in the seat the player is in (cold worker, every poll).
+std::atomic<bool> g_vehicleBoomInverted{false};
+// The input hook's: the right stick's Y while the boom has it, and when it was handed over.
+std::atomic<float> g_vehicleBoomStick{0.0f};
+std::atomic<uint64_t> g_vehicleBoomStickMs{0};
+inline constexpr uint64_t kVehicleBoomStickFreshMs = 100;
+// Re-centre asks: the hold that re-centres the view, and the menu's button.
+std::atomic<uint32_t> g_vehicleBoomRecenter{0};
+// The camera thread's: when a boom last placed the camera, for the input hook's question.
+std::atomic<uint64_t> g_vehicleBoomLiveMs{0};
+inline constexpr uint64_t kVehicleBoomLiveMs = 200;
+// The camera thread's boom as it stands, and the game's own camera as it stood, for the cold worker to keep, show
+// and check. One writer.
+struct VehicleBoomCurrent
+{
+    std::atomic<uint32_t> seq{0};
+    uint32_t serial = 0; // the publication it moves (0: the stand-in orbit)
+    float pitch = 0.0f;
+    bool sampled = false;
+    uint64_t ms = 0;  // when
+    float stood[3]{}; // the game's camera from its pivot, world units
+    float looks[3]{}; // the way it looks
+};
+VehicleBoomCurrent g_vehicleBoomCurrent;
+// For the menu (cold worker): bit 0 a boom is in use, bit 1 from the game's track, bit 2 inverted; its angle and
+// the angles it reaches, degrees above level.
+std::atomic<uint32_t> g_vehicleBoomShown{0};
+std::atomic<float> g_vehicleBoomShownDeg{0.0f};
+std::atomic<float> g_vehicleBoomShownLowDeg{0.0f};
+std::atomic<float> g_vehicleBoomShownHighDeg{0.0f};
 
 void VehicleCameraSetReadout(const std::string& text)
 {
@@ -268,13 +320,134 @@ bool Halo3ReadObserverCamera(float position[3], float focus[3], float* forward =
     return true;
 }
 
-// WHERE THE GAME'S OWN THIRD-PERSON CAMERA RESTS in the seat ("origin": "thirdperson"). The game's camera
-// swings about its pivot with the aim; where it RESTS is that pivot, its distance from it, and its height above
-// it when it looks level (measured headless in a Mongoose: 474 cm from the pivot, 151 cm of that above it,
-// looking level). The distance is the furthest the game's camera has stood off in this seat while looking within
-// kHalo3RestLevelSin of level: the game pulls its camera in from walls and through its change of view, the
-// furthest it stands is the distance it means, and how high it stands depends on where the player aims. Until it
-// has looked level, the furthest it has stood at any aim is used. Camera thread.
+// THE BOOM ON THE CAMERA THREAD: the seat's publication it holds, and its look pitch.
+struct Halo3BoomCamera
+{
+    VehicleCameraSeatKey seat{};
+    int camera = -1;
+    uint32_t serial = 0;     // the last publication seen
+    uint32_t heldSerial = 0; // the one held: another seat's may have been seen since
+    uint32_t startSerial = 0;
+    bool held = false;   // a publication for this seat and camera
+    bool local = false;  // none came in time: the stand-in orbit
+    float home = 0.0f;
+    float pitch = 0.0f;
+    vehicle_boom::Shape shape{};
+    uint32_t recenterSeen = 0;
+    LARGE_INTEGER at{};
+};
+Halo3BoomCamera g_halo3BoomCamera;
+
+// Camera thread: the publication for this seat and camera into the boom, when there is a new one. One load while
+// nothing changed.
+void Halo3BoomTake(const VehicleCameraSeatKey& seat, int camera)
+{
+    Halo3BoomCamera& boom = g_halo3BoomCamera;
+    if (!(boom.seat == seat) || boom.camera != camera)
+    {
+        boom.seat = seat;
+        boom.camera = camera;
+        boom.held = boom.local = false;
+        boom.serial = 0;
+        boom.at.QuadPart = 0;
+        boom.recenterSeen = g_vehicleBoomRecenter.load(std::memory_order_relaxed);
+    }
+    const VehicleBoomPublished& published = g_vehicleBoomPublished;
+    const uint32_t serial = published.serial.load(std::memory_order_acquire);
+    if (!serial || serial == boom.serial)
+        return;
+    static vehicle_boom::Shape shape; // camera thread only
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = published.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const VehicleCameraSeatKey forSeat = published.seat;
+        const int forCamera = published.camera;
+        const uint32_t startSerial = published.startSerial;
+        const float start = published.start;
+        const float home = published.home;
+        memcpy(&shape, &published.shape, sizeof(shape));
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (published.seq.load(std::memory_order_relaxed) != before ||
+            published.serial.load(std::memory_order_relaxed) != serial)
+            continue;
+        boom.serial = serial;
+        if (!(forSeat == seat) || forCamera != camera || !shape.valid)
+            return;
+        const bool restart = !boom.held || boom.startSerial != startSerial;
+        memcpy(&boom.shape, &shape, sizeof(shape));
+        boom.home = home;
+        boom.pitch = restart ? start : vehicle_boom::Hold(boom.pitch, boom.shape.range);
+        boom.startSerial = startSerial;
+        boom.heldSerial = serial;
+        boom.held = true;
+        boom.local = false;
+        return;
+    }
+}
+
+// Camera thread: no publication in time for this seat. The boom orbits the pivot within the flat game's own range,
+// from the built-in start, until one comes.
+void Halo3BoomStandIn()
+{
+    static vehicle_boom::Shape orbit; // camera thread only
+    if (!orbit.valid)
+        vehicle_boom::BuildOrbitShape(vehicle_boom::Range{}, orbit);
+    Halo3BoomCamera& boom = g_halo3BoomCamera;
+    memcpy(&boom.shape, &orbit, sizeof(orbit));
+    boom.home = vehicle_boom::PitchForElevation(orbit, vehicle_boom::DefaultElevation(orbit, vehicle_boom::kBoomPitchUnset));
+    boom.pitch = boom.home;
+    boom.local = true;
+}
+
+// Camera thread: one step of the boom with the stick, and the re-centre.
+void Halo3BoomStep()
+{
+    Halo3BoomCamera& boom = g_halo3BoomCamera;
+    static LARGE_INTEGER frequency{};
+    if (!frequency.QuadPart)
+        QueryPerformanceFrequency(&frequency);
+    LARGE_INTEGER now{};
+    QueryPerformanceCounter(&now);
+    const float seconds = boom.at.QuadPart && frequency.QuadPart
+        ? static_cast<float>(static_cast<double>(now.QuadPart - boom.at.QuadPart) / static_cast<double>(frequency.QuadPart))
+        : 0.0f;
+    boom.at = now;
+    const uint32_t recenter = g_vehicleBoomRecenter.load(std::memory_order_relaxed);
+    if (recenter != boom.recenterSeen)
+    {
+        boom.recenterSeen = recenter;
+        boom.pitch = boom.home;
+    }
+    const uint64_t stickMs = g_vehicleBoomStickMs.load(std::memory_order_acquire);
+    const float stick = stickMs && GetTickCount64() - stickMs <= kVehicleBoomStickFreshMs
+        ? g_vehicleBoomStick.load(std::memory_order_relaxed)
+        : 0.0f;
+    boom.pitch = vehicle_boom::Step(boom.pitch, stick, seconds, g_config.vehicle_boom_rate_deg_s,
+                                    g_vehicleBoomInverted.load(std::memory_order_relaxed), boom.shape.range);
+}
+
+// Camera thread: the boom and the game's own camera this frame, for the cold worker.
+void Halo3BoomPublishCurrent(bool sampled, const float stood[3], const float looks[3])
+{
+    VehicleBoomCurrent& current = g_vehicleBoomCurrent;
+    current.seq.fetch_add(1, std::memory_order_acq_rel);
+    current.serial = g_halo3BoomCamera.held ? g_halo3BoomCamera.heldSerial : 0u;
+    current.pitch = g_halo3BoomCamera.pitch;
+    current.sampled = sampled;
+    current.ms = GetTickCount64();
+    memcpy(current.stood, stood, sizeof(current.stood));
+    memcpy(current.looks, looks, sizeof(current.looks));
+    current.seq.fetch_add(1, std::memory_order_release);
+}
+
+// WHERE THE GAME'S OWN THIRD-PERSON CAMERA STANDS in the seat ("origin": "thirdperson"). Its pivot is the game's,
+// read every frame; where the camera stands from it is the boom's (Halo3BoomTake). The distance the game's camera
+// stands off is still sampled: an orbiting boom (no track) stands that far out, and the log says it. It is the
+// furthest the game's camera has stood in this seat while looking within kHalo3RestLevelSin of level: the game pulls
+// its camera in from walls and through its change of view, and the furthest it stands is the distance it means.
+// Until it has looked level, the furthest it has stood at any aim is used. Camera thread.
 struct Halo3VehicleCameraRest
 {
     VehicleCameraSeatKey seat{};
@@ -300,9 +473,9 @@ inline constexpr float kHalo3RestPivotReachWu = 10.0f; // a pivot further than t
 inline constexpr uint32_t kHalo3RestWaitFrames = 45;
 inline constexpr float kHalo3RestLevelSin = 0.26f; // within about 15 degrees of level
 
-// Fills `in` with the resting place. False: not known YET, and the seat keeps the view it has for this frame.
-// True with in.restValid false: it could not be read at all, and the caller's stand-in applies.
-bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camera_place::Inputs& in)
+// Fills `in` with the place. False: not known YET, and the seat keeps the view it has for this frame. True with
+// in.restValid false: it could not be read at all, and the caller's stand-in applies.
+bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, int camera, vehicle_camera_place::Inputs& in)
 {
     Halo3VehicleCameraRest& rest = g_halo3VehicleCameraRest;
     if (!(rest.seat == seat))
@@ -318,9 +491,11 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
                                       about[2] - in.vehicleOrigin[2]};
         observed = vehicle_camera_frame::Dot(fromVehicle, fromVehicle) <= kHalo3RestPivotReachWu * kHalo3RestPivotReachWu;
     }
+    float stood[3]{};
     if (observed)
     {
-        const float stood[3] = {at[0] - about[0], at[1] - about[1], at[2] - about[2]};
+        for (int axis = 0; axis < 3; ++axis)
+            stood[axis] = at[axis] - about[axis];
         const float distance = sqrtf(vehicle_camera_frame::Dot(stood, stood));
         const float lookUp = vehicle_camera_frame::Dot(looks, in.vehicle.up);
         const bool level = std::fabs(lookUp) <= kHalo3RestLevelSin;
@@ -343,14 +518,25 @@ bool Halo3VehicleCameraRestPlace(const VehicleCameraSeatKey& seat, vehicle_camer
                                                     std::memory_order_relaxed);
         }
     }
-    if (observed && rest.distance >= kHalo3RestKnownWu)
+    // THE BOOM: the publication for this seat, else -- once the wait is over -- the stand-in orbit.
+    Halo3BoomTake(seat, camera);
+    Halo3BoomCamera& boom = g_halo3BoomCamera;
+    if (!boom.held && !boom.local && rest.waited >= kHalo3RestWaitFrames)
+        Halo3BoomStandIn();
+    if (observed && (boom.held || boom.local))
     {
-        in.restValid = true;
-        memcpy(in.rest, about, sizeof(in.rest));
-        in.restDistance = rest.distance;
-        in.restRise = std::isfinite(rest.rise) ? rest.rise : 0.0f;
-        g_halo3VehicleCameraRestWu.store(rest.distance, std::memory_order_relaxed);
-        return true;
+        Halo3BoomStep();
+        Halo3BoomPublishCurrent(true, stood, looks);
+        // An orbit stands as far out as the game's camera does, so it waits for that; a track has its own.
+        if (boom.shape.track || rest.distance >= kHalo3RestKnownWu)
+        {
+            in.restValid = true;
+            memcpy(in.rest, about, sizeof(in.rest));
+            vehicle_boom::Offset(boom.shape, boom.pitch, rest.distance, in.restOffset);
+            g_halo3VehicleCameraRestWu.store(rest.distance, std::memory_order_relaxed);
+            g_vehicleBoomLiveMs.store(GetTickCount64(), std::memory_order_release);
+            return true;
+        }
     }
     if (rest.waited < kHalo3RestWaitFrames)
     {
@@ -396,7 +582,7 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
     memcpy(in.head, seat.anchor, sizeof(in.head));
     in.viewYaw = viewYaw;
     if (camera.origin == static_cast<uint8_t>(vehicle_camera_file::Origin::ThirdPerson) &&
-        !Halo3VehicleCameraRestPlace(key, in))
+        !Halo3VehicleCameraRestPlace(key, camera.camera, in))
         return false;
 
     float point[3];
@@ -542,7 +728,7 @@ bool Halo3VehicleCameraPublishedPoint(float out[3])
 // a look-steered ground vehicle, where the wheel can be taken.
 enum class VehicleCameraSeatRead { OnFoot, Seated, Unknown };
 VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const char*& name, uint8_t& seatBits,
-                                             bool& seatView, bool& wheelSeat)
+                                             bool& seatView, bool& wheelSeat, uint32_t& definitionIndex)
 {
     if (!Halo3VehicleFpActive())
         return VehicleCameraSeatRead::OnFoot;
@@ -563,6 +749,7 @@ VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const ch
                                              turret || seat.mounted);
     seatView = Halo3FindSeatPoint(id, seat.seatIndex, seat.mounted) != nullptr;
     wheelSeat = Halo3SeatAuthorsSteering(id, seat.seatIndex, seat.mounted, true) && Halo3VehicleUsesWheel(id);
+    definitionIndex = seat.definitionIndex;
     return VehicleCameraSeatRead::Seated;
 }
 
@@ -668,8 +855,257 @@ struct VehicleCameraRuntime
     float restLoggedWu = 0.0f;
     float restSeenWu = 0.0f;
     uint32_t heldFramesStint = 0;
+    // THE BOOM, as the cold worker last published it.
+    struct Boom
+    {
+        bool published = false;
+        VehicleCameraSeatKey seat{};
+        int camera = -1;
+        uint32_t definitionIndex = 0xFFFFFFFFu;
+        uint32_t generation = 0; // the game side's (halo3_vehicle_boom.inl)
+        float fileDegrees = vehicle_camera_file::kBoomPitchUnset;
+        uint32_t serial = 0, startSerial = 0;
+        float start = 0.0f, home = 0.0f;
+        vehicle_boom::Shape shape{};
+        Halo3BoomSeatFacts facts{};
+        bool piloting = false;
+        std::string seatName;
+        // The log's check of the track against the game's own camera.
+        uint64_t publishedMs = 0;
+        bool checkLogged = false;
+        uint32_t checkSamples = 0;
+        float bestApart = 1.0e9f, bestApartSecond = 1.0e9f, bestPitch = 0.0f, bestStood = 0.0f, bestTrack = 0.0f;
+    } boom;
+    int boomInversionLogged = -100;
 };
 inline constexpr uint64_t kVehicleCameraFilePollMs = 2000;
+
+// ---- the boom on the cold worker ----
+
+// The log's check of the track: where the game's own camera stood from its pivot (world units) and the way it
+// looked, against where the track puts it at that look pitch. Centimetres apart; false when there is nothing to
+// compare.
+bool VehicleBoomTrackApart(const vehicle_boom::Track& track, const float stood[3], const float looks[3], float& apart,
+                           float& pitch, float& stoodCm, float& trackCm)
+{
+    if (!vehicle_boom::Usable(track))
+        return false;
+    float heading[2] = {looks[0], looks[1]};
+    const float level = std::sqrt(heading[0] * heading[0] + heading[1] * heading[1]);
+    if (!std::isfinite(level) || level < 0.05f)
+        return false;
+    heading[0] /= level;
+    heading[1] /= level;
+    pitch = std::asin(looks[2] < -1.0f ? -1.0f : (looks[2] > 1.0f ? 1.0f : looks[2]));
+    const float measured[3] = {stood[0] * heading[0] + stood[1] * heading[1],
+                               -stood[0] * heading[1] + stood[1] * heading[0], stood[2]};
+    float place[3];
+    if (!vehicle_boom::TrackOffset(track, pitch, place))
+        return false;
+    const float d[3] = {measured[0] - place[0], measured[1] - place[1], measured[2] - place[2]};
+    apart = std::sqrt(vehicle_camera_frame::Dot(d, d)) / vehicle_camera_frame::kWorldUnitsPerCm;
+    stoodCm = std::sqrt(vehicle_camera_frame::Dot(measured, measured)) / vehicle_camera_frame::kWorldUnitsPerCm;
+    trackCm = std::sqrt(vehicle_camera_frame::Dot(place, place)) / vehicle_camera_frame::kWorldUnitsPerCm;
+    return std::isfinite(apart);
+}
+
+void VehicleBoomCheckLog(VehicleCameraRuntime& r)
+{
+    VehicleCameraRuntime::Boom& b = r.boom;
+    if (b.checkLogged || !b.checkSamples || !b.shape.track)
+        return;
+    b.checkLogged = true;
+    char second[96] = "";
+    if (b.bestApartSecond < 1.0e8f)
+        std::snprintf(second, sizeof(second), "; by the seat's second track, %.1f cm",
+                      static_cast<double>(b.bestApartSecond));
+    LOG("Vehicle cameras (Halo 3): the boom's track checked against the game's own camera in %s: of %u samples the "
+        "closest stood %.0f cm from its pivot looking %.1f deg, where the track puts it %.0f cm out, %.1f cm apart%s",
+        b.seatName.c_str(), b.checkSamples, static_cast<double>(b.bestStood),
+        static_cast<double>(b.bestPitch / vehicle_boom::kRadiansPerDegree), static_cast<double>(b.bestTrack),
+        static_cast<double>(b.bestApart), second);
+}
+
+// Cold worker, every poll. `wanted`: a camera of origin "thirdperson" is in use in a Halo 3 seat; `seated`: this
+// poll's seat could be read (an unreadable poll keeps the boom as it is).
+void VehicleBoomColdTick(VehicleCameraRuntime& r, const vehicle_camera_select::ActiveCamera& active, bool wanted,
+                         bool seated, uint32_t definitionIndex, const char* name, uint64_t nowMs)
+{
+    VehicleCameraRuntime::Boom& b = r.boom;
+    const auto publish = [&]() {
+        VehicleBoomPublished& published = g_vehicleBoomPublished;
+        published.seq.fetch_add(1, std::memory_order_acq_rel);
+        published.seat = b.seat;
+        published.camera = b.camera;
+        published.startSerial = b.startSerial;
+        published.start = b.start;
+        published.home = b.home;
+        memcpy(&published.shape, &b.shape, sizeof(published.shape));
+        published.serial.store(++b.serial, std::memory_order_relaxed);
+        published.seq.fetch_add(1, std::memory_order_release);
+    };
+    if (!wanted)
+    {
+        if (b.published)
+        {
+            VehicleBoomCheckLog(r);
+            b.published = false;
+            b.shape = vehicle_boom::Shape{};
+            publish();
+            g_vehicleBoomShown.store(0, std::memory_order_release);
+        }
+        return;
+    }
+    if (!seated)
+        return;
+
+    const uint32_t generation = g_halo3VehicleBoom.generation.load(std::memory_order_acquire);
+    const bool newCamera = !b.published || !(b.seat == r.seat) || b.camera != active.camera ||
+                           b.definitionIndex != definitionIndex || b.generation != generation;
+    const bool newStart = newCamera || b.fileDegrees != active.boomPitchDeg;
+    if (newStart)
+    {
+        if (newCamera)
+        {
+            VehicleBoomCheckLog(r);
+            const uint32_t serial = b.serial, startSerial = b.startSerial;
+            b = VehicleCameraRuntime::Boom{};
+            b.serial = serial;
+            b.startSerial = startSerial;
+            b.seat = r.seat;
+            b.camera = active.camera;
+            b.definitionIndex = definitionIndex;
+            b.generation = generation;
+            b.seatName = name && name[0] ? name : "this seat";
+            const bool read = Halo3VehicleBoomReadSeat(definitionIndex, r.seat.seatIndex, b.facts);
+            const vehicle_boom::Range range = Halo3VehicleBoomRange(b.facts);
+            if (!read || !vehicle_boom::BuildTrackShape(b.facts.track, range, b.shape))
+                vehicle_boom::BuildOrbitShape(range, b.shape);
+            b.piloting = Halo3VehicleBoomPiloting(b.facts);
+        }
+        b.fileDegrees = active.boomPitchDeg;
+        b.home = vehicle_boom::PitchForElevation(b.shape, vehicle_boom::DefaultElevation(b.shape, b.fileDegrees));
+        float kept = 0.0f;
+        const bool remembered = r.selector.BoomPitch(kept);
+        // A new camera starts where the player left it, else at its own start. A camera file edited while seated
+        // moves the start only of a boom the player has not moved.
+        if (newCamera || !remembered)
+        {
+            b.start = remembered ? vehicle_boom::PitchForElevation(b.shape, kept * vehicle_boom::kRadiansPerDegree) : b.home;
+            ++b.startSerial;
+        }
+        b.published = true;
+        b.publishedMs = nowMs;
+        publish();
+
+        const float deg = 1.0f / vehicle_boom::kRadiansPerDegree;
+        const float startDeg = vehicle_boom::ElevationAt(b.shape, b.start) * deg;
+        const float highDeg = vehicle_boom::ElevationAt(b.shape, b.shape.range.min) * deg;
+        const float lowDeg = vehicle_boom::ElevationAt(b.shape, b.shape.range.max) * deg;
+        float level[3];
+        vehicle_boom::OffsetAt(b.shape, 0.0f, level);
+        const float levelCm = std::sqrt(vehicle_camera_frame::Dot(level, level)) / vehicle_camera_frame::kWorldUnitsPerCm;
+        const char* from = remembered ? "your angle, kept" : (vehicle_camera_file::BoomPitchSet(b.fileDegrees)
+                                                                  ? "the camera file's boomPitch"
+                                                                  : "the game's level view, a little higher");
+        if (b.shape.track)
+            LOG("Vehicle cameras (Halo 3): the boom in %s stands where the game's own third-person camera would at a "
+                "look pitch of its own: the seat's camera track (%d points%s) across the flat game's look range %.1f to "
+                "%.1f deg, from %.1f deg above level looking down to %.1f deg looking up; looking level the game's "
+                "camera stands %.1f deg above level, %.0f cm out. It starts at %.1f deg (%s)",
+                b.seatName.c_str(), b.facts.track.count, b.facts.defaultTrack ? ", the game's default" : "",
+                static_cast<double>(b.shape.range.min * deg), static_cast<double>(b.shape.range.max * deg),
+                static_cast<double>(highDeg), static_cast<double>(lowDeg),
+                static_cast<double>(vehicle_boom::ElevationAt(b.shape, 0.0f) * deg),
+                static_cast<double>(levelCm), static_cast<double>(startDeg), from);
+        else
+        {
+            const char* why = !Halo3VehicleBoomBound() || !g_halo3VehicleBoom.seatCamera ? "the game's seat camera is not bound"
+                            : !b.facts.read                                             ? "the seat's tags could not be read"
+                            : !g_halo3VehicleBoom.track                                 ? "the game's camera track is not bound"
+                            : b.facts.points < vehicle_boom::kMinTrackPoints            ? "the seat camera has no track of four points"
+                            : b.facts.points > vehicle_boom::kMaxTrackPoints            ? "its track has more points than the mod reads"
+                                                                                        : "its track did not check out";
+            LOG("Vehicle cameras (Halo 3): the boom in %s orbits the game's pivot at the game's own distance (%s); look "
+                "range %.1f to %.1f deg, so from %.1f to %.1f deg above level. It starts at %.1f deg (%s)",
+                b.seatName.c_str(), why, static_cast<double>(b.shape.range.min * deg),
+                static_cast<double>(b.shape.range.max * deg), static_cast<double>(lowDeg), static_cast<double>(highDeg),
+                static_cast<double>(startDeg), from);
+        }
+    }
+
+    // THE INVERSION, every poll: the game's setting can change in its pause menu.
+    bool gameInverts = false;
+    const bool known = Halo3VehicleBoomGameInverts(b.piloting, gameInverts);
+    const int setting = g_config.vehicle_boom_invert;
+    const bool inverted = vehicle_boom::Inverted(setting, known, gameInverts);
+    g_vehicleBoomInverted.store(inverted, std::memory_order_relaxed);
+    const int said = setting == 0 || setting == 1 ? 10 + setting : (known ? (gameInverts ? 1 : 0) + (b.piloting ? 2 : 0) : -1);
+    if (said != r.boomInversionLogged)
+    {
+        r.boomInversionLogged = said;
+        if (setting == 0 || setting == 1)
+            LOG("Vehicle cameras (Halo 3): the boom's stick is %s (vehicle_boom_invert = %d)",
+                setting ? "inverted" : "not inverted", setting);
+        else if (known)
+            LOG("Vehicle cameras (Halo 3): the boom's stick follows the game's %s inversion, which is %s",
+                b.piloting && g_halo3VehicleBoom.pilot ? "flight" : "look", gameInverts ? "on" : "off");
+        else
+            LOG("Vehicle cameras (Halo 3): the game's look inversion could not be read, so the boom's stick is not "
+                "inverted (vehicle_boom_invert = 1 inverts it)");
+    }
+
+    // THE PLAYER'S ANGLE, kept for this seat and camera, and the track's check.
+    VehicleBoomCurrent current{};
+    bool fresh = false;
+    for (int attempt = 0; attempt < 3 && !fresh; ++attempt)
+    {
+        const uint32_t before = g_vehicleBoomCurrent.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        current.serial = g_vehicleBoomCurrent.serial;
+        current.pitch = g_vehicleBoomCurrent.pitch;
+        current.sampled = g_vehicleBoomCurrent.sampled;
+        current.ms = g_vehicleBoomCurrent.ms;
+        memcpy(current.stood, g_vehicleBoomCurrent.stood, sizeof(current.stood));
+        memcpy(current.looks, g_vehicleBoomCurrent.looks, sizeof(current.looks));
+        std::atomic_thread_fence(std::memory_order_acquire);
+        fresh = g_vehicleBoomCurrent.seq.load(std::memory_order_relaxed) == before;
+    }
+    float pitch = b.start;
+    if (fresh && current.serial == b.serial && std::isfinite(current.pitch))
+    {
+        pitch = vehicle_boom::Hold(current.pitch, b.shape.range);
+        const bool atHome = std::fabs(pitch - b.home) < 0.25f * vehicle_boom::kRadiansPerDegree;
+        r.selector.SetBoomPitch(vehicle_boom::ElevationAt(b.shape, pitch) / vehicle_boom::kRadiansPerDegree, atHome);
+        if (current.sampled && b.shape.track && nowMs <= current.ms + 200)
+        {
+            float apart = 0.0f, lookPitch = 0.0f, stoodCm = 0.0f, trackCm = 0.0f;
+            if (VehicleBoomTrackApart(b.facts.track, current.stood, current.looks, apart, lookPitch, stoodCm, trackCm))
+            {
+                ++b.checkSamples;
+                if (apart < b.bestApart)
+                {
+                    b.bestApart = apart;
+                    b.bestPitch = lookPitch;
+                    b.bestStood = stoodCm;
+                    b.bestTrack = trackCm;
+                }
+                float second = 0.0f;
+                if (VehicleBoomTrackApart(b.facts.second, current.stood, current.looks, second, lookPitch, stoodCm, trackCm) &&
+                    second < b.bestApartSecond)
+                    b.bestApartSecond = second;
+            }
+        }
+    }
+    if (!b.checkLogged && nowMs - b.publishedMs >= 3000)
+        VehicleBoomCheckLog(r);
+    const float deg = 1.0f / vehicle_boom::kRadiansPerDegree;
+    g_vehicleBoomShownDeg.store(vehicle_boom::ElevationAt(b.shape, pitch) * deg, std::memory_order_relaxed);
+    g_vehicleBoomShownLowDeg.store(vehicle_boom::ElevationAt(b.shape, b.shape.range.max) * deg, std::memory_order_relaxed);
+    g_vehicleBoomShownHighDeg.store(vehicle_boom::ElevationAt(b.shape, b.shape.range.min) * deg, std::memory_order_relaxed);
+    g_vehicleBoomShown.store(1u | (b.shape.track ? 2u : 0u) | (inverted ? 4u : 0u), std::memory_order_release);
+}
 
 // WaitThread, every poll. Everything slow about the feature happens here.
 void VehicleCameras_ColdTick(uint64_t nowMs)
@@ -692,6 +1128,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
             if (runtime)
             {
                 runtime->selector.Update("", false, "", 0);
+                VehicleBoomColdTick(*runtime, {}, false, false, 0xFFFFFFFFu, "", nowMs);
                 runtime->publishedCamera = {};
                 runtime->publishedSeat = {};
                 runtime->loggedLine.clear();
@@ -714,9 +1151,12 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         runtime = std::make_unique<VehicleCameraRuntime>(std::move(path), std::move(memory), std::move(tuningFile));
         std::string kept;
         if (VehicleCameraReadText(runtime->memoryPath, kept))
-            LOG("Vehicle cameras: your last camera, tethering mode and controls kept for %d seat(s), from "
-                "halomccvr_vehicle_cameras_last.txt",
-                runtime->selector.LoadMemory(kept));
+        {
+            const int seats = runtime->selector.LoadMemory(kept);
+            LOG("Vehicle cameras: your last camera, tethering mode and controls kept for %d seat(s), and your "
+                "third-person boom for %d camera(s), from halomccvr_vehicle_cameras_last.txt",
+                seats, runtime->selector.BoomKept());
+        }
         std::string tuned;
         if (VehicleCameraReadText(runtime->tuningPath, tuned))
             LOG("Vehicle cameras: your lag tuning for %d camera(s), from halomccvr_vehicle_cameras_tuning.txt",
@@ -749,11 +1189,12 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
     uint8_t seatBits = 0;
     const char* gameKey = "";
     bool seatView = true, wheelSeat = false;
+    uint32_t definitionIndex = 0xFFFFFFFFu;
     const bool halo3 = TitleAdapter_GetActiveTitle() == GameTitle::Halo3;
     if (halo3)
     {
         gameKey = "halo3";
-        read = Halo3VehicleCameraSeat(key, name, seatBits, seatView, wheelSeat);
+        read = Halo3VehicleCameraSeat(key, name, seatBits, seatView, wheelSeat, definitionIndex);
     }
     if (read == VehicleCameraSeatRead::Seated)
     {
@@ -882,6 +1323,10 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.publishedCamera = active;
         r.publishedSeat = r.seat;
     }
+    VehicleBoomColdTick(r, active,
+                        halo3 && read != VehicleCameraSeatRead::OnFoot && active.valid && active.chase &&
+                            active.origin == static_cast<uint8_t>(vehicle_camera_file::Origin::ThirdPerson),
+                        read == VehicleCameraSeatRead::Seated, definitionIndex, name, nowMs);
 
     const bool onFoot = !active.valid && r.selector.StandDownReason() == vehicle_camera_select::kOnFoot;
     std::string line = r.selector.Describe();

@@ -344,6 +344,15 @@ void Game_VehicleCameraResetLag();
 // passenger's. ControlStep asks for the seat's next way to be controlled (the left stick click).
 bool Game_VehicleSeatButtonsLive(bool& passenger);
 void Game_VehicleControlStep();
+// THE THIRD-PERSON BOOM (vehicle_boom_logic.h), for the input hook and the F1 menu. TakesStick: a Halo 3 seat's
+// camera stands where the game's own third-person camera does, and the right stick's Y aims nothing in it (not a
+// stick-aimed seat), so the boom raises and lowers it. Stick hands that Y over (0 when it is not the boom's); the
+// caller sends the game none of it. Recenter puts the boom back at its camera's start. Game_VehicleBoom: false while
+// no boom is in use; else its angle and the angles it reaches, degrees above level.
+bool Game_VehicleBoomTakesStick();
+void Game_VehicleBoomStick(float y);
+void Game_VehicleBoomRecenter();
+bool Game_VehicleBoom(float& degrees, float& lowDegrees, float& highDegrees, bool& fromTrack, bool& inverted);
 // C13 per-SEAT trim: the config storage slot for the seat the player occupies
 // right now (see ConfigSeatTrimSlot; a mounted gunner reports the carrier
 // vehicle's gunner slot), -1 when on foot or unidentified, plus its display

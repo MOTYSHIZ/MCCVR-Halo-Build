@@ -805,6 +805,14 @@ struct Config
     // just behind it. Every camera, the seat view included. Halo 3 for now. Live.
     float vehicle_aim_reject_metres = 5.0f;
     float vehicle_aim_reject_dot = -0.5f;
+    // THE THIRD-PERSON BOOM (vehicle_boom_logic.h): a vehicle camera that stands where the game's own third-person
+    // camera does ("origin": "thirdperson") is raised and lowered by the right stick's Y in a seat where that axis
+    // aims nothing (Motion, the wheel), the way the flat game's stick moves its camera, inside the range the game
+    // gives the look. vehicle_boom_rate_deg_s: degrees of look a second at full push (5 to 360). vehicle_boom_invert:
+    // -1 = as the game's own look inversion (its flight inversion for an aircraft's pilot; not inverted where it
+    // cannot be read), 0 = not inverted, 1 = inverted. Halo 3 for now. Live.
+    float vehicle_boom_rate_deg_s = 60.0f;
+    int vehicle_boom_invert = -1;
     float vehicle_wheel_max_deg = 75.0f;      // wheel angle at full lock
     float vehicle_wheel_deadzone_deg = 6.0f;  // slack around centre
 

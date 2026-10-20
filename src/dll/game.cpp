@@ -97,6 +97,7 @@
 #include "../common/authored_reticle_logic.h"
 #include "../common/seat_view_logic.h"
 #include "../common/vehicle_camera_place_logic.h"
+#include "../common/vehicle_boom_logic.h"
 #include "../common/vehicle_camera_store.h"
 #include "../common/vehicle_camera_tuning.h"
 #include "../common/hud_note_logic.h"
@@ -10868,6 +10869,7 @@ namespace
         return Game_Halo3VehicleState().state == Halo3VehicleState::Vehicle;
     }
 
+    #include "halo3_vehicle_boom.inl"
     #include "vehicle_cameras.inl"
 
     // ---- C9: the view turns with the vehicle -------------------------------
@@ -17352,6 +17354,7 @@ namespace
         RemoveHalo3GunBand();
         if (!RemoveHalo3HeadRelative()) return false;
         RemoveHalo3HudNote();
+        RetireHalo3VehicleBoom();
         if (!RemoveHalo3TrackerHudHeight()) return false;
         if (!LegacyDriveRemove(GameTitle::Halo3)) return false;
         if (!DisableAndRemoveHalo3ContactMelee()) return false;
@@ -18405,6 +18408,9 @@ namespace
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
+        // The third-person boom's game side (halo3_vehicle_boom.inl): anchors and tag reads only, no hook; each part
+        // unbound alone leaves the boom on its own fallback.
+        BindHalo3VehicleBoom(base,size,runtimeGeneration);
         // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): its own transaction too.
         (void)InstallHalo3TrackerHudHeight(base,size,runtimeGeneration);
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -57586,6 +57592,37 @@ bool Game_VehicleSeatButtonsLive(bool& passenger)
 void Game_VehicleControlStep()
 {
     g_vehicleControlStep.fetch_add(1, std::memory_order_relaxed);
+}
+
+bool Game_VehicleBoomTakesStick()
+{
+    const uint64_t live = g_vehicleBoomLiveMs.load(std::memory_order_acquire);
+    if (!live || GetTickCount64() - live > kVehicleBoomLiveMs)
+        return false;
+    // A stick-aimed seat's stick is its aim on both axes (vehicle_control): the boom holds its angle there.
+    return !vehicle_control::StickAims(VehicleControlModeNow()) && !Halo3SeatStickAimsNow();
+}
+
+void Game_VehicleBoomStick(float y)
+{
+    g_vehicleBoomStick.store(std::isfinite(y) ? y : 0.0f, std::memory_order_relaxed);
+    g_vehicleBoomStickMs.store(GetTickCount64(), std::memory_order_release);
+}
+
+void Game_VehicleBoomRecenter()
+{
+    g_vehicleBoomRecenter.fetch_add(1, std::memory_order_relaxed);
+}
+
+bool Game_VehicleBoom(float& degrees, float& lowDegrees, float& highDegrees, bool& fromTrack, bool& inverted)
+{
+    const uint32_t shown = g_vehicleBoomShown.load(std::memory_order_acquire);
+    degrees = g_vehicleBoomShownDeg.load(std::memory_order_relaxed);
+    lowDegrees = g_vehicleBoomShownLowDeg.load(std::memory_order_relaxed);
+    highDegrees = g_vehicleBoomShownHighDeg.load(std::memory_order_relaxed);
+    fromTrack = (shown & 2u) != 0;
+    inverted = (shown & 4u) != 0;
+    return (shown & 1u) != 0;
 }
 
 bool Game_VehicleCameraReadout(char* out, size_t capacity)
