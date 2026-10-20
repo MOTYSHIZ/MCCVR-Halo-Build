@@ -260,8 +260,9 @@ std::string Halo3TagNamesLoad(uint32_t generation)
     }
     names.stamp = Halo3TagNamesStamp(names.headerBytes.data());
     Halo3TagPathsPublish(generation, names.verdicts.data(), header.nameCount);
-    LOG("H3 tag names: %u of %u tags named in %s (%s; scenario tag %04X), %u KB copied from the game's own table; "
-        "%u carry a stock vehicle's path. A vehicle at any other path is one the mod does not know, named by its tag",
+    LOG("H3 tag names: %u of %u tags named in %s (%s; the scenario's path at tag %04X), %u KB copied from the game's "
+        "own table; %u carry a stock vehicle's path (a vehicle's model, collision and the like share its name). A "
+        "vehicle at any other path is one the mod does not know, named by its tag",
         named, header.nameCount, header.scenarioPath, header.scenarioName, scenarioTag,
         static_cast<unsigned>((names.offsets.size() + names.buffer.size() + 1023) / 1024), stock);
     return {};
