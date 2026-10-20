@@ -304,7 +304,8 @@ void BindHalo3VehicleBoom(uintptr_t base, size_t size, uint32_t generation)
         const uintptr_t solver = rip(pitch, 44, 48), track = rip(pitch, 68, 72);
         const uintptr_t forward = mcc_clock::FindUnique(base, size, kBoomTrackForwardSig);
         const uintptr_t place = mcc_clock::FindUnique(base, size, kBoomTrackPositionSig);
-        const uintptr_t cubic = rip(forward, 52, 56), turn = rip(track, 370, 374);
+        // A decoded address is read only once its own signature has matched in place inside the module.
+        const uintptr_t cubic = rip(forward, 52, 56);
         if (!pitch || !offset || !follow || Halo3BoomFunctionOf(base, offset) != follow)
             trackWhy = "the following camera's two sites";
         else if (!Halo3BoomFunctionCalls(base, follow, seatFn))
@@ -319,7 +320,7 @@ void BindHalo3VehicleBoom(uintptr_t base, size_t size, uint32_t generation)
                  Halo3BoomFunctionOf(base, place) != track || rip(place, 142, 146) != cubic ||
                  !here(cubic, kBoomCubicSig) || !value(rip(cubic, 84, 88), vehicle_boom::kCubicThree))
             trackWhy = "the track's cubic";
-        else if (!here(turn, kBoomRotateSig) || !value(rip(turn, 190, 194), 1.0f))
+        else if (!here(rip(track, 370, 374), kBoomRotateSig) || !value(rip(rip(track, 370, 374), 190, 194), 1.0f))
             trackWhy = "the track's rotation";
         else if (!inside(rip(track, 139, 143), sizeof(void*)))
             trackWhy = "the game globals' default track";
