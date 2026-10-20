@@ -99,6 +99,7 @@
 #include "../common/vehicle_camera_place_logic.h"
 #include "../common/vehicle_camera_store.h"
 #include "../common/vehicle_camera_tuning.h"
+#include "../common/hud_note_logic.h"
 #include "../common/vehicle_control_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
@@ -2648,6 +2649,12 @@ namespace
     // The motion tracker by the head's heading (halo3_head_relative.inl): two hooks on the tracker's contact builders.
     bool InstallHalo3HeadRelative(uintptr_t base, size_t size, uint32_t generation);
     bool RemoveHalo3HeadRelative();
+    // The vehicle camera note in Halo 3's own HUD messages (halo3_hud_note.inl): posted from the listener hook.
+    bool InstallHalo3HudNote(uintptr_t base, size_t size, uint32_t generation);
+    void RemoveHalo3HudNote();
+    void Halo3HudNotePost();
+    void Halo3VehicleNoteShow(const std::wstring& text, float seconds);
+    void Halo3VehicleNoteTick();
     // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): one hook on the blip draw.
     bool InstallHalo3TrackerHudHeight(uintptr_t base, size_t size, uint32_t generation);
     bool RemoveHalo3TrackerHudHeight();
@@ -17343,6 +17350,7 @@ namespace
         if (!RemoveHalo3DualAim()) return false;
         RemoveHalo3GunBand();
         if (!RemoveHalo3HeadRelative()) return false;
+        RemoveHalo3HudNote();
         if (!RemoveHalo3TrackerHudHeight()) return false;
         if (!LegacyDriveRemove(GameTitle::Halo3)) return false;
         if (!DisableAndRemoveHalo3ContactMelee()) return false;
@@ -18393,6 +18401,9 @@ namespace
         (void)InstallHalo3GunBand(base,size,runtimeGeneration);
         // The motion tracker by the head's heading (halo3_head_relative.inl): its own transaction, fails closed alone.
         (void)InstallHalo3HeadRelative(base,size,runtimeGeneration);
+        // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
+        // from the listener hook above; not bound, the note uses the mod's panel.
+        (void)InstallHalo3HudNote(base,size,runtimeGeneration);
         // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): its own transaction too.
         (void)InstallHalo3TrackerHudHeight(base,size,runtimeGeneration);
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -28768,6 +28779,7 @@ namespace
     #include "halo3_weapon_haptics.inl"
     #include "halo3_avatar.inl"
     #include "halo3_head_relative.inl"
+    #include "halo3_hud_note.inl"
     #include "halo3_tracker_hud_height.inl"
     #include "odst_contact_melee_runtime.inl"
     #include "odst_physical_crouch.inl"

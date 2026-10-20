@@ -284,7 +284,8 @@ struct Halo3VehicleCameraRest
     uint32_t waited = 0;   // placements asked for before a distance was known
 };
 Halo3VehicleCameraRest g_halo3VehicleCameraRest;
-// How long the headset note shows after a change (vehicle_camera_note).
+// How long the mod's panel shows the note after a change (vehicle_camera_note = 2, or 1 when the game's HUD cannot
+// take it); the game's HUD keeps its own lines for as long as it keeps them.
 inline constexpr float kVehicleCameraNoteSeconds = 3.0f;
 // The resting distance in use, world units (0 = none yet), for the cold worker's log line, with the shape of the
 // game's camera where it stood furthest: its height above its pivot along the vehicle's up, the pitch it looked
@@ -675,6 +676,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
 {
     static std::unique_ptr<VehicleCameraRuntime> runtime;
     static bool wasOn = false;
+    Halo3VehicleNoteTick();
     if (!g_config.vehicle_cameras)
     {
         if (wasOn)
@@ -925,7 +927,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 note.push_back(static_cast<wchar_t>(*c));
             while (!note.empty() && note.back() == L' ')
                 note.pop_back();
-            NativeNotice_Show(note.c_str(), kVehicleCameraNoteSeconds);
+            Halo3VehicleNoteShow(note, kVehicleCameraNoteSeconds);
         }
         r.loggedLine = line;
         LOG("Vehicle cameras: %s", line.c_str());

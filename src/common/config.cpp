@@ -1546,7 +1546,8 @@ void ConfigLoad(const wchar_t* path)
         }
         if (!strcmp(key, "vehicle_camera_note"))
         {
-            g_config.vehicle_camera_note = atoi(val) != 0;
+            const int note = atoi(val);
+            g_config.vehicle_camera_note = note < 0 || note > 2 ? 1 : note;
             continue;
         }
         if (!strcmp(key, "vehicle_control"))
@@ -2955,11 +2956,13 @@ void ConfigSave()
     fprintf(f, "# A camera placed outside the vehicle shows your character in the seat.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
     fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
-    fprintf(f, "# With vehicle cameras on: a short note in the headset for a few\n");
-    fprintf(f, "# seconds when you get in and when the camera, its tethering mode or\n");
-    fprintf(f, "# the seat's controls change. 0 = no note.\n");
-    fprintf(f, "# (default %d)\n", d.vehicle_camera_note ? 1 : 0);
-    fprintf(f, "vehicle_camera_note = %d\n\n", g_config.vehicle_camera_note ? 1 : 0);
+    fprintf(f, "# With vehicle cameras on: a short note when you get in and when the\n");
+    fprintf(f, "# camera, its tethering mode or the seat's controls change.\n");
+    fprintf(f, "# 0 = no note; 1 = in the game's own HUD messages; 2 = on the mod's\n");
+    fprintf(f, "# own panel in the headset. 1 uses the panel when the game's HUD\n");
+    fprintf(f, "# cannot take the note, and in co-op.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_camera_note);
+    fprintf(f, "vehicle_camera_note = %d\n\n", g_config.vehicle_camera_note);
     fprintf(f, "# How you control a vehicle seat (Halo 3 for now). This is apart from\n");
     fprintf(f, "# how your view turns: each works with a view the world holds still\n");
     fprintf(f, "# and with one that turns with the vehicle.\n");

@@ -782,9 +782,11 @@ struct Config
     // seat from outside, with the player's character drawn in it. Halo 3 for now, and only with
     // vehicle_first_person on.
     bool vehicle_cameras = false;
-    // A short note in the headset for a few seconds when the vehicle camera, its tethering mode or the seat's
-    // controls change, and on getting in: "Warthog - Third Person, Tethered - Motion".
-    bool vehicle_camera_note = true;
+    // A short note when the vehicle camera, its tethering mode or the seat's controls change, and on getting in:
+    // "Warthog - Third Person, Tethered - Motion". 0 = none; 1 = in the game's own HUD messages, in the HUD's font
+    // (Halo 3; the mod's panel when the game's HUD cannot take it, and in a shared co-op simulation);
+    // 2 = on the mod's own panel in the headset.
+    int vehicle_camera_note = 1;
     // How a vehicle seat is controlled, apart from how the view turns (vehicle_control_logic.h):
     // 1 = Motion, the hand aims every seat, and a look-steered vehicle (Warthog, Mongoose, Ghost, Prowler,
     // Chopper, Banshee, Hornet) turns toward it; 2 = Stick, the right stick aims and steers in every seat, as
