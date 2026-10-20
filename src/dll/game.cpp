@@ -100,6 +100,7 @@
 #include "../common/vehicle_camera_store.h"
 #include "../common/vehicle_camera_tuning.h"
 #include "../common/vehicle_control_logic.h"
+#include "../common/vehicle_aim_reject_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
 #include "../common/reach_vehicle_logic.h"
@@ -55387,6 +55388,72 @@ void AimTraceDev_Flush()
 }
 #endif
 
+// A LOOK-STEERED DRIVER'S HAND AIM, REFUSED BEHIND AND NEAR (vehicle_aim_reject_logic.h), Halo 3. While the hand's
+// aim is what steers the heading -- Motion, or As before with a view the world holds still; never Stick or Wheel, and
+// never a gunner's or passenger's gun -- a point the aim resolves to that lies behind the vehicle and near it, in the
+// vehicle's own ground plane, steers nothing: `yaw` (game basis, the heading the drive writes or the servo steers to)
+// becomes the vehicle's own heading, so it does not turn. `pitch` is left as it is. Every camera, the seat view too.
+// `point`: the world point the seated aim was solved through this poll; null when the aim kept the fixed-distance
+// steer, and then the aim's own direction is judged, from the rendered eye it was steered from. The vehicle's origin,
+// forward and up are the seat snapshot's object frame (Halo3ReadSeatSnapshot), read by no new engine access. A few
+// float operations a poll; nothing allocates, and only a dev build logs (at most once in 2 s, on a refusal's start).
+// True when the aim was refused.
+static bool Halo3VehicleAimRejectStep(float& yaw, float pitch, const float* point)
+{
+    const vehicle_aim_reject::Limits limits =
+        vehicle_aim_reject::LimitsFromConfig(g_config.vehicle_aim_reject_metres, g_config.vehicle_aim_reject_dot);
+    if (!limits.on() || !Halo3VehicleFpActive() || Halo3SeatAuthorsSteeringNow() || Halo3SeatStickAimsNow())
+        return false;
+    Halo3SeatSnapshot seat;
+    if (!Halo3ReadSeatSnapshot(seat) || seat.parentHandle == -1)
+        return false;
+    const auto id = static_cast<Halo3VehicleId>(seat.identity);
+    if (!Halo3SeatIsDriver(id, seat.seatIndex, seat.mounted) || !Halo3VehicleIsLookSteered(id))
+        return false;
+    vehicle_aim_reject::Ground ground{};
+    float forwardYaw = 0.0f;
+    if (!vehicle_aim_reject::GroundFrom(seat.hullPos, seat.hullFwd, seat.hullUp, ground) ||
+        !vehicle_aim_reject::ForwardYaw(seat.hullFwd, forwardYaw))
+        return false;
+    vehicle_aim_reject::Judgement judgement{};
+    if (point)
+    {
+        judgement = vehicle_aim_reject::JudgePoint(limits, ground, point);
+    }
+    else
+    {
+        if (!g_camValid.load(std::memory_order_acquire) || !std::isfinite(yaw) || !std::isfinite(pitch))
+            return false;
+        const float eye[3]{g_camX.load(), g_camY.load(), g_camZ.load()};
+        const float cosPitch = cosf(pitch);
+        const float dir[3]{cosPitch * cosf(yaw), cosPitch * sinf(yaw), sinf(pitch)};
+        judgement = vehicle_aim_reject::JudgeRay(limits, ground, eye, dir);
+    }
+    const bool refused = judgement.verdict == vehicle_aim_reject::Verdict::Refused;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    {
+        static bool s_wasRefused = false;
+        static uint64_t s_loggedMs = 0;
+        const uint64_t now = GetTickCount64();
+        if (refused && !s_wasRefused && (!s_loggedMs || now < s_loggedMs || now - s_loggedMs >= 2000))
+        {
+            s_loggedMs = now;
+            LOG("VEHICLE AIM (dev): %s refused behind and near: dot %.2f (below %.2f), %.2f m from the origin "
+                "(within %.2f m), judged on %s; the vehicle keeps its heading %.1f deg (the aim's was %.1f)",
+                Halo3VehicleIdName(seat.identity), double(judgement.dot), double(limits.dot),
+                double(judgement.distanceWu * 3.048f), double(limits.distanceWu * 3.048f),
+                point ? "the traced point" : "the aim's ray", double(forwardYaw * 57.29578f),
+                double(yaw * 57.29578f));
+        }
+        s_wasRefused = refused;
+    }
+#endif
+    if (!refused)
+        return false;
+    yaw = forwardYaw;
+    return true;
+}
+
 bool Game_ComputeAimStick(float& outRx, float& outRy)
 {
 #if HALOMCCVR_DEV_DIAGNOSTICS
@@ -55745,6 +55812,10 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
     // ...and how far from E the point the seated aim was solved through lies (the crosshair point a driver's gun band
     // judges the shot against); 0 until a seated solve sets it, then the crosshair distance stands in.
     float limitTargetRangeWu = 0.0f;
+    // ...and that point itself, in the world: what a look-steered driver's heading is judged on below
+    // (Halo3VehicleAimRejectStep). Not set when the seated aim kept the fixed-distance steer.
+    bool seatSolvePointValid = false;
+    float seatSolvePoint[3]{};
     // The free-camera frame publishes no intent ray and bends nothing: the ray's eye is the engine camera's
     // position, which a death or free camera moves as the servo turns it, and with no unit there is no shot.
     if (aimFrame.traceReaim)
@@ -55952,6 +56023,10 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
                                                       toPoint[2] * toPoint[2]);
                     if (std::isfinite(toPointWu) && toPointWu > 0.0f)
                         limitTargetRangeWu = toPointWu;
+                    for (int axis = 0; axis < 3; ++axis)
+                        seatSolvePoint[axis] = ray.head[axis] + ray.dir[axis] * sightRangeWu;
+                    seatSolvePointValid = std::isfinite(seatSolvePoint[0]) && std::isfinite(seatSolvePoint[1]) &&
+                        std::isfinite(seatSolvePoint[2]);
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
                     // The point the aim was bent through, for the Halo 4 seat's claim below.
                     if (sightTitle == GameTitle::Halo4)
@@ -55977,6 +56052,13 @@ bool Game_ComputeAimStick(float& outRx, float& outRy)
             }
         }
     }
+    // A HALO 3 LOOK-STEERED DRIVER'S HEADING, REFUSED BEHIND AND NEAR (Halo3VehicleAimRejectStep): before the drive
+    // and the servo take the target, so both hold the vehicle's forward. The yaw alone. A refused target no longer
+    // matches the intent published above (its solved angles), so the hook writes it as it stands and does not re-solve
+    // it through the point (LegacyDriveRecomposeSeated: OtherSolve). The reticle and the converged mark stay on the
+    // hand's point; only the heading the vehicle turns to is held.
+    if (!freeCamera && TitleAdapter_GetActiveTitle() == GameTitle::Halo3)
+        (void)Halo3VehicleAimRejectStep(desiredYaw, desiredPitch, seatSolvePointValid ? seatSolvePoint : nullptr);
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     // HALO 4 SEATED CLAIM (halo4_seat_converge.inl). The aim is bent so the simulation's own aim line for the
     // seat passes through the point, and the converged aim is claimed exactly as a Halo 3 seat's is: whether the
