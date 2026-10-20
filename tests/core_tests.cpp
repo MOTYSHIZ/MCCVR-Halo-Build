@@ -17944,14 +17944,16 @@ int main()
 
             // A tank's bounding radius tells the Scorpion from the Elephant,
             // once the definition's radius is proven by the live sphere.
-            Check(Halo3DefinitionRadiusAgrees(2.5f, 2.5f) &&
-                  Halo3DefinitionRadiusAgrees(2.5f, 2.51f) &&
-                  !Halo3DefinitionRadiusAgrees(2.5f, 2.7f) &&
-                  !Halo3DefinitionRadiusAgrees(2.5f, -1.0f) &&
-                  !Halo3DefinitionRadiusAgrees(-1.0f, 2.5f) &&
-                  !Halo3DefinitionRadiusAgrees(std::nanf(""), 2.5f),
-                "A definition's radius is proven only by the live vehicle "
-                "carrying the same one");
+            Check(Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 1.0f) &&
+                  Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 0.8f) &&
+                  !Halo3DefinitionRadiusUsable(0, 1.0f) &&
+                  !Halo3DefinitionRadiusUsable(-1, 1.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 0.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 500.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle,
+                                               std::nanf("")),
+                "A definition's radius is used only from a definition that "
+                "reads as a vehicle's, at a size a vehicle can have");
             Check(Halo3TankIsScorpion(2.5f, 2.5f) &&
                   Halo3TankIsScorpion(2.6f, 2.5f) &&
                   !Halo3TankIsScorpion(8.0f, 2.5f) &&

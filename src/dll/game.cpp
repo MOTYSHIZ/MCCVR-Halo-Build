@@ -9380,8 +9380,10 @@ namespace
     std::atomic<uint32_t> g_halo3DefRadiusId{0};
     std::atomic<float> g_halo3DefRadiusWu{-1.0f};
     std::atomic<float> g_halo3DefRadiusLiveWu{-1.0f};
-    // A definition's own bounding radius (kHalo3ObjectDefBoundingRadiusOffset), world units. Guarded.
-    bool Halo3ReadDefinitionBoundingRadius(uint32_t defIndex, float& radiusWu);
+    std::atomic<int32_t> g_halo3DefRadiusType{-1};
+    // A definition's object type and own bounding radius (kHalo3ObjectDefTypeOffset, ...BoundingRadiusOffset),
+    // the radius in world units. Guarded.
+    bool Halo3ReadDefinitionBounds(uint32_t defIndex, int& objectType, float& radiusWu);
 
     // Defined with the identity probe below; SEH-guarded internally.
     bool Halo3ReadDefinitionFields(uint32_t defIndex, int32_t counts[10],
@@ -9412,11 +9414,12 @@ namespace
             return slot.id;
         Halo3DefinitionFields fields;
         fields.physicsType = physicsType;
+        int definitionType = -1;
         float definitionRadius = -1.0f;
         const bool haveDefinitionRadius =
-            Halo3ReadDefinitionBoundingRadius(defIndex, definitionRadius);
+            Halo3ReadDefinitionBounds(defIndex, definitionType, definitionRadius);
         if (haveDefinitionRadius &&
-            Halo3DefinitionRadiusAgrees(definitionRadius, liveRadiusWu))
+            Halo3DefinitionRadiusUsable(definitionType, definitionRadius))
             fields.boundingRadius = definitionRadius;
         int32_t counts[10] = {};
         float jeep[2] = {-1.0f, -1.0f};
@@ -9442,6 +9445,7 @@ namespace
             g_halo3DefRadiusId.store(static_cast<uint32_t>(slot.id), std::memory_order_relaxed);
             g_halo3DefRadiusWu.store(haveDefinitionRadius ? definitionRadius : -1.0f, std::memory_order_relaxed);
             g_halo3DefRadiusLiveWu.store(liveRadiusWu, std::memory_order_relaxed);
+            g_halo3DefRadiusType.store(definitionType, std::memory_order_relaxed);
             g_halo3DefRadiusSerial.fetch_add(1, std::memory_order_release);
         }
         return slot.id;
@@ -9485,23 +9489,27 @@ namespace
     }
 
     // An object definition opens with its type (int16), flags (int16) and bounding radius (float) -- Halo 1's
-    // object_definition, kept by every later Blam game. The value is only USED once it agrees with the live
-    // object's own sphere (Halo3DefinitionRadiusAgrees), which is what proves this offset on a given build.
+    // object_definition, kept by every later Blam game. The radius is only USED when the type reads as a vehicle's
+    // (Halo3DefinitionRadiusUsable): proof on a given build that the definition starts where this expects.
+    inline constexpr uintptr_t kHalo3ObjectDefTypeOffset = 0x00;
     inline constexpr uintptr_t kHalo3ObjectDefBoundingRadiusOffset = 0x04;
 
-    bool Halo3ReadDefinitionBoundingRadius(uint32_t defIndex, float& radiusWu)
+    bool Halo3ReadDefinitionBounds(uint32_t defIndex, int& objectType, float& radiusWu)
     {
+        objectType = -1;
         radiusWu = -1.0f;
         __try
         {
             const unsigned char* def = Halo3LoadedTagDefinition(defIndex);
             if (!def)
                 return false;
+            objectType = *reinterpret_cast<const int16_t*>(def + kHalo3ObjectDefTypeOffset);
             radiusWu = *reinterpret_cast<const float*>(def + kHalo3ObjectDefBoundingRadiusOffset);
-            return std::isfinite(radiusWu) && radiusWu > 0.0f;
+            return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
+            objectType = -1;
             radiusWu = -1.0f;
             return false;
         }
@@ -11842,15 +11850,16 @@ namespace
             const uint32_t radiusDef = g_halo3DefRadiusDef.load(std::memory_order_relaxed);
             const float definitionWu = g_halo3DefRadiusWu.load(std::memory_order_relaxed);
             const float liveWu = g_halo3DefRadiusLiveWu.load(std::memory_order_relaxed);
-            const bool agrees = Halo3DefinitionRadiusAgrees(definitionWu, liveWu);
+            const int definitionType = g_halo3DefRadiusType.load(std::memory_order_relaxed);
+            const bool usable = Halo3DefinitionRadiusUsable(definitionType, definitionWu);
             LOG("H3 vehicle definition %04X (physics type %d, read as %s): bounding radius %.3f wu (%.0f cm) in its "
-                "definition, %.3f wu on the live vehicle; %s",
+                "definition (object type %d); the live vehicle's sphere %.3f wu; %s",
                 radiusDef, g_halo3DefRadiusPhysics.load(std::memory_order_relaxed),
                 Halo3VehicleIdName(g_halo3DefRadiusId.load(std::memory_order_relaxed)),
-                static_cast<double>(definitionWu), static_cast<double>(definitionWu * 304.8f),
+                static_cast<double>(definitionWu), static_cast<double>(definitionWu * 304.8f), definitionType,
                 static_cast<double>(liveWu),
-                agrees ? "they agree, so the definition's radius is the one identification uses"
-                       : "they do not agree, so identification does not use it");
+                usable ? "identification may use the definition's radius"
+                       : "the definition does not read as a vehicle's, so identification does not use it");
             LogHalo3DefinitionProbe(radiusDef, g_halo3DefRadiusPhysics.load(std::memory_order_relaxed));
         }
 

@@ -1669,15 +1669,16 @@ struct Halo3DefinitionFields
     float engineMoment = 0.0f;
     bool scoutValid = false;
     int specificType = -1;
-    // The definition's own bounding radius, world units, once it has been proven against the vehicle's live sphere
-    // (Halo3DefinitionRadiusAgrees); < 0 = not known.
+    // The definition's own bounding radius, world units, once the definition has proven it reads as a vehicle's
+    // (Halo3DefinitionRadiusUsable); < 0 = not known.
     float boundingRadius = -1.0f;
 };
 
 // A TANK IS NOT ALWAYS A SCORPION: the Elephant has tank physics too. The definition's bounding radius tells them
-// apart -- a value of the vehicle's tag, which damage, riders and attachments never change (Halo's objects copy
-// it from the definition at every node update, times the object's scale). kHalo3ScorpionBoundingRadiusWu 0 = not
-// measured yet: every tank reads as a Scorpion, as before.
+// apart -- a value of the vehicle's tag, which damage, riders and attachments never change. The live vehicle's own
+// sphere is NOT that value in Halo 3: measured in play it stands 1.26 to 1.82 times the definition's (Warthog 1.0
+// against 1.52 wu, Banshee 1.4 against 1.8), so it takes in more than the definition, and is not used.
+// kHalo3ScorpionBoundingRadiusWu 0 = not measured yet: every tank reads as a Scorpion, as before.
 inline constexpr float kHalo3ScorpionBoundingRadiusWu = 0.0f;
 // How far a radius may stand from a measured one, as a fraction of it, and still be that vehicle.
 inline constexpr float kHalo3BoundingRadiusTolerance = 0.05f;
@@ -1688,12 +1689,12 @@ inline bool Halo3RadiusMatches(float radiusWu, float measuredWu) noexcept
            std::fabs(radiusWu - measuredWu) <= kHalo3BoundingRadiusTolerance * measuredWu;
 }
 
-// The definition's radius is only taken when the live vehicle carries the same one: proof that the field read is
-// the bounding radius, on this build of the game. 1% leaves room for float rounding, not for another field.
-inline bool Halo3DefinitionRadiusAgrees(float definitionWu, float liveWu) noexcept
+// The definition's radius is only taken when the definition opens as a vehicle's does: its object type (the int16
+// two fields before the radius) is the vehicle type, and the radius is a size a vehicle can have (measured: 0.8 wu
+// for a turret to 1.4 for the Banshee). That is the proof that the field read is the bounding radius on this build.
+inline bool Halo3DefinitionRadiusUsable(int objectType, float radiusWu) noexcept
 {
-    return std::isfinite(definitionWu) && std::isfinite(liveWu) && definitionWu > 0.0f && liveWu > 0.0f &&
-           std::fabs(definitionWu - liveWu) <= 0.01f * liveWu;
+    return objectType == kHalo3ObjectKindVehicle && std::isfinite(radiusWu) && radiusWu >= 0.1f && radiusWu <= 30.0f;
 }
 
 // A tank: the Scorpion when its radius is the Scorpion's, or when either radius is unknown; another tank (the

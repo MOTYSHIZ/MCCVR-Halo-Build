@@ -36,7 +36,21 @@ inline constexpr char kHalo3HudQueueSig[] =
     "48 85 D2 0F 84 ?? ?? ?? ?? 48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 45 33 "
     "F6 41 8B F0 4C 8B D9 66 44 39 32 0F 84 ?? ?? ?? ?? 44 8B 0D ?? ?? ?? ?? 41 83 CA FF 65 48 8B 04 25 58 00 00 "
     "00 45 8B C6 BD C8 00 00 00";
-inline constexpr size_t kHalo3HudQueueSigBytes = 80;
+// How many bytes a signature's text names ("48 ?? 8B" is three).
+constexpr size_t Halo3HudPatternBytes(const char* pattern)
+{
+    size_t count = 0;
+    bool inByte = false;
+    for (; *pattern; ++pattern)
+    {
+        const bool space = *pattern == ' ';
+        if (!space && !inByte)
+            ++count;
+        inByte = !space;
+    }
+    return count;
+}
+inline constexpr size_t kHalo3HudQueueSigBytes = Halo3HudPatternBytes(kHalo3HudQueueSig);
 inline constexpr size_t kHalo3HudQueueTlsDisp = 56;
 inline constexpr char kHalo3HudNavpointCallerSig[] =
     "48 89 5C 24 08 48 89 74 24 10 57 48 81 EC 30 08 00 00 65 48 8B 04 25 58 00 00 00 8B 15 ?? ?? ?? ?? 48 63 F1 "
@@ -45,6 +59,12 @@ inline constexpr size_t kHalo3HudNavpointCallerTlsDisp = 29;
 inline constexpr size_t kHalo3HudNavpointCallerBytes = 0xD5;
 inline constexpr char kHalo3HudNavpointPostSig[] = "85 F6 78 ?? 41 B8 03 00 00 00 48 8D 54 24 30 8B CE E8";
 inline constexpr size_t kHalo3HudNavpointPostRel = 18;
+// Each offset into a matched signature lies inside it (a rel32 or displacement is the 4 bytes after its opcode).
+static_assert(kHalo3HudQueueSigBytes == 81 && kHalo3HudQueueTlsDisp + 4 <= kHalo3HudQueueSigBytes);
+static_assert(Halo3HudPatternBytes(kHalo3HudMessageSig) == 68 && kHalo3HudMessageCallRel + 4 < 68 &&
+              kHalo3HudMessageTlsDisp + 4 < 68);
+static_assert(kHalo3HudNavpointCallerTlsDisp + 4 <= Halo3HudPatternBytes(kHalo3HudNavpointCallerSig));
+static_assert(kHalo3HudNavpointPostRel == Halo3HudPatternBytes(kHalo3HudNavpointPostSig));
 // The fields the post and MCC's caller read, named by the signatures above.
 inline constexpr size_t kHalo3TlsGameGlobals = 0x48; // -> +0x10: 1 while a game is in progress
 inline constexpr size_t kHalo3TlsGameTime = 0xC8;
