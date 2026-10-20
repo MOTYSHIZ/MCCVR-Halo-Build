@@ -96,9 +96,9 @@ static void TestBuiltInTable()
     Check(behind.changes == 2, "a step counts as a change");
     Check(selector.Describe() ==
               "default (Driver): camera 2 of 2 \"Third Person\", mode 1 of 2 \"Untethered\", chase from thirdperson, "
-              "offset 0 0 0 cm, location Yaw, rotation None, leash None, lag 0.3 s",
+              "offset 0 0 0 cm, location Yaw, rotation None, leash None, lag 0.5 s",
           "the chase camera's log line");
-    Check(behind.lagSeconds == 0.3f && behind.lagDamping == 1.0f, "it follows on a spring, without overshoot");
+    Check(behind.lagSeconds == 0.5f && behind.lagDamping == 1.5f, "it follows on a spring, without overshoot");
 
     Check(selector.StepMode(1), "stepping to the next mode");
     Check(selector.Active().mode == 1 && selector.Active().rotYaw, "the second mode turns the view with the vehicle");

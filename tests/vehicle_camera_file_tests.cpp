@@ -96,7 +96,7 @@ static void TestBuiltInTable()
     Check(Has(text, "\"origin\": \"thirdperson\"") && back.games[1].vehicles[0].cameras[1].origin == Origin::ThirdPerson,
           "the game's own third-person place is written and read by name");
     Check(OriginText(Origin::ThirdPerson, "x") == "thirdperson", "and named so in a readout");
-    Check(any.cameras[1].lag == kThirdPersonLagSeconds && Has(text, "\"lag\": 0.3") &&
+    Check(any.cameras[1].lag == kThirdPersonLagSeconds && Has(text, "\"lag\": 0.5, \"lagDamping\": 1.5") &&
               back.games[1].vehicles[0].cameras[1].lag == kThirdPersonLagSeconds,
           "the built-in third-person camera follows on a spring, and the file says so");
 
@@ -105,6 +105,10 @@ static void TestBuiltInTable()
     Check(LagSecondsOf(unset) == 0.0f, "a camera that says nothing about lag has none");
     unset.origin = Origin::ThirdPerson;
     Check(LagSecondsOf(unset) == kThirdPersonLagSeconds, "unless it rests where the game's camera does");
+    Check(LagDampingOf(unset) == kThirdPersonLagDamping && kThirdPersonLagDamping > 1.0f,
+          "and settles there without swinging past");
+    unset.lagDamping = 0.8f;
+    Check(LagDampingOf(unset) == 0.8f, "its own damping when it says");
     unset.lag = 0.0f;
     Check(LagSecondsOf(unset) == 0.0f, "and \"lag\": 0 turns that off");
 }
@@ -174,6 +178,7 @@ static void TestCamerasAndTethering()
     Check(behind.locYaw && !behind.locPitch && !behind.locRoll && !behind.locView, "location tracking by axis");
     Check(!behind.collide && behind.collideMargin == 12.0f, "collision settings");
     Check(behind.lag < 0.0f && LagSecondsOf(behind) == 0.0f, "a camera that does not set lag has none");
+    Check(behind.lagDamping < 0.0f && LagDampingOf(behind) == 1.0f, "and an unset damping away from the game's place is 1");
     Check(behind.ModeCount() == 2, "two modes");
     const Tether still = behind.Mode(0);
     Check(still.name == "Untethered" && still.offset[0] == -450.0f && still.locYaw && !still.locPitch &&

@@ -742,9 +742,10 @@ const char* const kGuide[] = {
     "                    out -- e.g. the same camera held still, and turning with the vehicle",
     "  collide           pull the camera in when a wall is in the way; collideMargin = cm to stop short",
     "  lag               seconds the camera takes to catch up when the vehicle turns or bumps: it follows on a",
-    "                    spring instead of a rigid boom (0 = rigid). A steady speed does not lag. Left out: 0.3",
+    "                    spring instead of a rigid boom (0 = rigid). A steady speed does not lag. Left out: 0.5",
     "                    for an origin of \"thirdperson\", 0 for any other. lagDamping: 1 = no overshoot, lower =",
-    "                    a softer spring that swings past its place and back",
+    "                    a softer spring that swings past its place and back, higher = slower to settle (left",
+    "                    out: 1.5 for \"thirdperson\", 1 for any other)",
     "Per vehicle entry: defaultCamera / defaultMode = where you start (from 0);",
     "  seat = \"driver\" | \"gunner\" | \"passenger\" (or a list): this entry is only for that seat. Left out: the",
     "  driver's entry, and the one any other seat of the vehicle uses when it has none of its own;",
@@ -786,8 +787,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += ", \"collideMargin\": " + NumberText(camera.collideMargin);
     if (camera.lag >= 0.0f)
         out += ", \"lag\": " + NumberText(camera.lag);
-    if (camera.lag >= 0.0f || camera.lagDamping != unset.lagDamping)
-        out += ", \"lagDamping\": " + NumberText(camera.lagDamping);
+    if (camera.lag >= 0.0f || camera.lagDamping >= 0.0f)
+        out += ", \"lagDamping\": " + NumberText(LagDampingOf(camera));
     if (camera.tethering.empty())
     {
         out += " }";
@@ -946,6 +947,7 @@ Camera ThirdPerson()
     behind.locPitch = false;
     behind.locRoll = false;
     behind.lag = kThirdPersonLagSeconds;
+    behind.lagDamping = kThirdPersonLagDamping;
     UntetheredAndTethered(behind);
     return behind;
 }

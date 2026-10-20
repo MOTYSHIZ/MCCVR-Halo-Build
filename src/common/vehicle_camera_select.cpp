@@ -169,7 +169,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.collide = chosen.collide;
     next.collideMarginCm = chosen.collideMargin;
     next.lagSeconds = vehicle_camera_file::LagSecondsOf(chosen);
-    next.lagDamping = chosen.lagDamping;
+    next.lagDamping = vehicle_camera_file::LagDampingOf(chosen);
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
