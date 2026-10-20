@@ -660,7 +660,10 @@ struct Config
     // Match each campaign's MCC layout; same title order as gesture buttons.
     int flashlight_button[6]{15,15,15,15,15,15}; // legacy migration / unverified-title fallback
     vr_mapping::Overrides vr_bindings[6]{};
-    bool vr_action_mapping = true;
+    // Automatic VR action routing (F1 > Controls): a VR button reaches the game as the action bound to it. Off by
+    // default for now -- the plain route, each VR button as the gamepad button it stands for, is the one that works;
+    // the automatic one has known faults.
+    bool vr_action_mapping = false;
     bool flashlight_suppress_on_two_hand = true;
     // Optional temporal upscaler; ordinary eye resolve remains the default.
     int upscaler = 0;
