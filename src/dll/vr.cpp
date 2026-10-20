@@ -18936,7 +18936,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 ringDistanceM =
                                     vehicle_aim_marker::DrawDistance(ringDistanceM, g_config.reticle_max_dist_m);
                                 const float ringWidth =
-                                    vehicle_aim_marker::WidthAt(ringDistanceM, g_config.crosshair_size_deg);
+                                    vehicle_aim_marker::WidthAt(ringDistanceM);
                                 if (ringWidth > 0.0f &&
                                     ReachBuildStereoCenterPose(leftQuaternion, leftPosition, rightQuaternion,
                                                                rightPosition, ringCenter) &&

@@ -20,8 +20,9 @@
 // HOW IT LOOKS. A generated ring, no centre dot, light purple, drawn on the headset's compositor over the scene and
 // under the crosshair. Its picture is 128 px square; the ring's radius is 0.40 of it, its half-thickness 0.008 of
 // it, feathered over 1.25 px on both edges, colour (0.80, 0.55, 1.00) at 0.9 alpha -- Halo Campaign Evolved's
-// defaults. It keeps its apparent size: the picture is as wide as the vehicle crosshair (crosshair_size_deg here)
-// at whatever distance it is drawn.
+// defaults. It keeps Campaign Evolved's apparent size at whatever distance it is drawn: there the picture is as
+// wide as that game's vehicle crosshair, 256 px at 0.24 scale per 500 cm, halved -- 0.06144 of its distance, about
+// 3.52 degrees (a ring of about 2.8). It does not follow this mod's crosshair_size_deg.
 //
 // THE COLOUR'S ENCODING. Campaign Evolved draws the ring into a linear (UNORM) swapchain, so its numbers are linear
 // light. This mod's swapchains are sRGB where the runtime offers one; the same light is then the sRGB encoding of
@@ -41,8 +42,8 @@ inline constexpr float kDot = 0.0f;              // centre dot radius; 0 = none:
 inline constexpr float kEdgePixels = 1.25f;      // feather on both edges of the band
 inline constexpr float kRed = 0.80f, kGreen = 0.55f, kBlue = 1.00f;   // light purple, linear light
 inline constexpr float kAlpha = 0.9f;
-// The picture's width against the vehicle crosshair's at the same distance.
-inline constexpr float kSizeVsCrosshair = 1.0f;
+// The picture's width per metre of distance: Campaign Evolved's vehicle crosshair, 256 * 0.24 * 0.5 / 500.
+inline constexpr float kWidthPerDistance = 256.0f * 0.24f * 0.5f / 500.0f;
 
 // How much of pixel (x, y) of a `dim` square picture the ring covers, 0..1: 1 inside the band, feathering to 0 over
 // kEdgePixels on both edges. The fractions are clamped as Campaign Evolved clamps them, so a bad value can neither
@@ -173,12 +174,11 @@ inline float DrawDistance(float distanceM, float capM)
     return std::isfinite(capM) && capM > 0.0f && distanceM > capM ? capM : distanceM;
 }
 
-// The picture's width at `distanceM`, metres: as wide as the crosshair (`crosshairSizeDeg`, its apparent size) there,
-// times kSizeVsCrosshair. 0 on bad input.
-inline float WidthAt(float distanceM, float crosshairSizeDeg)
+// The picture's width at `distanceM`, metres: Campaign Evolved's (kWidthPerDistance). 0 on bad input.
+inline float WidthAt(float distanceM)
 {
-    if (!std::isfinite(distanceM) || distanceM <= 0.0f || !std::isfinite(crosshairSizeDeg) || crosshairSizeDeg <= 0.0f)
+    if (!std::isfinite(distanceM) || distanceM <= 0.0f)
         return 0.0f;
-    return 2.0f * distanceM * std::tan(crosshairSizeDeg * 0.5f * 0.0174532925f) * kSizeVsCrosshair;
+    return distanceM * kWidthPerDistance;
 }
 } // namespace vehicle_aim_marker

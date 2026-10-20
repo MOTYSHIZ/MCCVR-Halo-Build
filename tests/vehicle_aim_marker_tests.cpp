@@ -155,11 +155,12 @@ static void TestRange()
 
 static void TestSize()
 {
-    const float width = WidthAt(10.0f, 4.0f);
-    Check(Near(width, 2.0f * 10.0f * std::tan(2.0f * 0.0174532925f), 1e-5f), "as wide as a 4 degree crosshair at 10 m");
-    Check(Near(WidthAt(1000.0f, 4.0f) / 1000.0f, width / 10.0f, 1e-6f), "the same apparent size at any distance");
-    Check(WidthAt(0.0f, 4.0f) == 0.0f && WidthAt(10.0f, 0.0f) == 0.0f && WidthAt(NAN, 4.0f) == 0.0f,
-          "nothing from a bad distance or size");
+    const float width = WidthAt(10.0f);
+    Check(Near(width, 0.6144f, 1e-5f), "Campaign Evolved's vehicle crosshair width: 0.6144 m at 10 m");
+    const float degrees = 2.0f * std::atan(width * 0.5f / 10.0f) / 0.0174532925f;
+    Check(degrees > 3.51f && degrees < 3.53f, "about 3.52 degrees");
+    Check(Near(WidthAt(1000.0f) / 1000.0f, width / 10.0f, 1e-6f), "the same apparent size at any distance");
+    Check(WidthAt(0.0f) == 0.0f && WidthAt(-1.0f) == 0.0f && WidthAt(NAN) == 0.0f, "nothing from a bad distance");
 
     Check(DrawDistance(12.0f, 50.0f) == 12.0f && DrawDistance(900.0f, 50.0f) == 50.0f,
           "drawn where it is, parked at the crosshair's cap beyond it");
