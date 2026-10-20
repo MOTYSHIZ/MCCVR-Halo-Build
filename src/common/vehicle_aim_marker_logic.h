@@ -4,13 +4,14 @@
 // point.
 //
 // WHAT IT MARKS. Where the VEHICLE is aiming: the vehicle's own heading (the frame a camera that turns with the
-// vehicle follows) at the pitch the game aims at, along the line from the game's own camera -- the line a vehicle's
-// guns converge on. It sits beside the crosshair, which shows where the HAND points. Once the vehicle has turned to
+// vehicle follows) at the pitch the game aims at, along the line from the eye the seat's aim is solved from (in MCC
+// the seat's own engine eye; Campaign Evolved's game camera plays that part there). It sits beside the crosshair,
+// which shows where the HAND points. Once the vehicle has turned to
 // where the hand points the ring sits around the crosshair; while it is still turning, the gap is how far behind it
 // is. In a camera that turns with the vehicle (a tethered mode) it is also exactly where the view comes to rest, so it
 // shows what to aim at to keep going straight without turning.
 //
-// HOW DEEP. The ray from the game's camera is traced for what it meets, on the reticle's rule: a hit's range; on a
+// HOW DEEP. The ray from that eye is traced for what it meets, on the reticle's rule: a hit's range; on a
 // miss the last range held (sky has no range, and inventing one would swing the ring every time the ray crosses a
 // skyline); the trace's far end before anything has been hit in that seat. The ring is pulled back off the surface
 // by the crosshair's own surface offset (at most half the range), then drawn on the line from the eye through that

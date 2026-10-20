@@ -593,12 +593,24 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
         g_halo3VehicleAimMarkerSeat = pass.seat;
         g_halo3VehicleAimMarkerRange.Reset();
     }
-    // The line the vehicle aims along: from the game's own camera, the vehicle's heading at the game's aim pitch.
+    // The line the vehicle aims along: the vehicle's heading at the game's aim pitch, from the eye a seat's steering
+    // is solved from -- the seat's own engine eye (g_baseCam, the camera this pass started from before the head-look:
+    // Game_ComputeAimStick bends the hand's point for it), so a point on this line is one the hand can aim at to go
+    // straight. NOT the game's third-person camera: it swings round the vehicle to look along the aim, so the line
+    // from it ran down the vehicle's side and the ring slid the opposite way to the aim. That camera stays the
+    // fallback while the seat's eye has not been read.
     float at[3], about[3], looks[3], dir[3];
     if (!Halo3ReadObserverCamera(at, about, looks) || !vehicle_aim_marker::Direction(pass.vehicleForward, looks, dir))
     {
         Halo3VehicleAimMarkerClear();
         return;
+    }
+    if (g_baseCamValid.load(std::memory_order_acquire))
+    {
+        const float seatEye[3] = {g_baseCamX.load(std::memory_order_relaxed), g_baseCamY.load(std::memory_order_relaxed),
+                                  g_baseCamZ.load(std::memory_order_relaxed)};
+        if (std::isfinite(seatEye[0]) && std::isfinite(seatEye[1]) && std::isfinite(seatEye[2]))
+            memcpy(at, seatEye, sizeof(at));
     }
     const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_relaxed);
     SightAuxRay ray{};
