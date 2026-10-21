@@ -214,7 +214,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.boomPitchDeg = vehicle_camera_file::BoomPitchSet(chosen.boomPitch) ? chosen.boomPitch
                                                                            : vehicle_camera_file::kBoomPitchUnset;
     next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
-    next.showHeadlessBody = chosen.type == vehicle_camera_file::CameraType::FirstPerson && chosen.showHeadlessBody;
+    next.showHeadlessBody = vehicle_camera_file::EffectiveShowHeadlessBody(chosen, seat_);
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;

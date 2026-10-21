@@ -29,6 +29,18 @@ static bool Has(const std::string& text, const char* part)
     return text.find(part) != std::string::npos;
 }
 
+// A mistake is reported either as why the file was not read at all, or as a part left out of a file whose rest is
+// read (ParseResult::leftOut): either way with its path.
+static bool Flagged(const ParseResult& result, const char* part)
+{
+    if (!result.ok && Has(result.error, part))
+        return true;
+    for (const std::string& note : result.leftOut)
+        if (Has(note, part))
+            return true;
+    return false;
+}
+
 // One game section holding one vehicle entry with the given body.
 static std::string OneVehicle(const char* body)
 {
@@ -143,16 +155,16 @@ static void TestGames()
 
     Table untouched = DefaultTable();
     ParseResult bad = Read("{ \"games\": { \"halo5\": { \"vehicles\": { } } } }", untouched);
-    Check(!bad.ok && Has(bad.error, "games.halo5") && Has(bad.error, "line 1"), "an unknown game key is refused");
+    Check(Flagged(bad, "games.halo5") && Flagged(bad, "line 1"), "an unknown game key is refused");
     Check(untouched.games.size() == 2 && untouched.games[1].key == kDefaultKey, "and the table is left as it was");
     bad = Read("{ \"games\": { \"reach\": { \"vehicles\": { } }, \"REACH\": { \"vehicles\": { } } } }", untouched);
-    Check(!bad.ok && Has(bad.error, "listed once"), "a game listed twice is refused");
+    Check(Flagged(bad, "listed once"), "a game listed twice is refused");
     bad = Read("{ \"version\": 1 }", untouched);
-    Check(!bad.ok && Has(bad.error, "\"games\""), "a file without games is refused");
+    Check(Flagged(bad, "\"games\""), "a file without games is refused");
     bad = Read("{ \"games\": { \"halo3\": { } } }", untouched);
-    Check(!bad.ok && Has(bad.error, "\"vehicles\""), "a section without vehicles is refused");
+    Check(Flagged(bad, "\"vehicles\""), "a section without vehicles is refused");
     bad = Read("[]", untouched);
-    Check(!bad.ok && Has(bad.error, "the file"), "a file that is not an object is refused");
+    Check(Flagged(bad, "the file"), "a file that is not an object is refused");
 
     const ParseResult extra = Read("{ \"gamez\": 1, \"games\": { \"halo3\": { \"vehicles\": { }, \"vehicle\": 2 } } }", only);
     Check(extra.ok && extra.ignored.size() == 2 && extra.ignored[0] == "gamez" &&
@@ -326,11 +338,11 @@ static void TestAimMarker()
 
     // Wrong types are refused, naming where.
     ParseResult bad = Read(OneVehicle("{ \"aimMarker\": 0, \"cameras\": [ {} ] }"), table);
-    Check(!bad.ok && Has(bad.error, "Warthog.aimMarker"), "the seat's is true, false or null");
+    Check(Flagged(bad, "Warthog.aimMarker"), "the seat's is true, false or null");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"aimMarker\": \"yes\" } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "cameras[0].aimMarker"), "a camera's is true, false or null");
+    Check(Flagged(bad, "cameras[0].aimMarker"), "a camera's is true, false or null");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"tethering\": [ { \"aimMarker\": 1 } ] } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "tethering[0].aimMarker"), "and so is a mode's");
+    Check(Flagged(bad, "tethering[0].aimMarker"), "and so is a mode's");
 }
 
 static void TestLeash()
@@ -374,9 +386,9 @@ static void TestLeash()
           "no limit at all");
 
     ParseResult bad = Read(OneVehicle("{ \"leashMin\": \"tight\", \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "vehicles.Warthog.leashMin"), "a leash that is neither a list nor inherit");
+    Check(Flagged(bad, "vehicles.Warthog.leashMin"), "a leash that is neither a list nor inherit");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"leashMax\": [1, 2, 3, 4] } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "cameras[0].leashMax"), "a leash of four axes");
+    Check(Flagged(bad, "cameras[0].leashMax"), "a leash of four axes");
 }
 
 static void TestMatching()
@@ -452,9 +464,9 @@ static void TestMatching()
     Check(Has(written, "\"seat\": [\"passenger\"]") && Has(written, "\"enabled\": false"), "seat and enabled written");
 
     ParseResult bad = Read(OneVehicle("{ \"seat\": \"pilot\", \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "Warthog.seat"), "an unknown seat is refused");
+    Check(Flagged(bad, "Warthog.seat"), "an unknown seat is refused");
     bad = Read(OneVehicle("{ \"seat\": [\"driver\", 3], \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "seat[1]"), "and one in a list, by its place");
+    Check(Flagged(bad, "seat[1]"), "and one in a list, by its place");
     Check(Read(OneVehicle("{ \"seat\": [], \"cameras\": [ { } ] }"), table).ok && table.games[0].vehicles[0].seats == 0,
           "an empty seat list is any seat");
 }
@@ -489,34 +501,36 @@ static void TestBoundsAndErrors()
     const std::string before = ToJson(table, false);
 
     ParseResult bad = Read("{ \"games\": { \"halo3\": { \"vehicles\": {\n  \"Ghost\": { \"cameras\": [ { \"offset\": \"far\" } ] } } } } }", table);
-    Check(!bad.ok && Has(bad.error, "games.halo3.vehicles.Ghost.cameras[0].offset") && Has(bad.error, "line 2"),
+    Check(Flagged(bad, "games.halo3.vehicles.Ghost.cameras[0].offset") && Flagged(bad, "line 2"),
           "a type error names the key and the line");
-    Check(ToJson(table, false) == before, "and the table is left as it was");
+    Check(bad.ok && table.games.size() == 1 && table.games[0].vehicles[0].name == "Ghost" &&
+              table.games[0].vehicles[0].cameras[0].offset[0] == 0.0f && ToJson(table, false) != before,
+          "and the rest of the file is in use, that offset at its default");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"offset\": [0, 0, 1e39] } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "offset[2]"), "a number past the bound is refused");
+    Check(Flagged(bad, "offset[2]"), "a number past the bound is refused");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"offset\": [1, 2, 3, 4] } ] }"), table);
-    Check(!bad.ok, "an offset of four numbers");
+    Check(Flagged(bad, ""), "an offset of four numbers");
     Check(Read(OneVehicle("{ \"cameras\": [ { \"offset\": [5] } ] }"), table).ok &&
               table.games[0].vehicles[0].cameras[0].offset[0] == 5.0f &&
               table.games[0].vehicles[0].cameras[0].offset[1] == 0.0f,
           "a shorter offset leaves the rest at zero");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"type\": \"orbit\" } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "chase"), "an unknown camera type");
+    Check(Flagged(bad, "chase"), "an unknown camera type");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"rotationTracking\": [\"yaw\", \"spin\"] } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "rotationTracking[1]"), "an unknown axis, by its place");
+    Check(Flagged(bad, "rotationTracking[1]"), "an unknown axis, by its place");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"locationTracking\": \"orbit\" } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "view"), "a location tracking word that is not view");
+    Check(Flagged(bad, "view"), "a location tracking word that is not view");
     Check(Read(OneVehicle("{ \"cameras\": [ { \"lag\": 0.5, \"lagDamping\": 0.7 } ] }"), table).ok &&
               table.games[0].vehicles[0].cameras[0].lag == 0.5f &&
               table.games[0].vehicles[0].cameras[0].lagDamping == 0.7f,
           "lag and its damping are read");
     Check(Has(ToJson(table, false), "\"lag\": 0.5, \"lagDamping\": 0.7"), "and written back");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"lag\": -1 } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "lag"), "a negative lag");
+    Check(Flagged(bad, "lag"), "a negative lag");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"lag\": 6 } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "seconds"), "a lag past five seconds");
+    Check(Flagged(bad, "seconds"), "a lag past five seconds");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"lagDamping\": 0.05 } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "lagDamping"), "a damping too small to settle");
+    Check(Flagged(bad, "lagDamping"), "a damping too small to settle");
     Check(Read(OneVehicle("{ \"cameras\": [ { \"origin\": \"thirdperson\", \"boomPitch\": 25.5 } ] }"), table).ok &&
               table.games[0].vehicles[0].cameras[0].boomPitch == 25.5f,
           "a boom angle is read");
@@ -528,34 +542,34 @@ static void TestBoundsAndErrors()
               table.games[0].vehicles[0].cameras[0].boomPitch == -89.0f && Has(ToJson(table, false), "\"boomPitch\": -89"),
           "straight down is the end of it, and any camera may name one");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"boomPitch\": 95 } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "boomPitch") && Has(bad.error, "-89 to 89"), "a boom angle past straight up");
+    Check(Flagged(bad, "boomPitch") && Flagged(bad, "-89 to 89"), "a boom angle past straight up");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"boomPitch\": \"high\" } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "boomPitch"), "a boom angle that is not a number");
+    Check(Flagged(bad, "boomPitch"), "a boom angle that is not a number");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"collide\": 1 } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "true or false"), "a number where true or false belongs");
+    Check(Flagged(bad, "true or false"), "a number where true or false belongs");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"origin\": \"\" } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "origin"), "an empty origin");
+    Check(Flagged(bad, "origin"), "an empty origin");
     bad = Read(OneVehicle("{ \"cameras\": [ ] }"), table);
-    Check(!bad.ok && Has(bad.error, "at least one camera"), "an empty camera list");
+    Check(Flagged(bad, "at least one camera"), "an empty camera list");
     bad = Read(OneVehicle("{ }"), table);
-    Check(!bad.ok && Has(bad.error, "\"cameras\""), "an enabled entry without cameras");
+    Check(Flagged(bad, "\"cameras\""), "an enabled entry without cameras");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"tethering\": [ ] } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "at least one tethering mode"), "an empty tethering list");
+    Check(Flagged(bad, "at least one tethering mode"), "an empty tethering list");
     bad = Read(OneVehicle("{ \"cameras\": [ { \"tethering\": [ 3 ] } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "tethering[0]"), "a tethering mode that is not an object");
+    Check(Flagged(bad, "tethering[0]"), "a tethering mode that is not an object");
     bad = Read(OneVehicle("{ \"defaultCamera\": 3000000000, \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "defaultCamera"), "a camera index past any list is refused");
+    Check(Flagged(bad, "defaultCamera"), "a camera index past any list is refused");
     bad = Read(OneVehicle("{ \"defaultCamera\": -1, \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok, "and a negative one");
+    Check(Flagged(bad, ""), "and a negative one");
     bad = Read(OneVehicle("{ \"defaultMode\": 1.5, \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "defaultMode"), "and a fraction");
+    Check(Flagged(bad, "defaultMode"), "and a fraction");
     Check(Read(OneVehicle("{ \"defaultCamera\": 7, \"defaultMode\": 7, \"cameras\": [ { } ] }"), table).ok &&
               table.games[0].vehicles[0].defaultCamera == 0 && table.games[0].vehicles[0].defaultMode == 0,
           "an index past this entry's list starts at the first");
     bad = Read(OneVehicle("{ \"enabled\": \"no\", \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "enabled"), "enabled that is not true or false");
+    Check(Flagged(bad, "enabled"), "enabled that is not true or false");
     bad = Read(OneVehicle("{ \"match\": 5, \"cameras\": [ { } ] }"), table);
-    Check(!bad.ok && Has(bad.error, "match"), "match that is not text");
+    Check(Flagged(bad, "match"), "match that is not text");
 
     // The counts a file may reach, and one more.
     const auto cameras = [](int count) {
@@ -566,7 +580,7 @@ static void TestBoundsAndErrors()
     };
     Check(Read(cameras(kMaxCameras), table).ok, "sixteen cameras read");
     bad = Read(cameras(kMaxCameras + 1), table);
-    Check(!bad.ok && Has(bad.error, "at most 16 cameras"), "seventeen do not");
+    Check(Flagged(bad, "at most 16 cameras"), "seventeen do not");
     const auto modes = [](int count) {
         std::string list;
         for (int i = 0; i < count; ++i)
@@ -575,7 +589,7 @@ static void TestBoundsAndErrors()
     };
     Check(Read(modes(kMaxTethers), table).ok, "eight tethering modes read");
     bad = Read(modes(kMaxTethers + 1), table);
-    Check(!bad.ok && Has(bad.error, "at most 8"), "nine do not");
+    Check(Flagged(bad, "at most 8"), "nine do not");
     const auto entries = [](int count) {
         std::string list;
         for (int i = 0; i < count; ++i)
@@ -585,16 +599,16 @@ static void TestBoundsAndErrors()
     Check(Read(entries(kMaxVehicles), table).ok && table.games[0].vehicles.size() == kMaxVehicles,
           "sixty-four entries read, notes aside");
     bad = Read(entries(kMaxVehicles + 1), table);
-    Check(!bad.ok && Has(bad.error, "at most 64"), "sixty-five do not");
+    Check(Flagged(bad, "at most 64"), "sixty-five do not");
 
     // A file past the size bound is refused before it is parsed.
     std::string huge = "{ \"_pad\": \"";
     huge.append(kMaxFileBytes, 'x');
     huge += "\", \"games\": { } }";
     bad = Read(huge, table);
-    Check(!bad.ok && Has(bad.error, "512 KB"), "a file past the size bound");
+    Check(Flagged(bad, "512 KB"), "a file past the size bound");
     bad = FromJson(nullptr, 0, table);
-    Check(!bad.ok, "no text at all");
+    Check(Flagged(bad, ""), "no text at all");
 
     // Notes anywhere, and keys that match nothing.
     const ParseResult noted = Read(
@@ -619,6 +633,67 @@ static void TestBoundsAndErrors()
           "camera types as the file writes them");
 }
 
+// A SLIP COSTS ONLY ITS OWN PART: a quoted true / false or number is read as meant; a wrong value leaves its field at
+// its default; a camera, tethering mode, entry or section that cannot be read is left out and the rest applies; only
+// a file of which nothing can be read leaves the table in use as it was.
+static void TestResilience()
+{
+    Table table;
+    ParseResult result = Read(OneVehicle("{ \"cameras\": [ { \"type\": \"firstperson\", \"showHeadlessBody\": \"true\" },"
+                                         " { \"collide\": \"False\", \"lag\": \"0.5\" } ] }"),
+                              table);
+    Check(result.ok && result.leftOut.empty(), "quoted true, false and numbers are read as meant");
+    const Vehicle& quoted = table.games[0].vehicles[0];
+    Check(quoted.cameras[0].showHeadlessBody == 1 && !quoted.cameras[1].collide && quoted.cameras[1].lag == 0.5f,
+          "with the values they say");
+
+    result = Read(OneVehicle("{ \"cameras\": [ { \"name\": \"A\", \"lag\": \"fast\", \"offset\": [1, 2, 3] } ] }"), table);
+    const Camera& kept = table.games[0].vehicles[0].cameras[0];
+    Check(result.ok && result.leftOut.size() == 1 && Flagged(result, "cameras[0].lag") && Flagged(result, "default"),
+          "a wrong value is left out and said");
+    Check(kept.name == "A" && kept.lag < 0.0f && kept.offset[0] == 1.0f && kept.offset[2] == 3.0f,
+          "and only that field: it keeps its default, the camera keeps the rest");
+
+    result = Read(OneVehicle("{ \"cameras\": [ { \"name\": \"A\" }, 5, { \"name\": \"C\" } ] }"), table);
+    Check(result.ok && table.games[0].vehicles[0].cameras.size() == 2 &&
+              table.games[0].vehicles[0].cameras[1].name == "C" && Flagged(result, "this camera is left out"),
+          "a camera that is not one is left out, the others read");
+
+    result = Read(OneVehicle("{ \"cameras\": [ { \"name\": \"A\", \"tethering\": [ { \"name\": \"one\" }, \"two\","
+                             " { \"name\": \"three\", \"rotationTracking\": [\"spin\"] } ] } ] }"),
+                  table);
+    const Camera& modes = table.games[0].vehicles[0].cameras[0];
+    Check(result.ok && modes.tethering.size() == 2 && modes.tethering[1].name == "three" &&
+              !modes.tethering[1].rotYaw && Flagged(result, "this tethering mode is left out") &&
+              Flagged(result, "tethering[2].rotationTracking"),
+          "a mode that is not one is left out, and a mode's wrong axis leaves that mode at its camera's");
+
+    result = Read("{ \"games\": { \"halo3\": { \"vehicles\": {"
+                  " \"Warthog\": { \"cameras\": [ 1, 2 ] },"
+                  " \"Ghost\": { \"cameras\": [ { \"name\": \"G\" } ] } } },"
+                  " \"halo5\": { \"vehicles\": { } } } }",
+                  table);
+    Check(result.ok && table.games.size() == 1 && table.games[0].vehicles.size() == 1 &&
+              table.games[0].vehicles[0].name == "Ghost" && Flagged(result, "this entry is left out") &&
+              Flagged(result, "games.halo5"),
+          "an entry none of whose cameras can be read, and a section for a game this does not know, are left out");
+
+    result = Read(OneVehicle("{ \"cameras\": [ { \"name\": \"A\" } ], \"surprise\": 1, \"seat\": [\"pilot\"] }"), table);
+    Check(result.ok && result.ignored.size() == 1 && Flagged(result, "Warthog.seat") &&
+              table.games[0].vehicles[0].seats == 0,
+          "an unknown key is said once even though the entry was read again, and a wrong seat list means any seat");
+
+    Table before;
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"name\": \"Kept\" } ] }"), before).ok, "a table in use");
+    Table attempt = before;
+    result = Read(OneVehicle("{ \"cameras\": [ 1, 2 ] }"), attempt);
+    Check(!result.ok && Has(result.error, "nothing in it could be read") && attempt.games[0].vehicles[0].cameras[0].name == "Kept",
+          "a file of which nothing can be read leaves the table in use as it was");
+    attempt = before;
+    result = Read("{ \"games\": { \"halo3\": { \"vehicles\": { \"Warthog\": { \"cameras\": [ { } ] } } }", attempt);
+    Check(!result.ok && attempt.games[0].vehicles[0].cameras[0].name == "Kept", "and so does a syntax error");
+}
+
 int main()
 {
     TestBuiltInTable();
@@ -629,6 +704,7 @@ int main()
     TestMatching();
     TestCarryMode();
     TestBoundsAndErrors();
+    TestResilience();
     std::printf("PASS: %u vehicle camera file checks\n", g_checks);
     return 0;
 }

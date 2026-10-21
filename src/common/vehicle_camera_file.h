@@ -127,10 +127,10 @@ struct Camera
     float boomPitch = kBoomPitchUnset; // "boomPitch": degrees above level, or unset
     // "aimMarker": the ring where the vehicle aims (vehicle_aim_marker_logic.h) in this camera. -1 = the seat's.
     int aimMarker = -1;
-    // "showHeadlessBody" (a firstperson camera's): true = the occupant's body is drawn as the game seats it, all of it but
-    // its head; false = the seat view as the game gives it, which draws its first-person legs only. A chase camera
-    // is not changed by it.
-    bool showHeadlessBody = false;
+    // "showHeadlessBody" (a firstperson camera's): 1 = the occupant's body is drawn as the game seats it, all of it but
+    // its head; 0 = the seat view as the game gives it, which draws its first-person legs only; -1 (left out) = the
+    // seat's default (EffectiveShowHeadlessBody). A chase camera is not changed by it.
+    int showHeadlessBody = -1;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -230,12 +230,19 @@ Table DefaultTable();
 struct ParseResult
 {
     bool ok{false};
-    std::string error;                // a syntax or type error with "line L col C"; the table is untouched
+    std::string error;                // why nothing was read, with "line L col C"; the table is untouched
     std::vector<std::string> ignored; // keys that matched nothing ("games.halo3.vehicles.Ghost.cameras[1].ofset")
+    // What was left out of a file that was otherwise read, each with its path and "line L col C": a field with a
+    // wrong value (it keeps its default), or a tethering mode, camera, entry or game section that could not be
+    // read at all (it is left out; the rest stands).
+    std::vector<std::string> leftOut;
     int vehicles{0}, cameras{0};
 };
 
-// Parse `text` into `out`, REPLACING it. On any error `out` is left exactly as it was.
+// Parse `text` into `out`, REPLACING it. A mistake costs only the smallest part it is in: a wrong value its field
+// (which keeps its default), a tethering mode, camera, entry or game section that cannot be read at all itself --
+// each said in leftOut. `out` is left exactly as it was only when nothing can be read: a syntax error, a file that is
+// not the shape of one, or one in which not a single entry could be read.
 ParseResult FromJson(const char* text, std::size_t len, Table& out);
 
 // The table as the file format, with a guide to every key at the top (`guide` = false leaves it out).
@@ -261,8 +268,14 @@ int CarryMode(const Camera& to, const Tether& from);
 // range answers with the seat's (off when the seat leaves it unset).
 bool EffectiveAimMarker(const Vehicle& vehicle, int camera, int mode);
 
-// Whether a firstperson camera of `gameKey`'s section (else the "default" section) asks for "showHeadlessBody": whether the
-// title's body drawing for seats is wanted at all.
+// Whether firstperson camera `camera` shows the headless body in a seat of `seatBits` (SeatBits): its own
+// "showHeadlessBody", else on in a driver's or a gunner's seat and off in a passenger's -- who may hold a weapon,
+// whose first-person arms would then be drawn twice. In code, so a vehicle with no entry of its own (a mod map's,
+// riding "default") has it too.
+bool EffectiveShowHeadlessBody(const Camera& camera, uint8_t seatBits);
+
+// Whether a firstperson camera of `gameKey`'s section (else the "default" section) can show the headless body in some
+// seat: whether the title's body drawing for seats is wanted at all.
 bool AnyShowsHeadlessBody(const Table& table, const char* gameKey);
 
 const char* TypeName(CameraType type) noexcept;

@@ -74,7 +74,7 @@ static void TestBuiltInTable()
     Check(seat.camera == 0 && seat.cameraCount == 2 && seat.modeCount == 1, "the seat view is camera 1 of 2");
     Check(seat.changes == 1, "sitting down counts as a change");
     Check(selector.StandDownReason().empty(), "no stand-down reason while a camera is selected");
-    Check(selector.Describe() == "default (Driver): camera 1 of 2 \"Seat\", the seat view",
+    Check(selector.Describe() == "default (Driver): camera 1 of 2 \"Seat\", the seat view, your body shown without its head",
           "the seat view's log line");
     Check(!selector.Update("halo3", true, "unidentified", kSeatDriver), "the same seat again changes nothing");
     Check(selector.Active() == seat, "and publishes the same record");
@@ -383,42 +383,69 @@ static void TestNoSeatView()
     Check(!known.Active().chase, "a vehicle with a seat view starts in it");
 }
 
-// "showHeadlessBody": a firstperson camera draws the seated body without its head. Read, published, described, written back;
-// and the table says whether any camera asks for it (what installs the body drawing at all).
+// "showHeadlessBody": a firstperson camera draws the seated body without its head -- by default in a driver's or a
+// gunner's seat, never by default in a passenger's (who may hold a weapon, whose arms would then be drawn twice).
+// Read, published, described, written back; and the table says whether any camera can ask for it (what installs the
+// body drawing at all).
 static void TestShowBody()
 {
     const std::string text =
         "{ \"games\": { \"halo3\": { \"vehicles\": { \"mongoose\": { \"cameras\": ["
-        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"showHeadlessBody\": true },"
-        " { \"name\": \"Seat as it is\", \"type\": \"firstperson\" },"
-        " { \"name\": \"Behind\", \"type\": \"chase\", \"showHeadlessBody\": true } ] } } } } }";
+        " { \"name\": \"Seat\", \"type\": \"firstperson\" },"
+        " { \"name\": \"Seat as it is\", \"type\": \"firstperson\", \"showHeadlessBody\": false },"
+        " { \"name\": \"Behind\", \"type\": \"chase\", \"showHeadlessBody\": true },"
+        " { \"name\": \"Seat with body\", \"type\": \"firstperson\", \"showHeadlessBody\": true } ] } } } } }";
     Selector selector;
     selector.SetTable(Read(text));
     selector.Update("halo3", true, "mongoose", kSeatDriver, true);
     Check(selector.Active().valid && !selector.Active().chase && selector.Active().showHeadlessBody,
-          "a firstperson camera with showHeadlessBody publishes it");
+          "a driver's firstperson camera shows the headless body by default");
     Check(Has(selector.Describe(), "the seat view, your body shown without its head"), "and the log says so");
     selector.StepCamera(1);
     Check(!selector.Active().chase && !selector.Active().showHeadlessBody && !Has(selector.Describe(), "body"),
-          "one without it is the game's own seat view");
+          "one that says false is the game's own seat view");
     selector.StepCamera(1);
     Check(selector.Active().chase && !selector.Active().showHeadlessBody, "a chase camera is not changed by it");
+
+    Selector gunner;
+    gunner.SetTable(Read(text));
+    gunner.Update("halo3", true, "mongoose", kSeatGunner, true);
+    Check(gunner.Active().showHeadlessBody, "a gunner's too");
+
+    Selector passenger;
+    passenger.SetTable(Read(text));
+    passenger.Update("halo3", true, "mongoose", kSeatPassenger, true);
+    Check(!passenger.Active().chase && !passenger.Active().showHeadlessBody,
+          "a passenger's firstperson camera does not by default");
+    passenger.StepCamera(1);
+    passenger.StepCamera(1);
+    passenger.StepCamera(1);
+    Check(!passenger.Active().chase && passenger.Active().showHeadlessBody, "unless it says true");
 
     const Table table = Read(text);
     Check(AnyShowsHeadlessBody(table, "halo3"), "the table asks for the body drawing");
     Check(!AnyShowsHeadlessBody(table, "halo2"), "for its own game only");
     const std::string written = ToJson(table, false);
-    Check(Has(written, "\"name\": \"Seat\", \"type\": \"firstperson\", \"showHeadlessBody\": true }"),
-          "written back on the firstperson camera");
+    Check(Has(written, "\"name\": \"Seat\", \"type\": \"firstperson\" }") &&
+              Has(written, "\"name\": \"Seat as it is\", \"type\": \"firstperson\", \"showHeadlessBody\": false }") &&
+              Has(written, "\"name\": \"Seat with body\", \"type\": \"firstperson\", \"showHeadlessBody\": true }"),
+          "written back as it was said, and left out where it was left out");
     Table again;
-    Check(FromJson(written.c_str(), written.size(), again).ok && again.games[0].vehicles[0].cameras[0].showHeadlessBody &&
-              !again.games[0].vehicles[0].cameras[1].showHeadlessBody,
+    Check(FromJson(written.c_str(), written.size(), again).ok &&
+              again.games[0].vehicles[0].cameras[0].showHeadlessBody < 0 &&
+              again.games[0].vehicles[0].cameras[1].showHeadlessBody == 0 &&
+              again.games[0].vehicles[0].cameras[3].showHeadlessBody == 1,
           "and read back the same");
 
-    const Table none = Read(
-        "{ \"games\": { \"halo3\": { \"vehicles\": { \"mongoose\": { \"cameras\": ["
+    const Table passengersOnly = Read(
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"mongoose\": { \"seat\": [\"passenger\"], \"cameras\": ["
         " { \"type\": \"firstperson\" }, { \"type\": \"chase\", \"showHeadlessBody\": true } ] } } } } }");
-    Check(!AnyShowsHeadlessBody(none, "halo3"), "a chase camera's showHeadlessBody asks for nothing");
+    Check(!AnyShowsHeadlessBody(passengersOnly, "halo3"),
+          "an entry for passengers only, and a chase camera's key, ask for nothing");
+    const Table allFalse = Read(
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"mongoose\": { \"cameras\": ["
+        " { \"type\": \"firstperson\", \"showHeadlessBody\": false } ] } } } } }");
+    Check(!AnyShowsHeadlessBody(allFalse, "halo3"), "nor does a camera that says false");
 }
 
 // A FIRSTPERSON CAMERA'S OFFSET: the seat view, with its eye moved; nothing else of the placement fields.

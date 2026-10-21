@@ -42,6 +42,12 @@ struct Reader
 {
     const char* text;
     ParseResult& result;
+    // A WRONG VALUE COSTS ONLY ITS OWN PART. Each part that can stand alone -- a game section, an entry, a camera, a
+    // tethering mode -- is read by ReadUnit: when a field in it has a wrong value, the field is skipped (by its full
+    // path) and the part read again, so it keeps that field's default; a part that cannot be read at all is left
+    // out by its caller. Both are said in result.leftOut.
+    std::vector<std::string> skipPaths;
+    std::string errorWhere; // the path the last TypeError named
 
     bool TypeError(const Value& value, const std::string& where, const char* want)
     {
@@ -50,6 +56,76 @@ struct Reader
         char buffer[400];
         std::snprintf(buffer, sizeof(buffer), "%s must be %s (line %d col %d)", where.c_str(), want, line, col);
         result.error = buffer;
+        errorWhere = where;
+        return false;
+    }
+
+    bool Skipped(const std::string& at) const
+    {
+        for (const std::string& path : skipPaths)
+            if (path == at)
+                return true;
+        return false;
+    }
+
+    // A part read again after a skipped field meets its unknown keys again: each is listed once.
+    void Ignore(const std::string& at)
+    {
+        for (const std::string& seen : result.ignored)
+            if (seen == at)
+                return;
+        result.ignored.push_back(at);
+    }
+
+    // The full path of the field of `unit` that `path` lies in; empty when `path` is the unit itself or not in it.
+    static std::string FieldOf(const std::string& unit, const std::string& path)
+    {
+        if (path.size() <= unit.size() + 1 || path.compare(0, unit.size(), unit) != 0 || path[unit.size()] != '.')
+            return {};
+        const std::size_t end = path.find_first_of(".[", unit.size() + 1);
+        return path.substr(0, end == std::string::npos ? path.size() : end);
+    }
+
+    // Reads one part with `read` (which starts it afresh each time). True: read, perhaps with fields skipped.
+    // False: the part itself cannot be read; result.error says why, and the caller leaves it out (LeftOut).
+    template <class Read>
+    bool ReadUnit(const std::string& unit, Read read)
+    {
+        for (int attempt = 0; attempt < 64; ++attempt)
+        {
+            result.error.clear();
+            errorWhere.clear();
+            if (read())
+                return true;
+            const std::string field = FieldOf(unit, errorWhere);
+            if (field.empty() || Skipped(field))
+                return false;
+            result.leftOut.push_back(result.error + "; that is left out and keeps its default");
+            skipPaths.push_back(field);
+        }
+        return false;
+    }
+
+    void LeftOut(const char* what)
+    {
+        result.leftOut.push_back(result.error + "; " + what);
+        result.error.clear();
+    }
+
+    // A quoted "true" or "false" is read as the word: the likeliest slip in a hand-edited file.
+    static bool QuotedBool(const Value& value, bool& out)
+    {
+        if (!value.IsString())
+            return false;
+        std::string word;
+        for (const char c : value.text)
+            if (c != ' ' && c != '\t')
+                word += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (word == "true" || word == "false")
+        {
+            out = word == "true";
+            return true;
+        }
         return false;
     }
 
@@ -59,15 +135,26 @@ struct Reader
     {
         if (value.IsNull())
             return true;
-        if (!value.IsNumber() || !(std::fabs(value.number) <= 1.0e6))
+        // A number in quotes ("0.5") is read as the number.
+        double number = value.number;
+        bool isNumber = value.IsNumber();
+        if (!isNumber && value.IsString() && !value.text.empty())
+        {
+            char* end = nullptr;
+            number = std::strtod(value.text.c_str(), &end);
+            isNumber = end && *end == '\0' && end != value.text.c_str();
+        }
+        if (!isNumber || !(std::fabs(number) <= 1.0e6))
             return TypeError(value, where, "a number from -1000000 to 1000000");
-        out = static_cast<float>(value.number);
+        out = static_cast<float>(number);
         return true;
     }
 
     bool Boolean(const Value& value, const std::string& where, bool& out)
     {
         if (value.IsNull())
+            return true;
+        if (QuotedBool(value, out))
             return true;
         if (!value.IsBool())
             return TypeError(value, where, "true or false");
@@ -81,6 +168,12 @@ struct Reader
         if (value.IsNull())
         {
             out = -1;
+            return true;
+        }
+        bool quoted = false;
+        if (QuotedBool(value, quoted))
+        {
+            out = quoted ? 1 : 0;
             return true;
         }
         if (!value.IsBool())
@@ -246,7 +339,7 @@ struct Reader
             const std::string& key = value.keys[k];
             const Value& item = value.items[k];
             const std::string at = where + "." + key;
-            if (IsNote(key))
+            if (IsNote(key) || Skipped(at))
                 continue;
             bool ok = true;
             if (key == "name")
@@ -303,7 +396,7 @@ struct Reader
             }
             else
             {
-                result.ignored.push_back(at);
+                Ignore(at);
             }
             if (!ok)
                 return false;
@@ -324,7 +417,7 @@ struct Reader
             const std::string& key = value.keys[k];
             const Value& item = value.items[k];
             const std::string at = where + "." + key;
-            if (IsNote(key))
+            if (IsNote(key) || Skipped(at))
                 continue;
             bool ok = true;
             if (key == "name")
@@ -420,7 +513,8 @@ struct Reader
             }
             else if (key == "showHeadlessBody")
             {
-                ok = Boolean(item, at, camera.showHeadlessBody);
+                ok = TriState(item, at, camera.showHeadlessBody,
+                              "true, false or null (null = on in a driver's or gunner's seat, off in a passenger's)");
             }
             else if (key == "tethering")
             {
@@ -431,14 +525,19 @@ struct Reader
                 for (std::size_t i = 0; i < item.items.size(); ++i)
                 {
                     RawTether one;
-                    if (!ReadTether(item.items[i], Indexed(at, i), one))
-                        return false;
-                    raw.push_back(one);
+                    const std::string modeAt = Indexed(at, i);
+                    if (ReadUnit(modeAt, [&] {
+                            one = RawTether{};
+                            return ReadTether(item.items[i], modeAt, one);
+                        }))
+                        raw.push_back(one);
+                    else
+                        LeftOut("this tethering mode is left out");
                 }
             }
             else
             {
-                result.ignored.push_back(at);
+                Ignore(at);
             }
             if (!ok)
                 return false;
@@ -517,7 +616,7 @@ struct Reader
         for (std::size_t k = 0; k < value.keys.size(); ++k)
         {
             const std::string& field = value.keys[k];
-            if (field != "leashMin" && field != "leashMax")
+            if ((field != "leashMin" && field != "leashMax") || Skipped(where + "." + field))
                 continue;
             const bool isMin = field == "leashMin";
             const float none[3] = {isMin ? -kUnleashed : kUnleashed, isMin ? -kUnleashed : kUnleashed,
@@ -532,7 +631,7 @@ struct Reader
             const std::string& field = value.keys[k];
             const Value& item = value.items[k];
             const std::string at = where + "." + field;
-            if (IsNote(field) || field == "leashMin" || field == "leashMax")
+            if (IsNote(field) || field == "leashMin" || field == "leashMax" || Skipped(at))
                 continue;
             if (field == "match")
             {
@@ -590,19 +689,27 @@ struct Reader
                 for (std::size_t i = 0; i < item.items.size(); ++i)
                 {
                     Camera camera;
-                    for (int axis = 0; axis < 3; ++axis)
-                    {
-                        camera.leashMin[axis] = out.leashMin[axis];
-                        camera.leashMax[axis] = out.leashMax[axis];
-                    }
-                    if (!ReadCamera(item.items[i], Indexed(at, i), camera))
-                        return false;
-                    out.cameras.push_back(std::move(camera));
+                    const std::string cameraAt = Indexed(at, i);
+                    const bool read = ReadUnit(cameraAt, [&] {
+                        camera = Camera{};
+                        for (int axis = 0; axis < 3; ++axis)
+                        {
+                            camera.leashMin[axis] = out.leashMin[axis];
+                            camera.leashMax[axis] = out.leashMax[axis];
+                        }
+                        return ReadCamera(item.items[i], cameraAt, camera);
+                    });
+                    if (read)
+                        out.cameras.push_back(std::move(camera));
+                    else
+                        LeftOut("this camera is left out");
                 }
+                if (out.cameras.empty())
+                    return TypeError(item, at, "a list with at least one camera that can be read");
             }
             else
             {
-                result.ignored.push_back(at);
+                Ignore(at);
             }
         }
         // An entry set "enabled": false keeps the seat view as it is, so it needs no cameras of its own.
@@ -635,11 +742,11 @@ struct Reader
             const std::string& field = value.keys[k];
             const Value& item = value.items[k];
             const std::string at = where + "." + field;
-            if (IsNote(field))
+            if (IsNote(field) || Skipped(at))
                 continue;
             if (field != "vehicles")
             {
-                result.ignored.push_back(at);
+                Ignore(at);
                 continue;
             }
             haveVehicles = true;
@@ -653,8 +760,12 @@ struct Reader
                 if (++count > kMaxVehicles)
                     return TypeError(item, at, "at most 64 entries");
                 Vehicle vehicle;
-                if (!ReadVehicle(item.keys[i], item.items[i], at + "." + item.keys[i], vehicle))
-                    return false;
+                const std::string entryAt = at + "." + item.keys[i];
+                if (!ReadUnit(entryAt, [&] { return ReadVehicle(item.keys[i], item.items[i], entryAt, vehicle); }))
+                {
+                    LeftOut("this entry is left out");
+                    continue;
+                }
                 result.cameras += static_cast<int>(vehicle.cameras.size());
                 out.vehicles.push_back(std::move(vehicle));
             }
@@ -766,8 +877,9 @@ const char* const kGuide[] = {
     "                    eye forward, right and up in the vehicle's own frame, so each vehicle's first-person",
     "                    view can be set where you want it)",
     "  showHeadlessBody  true | false (firstperson cameras; Halo 3): true draws your body in the seat as the",
-    "                    game seats it, all of it but your head; false (left out) is the game's own first-person",
-    "                    seat, which shows your legs only",
+    "                    game seats it, all of it but your head; false is the game's own first-person seat, which",
+    "                    shows your legs only. Left out: on in a driver's or gunner's seat, off in a passenger's",
+    "                    (a passenger may hold a weapon, and its arms would be drawn twice)",
     "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
     "                    vehicle's own origin, your seat, your character's head, or where the game's own",
     "                    third-person camera stands for that seat at the boom's angle, see boomPitch -- with a",
@@ -864,8 +976,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += ", \"boomPitch\": null";
     if (camera.aimMarker >= 0)
         out += std::string(", \"aimMarker\": ") + (camera.aimMarker ? "true" : "false");
-    if (camera.showHeadlessBody)
-        out += ", \"showHeadlessBody\": true";
+    if (camera.showHeadlessBody >= 0)
+        out += std::string(", \"showHeadlessBody\": ") + (camera.showHeadlessBody ? "true" : "false");
     if (camera.tethering.empty())
     {
         out += " }";
@@ -1188,21 +1300,32 @@ ParseResult FromJson(const char* text, std::size_t len, Table& out)
             if (IsNote(item.keys[i]))
                 continue;
             const std::string gameKey = Lower(item.keys[i]);
+            const std::string gameAt = "games." + item.keys[i];
             if (!KnownGameKey(gameKey))
             {
-                reader.TypeError(item.items[i], "games." + item.keys[i],
+                reader.TypeError(item.items[i], gameAt,
                                  "under one of halo3, odst, reach, halo4, halo2, halo1 or default");
-                return result;
+                reader.LeftOut("this section is left out");
+                continue;
             }
+            bool twice = false;
             for (const Game& seen : table.games)
-                if (seen.key == gameKey)
-                {
-                    reader.TypeError(item.items[i], "games." + item.keys[i], "listed once");
-                    return result;
-                }
+                twice = twice || seen.key == gameKey;
+            if (twice)
+            {
+                reader.TypeError(item.items[i], gameAt, "listed once");
+                reader.LeftOut("this second one is left out");
+                continue;
+            }
             Game game;
-            if (!reader.ReadGame(item.keys[i], item.items[i], "games." + item.keys[i], game))
-                return result;
+            if (!reader.ReadUnit(gameAt, [&] {
+                    game = Game{};
+                    return reader.ReadGame(item.keys[i], item.items[i], gameAt, game);
+                }))
+            {
+                reader.LeftOut("this section is left out");
+                continue;
+            }
             table.games.push_back(std::move(game));
         }
     }
@@ -1211,6 +1334,17 @@ ParseResult FromJson(const char* text, std::size_t len, Table& out)
         reader.TypeError(root, "the file", "an object with a \"games\" section");
         return result;
     }
+    // A file that had something to read and of which nothing could be: it does not replace the table in use with
+    // an empty one -- that would take away every camera over one slip.
+    std::size_t entries = 0;
+    for (const Game& game : table.games)
+        entries += game.vehicles.size();
+    if (entries == 0 && !result.leftOut.empty())
+    {
+        result.error = "nothing in it could be read: " + result.leftOut.front();
+        return result;
+    }
+    result.error.clear();
     result.ok = true;
     out = std::move(table);
     return result;
@@ -1319,15 +1453,28 @@ bool EffectiveAimMarker(const Vehicle& vehicle, int camera, int mode)
     return tether.rotYaw;
 }
 
+bool EffectiveShowHeadlessBody(const Camera& camera, uint8_t seatBits)
+{
+    if (camera.type != CameraType::FirstPerson)
+        return false;
+    if (camera.showHeadlessBody >= 0)
+        return camera.showHeadlessBody != 0;
+    return (seatBits & (kSeatDriver | kSeatGunner)) != 0;
+}
+
 bool AnyShowsHeadlessBody(const Table& table, const char* gameKey)
 {
     const Game* game = table.FindGame(gameKey);
     if (!game)
         return false;
     for (const Vehicle& vehicle : game->vehicles)
+    {
+        // The seats an entry can be used in: any (0), or its "seat" list.
+        const uint8_t seats = vehicle.seats ? vehicle.seats : uint8_t(kSeatDriver | kSeatGunner | kSeatPassenger);
         for (const Camera& camera : vehicle.cameras)
-            if (camera.type == CameraType::FirstPerson && camera.showHeadlessBody)
+            if (EffectiveShowHeadlessBody(camera, seats))
                 return true;
+    }
     return false;
 }
 

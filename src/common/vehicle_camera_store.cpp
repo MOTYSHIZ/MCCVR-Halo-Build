@@ -251,7 +251,17 @@ PollResult Store::Poll()
     fromFile_ = true;
     result.changed = true;
     result.notes.push_back(Prefix() + ": read " + std::to_string(parsed.vehicles) + " vehicle entries and " +
-                           std::to_string(parsed.cameras) + " cameras");
+                           std::to_string(parsed.cameras) + " cameras" +
+                           (parsed.leftOut.empty()
+                                ? std::string()
+                                : "; " + std::to_string(parsed.leftOut.size()) +
+                                      " part(s) of it could not be read and were left out, the rest applies:"));
+    // What a slip cost, each by its path and line: the rest of the file is in use.
+    constexpr std::size_t kLeftOutLines = 12;
+    for (std::size_t i = 0; i < parsed.leftOut.size() && i < kLeftOutLines; ++i)
+        result.notes.push_back(Prefix() + ": " + parsed.leftOut[i]);
+    if (parsed.leftOut.size() > kLeftOutLines)
+        result.notes.push_back(Prefix() + ": and " + std::to_string(parsed.leftOut.size() - kLeftOutLines) + " more");
     for (const std::string& key : parsed.ignored)
         result.notes.push_back(Prefix() + ": \"" + key + "\" is not a key this version reads; it was skipped");
     return result;

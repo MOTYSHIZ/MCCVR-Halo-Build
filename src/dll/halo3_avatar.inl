@@ -297,8 +297,8 @@ bool InstallHalo3Avatar(uintptr_t base,size_t size,uint32_t generation) {
     }
     r.enabled.store(true,std::memory_order_release);
     if(full)LOG("Halo 3 avatar Installed: exact local full-world body, private GPU output; headset validation pending");
-    else LOG("Halo 3 seat body: ready (a firstperson camera in the vehicle camera file says showHeadlessBody): in its seat "
-             "your body is drawn as the game seats it, without its head");
+    else LOG("Halo 3 seat body: ready (first-person cameras show it in drivers' and gunners' seats unless the vehicle "
+             "camera file says showHeadlessBody false): your body is drawn as the game seats it, without its head");
     return true;
 }
 void ReportHalo3Avatar() {
