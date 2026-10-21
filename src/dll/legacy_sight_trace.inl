@@ -892,9 +892,16 @@ struct LegacySeatShotLineCapture
 thread_local LegacySeatShotLineCapture t_legacySeatShotLine;
 struct LegacySeatShotLineWindow
 {
-    std::atomic<uint32_t> queries{0}, blocked{0}, byObject{0}, byOwn{0}, above{0}, below{0}, passedAside{0};
+    std::atomic<uint32_t> queries{0}, blocked{0}, byObject{0}, byOwn{0}, byYou{0}, above{0}, below{0}, passedAside{0};
     std::atomic<uint32_t> maxShortCm{0}, maxAngleCdeg{0}, lastStopCm{0}, lastPointCm{0};
+    // Where the lines started, from the eye; and the last object one stopped on (its definition, for its tag name,
+    // and its object type), 0xFFFFFFFF none.
+    std::atomic<uint32_t> maxStartCm{0}, lastStartCm{0};
+    std::atomic<uint32_t> lastObjectDef{0xFFFFFFFFu}, lastObjectType{0xFFFFFFFFu};
 };
+// halo3_contact_melee_runtime.inl (included after this file): the game thread's object table.
+const uint8_t* Halo3SightObjectData(uint32_t handle);
+int Halo3SightObjectType(uint32_t handle);
 LegacySeatShotLineWindow g_legacySeatShotLine;
 inline constexpr float kLegacySeatShotShortWu = 1.0f / 3.048f;   // a stop over 1 m short of the point
 inline constexpr float kLegacySeatShotAsideWu = 1.0f / 3.048f;   // a line passing over 1 m from the point
@@ -1050,6 +1057,13 @@ void LegacySightNoteCrosshairResult(GameTitle title, const float* start, const f
     const float aside[3]{w[0] - d[0] * along, w[1] - d[1] * along, w[2] - d[2] * along};
     if (aside[0] * aside[0] + aside[1] * aside[1] + aside[2] * aside[2] > kLegacySeatShotAsideWu * kLegacySeatShotAsideWu)
         win.passedAside.fetch_add(1, std::memory_order_relaxed);
+    {
+        // Where this line started, from the eye the reticle is drawn for.
+        const float s[3]{start[0] - c.eye[0], start[1] - c.eye[1], start[2] - c.eye[2]};
+        const uint32_t startCm = static_cast<uint32_t>(std::sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]) * 304.8f + 0.5f);
+        aim_caller::AtomicMaxU32(win.maxStartCm, startCm);
+        win.lastStartCm.store(startCm, std::memory_order_relaxed);
+    }
     const auto* bytes = static_cast<const uint8_t*>(result);
     float fraction = 0.0f;
     int32_t resultType = 0, object = -1;
@@ -1072,8 +1086,33 @@ void LegacySightNoteCrosshairResult(GameTitle title, const float* start, const f
     if (resultType == 4)
     {
         win.byObject.fetch_add(1, std::memory_order_relaxed);
-        if (object != -1 && (object == c.own[0] || object == c.own[1] || object == c.own[2]))
+        // Ours: you, or any part of the vehicle you sit in -- an attached part has its own handle, so it is found by
+        // its root, as the aim trace finds it.
+        bool own = object != -1 && (object == c.own[0] || object == c.own[1] || object == c.own[2]);
+        uint32_t definition = 0xFFFFFFFFu;
+        int objectKind = -1;
+        if (object != -1)
+        {
+            const int32_t hitRoot = LegacySightRootOf(Halo3SightObjectData, object);
+            const int32_t ownRoot = LegacySightRootOf(Halo3SightObjectData, c.own[0] != -1 ? c.own[0] : c.own[1]);
+            own = own || (hitRoot != -1 && hitRoot == ownRoot);
+            __try
+            {
+                if (const uint8_t* data = Halo3SightObjectData(static_cast<uint32_t>(object)))
+                    definition = *reinterpret_cast<const uint16_t*>(data);
+                objectKind = Halo3SightObjectType(static_cast<uint32_t>(object));
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                definition = 0xFFFFFFFFu;
+            }
+        }
+        if (own)
             win.byOwn.fetch_add(1, std::memory_order_relaxed);
+        if (object != -1 && object == c.own[0])
+            win.byYou.fetch_add(1, std::memory_order_relaxed);
+        win.lastObjectDef.store(definition, std::memory_order_relaxed);
+        win.lastObjectType.store(static_cast<uint32_t>(objectKind), std::memory_order_relaxed);
     }
     const auto cm = [](float wu) { return static_cast<uint32_t>(std::fabs(wu) * 304.8f + 0.5f); };
     aim_caller::AtomicMaxU32(win.maxShortCm, cm(along - stop));
@@ -1108,6 +1147,20 @@ void LegacySightReportSeatShotLine()
     const uint32_t blocked = win.blocked.exchange(0, std::memory_order_relaxed);
     const uint32_t byObject = win.byObject.exchange(0, std::memory_order_relaxed);
     const uint32_t byOwn = win.byOwn.exchange(0, std::memory_order_relaxed);
+    const uint32_t byYou = win.byYou.exchange(0, std::memory_order_relaxed);
+    const uint32_t maxStartCm = win.maxStartCm.exchange(0, std::memory_order_relaxed);
+    const uint32_t lastStartCm = win.lastStartCm.load(std::memory_order_relaxed);
+    const uint32_t objectDef = win.lastObjectDef.exchange(0xFFFFFFFFu, std::memory_order_relaxed);
+    const uint32_t objectType = win.lastObjectType.exchange(0xFFFFFFFFu, std::memory_order_relaxed);
+    // The last object a line stopped on, by its tag (the cold worker reads the map's names).
+    char objectText[200] = "";
+    if (byObject && objectDef != 0xFFFFFFFFu)
+    {
+        const std::string_view path = Halo3TagNameOf(objectDef);
+        std::snprintf(objectText, sizeof(objectText), "; the last object one stopped on: %.*s (definition %04X, object "
+                      "type %d)", static_cast<int>(path.empty() ? 9 : path.size()),
+                      path.empty() ? "(unnamed)" : path.data(), objectDef, static_cast<int>(objectType));
+    }
     const uint32_t above = win.above.exchange(0, std::memory_order_relaxed);
     const uint32_t below = win.below.exchange(0, std::memory_order_relaxed);
     const uint32_t aside = win.passedAside.exchange(0, std::memory_order_relaxed);
@@ -1116,13 +1169,15 @@ void LegacySightReportSeatShotLine()
     if (!blocked && !aside)
         return;
     LOG("SHOT LINE Halo 3 seated: of %u crosshair queries (the line each shot follows, from the game's own camera "
-        "through the point), %u stopped short of the point (%u on an object, %u of them our own vehicle or its "
-        "carrier, %u on the world; by up to %.1f m, the "
+        "through the point), %u stopped short of the point (%u on an object -- %u of them you or a part of your "
+        "vehicle, %u you yourself -- and %u on the world; by up to %.1f m, the "
         "last at %.1f m of %.1f m), the stop up to %.1f deg off the point as the eye sees it (%u above it, %u below) "
-        "-- a shot goes where its query stops, not to the reticle; %u lines passed over 1 m from the point",
-        queries, blocked, byObject, byOwn, blocked - byObject, double(shortCm) / 100.0,
+        "-- a shot goes where its query stops, not to the reticle; %u lines passed over 1 m from the point; the lines "
+        "started up to %.1f m from your eye (the last %.1f m)%s",
+        queries, blocked, byObject, byOwn, byYou, blocked - byObject, double(shortCm) / 100.0,
         double(win.lastStopCm.load(std::memory_order_relaxed)) / 100.0,
-        double(win.lastPointCm.load(std::memory_order_relaxed)) / 100.0, double(angle) / 100.0, above, below, aside);
+        double(win.lastPointCm.load(std::memory_order_relaxed)) / 100.0, double(angle) / 100.0, above, below, aside,
+        double(maxStartCm) / 100.0, double(lastStartCm) / 100.0, objectText);
 }
 
 // The dev SHOT LAG line's crosshair-assist path: the query the game traced (after any re-aim), per local query at
