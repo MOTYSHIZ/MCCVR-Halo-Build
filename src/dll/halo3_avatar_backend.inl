@@ -15,6 +15,7 @@ struct Runtime {
     std::atomic<bool> enabled{false},faulted{false};
     std::atomic<uint32_t> callbacks{0},generation{0};
     std::atomic<uint64_t> posed{0},uploads{0},refusals{0},ordering{0},faults{0};
+    std::atomic<uint64_t> seatDrawn{0},seatRefused{0},seatLegs{0}; // a seat's body (SeatBodyRegions)
     uintptr_t base{};size_t size{};void* targets[8]{};
     ExcludeFn exclude{};ProducerFn producer{};RegionsFn regions{};
     UploadFn upload{};MapFn map{};CommitFn commit{};WorldFn world{};
@@ -36,7 +37,14 @@ struct Pair {
     bool wristsValid=false,hideLower=false;
     unsigned nestedDepth=0;
     Candidate rows[4]{};
+    // A SEAT'S BODY (a vehicle camera's "showBody"): in a seat, where the avatar is never active. The unit whose
+    // own rows are drawn without the head, and the hook generation that decided it.
+    bool seatBody=false;uint32_t seatUnit=UINT32_MAX,seatGeneration=0;
 };
+// Whether the seated body was drawn without its head on the pair before, and for which unit: its first-person legs
+// are left out only then, so a body whose head cannot be hidden keeps the legs the game gives the seat.
+struct SeatBodyMemory {uint32_t unit=UINT32_MAX,generation=0;bool drawn=false;};
+thread_local SeatBodyMemory seatMemory;
 thread_local Pair pair;
 thread_local uint64_t pairSequence=0;
 struct FpReceipt {
@@ -70,6 +78,9 @@ struct RegionScope {
 };
 thread_local RegionScope regionScope;
 bool Current() noexcept;
+// The hooks are live for this world and the player looks through his own eyes in a VR gameplay frame. Unlike
+// Current() it does not ask for the full-body avatar: a seat's body needs only the exclusion and the regions.
+bool SeatBodyGate() noexcept;
 bool Capture(uint32_t unit,void* info,Candidate& out);
 bool IsOwnFpRow(void* model,void* info);
 bool SelectUpload(void* mesh,UploadScope& scope);
@@ -77,6 +88,10 @@ bool Prepare(Candidate& candidate);
 void Fault() noexcept {runtime.faulted.store(true,std::memory_order_release);runtime.faults.fetch_add(1,std::memory_order_relaxed);pair.rejected=true;}
 bool PairCurrent() noexcept {
     return pair.active&&!pair.rejected&&!pair.nestedDepth&&Current()&&pair.generation==runtime.generation.load(std::memory_order_acquire);
+}
+bool SeatBodyCurrent() noexcept {
+    return pair.seatBody&&!pair.rejected&&!pair.nestedDepth&&SeatBodyGate()&&
+        pair.seatGeneration==runtime.generation.load(std::memory_order_acquire);
 }
 __declspec(noinline) bool SafeCapture(uint32_t unit,void* info,Candidate& out) {
     volatile bool fault=false;bool result=false;
@@ -114,22 +129,24 @@ __declspec(noinline) bool Hide(void* info) {
     __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
     if(fault){RestoreRegions(true);Fault();}return result;
 }
-__declspec(noinline) bool Mask(Candidate& c) {
+// The row's head (and, asked, lower body) regions left out, staged in the submit that asked.
+__declspec(noinline) bool MaskInfo(void* info,const halo3_avatar::Profile& profile,bool hideLower) {
     volatile bool fault=false;bool result=false;
     __try {
-        const auto* bytes=static_cast<const uint8_t*>(c.info);
+        const auto* bytes=static_cast<const uint8_t*>(info);
         std::array<int16_t,halo3_avatar::RegionCapacity> meshes{};
         const auto count=*reinterpret_cast<const volatile uint32_t*>(bytes);
-        if(count==c.profile.regions&&count<=meshes.size()) {
+        if(count==profile.regions&&count<=meshes.size()) {
             std::memcpy(meshes.data(),bytes+0xE,count*2);
-            if(halo3_avatar::MaskRegions(c.profile,pair.hideLower,count,meshes)&&StageRegionChange(c.info,count)) {
+            if(halo3_avatar::MaskRegions(profile,hideLower,count,meshes)&&StageRegionChange(info,count)) {
                 regionScope.after=meshes;
-                std::memcpy(static_cast<uint8_t*>(c.info)+0xE,meshes.data(),count*2);result=true;
+                std::memcpy(static_cast<uint8_t*>(info)+0xE,meshes.data(),count*2);result=true;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
     if(fault){RestoreRegions(true);Fault();}return result;
 }
+bool Mask(Candidate& c) {return MaskInfo(c.info,c.profile,pair.hideLower);}
 __declspec(noinline) void RestoreRegions(bool interrupted) {
     volatile bool fault=false;
     __try {
@@ -172,8 +189,8 @@ uint64_t __fastcall ExcludeHook(int32_t user,uint32_t object) {
         result=runtime.exclude(user,object);
         // Preserve every other predicate caller, all attached weapons and all
         // remote/split-screen users. Full object salt was validated at Begin.
-        if(result&&reinterpret_cast<uintptr_t>(_ReturnAddress())==runtime.base+0x252C7A&&
-           user==0&&object==pair.unit&&PairCurrent())result=0;
+        if(result&&reinterpret_cast<uintptr_t>(_ReturnAddress())==runtime.base+0x252C7A&&user==0&&
+           ((object==pair.unit&&PairCurrent())||(object==pair.seatUnit&&SeatBodyCurrent())))result=0;
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_acq_rel);}
     return result;
 }
@@ -197,6 +214,34 @@ uint8_t __fastcall ProducerHook(uint32_t object,float distance,uint32_t flags,ui
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_acq_rel);}
     return result;
 }
+// A SEAT'S BODY: the occupant's own world row drawn with its head regions left out -- or, for a model whose head
+// the mod does not know, not drawn at all, as the game has it -- and its first-person legs left out once that body
+// is drawn, so the legs are not drawn twice. Both are staged in the submit that asked (StageRegionChange) and undone
+// when it returns (RestoreRegions); the region routine has no other caller.
+__declspec(noinline) void SeatBodyRegions(void* model,void* info) {
+    volatile bool fault=false;
+    __try {
+        if(!model||!info||!SeatBodyCurrent())return;
+        const auto* bytes=static_cast<const uint8_t*>(info);
+        const auto* tag=static_cast<const uint8_t*>(model);
+        uint32_t object{},flags{},checksum{},count{},extra{};
+        std::memcpy(&object,bytes+0x48,4);std::memcpy(&flags,bytes+0x58,4);
+        if(object!=pair.seatUnit)return;
+        std::memcpy(&checksum,tag+8,4);std::memcpy(&count,tag+0x30,4);std::memcpy(&extra,tag+0xB0,4);
+        if(flags&0x10) {
+            if(seatMemory.drawn&&seatMemory.unit==pair.seatUnit&&seatMemory.generation==pair.seatGeneration&&
+               halo3_avatar::IsFpBodyPalette(checksum,count)&&Hide(info))
+                runtime.seatLegs.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+        halo3_avatar::Profile profile{};
+        const bool drawn=extra==0&&halo3_avatar::SelectProfile(checksum,count,profile)&&MaskInfo(info,profile,false);
+        if(!drawn)(void)Hide(info);
+        seatMemory={pair.seatUnit,pair.seatGeneration,drawn};
+        (drawn?runtime.seatDrawn:runtime.seatRefused).fetch_add(1,std::memory_order_relaxed);
+    } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
+    if(fault){RestoreRegions(true);Fault();}
+}
 void __fastcall RegionsHook(void* model,void* info) {
     runtime.callbacks.fetch_add(1,std::memory_order_acq_rel);
     __try {
@@ -215,6 +260,8 @@ void __fastcall RegionsHook(void* model,void* info) {
                 if(PairCurrent()&&pair.ready)Hide(info);
                 else {pair.fpAdmitted=true;pair.rejected=true;}
             }
+        } else if(pair.seatBody&&!pair.nestedDepth) {
+            SeatBodyRegions(model,info);
         }
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_acq_rel);}
 }

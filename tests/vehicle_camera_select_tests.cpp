@@ -383,6 +383,44 @@ static void TestNoSeatView()
     Check(!known.Active().chase, "a vehicle with a seat view starts in it");
 }
 
+// "showBody": a firstperson camera draws the seated body without its head. Read, published, described, written back;
+// and the table says whether any camera asks for it (what installs the body drawing at all).
+static void TestShowBody()
+{
+    const std::string text =
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"mongoose\": { \"cameras\": ["
+        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"showBody\": true },"
+        " { \"name\": \"Seat as it is\", \"type\": \"firstperson\" },"
+        " { \"name\": \"Behind\", \"type\": \"chase\", \"showBody\": true } ] } } } } }";
+    Selector selector;
+    selector.SetTable(Read(text));
+    selector.Update("halo3", true, "mongoose", kSeatDriver, true);
+    Check(selector.Active().valid && !selector.Active().chase && selector.Active().showBody,
+          "a firstperson camera with showBody publishes it");
+    Check(Has(selector.Describe(), "the seat view, your body shown without its head"), "and the log says so");
+    selector.StepCamera(1);
+    Check(!selector.Active().chase && !selector.Active().showBody && !Has(selector.Describe(), "body"),
+          "one without it is the game's own seat view");
+    selector.StepCamera(1);
+    Check(selector.Active().chase && !selector.Active().showBody, "a chase camera is not changed by it");
+
+    const Table table = Read(text);
+    Check(AnyShowsBody(table, "halo3"), "the table asks for the body drawing");
+    Check(!AnyShowsBody(table, "halo2"), "for its own game only");
+    const std::string written = ToJson(table, false);
+    Check(Has(written, "\"name\": \"Seat\", \"type\": \"firstperson\", \"showBody\": true }"),
+          "written back on the firstperson camera");
+    Table again;
+    Check(FromJson(written.c_str(), written.size(), again).ok && again.games[0].vehicles[0].cameras[0].showBody &&
+              !again.games[0].vehicles[0].cameras[1].showBody,
+          "and read back the same");
+
+    const Table none = Read(
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"mongoose\": { \"cameras\": ["
+        " { \"type\": \"firstperson\" }, { \"type\": \"chase\", \"showBody\": true } ] } } } } }");
+    Check(!AnyShowsBody(none, "halo3"), "a chase camera's showBody asks for nothing");
+}
+
 // A FIRSTPERSON CAMERA'S OFFSET: the seat view, with its eye moved; nothing else of the placement fields.
 static void TestFirstPersonOffset()
 {
@@ -613,6 +651,7 @@ int main()
     TestCarryAcrossCameras();
     TestNoSeatView();
     TestFirstPersonOffset();
+    TestShowBody();
     TestMemoryPerVehicleAndSeat();
     TestControlChoice();
     TestMemoryFile();

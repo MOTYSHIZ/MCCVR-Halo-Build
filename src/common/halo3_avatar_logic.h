@@ -353,6 +353,12 @@ inline bool BuildGpuPose(const Profile& p,const Pose& world,const Pose& inverseB
     output=candidate;return true;
 }
 
+// The first-person body models (official tag exports): their palettes carry the lower body only.
+inline bool IsFpBodyPalette(uint32_t checksum,unsigned count) noexcept
+{
+    return (checksum==353376263u&&count==51)||(checksum==319362069u&&count==55)||(checksum==269747456u&&count==55);
+}
+
 inline bool MaskRegions(const Profile& p,bool hideLower,unsigned regionCount,
     std::array<int16_t,RegionCapacity>& meshes) noexcept
 {

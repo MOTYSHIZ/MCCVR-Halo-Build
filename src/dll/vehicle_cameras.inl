@@ -47,12 +47,13 @@ struct VehicleCameraSeatKey
 };
 
 // One writer (the cold worker). `chase` is the readers' whole cost while no chase camera is in use, and
-// `eyeNudge` theirs while no firstperson camera moves the seat's eye.
+// `eyeNudge` / `showBody` theirs while no firstperson camera moves the seat's eye / shows the body.
 struct VehicleCameraPublished
 {
     std::atomic<uint32_t> seq{0}; // even = stable
     std::atomic<uint32_t> chase{0};
     std::atomic<uint32_t> eyeNudge{0};
+    std::atomic<uint32_t> showBody{0};
     vehicle_camera_select::ActiveCamera camera{};
     VehicleCameraSeatKey seat{};
 };
@@ -67,7 +68,43 @@ void VehicleCameraPublish(const vehicle_camera_select::ActiveCamera& camera, con
     published.chase.store(camera.valid && camera.chase ? 1u : 0u, std::memory_order_relaxed);
     const bool nudged = camera.offsetCm[0] != 0.0f || camera.offsetCm[1] != 0.0f || camera.offsetCm[2] != 0.0f;
     published.eyeNudge.store(camera.valid && !camera.chase && nudged ? 1u : 0u, std::memory_order_relaxed);
+    published.showBody.store(camera.valid && !camera.chase && camera.showBody ? 1u : 0u, std::memory_order_relaxed);
     published.seq.fetch_add(1, std::memory_order_release);
+}
+
+// Whether the camera file asks any Halo 3 firstperson camera for "showBody" (one writer, the cold worker): the body
+// drawing's hooks (halo3_avatar.inl) are installed only while it does.
+std::atomic<bool> g_vehicleCameraShowsBodyWanted{false};
+bool Halo3VehicleCameraBodyWanted()
+{
+    return g_vehicleCameraShowsBodyWanted.load(std::memory_order_acquire);
+}
+
+// A FIRSTPERSON CAMERA'S "showBody" for exactly this seat: the occupant's body drawn without its head. The render
+// thread's question once a frame in a seat: one atomic load while no camera in use asks for it. `known` false = the
+// camera was being published both times it was read, so the answer is not known this time.
+bool Halo3VehicleCameraShowsBody(uint32_t generation, int32_t vehicle, int32_t seatIndex, uint32_t identity,
+                                 bool mounted, bool& known)
+{
+    known = true;
+    const VehicleCameraPublished& published = g_vehicleCameraPublished;
+    if (!published.showBody.load(std::memory_order_acquire))
+        return false;
+    const VehicleCameraSeatKey wanted{generation, vehicle, seatIndex, identity, mounted};
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = published.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const vehicle_camera_select::ActiveCamera camera = published.camera;
+        const VehicleCameraSeatKey seat = published.seat;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (published.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        return camera.valid && !camera.chase && camera.showBody && seat == wanted;
+    }
+    known = false;
+    return false;
 }
 
 // A FIRSTPERSON CAMERA'S OFFSET (vehicle_camera_file.h): how far the seat's eye is moved for this seat, in world
@@ -1387,6 +1424,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 runtime->noTraceLogged = false;
                 runtime->markerNoTraceLogged = false;
             }
+            g_vehicleCameraShowsBodyWanted.store(false, std::memory_order_release);
             LOG("Vehicle cameras: off (vehicle_cameras = 0); every seat keeps the view it has without them");
         }
         return;
@@ -1431,7 +1469,11 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         for (const std::string& note : polled.notes)
             LOG("%s", note.c_str());
         if (polled.changed)
+        {
             r.selector.SetTable(r.store.Current());
+            g_vehicleCameraShowsBodyWanted.store(vehicle_camera_file::AnyShowsBody(r.store.Current(), "halo3"),
+                                                 std::memory_order_release);
+        }
     }
 
     VehicleCameraSeatRead read = VehicleCameraSeatRead::OnFoot;
