@@ -10,18 +10,26 @@
 // material is the first int16 of the render model's mesh -> parts entry. A call whose object, model and material
 // the seat's camera hides is not passed on; every other call is, untouched.
 //
-// THE BIND (fading). Inside that call the material's bind (+0x289B90) copies the render method's real parameters
-// into a buffer of its own and calls +0x2894B0 (twice at most, found by its signature) to apply the animated
-// functions to that copy, then uploads it. The part draw notes "this part fades" for its own thread; the hook on
-// +0x2894B0 lets the game write the copy, then scales the parameters the fade names -- once per bind (a parameter
-// already scaled to this value is left), and only when the copy is of the postprocess entry the cold worker read
-// for that material (its seventh argument is that entry + 0x50 at both call sites), so a material the game swapped
-// in for this draw is left alone. Nothing shared is written.
+// WHERE A MATERIAL'S PARAMETERS REACH THE GPU (fading; read from the shader select +0x28A9FC). Inside that call,
+// when the material's shaders are bound anew, two uploads (+0x2898DC and +0x289A68, one per shader stage) map that
+// stage's constant buffer and copy the render method's real parameters into it straight from tag memory, by a
+// mapping in the shader's entry (a word at entry+8, resp. entry+2: count << 10 | first; each mapping is four bytes,
+// the low byte of its first word the constant register, its third byte the parameter). Then the material's bind
+// (+0x289B90) overlays the ANIMATED parameters: it copies them all into a buffer of its own, lets +0x2894B0 apply the
+// animated functions to that copy, and writes only the animated ones into the mapped buffers. The commit comes after.
+// So a fade scales, for the draw it is noted for: each upload's mapped buffer right after the upload filled it, and
+// the bind's copy before its animated parameters are written out (once per bind: a value already scaled is left).
+// Each is checked to be of the postprocess entry the cold worker read for that material, so a material the game
+// swapped in for this draw is left alone. The shader select skips the uploads while the same shaders stay bound; a
+// faded draw clears that note (+0x28A9FC's own "nothing cached" byte) before and after itself, so its own uploads
+// run and the next draw of that material by anything else uploads it again unfaded. Nothing in tag memory is written.
 //
 // INSTALLED ONLY WHILE WANTED. The report (every 2 s) installs the part draw hook while the camera file asks any
-// Halo 3 camera for "hideParts" or "fadeParts", the bind hook while it asks for "fadeParts", and removes each when
-// the file no longer does; retirement with Halo 3 removes both first. While installed and nothing is published,
-// their cost per call is an atomic load or two and a thread-local test.
+// Halo 3 camera for "hideParts" or "fadeParts", the bind and upload hooks while it asks for "fadeParts", and removes
+// each when the file no longer does; retirement with Halo 3 removes them all first. Forwards go through
+// CallNativeWithSpareSlots; tools/audit_caller_area.py finds none of the four natives relying on its caller's stack or
+// volatile registers. While installed and nothing is published, their cost per call is an atomic load or two and a
+// thread-local test.
 //
 // CO-OP. Only this machine's drawing: nothing the simulation reads is touched.
 
@@ -29,6 +37,7 @@ namespace halo3_part_draw
 {
 using DrawFn = void(__fastcall*)(void*, uint32_t);
 using BindFn = uint64_t(__fastcall*)(uint32_t, void*, void*, void*, void*, void*, void*);
+using UploadFn = void(__fastcall*)(void*, void*, void*);
 struct Hook
 {
     void* target = nullptr;
@@ -38,13 +47,16 @@ struct Hook
 struct Runtime
 {
     std::atomic<uint32_t> callbacks{0};
-    std::atomic<uint64_t> skipped{0}, faded{0}, swapped{0};
-    Hook draw, bind;
+    std::atomic<uint64_t> skipped{0}, faded{0}, uploads{0}, swapped{0};
+    Hook draw, bind, uploadA, uploadB;
+    uint8_t* const* mappedA = nullptr; // the upload's mapped constant buffer, as each stores it
+    uint8_t* const* mappedB = nullptr;
+    volatile uint8_t* cacheNote = nullptr; // the shader select's "the shaders bound are cached" byte
     uintptr_t base = 0;
     size_t size = 0;
 } runtime;
 
-// What the part draw notes for the bind inside it, on its own thread.
+// What the part draw notes for the uploads and the bind inside it, on its own thread.
 struct FadeScope
 {
     bool active = false;
@@ -64,6 +76,27 @@ inline constexpr const char* kDrawPattern =
 inline constexpr const char* kBindPattern =
     "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 89 48 08 57 41 54 41 55 41 56 41 57 48 83 EC 30 4C 8B AC 24 80 00 "
     "00 00 45 33 DB 48 8B EA 66 45 89 19";
+// ADDR-HYGIENE: resolved. The two uploads, from their entry to where each stores its mapped buffer (the last four
+// bytes, a rip-relative disp32: the slot this reads): the postprocess's real and integer blocks, the entry's size
+// byte (+0x18 / +0x19), the map call for constant slot 2 / 1, and the mapping word (+8 / +2). Unique in retail.
+inline constexpr const char* kUploadAPattern =
+    "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 20 83 79 20 00 48 8B DA 48 8B 15 ?? ?? "
+    "?? ?? 49 8B F0 75 04 33 FF EB 07 8B 41 20 48 8D 3C 82 83 79 2C 00 8B 69 34 75 05 45 33 F6 EB 07 8B 41 2C 4C 8D "
+    "34 82 8A 43 18 84 C0 0F 84 ?? ?? ?? ?? 0F B6 D0 4C 8D 05 ?? ?? ?? ?? C1 E2 04 B9 02 00 00 00 89 15 ?? ?? ?? ?? "
+    "E8 ?? ?? ?? ?? 0F B7 4B 08 45 33 C0 41 BB 00 FC FF FF 48 89 05 ?? ?? ?? ??";
+inline constexpr size_t kUploadABytes = 136, kUploadAMapped = 132, kUploadAWord = 8;
+inline constexpr const char* kUploadBPattern =
+    "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 83 79 20 00 48 8B DA 48 8B 15 ?? ?? ?? ?? 49 8B E8 "
+    "75 04 33 FF EB 07 8B 41 20 48 8D 3C 82 83 79 2C 00 75 04 33 F6 EB 07 8B 41 2C 48 8D 34 82 8A 43 19 84 C0 0F 84 "
+    "?? ?? ?? ?? 0F B6 D0 4C 8D 05 ?? ?? ?? ?? C1 E2 04 B9 01 00 00 00 89 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? 0F B7 4B 02 "
+    "45 33 C0 41 BA 00 FC FF FF 48 89 05 ?? ?? ?? ??";
+inline constexpr size_t kUploadBBytes = 127, kUploadBMapped = 123, kUploadBWord = 2;
+// ADDR-HYGIENE: resolved. The shader select's prologue and its first test, `cmp byte [rip+disp32], 0` (the disp32 at
+// +27, an imm8 after it): the byte that says the bound shaders are cached. Unique in retail.
+inline constexpr const char* kSelectPattern =
+    "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 48 89 78 20 41 56 48 83 EC 30 80 3D ?? ?? ?? ?? 00 41 8B C1 40 8A 6C "
+    "24 68 41 8B F0 8B 7C 24 60";
+inline constexpr size_t kSelectBytes = 47, kSelectNote = 27;
 
 // The object, render model and part material this call draws. Guarded: a read that faults is not a part of ours.
 __declspec(noinline) bool ReadPart(const void* record, uint32_t& object, uint32_t& model, uint32_t& material)
@@ -121,9 +154,23 @@ bool SeatView()
            (mode == RuntimeMode::Vehicle || mode == RuntimeMode::Turret);
 }
 
+// The shader select's cached-shaders note cleared, so the next select uploads. Guarded.
+__declspec(noinline) void ForgetBoundShaders()
+{
+    __try
+    {
+        if (runtime.cacheNote)
+            *runtime.cacheNote = 0;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
 void __fastcall DrawHook(void* record, uint32_t entry)
 {
     runtime.callbacks.fetch_add(1, std::memory_order_acq_rel);
+    bool fading = false;
     __try
     {
         bool skip = false;
@@ -139,16 +186,110 @@ void __fastcall DrawHook(void* record, uint32_t entry)
             {
                 fadeScope.active = true;
                 fadeScope.writtenMask = 0;
+                fading = true;
+                ForgetBoundShaders(); // its own uploads run, whatever was bound before it
             }
         }
         if (skip)
             runtime.skipped.fetch_add(1, std::memory_order_relaxed);
         else
-            reinterpret_cast<DrawFn>(runtime.draw.original)(record, entry);
+            CallNativeWithSpareSlots(reinterpret_cast<DrawFn>(runtime.draw.original), record, entry);
     }
     __finally
     {
         fadeScope.active = false;
+        if (fading)
+            ForgetBoundShaders(); // the next draw of this material, by anything, uploads it unfaded
+        runtime.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
+}
+
+// The noted fade applied to one parameter value the game just wrote, once per bind. Not guarded: its callers are.
+void FadeValue(uint32_t parameter, float (&value)[4], bool once)
+{
+    FadeScope& scope = fadeScope;
+    const auto op = static_cast<halo3_glass_fade::Op>(scope.fade.op[parameter]);
+    if (op == halo3_glass_fade::Op::None)
+        return;
+    if (once && (scope.writtenMask & (1u << parameter)) &&
+        std::memcmp(value, scope.written[parameter], sizeof(value)) == 0)
+        return; // this bind's copy already holds the faded value
+    halo3_glass_fade::Apply(op, scope.fade.kept, value);
+    if (once)
+    {
+        std::memcpy(scope.written[parameter], value, sizeof(value));
+        scope.writtenMask |= 1u << parameter;
+    }
+}
+
+// An upload of `postprocess` just filled its stage's mapped buffer by the mapping at `table` that the word at
+// `entry` + `wordAt` names: the parameters the fade names, scaled in that buffer. Guarded.
+__declspec(noinline) void FadeUpload(uint8_t* const* mapped, const void* postprocess, const void* entry, size_t wordAt,
+                                     const void* table)
+{
+    __try
+    {
+        FadeScope& scope = fadeScope;
+        if (reinterpret_cast<uintptr_t>(postprocess) != scope.fade.postprocess)
+        {
+            runtime.swapped.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        uint8_t* buffer = mapped ? *mapped : nullptr;
+        if (!buffer || !entry || !table)
+            return;
+        uint16_t word = 0;
+        std::memcpy(&word, static_cast<const uint8_t*>(entry) + wordAt, 2);
+        const uint32_t count = word >> 10, first = word & 0x3FFu;
+        const auto* mapping = static_cast<const uint8_t*>(table);
+        bool any = false;
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            const uint8_t* m = mapping + static_cast<size_t>(first + i) * 4;
+            const uint32_t reg = m[0], parameter = m[2];
+            if (parameter >= scope.fade.parameters || parameter >= static_cast<uint32_t>(halo3_glass_fade::kMaxParameters) ||
+                scope.fade.op[parameter] == 0)
+                continue;
+            float value[4];
+            std::memcpy(value, buffer + static_cast<size_t>(reg) * 16, sizeof(value));
+            FadeValue(parameter, value, false);
+            std::memcpy(buffer + static_cast<size_t>(reg) * 16, value, sizeof(value));
+            any = true;
+        }
+        if (any)
+            runtime.uploads.fetch_add(1, std::memory_order_relaxed);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
+void __fastcall UploadAHook(void* postprocess, void* entry, void* table)
+{
+    runtime.callbacks.fetch_add(1, std::memory_order_acq_rel);
+    __try
+    {
+        CallNativeWithSpareSlots(reinterpret_cast<UploadFn>(runtime.uploadA.original), postprocess, entry, table);
+        if (fadeScope.active)
+            FadeUpload(runtime.mappedA, postprocess, entry, kUploadAWord, table);
+    }
+    __finally
+    {
+        runtime.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
+}
+
+void __fastcall UploadBHook(void* postprocess, void* entry, void* table)
+{
+    runtime.callbacks.fetch_add(1, std::memory_order_acq_rel);
+    __try
+    {
+        CallNativeWithSpareSlots(reinterpret_cast<UploadFn>(runtime.uploadB.original), postprocess, entry, table);
+        if (fadeScope.active)
+            FadeUpload(runtime.mappedB, postprocess, entry, kUploadBWord, table);
+    }
+    __finally
+    {
         runtime.callbacks.fetch_sub(1, std::memory_order_acq_rel);
     }
 }
@@ -169,20 +310,10 @@ __declspec(noinline) void FadeCopy(void* parameters, const void* entry)
         uint32_t count = scope.fade.parameters;
         if (count > static_cast<uint32_t>(halo3_glass_fade::kMaxParameters))
             count = halo3_glass_fade::kMaxParameters;
-        bool any = false;
+        const uint32_t before = scope.writtenMask;
         for (uint32_t k = 0; k < count; ++k)
-        {
-            const auto op = static_cast<halo3_glass_fade::Op>(scope.fade.op[k]);
-            if (op == halo3_glass_fade::Op::None)
-                continue;
-            if ((scope.writtenMask & (1u << k)) && std::memcmp(values[k], scope.written[k], sizeof(values[k])) == 0)
-                continue; // this bind's copy already holds the faded value
-            halo3_glass_fade::Apply(op, scope.fade.kept, values[k]);
-            std::memcpy(scope.written[k], values[k], sizeof(values[k]));
-            scope.writtenMask |= 1u << k;
-            any = true;
-        }
-        if (any)
+            FadeValue(k, values[k], true);
+        if (scope.writtenMask != before)
             runtime.faded.fetch_add(1, std::memory_order_relaxed);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -196,7 +327,8 @@ uint64_t __fastcall BindHook(uint32_t a1, void* parameters, void* a3, void* a4, 
     uint64_t result = 0;
     __try
     {
-        result = reinterpret_cast<BindFn>(runtime.bind.original)(a1, parameters, a3, a4, a5, a6, entry);
+        result = CallNativeWithSpareSlots(reinterpret_cast<BindFn>(runtime.bind.original), a1, parameters, a3, a4, a5,
+                                          a6, entry);
         if (fadeScope.active && parameters && entry)
             FadeCopy(parameters, entry);
     }
@@ -237,18 +369,22 @@ bool Remove(Hook& hook, const void* detour, const char* what)
     return true;
 }
 
-bool Install(Hook& hook, const char* pattern, void* detour, const char* what)
+// The unique match of `pattern`, or 0 (and `hook.refused`, with the log line) when there is none or more than one.
+uintptr_t FindOnce(Hook& hook, const char* pattern, const char* what)
 {
-    if (hook.target || !runtime.base || hook.refused)
-        return hook.target != nullptr;
     const uintptr_t hit = sig::Find(runtime.base, runtime.size, pattern);
     if (!hit || sig::Find(hit + 1, runtime.base + runtime.size - hit - 1, pattern))
     {
         hook.refused = true;
         LOG("Halo 3 vehicle parts: the %s is %s; that part of the camera file is not applied", what,
             hit ? "ambiguous" : "not found");
-        return false;
+        return 0;
     }
+    return hit;
+}
+
+bool InstallAt(Hook& hook, uintptr_t hit, void* detour, const char* what)
+{
     void* target = reinterpret_cast<void*>(hit);
     const MH_STATUS created = MH_CreateHook(target, detour, &hook.original);
     if (created != MH_OK)
@@ -269,6 +405,56 @@ bool Install(Hook& hook, const char* pattern, void* detour, const char* what)
     LOG("Halo 3 vehicle parts: the %s hook is in (+0x%llX)", what, static_cast<unsigned long long>(hit - runtime.base));
     return true;
 }
+
+bool Install(Hook& hook, const char* pattern, void* detour, const char* what)
+{
+    if (hook.target || !runtime.base || hook.refused)
+        return hook.target != nullptr;
+    const uintptr_t hit = FindOnce(hook, pattern, what);
+    return hit && InstallAt(hook, hit, detour, what);
+}
+
+// An upload: hooked where its pattern matches, its mapped-buffer slot decoded from the same match.
+bool InstallUpload(Hook& hook, const char* pattern, size_t bytes, size_t mappedAt, void* detour, uint8_t* const*& slot,
+                   const char* what)
+{
+    if (hook.target || !runtime.base || hook.refused)
+        return hook.target != nullptr;
+    const uintptr_t hit = FindOnce(hook, pattern, what);
+    if (!hit)
+        return false;
+    std::vector<uint8_t> code(bytes);
+    sig::CopyUnhooked(hit, code.data(), code.size());
+    int32_t disp = 0;
+    std::memcpy(&disp, code.data() + mappedAt, 4);
+    const uintptr_t at = hit + mappedAt + 4 + static_cast<intptr_t>(disp);
+    if (at < runtime.base || at + 8 > runtime.base + runtime.size || (at & 7))
+    {
+        hook.refused = true;
+        LOG("Halo 3 vehicle parts: the %s's buffer slot decodes outside the module; fadeParts is not applied", what);
+        return false;
+    }
+    slot = reinterpret_cast<uint8_t* const*>(at);
+    return InstallAt(hook, hit, detour, what);
+}
+
+// The shader select's cached-shaders byte; null (and fading without forcing the uploads) when not found.
+void BindCacheNote()
+{
+    if (runtime.cacheNote || !runtime.base)
+        return;
+    Hook none;
+    const uintptr_t hit = FindOnce(none, kSelectPattern, "shader select");
+    if (!hit)
+        return;
+    uint8_t code[kSelectBytes] = {};
+    sig::CopyUnhooked(hit, code, sizeof(code));
+    int32_t disp = 0;
+    std::memcpy(&disp, code + kSelectNote, 4);
+    const uintptr_t at = hit + kSelectNote + 4 + 1 + static_cast<intptr_t>(disp); // an imm8 follows the disp32
+    if (at >= runtime.base && at < runtime.base + runtime.size)
+        runtime.cacheNote = reinterpret_cast<volatile uint8_t*>(at);
+}
 } // namespace halo3_part_draw
 
 // The Halo 3 install: where halo3.dll is. Nothing is hooked until a camera asks for "hideParts" or "fadeParts".
@@ -277,19 +463,31 @@ void BindHalo3PartDraw(uintptr_t base, size_t size, uint32_t)
     using namespace halo3_part_draw;
     runtime.base = base;
     runtime.size = size;
-    runtime.draw.refused = false;
-    runtime.bind.refused = false;
+    for (Hook* hook : {&runtime.draw, &runtime.bind, &runtime.uploadA, &runtime.uploadB})
+        hook->refused = false;
+    runtime.mappedA = runtime.mappedB = nullptr;
+    runtime.cacheNote = nullptr;
 }
 
-// Halo 3's retirement, before halo3.dll goes: the bind hook first (it only runs inside the part draw).
+// The fading hooks out (they only run inside the part draw).
+bool RemoveHalo3PartFade()
+{
+    using namespace halo3_part_draw;
+    return Remove(runtime.bind, reinterpret_cast<const void*>(BindHook), "material bind") &&
+           Remove(runtime.uploadA, reinterpret_cast<const void*>(UploadAHook), "constant upload A") &&
+           Remove(runtime.uploadB, reinterpret_cast<const void*>(UploadBHook), "constant upload B");
+}
+
+// Halo 3's retirement, before halo3.dll goes: the fading hooks first, then the part draw.
 bool RemoveHalo3PartDraw()
 {
     using namespace halo3_part_draw;
-    if (!Remove(runtime.bind, reinterpret_cast<const void*>(BindHook), "material bind") ||
-        !Remove(runtime.draw, reinterpret_cast<const void*>(DrawHook), "part draw"))
+    if (!RemoveHalo3PartFade() || !Remove(runtime.draw, reinterpret_cast<const void*>(DrawHook), "part draw"))
         return false;
     runtime.base = 0;
     runtime.size = 0;
+    runtime.mappedA = runtime.mappedB = nullptr;
+    runtime.cacheNote = nullptr;
     return true;
 }
 
@@ -301,24 +499,35 @@ void ReportHalo3PartDraw()
     const bool draw = fade || Halo3VehicleCameraHidePartsWanted();
     if (draw && !runtime.draw.target)
         (void)Install(runtime.draw, kDrawPattern, reinterpret_cast<void*>(DrawHook), "part draw");
-    if (fade && runtime.draw.target && !runtime.bind.target)
-        (void)Install(runtime.bind, kBindPattern, reinterpret_cast<void*>(BindHook), "material bind");
-    if (!fade && runtime.bind.target)
-        (void)Remove(runtime.bind, reinterpret_cast<const void*>(BindHook), "material bind");
-    if (!draw && runtime.draw.target && !runtime.bind.target)
+    if (fade && runtime.draw.target)
+    {
+        BindCacheNote();
+        if (!runtime.uploadA.target)
+            (void)InstallUpload(runtime.uploadA, kUploadAPattern, kUploadABytes, kUploadAMapped,
+                                reinterpret_cast<void*>(UploadAHook), runtime.mappedA, "constant upload A");
+        if (!runtime.uploadB.target)
+            (void)InstallUpload(runtime.uploadB, kUploadBPattern, kUploadBBytes, kUploadBMapped,
+                                reinterpret_cast<void*>(UploadBHook), runtime.mappedB, "constant upload B");
+        if (!runtime.bind.target)
+            (void)Install(runtime.bind, kBindPattern, reinterpret_cast<void*>(BindHook), "material bind");
+    }
+    if (!fade && (runtime.bind.target || runtime.uploadA.target || runtime.uploadB.target))
+        (void)RemoveHalo3PartFade();
+    if (!draw && runtime.draw.target && !runtime.bind.target && !runtime.uploadA.target && !runtime.uploadB.target)
         (void)Remove(runtime.draw, reinterpret_cast<const void*>(DrawHook), "part draw");
-    static uint64_t shown[3]{};
+    static uint64_t shown[4]{};
     static ULONGLONG logged = 0;
-    const uint64_t now[3]{runtime.skipped.load(std::memory_order_relaxed), runtime.faded.load(std::memory_order_relaxed),
-                          runtime.swapped.load(std::memory_order_relaxed)};
+    const uint64_t now[4]{runtime.skipped.load(std::memory_order_relaxed), runtime.uploads.load(std::memory_order_relaxed),
+                          runtime.faded.load(std::memory_order_relaxed), runtime.swapped.load(std::memory_order_relaxed)};
     const ULONGLONG clock = GetTickCount64();
     if (std::memcmp(now, shown, sizeof(now)) != 0 && clock - logged >= 5000)
     {
         logged = clock;
-        LOG("Halo 3 vehicle parts: since the last line, %llu parts of the seat's vehicle left out (hideParts), %llu "
-            "binds of its glass faded (fadeParts), %llu binds left as they were (another material bound for the part)",
+        LOG("Halo 3 vehicle parts: since the last line, %llu parts of the seat's vehicle left out (hideParts); its glass "
+            "faded in %llu constant uploads and %llu animated binds (fadeParts), %llu left as they were (another "
+            "material bound for the part)",
             static_cast<unsigned long long>(now[0] - shown[0]), static_cast<unsigned long long>(now[1] - shown[1]),
-            static_cast<unsigned long long>(now[2] - shown[2]));
+            static_cast<unsigned long long>(now[2] - shown[2]), static_cast<unsigned long long>(now[3] - shown[3]));
         std::memcpy(shown, now, sizeof(now));
     }
 }
