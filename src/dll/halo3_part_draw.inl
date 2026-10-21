@@ -22,7 +22,16 @@
 // Each is checked to be of the postprocess entry the cold worker read for that material, so a material the game
 // swapped in for this draw is left alone. The shader select skips the uploads while the same shaders stay bound; a
 // faded draw clears that note (+0x28A9FC's own "nothing cached" byte) before and after itself, so its own uploads
-// run and the next draw of that material by anything else uploads it again unfaded. Nothing in tag memory is written.
+// run and the next draw of that material by anything else uploads it again unfaded.
+//
+// PRECOMPILED CONSTANTS. Most materials do not upload at all: their postprocess entry holds, at +0x84, a handle to a
+// constant buffer built once (-1: none), and the shader set (+0x28A3F0) then binds that buffer and skips both uploads
+// (measured: 1100 faded draws per 6 s reached the select for the material, 0 uploads ran in them). Both paths bind
+// the material's constants to the same register (13, vertex and pixel stage: the persistent buffer at +0x28A6F7 and
+// +0x28A75C, the uploaded ones at +0x28AB8B and through +0x2AFC14), so a faded draw sets that handle to -1 for its own
+// duration -- the game then uploads this material as it does one without a precompiled buffer, and the fade scales
+// those uploads -- and puts it back before anything else draws. That one int in the material's tag data is the only
+// thing written there, on the render thread, inside the draw.
 //
 // INSTALLED ONLY WHILE WANTED. The report (every 2 s) installs the part draw hook while the camera file asks any
 // Halo 3 camera for "hideParts" or "fadeParts", the bind and upload hooks while it asks for "fadeParts", and removes
@@ -51,7 +60,8 @@ struct Runtime
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // Dev builds: how far a faded draw gets -- draws noted, the shader select left holding this material's render
     // method after one (it ran for it), and upload calls in all and during a noted draw.
-    std::atomic<uint64_t> fadeDraws{0}, fadeSelected{0}, uploadCalls{0}, uploadCallsInFade{0}, bindCallsInFade{0};
+    std::atomic<uint64_t> fadeDraws{0}, fadeSelected{0}, uploadCalls{0}, uploadCallsInFade{0}, bindCallsInFade{0},
+        fadeDynamic{0};
 #endif
     Hook draw, bind, uploadA, uploadB;
     uint8_t* const* mappedA = nullptr; // the upload's mapped constant buffer, as each stores it
@@ -176,10 +186,43 @@ __declspec(noinline) void ForgetBoundShaders()
 bool SelectHolds(uintptr_t method);
 #endif
 
+// For one faded draw: the material's precompiled-constants handle (postprocess +0x84) set to -1, so the game uploads
+// its constants. False when it already has none. Guarded.
+inline constexpr size_t kPrecompiledConstants = 0x84;
+__declspec(noinline) bool UsePerDrawConstants(uintptr_t postprocess, int32_t& saved)
+{
+    __try
+    {
+        auto* handle = reinterpret_cast<volatile int32_t*>(postprocess + kPrecompiledConstants);
+        saved = *handle;
+        if (saved == -1)
+            return false;
+        *handle = -1;
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+__declspec(noinline) void RestorePrecompiledConstants(uintptr_t postprocess, int32_t saved)
+{
+    __try
+    {
+        *reinterpret_cast<volatile int32_t*>(postprocess + kPrecompiledConstants) = saved;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+}
+
 void __fastcall DrawHook(void* record, uint32_t entry)
 {
     runtime.callbacks.fetch_add(1, std::memory_order_acq_rel);
     bool fading = false;
+    bool perDraw = false;
+    int32_t savedHandle = -1;
+    uintptr_t fadedEntry = 0;
     __try
     {
         bool skip = false;
@@ -196,6 +239,8 @@ void __fastcall DrawHook(void* record, uint32_t entry)
                 fadeScope.active = true;
                 fadeScope.writtenMask = 0;
                 fading = true;
+                fadedEntry = fadeScope.fade.postprocess;
+                perDraw = UsePerDrawConstants(fadedEntry, savedHandle);
                 ForgetBoundShaders(); // its own uploads run, whatever was bound before it
             }
         }
@@ -207,6 +252,8 @@ void __fastcall DrawHook(void* record, uint32_t entry)
         if (fading)
         {
             runtime.fadeDraws.fetch_add(1, std::memory_order_relaxed);
+            if (perDraw)
+                runtime.fadeDynamic.fetch_add(1, std::memory_order_relaxed);
             if (SelectHolds(fadeScope.fade.method))
                 runtime.fadeSelected.fetch_add(1, std::memory_order_relaxed);
         }
@@ -215,8 +262,10 @@ void __fastcall DrawHook(void* record, uint32_t entry)
     __finally
     {
         fadeScope.active = false;
+        if (perDraw)
+            RestorePrecompiledConstants(fadedEntry, savedHandle);
         if (fading)
-            ForgetBoundShaders(); // the next draw of this material, by anything, uploads it unfaded
+            ForgetBoundShaders(); // the next draw of this material, by anything, binds it unfaded
         runtime.callbacks.fetch_sub(1, std::memory_order_acq_rel);
     }
 }
@@ -582,21 +631,23 @@ void ReportHalo3PartDraw()
         std::memcpy(shown, now, sizeof(now));
     }
 #if HALOMCCVR_DEV_DIAGNOSTICS
-    static uint64_t probeShown[5]{};
+    static uint64_t probeShown[6]{};
     static ULONGLONG probeLogged = 0;
-    const uint64_t probe[5]{runtime.fadeDraws.load(), runtime.fadeSelected.load(), runtime.uploadCalls.load(),
-                            runtime.uploadCallsInFade.load(), runtime.bindCallsInFade.load()};
+    const uint64_t probe[6]{runtime.fadeDraws.load(), runtime.fadeSelected.load(), runtime.uploadCalls.load(),
+                            runtime.uploadCallsInFade.load(), runtime.bindCallsInFade.load(),
+                            runtime.fadeDynamic.load()};
     if (probe[0] != probeShown[0] && clock - probeLogged >= 5000)
     {
         probeLogged = clock;
         LOG("DEV vehicle parts fade probe: since the last line, %llu faded draws, after %llu of them the shader select "
             "held the material's render method; %llu constant uploads in all, %llu during a faded draw; %llu material "
-            "binds during a faded draw",
+            "binds during a faded draw; %llu faded draws switched from precompiled constants to per-draw uploads",
             static_cast<unsigned long long>(probe[0] - probeShown[0]),
             static_cast<unsigned long long>(probe[1] - probeShown[1]),
             static_cast<unsigned long long>(probe[2] - probeShown[2]),
             static_cast<unsigned long long>(probe[3] - probeShown[3]),
-            static_cast<unsigned long long>(probe[4] - probeShown[4]));
+            static_cast<unsigned long long>(probe[4] - probeShown[4]),
+            static_cast<unsigned long long>(probe[5] - probeShown[5]));
         std::memcpy(probeShown, probe, sizeof(probe));
     }
 #endif
