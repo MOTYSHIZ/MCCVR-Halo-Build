@@ -11542,15 +11542,22 @@ namespace
         // A blipped player-unit read cannot trigger it either, because a seat
         // only counts once its authored anchor has resolved inside the
         // vehicle's own bounds.
+        // EVERY SEAT WITH A VIEW faces the nose on boarding, a vehicle with no tuned seat point included (a mod
+        // map's own, the Elephant): it has had a seat view at the occupant's head since that was added, and a seat
+        // that boards facing wherever the player walked in from steers a fast flyer straight at that heading. Its
+        // nose is its hull's own forward -- the node it seats the player on is not known to point along the
+        // vehicle. A tuned seat keeps its own node's forward, as proven. A walk-up turret is left as it is.
         static Halo3SeatPositionKey alignSeat;
         Halo3SeatSnapshot rawSeat;
-        const bool alignEligible =
+        const bool rawSeatUsable =
             g_config.vehicle_first_person &&
             Game_Halo3VehicleState().state == Halo3VehicleState::Vehicle &&
-            Halo3ReadSeatSnapshot(rawSeat) && rawSeat.anchorValid &&
-            Halo3SeatFollowsHull(
-                static_cast<Halo3VehicleId>(rawSeat.identity),
-                rawSeat.seatIndex, rawSeat.mounted);
+            Halo3ReadSeatSnapshot(rawSeat) && rawSeat.anchorValid;
+        const auto rawSeatId = static_cast<Halo3VehicleId>(rawSeat.identity);
+        const bool tunedSeat = rawSeatUsable &&
+            Halo3SeatFollowsHull(rawSeatId, rawSeat.seatIndex, rawSeat.mounted);
+        const bool alignEligible = rawSeatUsable &&
+            (tunedSeat || rawSeatId != Halo3VehicleId::StationaryTurret);
         if (!alignEligible)
         {
             alignSeat = {};
@@ -11568,14 +11575,16 @@ namespace
                 const float x = hq[0], y = hq[1], z = hq[2], w = hq[3];
                 const float fx = -2.0f * (w * y + x * z);
                 const float fz = -(1.0f - 2.0f * (x * x + y * y));
-                g_gameYawRef = atan2f(rawSeat.rawFwd[1], rawSeat.rawFwd[0]);
+                const float* nose = tunedSeat ? rawSeat.rawFwd : rawSeat.hullFwd;
+                g_gameYawRef = atan2f(nose[1], nose[0]);
                 g_headYawRef = atan2f(fx, -fz);
                 alignSeat.Set(alignGeneration, rawSeat.parentHandle,
                               rawSeat.seatIndex, rawSeat.identity,
                               rawSeat.mounted);
                 LOG("H3 vehicle: seat entry aligned to the vehicle's nose "
-                    "(%.1f deg) on the first authored frame",
-                    g_gameYawRef * 57.2958f);
+                    "(%.1f deg) on the first authored frame%s",
+                    g_gameYawRef * 57.2958f,
+                    tunedSeat ? "" : " (its hull's forward: no tuned seat point)");
             }
         }
 
