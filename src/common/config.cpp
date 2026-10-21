@@ -1413,6 +1413,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "seat_view_tag_write")) { g_config.seat_view_tag_write=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_synthetic_pad")) { g_config.dev_synthetic_pad=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_vehicle_unnamed")) { g_config.dev_vehicle_unnamed=atoi(val)!=0?1:0; continue; }
+        if (!strcmp(key, "dev_seat_body_probe")) { g_config.dev_seat_body_probe=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_sim_trace")) { g_config.dev_sim_trace=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_sim_probe")) { g_config.dev_sim_probe=(int)strtol(val,nullptr,0)&0xFF; continue; }
         if (!strcmp(key, "dev_sim_minimal")) { g_config.dev_sim_minimal=atoi(val)!=0?1:0; continue; }

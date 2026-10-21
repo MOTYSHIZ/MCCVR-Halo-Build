@@ -1140,6 +1140,10 @@ struct Config
     // vehicles are, so that path can be run on a stock map. Its control class (Halo3ControlClass) is kept. Takes
     // effect for each vehicle the first time it is resolved on a map. Not written to the file.
     int dev_vehicle_unnamed = 0;
+    // DEV BUILD ONLY (not parsed otherwise): 1 = in a seat whose camera shows the headless body, a model whose head the
+    // mod does not know has its regions hidden one at a time, about 6 s each, each logged ("DEV seat body probe"), so
+    // a picture taken in each window shows which region is the head. Not written to the file.
+    int dev_seat_body_probe = 0;
     // DEV BUILD ONLY (not parsed and compiled out otherwise), Halo: Reach (src/dll/reach_sim_trace.inl).
     // dev_sim_trace: 1 = every object's state at each simulation tick goes to HaloMCCVR-simtrace-<stamp>.bin beside
     // the log (about 35 MB a minute), to compare two replays of one saved film, or a game with its own film.

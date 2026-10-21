@@ -214,7 +214,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.boomPitchDeg = vehicle_camera_file::BoomPitchSet(chosen.boomPitch) ? chosen.boomPitch
                                                                            : vehicle_camera_file::kBoomPitchUnset;
     next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
-    next.showBody = chosen.type == vehicle_camera_file::CameraType::FirstPerson && chosen.showBody;
+    next.showHeadlessBody = chosen.type == vehicle_camera_file::CameraType::FirstPerson && chosen.showHeadlessBody;
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
@@ -571,7 +571,7 @@ std::string Selector::Describe() const
         if (active_.offsetCm[0] != 0.0f || active_.offsetCm[1] != 0.0f || active_.offsetCm[2] != 0.0f)
             line += ", its eye moved " + Number(active_.offsetCm[0]) + " " + Number(active_.offsetCm[1]) + " " +
                     Number(active_.offsetCm[2]) + " cm (forward, right, up)";
-        if (active_.showBody)
+        if (active_.showHeadlessBody)
             line += ", your body shown without its head";
         return line;
     }

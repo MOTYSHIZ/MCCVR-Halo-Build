@@ -211,6 +211,9 @@ static DWORD WINAPI InitThread(LPVOID)
     if (g_config.dev_vehicle_unnamed)
         LOG("DEV OVERRIDE: dev_vehicle_unnamed = 1 (every Halo 3 vehicle is taken as one the mod cannot name, as a "
             "mod map's own: no identity, no tuned eye, no built-in camera preset)");
+    if (g_config.dev_seat_body_probe)
+        LOG("DEV OVERRIDE: dev_seat_body_probe = 1 (a seat's headless body of an unknown model hides one region at a "
+            "time instead)");
 #endif
 
     if (MH_Initialize() != MH_OK)

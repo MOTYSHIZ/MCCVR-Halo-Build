@@ -127,10 +127,10 @@ struct Camera
     float boomPitch = kBoomPitchUnset; // "boomPitch": degrees above level, or unset
     // "aimMarker": the ring where the vehicle aims (vehicle_aim_marker_logic.h) in this camera. -1 = the seat's.
     int aimMarker = -1;
-    // "showBody" (a firstperson camera's): true = the occupant's body is drawn as the game seats it, all of it but
+    // "showHeadlessBody" (a firstperson camera's): true = the occupant's body is drawn as the game seats it, all of it but
     // its head; false = the seat view as the game gives it, which draws its first-person legs only. A chase camera
     // is not changed by it.
-    bool showBody = false;
+    bool showHeadlessBody = false;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -261,9 +261,9 @@ int CarryMode(const Camera& to, const Tether& from);
 // range answers with the seat's (off when the seat leaves it unset).
 bool EffectiveAimMarker(const Vehicle& vehicle, int camera, int mode);
 
-// Whether a firstperson camera of `gameKey`'s section (else the "default" section) asks for "showBody": whether the
+// Whether a firstperson camera of `gameKey`'s section (else the "default" section) asks for "showHeadlessBody": whether the
 // title's body drawing for seats is wanted at all.
-bool AnyShowsBody(const Table& table, const char* gameKey);
+bool AnyShowsHeadlessBody(const Table& table, const char* gameKey);
 
 const char* TypeName(CameraType type) noexcept;
 // As the file writes it: the marker's name for a Marker origin.

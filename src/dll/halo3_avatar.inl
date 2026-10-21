@@ -13,12 +13,14 @@ bool Current() noexcept {
         !g_scopeRenderActive.load()&&!VR_IsCutsceneTheaterActive()&&!exclusive_input::Active()&&
         TitleAdapter_GetActiveTitle()==GameTitle::Halo3&&TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay;
 }
+// A seat is the runtime's Vehicle mode (Turret for a gun the player walks up to), never Gameplay.
 bool SeatBodyGate() noexcept {
+    const RuntimeMode mode=TitleAdapter_GetRuntimeMode();
     return runtime.enabled.load(std::memory_order_acquire)&&!runtime.faulted.load(std::memory_order_acquire)&&
         runtime.generation.load(std::memory_order_acquire)==g_halo3RuntimeGeneration.load(std::memory_order_acquire)&&
         g_enabled.load()&&VR_IsStereoEnabled()&&!g_scopeRenderActive.load()&&!VR_IsCutsceneTheaterActive()&&
         !exclusive_input::Active()&&TitleAdapter_GetActiveTitle()==GameTitle::Halo3&&
-        TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay;
+        (mode==RuntimeMode::Vehicle||mode==RuntimeMode::Turret);
 }
 bool Capture(uint32_t unit,void* info,Candidate& out) {
     if(!info||unit!=pair.unit||Read<uint32_t>(info,0x48)!=unit||
@@ -152,12 +154,12 @@ __declspec(noinline) void Begin(const void* centerCamera) {
                 }
             }
         }
-        // A SEAT'S BODY: the player's unit in exactly the seat whose firstperson camera asks for "showBody", under
+        // A SEAT'S BODY: the player's unit in exactly the seat whose firstperson camera asks for "showHeadlessBody", under
         // his own control. One atomic load while no camera in the file asks for it. A read that races its writer
         // (the seat or the camera mid-publish) keeps the answer of the pair before for that unit for a moment, so
         // the body never blinks out for a frame.
         static thread_local struct {uint32_t unit=UINT32_MAX,generation=0;ULONGLONG atMs=0;} seatKept;
-        if(!pair.active&&Halo3VehicleCameraBodyWanted()&&g_halo3PlayerUnitGetter&&g_halo3UnitInVehicle&&
+        if(!pair.active&&Halo3VehicleCameraHeadlessBodyWanted()&&g_halo3PlayerUnitGetter&&g_halo3UnitInVehicle&&
            SeatBodyGate()) {
             const uint32_t unit=uint32_t(g_halo3PlayerUnitGetter(0));
             const uint32_t generation=runtime.generation.load(std::memory_order_acquire);
@@ -168,7 +170,7 @@ __declspec(noinline) void Begin(const void* centerCamera) {
                 Halo3SeatSnapshot seat;
                 bool known=false,show=false;
                 if(Halo3ReadSeatSnapshot(seat))
-                    show=Halo3VehicleCameraShowsBody(g_halo3RuntimeGeneration.load(std::memory_order_acquire),
+                    show=Halo3VehicleCameraShowsHeadlessBody(g_halo3RuntimeGeneration.load(std::memory_order_acquire),
                         seat.parentHandle,seat.seatIndex,seat.identity,seat.mounted,known);
                 if(known)seatKept={show?unit:UINT32_MAX,generation,now};
                 else show=seatKept.unit==unit&&seatKept.generation==generation&&now-seatKept.atMs<=250;
@@ -191,7 +193,7 @@ enum class Level : uint8_t {Off,SeatBody,Full};
 struct DesiredBinding {uintptr_t base{};size_t size{};uint32_t generation{};Level lastRequested=Level::Off;} desired;
 Level RequestedLevel() noexcept {
     if(g_config.experimental_body_ik)return Level::Full;
-    return g_config.vehicle_first_person&&g_config.vehicle_hide_body&&Halo3VehicleCameraBodyWanted()?
+    return g_config.vehicle_first_person&&g_config.vehicle_hide_body&&Halo3VehicleCameraHeadlessBodyWanted()?
         Level::SeatBody:Level::Off;
 }
 // The hooks (in the order of the bindings below) each level installs.
@@ -276,15 +278,26 @@ bool InstallHalo3Avatar(uintptr_t base,size_t size,uint32_t generation) {
     for(unsigned i=0;i<8;++i) {
         if(!LevelHooks(level,i))continue;
         auto* target=reinterpret_cast<void*>(base+bindings[i].rva);
-        if(MH_CreateHook(target,hooks[i],originals[i])!=MH_OK) {
+        const MH_STATUS created=MH_CreateHook(target,hooks[i],originals[i]);
+        if(created!=MH_OK) {
+            LOG("Halo 3 avatar StockFallback: hook +0x%llX not created (MinHook status %d)",
+                static_cast<unsigned long long>(bindings[i].rva),static_cast<int>(created));
             const auto binding=desired;(void)RemoveHalo3Avatar();desired=binding;return false;}
         r.targets[i]=target;
     }
-    for(auto target:r.targets)if(MH_EnableHook(target)!=MH_OK) {
-        const auto binding=desired;(void)RemoveHalo3Avatar();desired=binding;return false;}
+    // Only the hooks this level created: an empty slot is null, and MH_EnableHook(NULL) is MinHook's "every hook",
+    // which would switch on hooks the rest of the mod holds off (a retired title's among them).
+    for(unsigned i=0;i<8;++i) {
+        if(!r.targets[i])continue;
+        const MH_STATUS enabled=MH_EnableHook(r.targets[i]);
+        if(enabled!=MH_OK) {
+            LOG("Halo 3 avatar StockFallback: hook +0x%llX not enabled (MinHook status %d)",
+                static_cast<unsigned long long>(bindings[i].rva),static_cast<int>(enabled));
+            const auto binding=desired;(void)RemoveHalo3Avatar();desired=binding;return false;}
+    }
     r.enabled.store(true,std::memory_order_release);
     if(full)LOG("Halo 3 avatar Installed: exact local full-world body, private GPU output; headset validation pending");
-    else LOG("Halo 3 seat body: ready (a firstperson camera in the vehicle camera file says showBody): in its seat "
+    else LOG("Halo 3 seat body: ready (a firstperson camera in the vehicle camera file says showHeadlessBody): in its seat "
              "your body is drawn as the game seats it, without its head");
     return true;
 }
@@ -317,15 +330,41 @@ void ReportHalo3Avatar() {
         LOG("Halo 3 avatar: posed=%llu uploads=%llu refusals=%llu same-pair-order-refusals=%llu optional-faults=%llu; native camera/arms retained on refusal",
             now[0],now[1],now[2],now[3],now[4]);
     }
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    // dev_seat_body_probe: every third report (about 6 s) the next region of the last refused model is the one hidden.
+    {
+        static unsigned reports=0;
+        const uint32_t regions=r.seatRefusedRegions.load(std::memory_order_relaxed);
+        if(!g_config.dev_seat_body_probe||!regions||regions>halo3_avatar::RegionCapacity)
+            r.seatProbe.store(-1,std::memory_order_relaxed);
+        else if(++reports%3==0) {
+            const int32_t next=(r.seatProbe.load(std::memory_order_relaxed)+1)%int32_t(regions);
+            r.seatProbe.store(next,std::memory_order_relaxed);
+            LOG("DEV seat body probe: region %d of %u hidden now (skeleton %08X, %u nodes; drawn so %llu times)",
+                next,regions,r.seatRefusedChecksum.load(std::memory_order_relaxed),
+                r.seatRefusedNodes.load(std::memory_order_relaxed),
+                static_cast<unsigned long long>(r.seatProbed.load(std::memory_order_relaxed)));
+        }
+    }
+#endif
     // A seat's body, at most every 5 s while it is drawn.
     static uint64_t seatShown[3]{};
     static ULONGLONG seatLog=0;
     const uint64_t seatNow[]{r.seatDrawn.load(),r.seatRefused.load(),r.seatLegs.load()};
     if(std::memcmp(seatShown,seatNow,sizeof(seatNow))!=0&&clock-seatLog>=5000) {
         seatLog=clock;
-        LOG("Halo 3 seat body: drawn without its head %llu times, not drawn %llu (a model whose head the mod does not "
-            "know), first-person legs left out %llu (since the last line)",
-            seatNow[0]-seatShown[0],seatNow[1]-seatShown[1],seatNow[2]-seatShown[2]);
+        static const char* const kWhy[]{"", "a skeleton the mod does not know", "an instanced model",
+            "another region count than the model the mod knows by that skeleton", "the region write was not staged"};
+        const uint32_t why=r.seatRefusedWhy.load(std::memory_order_relaxed);
+        const uint64_t refused=seatNow[1]-seatShown[1];
+        char model[200]{};
+        if(refused&&why)
+            std::snprintf(model,sizeof(model),"; not drawn for %s: skeleton checksum %08X, %u nodes, %u regions",
+                why<5?kWhy[why]:"?",r.seatRefusedChecksum.load(std::memory_order_relaxed),
+                r.seatRefusedNodes.load(std::memory_order_relaxed),r.seatRefusedRegions.load(std::memory_order_relaxed));
+        LOG("Halo 3 seat body: drawn without its head %llu times, not drawn %llu, first-person legs left out %llu "
+            "(since the last line)%s",
+            seatNow[0]-seatShown[0],refused,seatNow[2]-seatShown[2],model);
         std::memcpy(seatShown,seatNow,sizeof(seatNow));
     }
 }

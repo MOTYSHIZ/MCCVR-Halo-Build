@@ -168,7 +168,7 @@ int main() {
         RestoreRegions();Check(std::memcmp(info,body.data(),body.size())==0,"later finally preserves already-restored row");
         VirtualFree(memory,0,MEM_RELEASE);
     }
-    // A SEAT'S BODY (a vehicle camera's "showBody"): the avatar is off in a seat; the occupant's own world row is
+    // A SEAT'S BODY (a vehicle camera's "showHeadlessBody"): the avatar is off in a seat; the occupant's own world row is
     // drawn as the game poses it, without its head, and its first-person legs are left out once that body is drawn.
     std::array<uint8_t,0xC0> chief{},legs{},unknown{};
     const auto PutAt=[](std::array<uint8_t,0xC0>& data,size_t at,uint32_t value){std::memcpy(data.data()+at,&value,4);};
@@ -206,6 +206,22 @@ int main() {
     Check(drawRegionCount==6&&drawHead==2,"without the camera asking, the seat is stock");
     SeatReset();submitModel=chief.data();stockThrow=true;
     Check(NativeSubmitThrows()&&body==seatRow&&!regionScope.info,"a native exception still restores the seated row");
+    // The multiplayer Spartan: eight regions, its helmet the fifth.
+    std::array<uint8_t,0xC0> spartan{};PutAt(spartan,8,0x1708080E);PutAt(spartan,0x30,51);
+    SeatReset();Put(body,0,uint32_t(8));for(unsigned i=0;i<8;++i)Put(body,0xE+2*i,int16_t(i));
+    const auto spartanRow=body;submitModel=spartan.data();SubmitAHook(0,body.data(),0,0,0,0);
+    Check(drawRegionCount==8&&Get<int16_t>(body.data(),0xE+2*4)==4&&body==spartanRow,
+        "the multiplayer Spartan's seated row is restored after its submit");
+    SeatReset();Put(body,0,uint32_t(8));for(unsigned i=0;i<8;++i)Put(body,0xE+2*i,int16_t(i));
+    submitModel=spartan.data();runtime.regions=[](void*,void* info){
+        ++stockRegions;Check(Get<int16_t>(info,0xE+2*4)==4,"the native routine writes the row first");};
+    RegionsHook(spartan.data(),body.data());
+    Check(Get<int16_t>(body.data(),0xE+2*4)==4,"outside a submit nothing is written");
+    regionScope={};regionScope.info=body.data();RegionsHook(spartan.data(),body.data());
+    Check(Get<int16_t>(body.data(),0xE+2*4)==-1&&Get<int16_t>(body.data(),0xE+2*3)==3&&Get<int16_t>(body.data(),0xE+2*5)==5,
+        "inside its submit only its helmet region is left out");
+    RestoreRegions();Check(Get<int16_t>(body.data(),0xE+2*4)==4,"and put back when the submit returns");
+    regionScope={};runtime.regions=NativeRegions;
     submitModel=nullptr;
     std::printf("H3 avatar runtime: %u checks, %u failures\n",checks,failures);return failures?1:0;
 }

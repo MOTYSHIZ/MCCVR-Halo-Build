@@ -418,9 +418,9 @@ struct Reader
             {
                 ok = TriState(item, at, camera.aimMarker, "true, false or null (null = the seat's aimMarker)");
             }
-            else if (key == "showBody")
+            else if (key == "showHeadlessBody")
             {
-                ok = Boolean(item, at, camera.showBody);
+                ok = Boolean(item, at, camera.showHeadlessBody);
             }
             else if (key == "tethering")
             {
@@ -765,7 +765,7 @@ const char* const kGuide[] = {
     "                    without this file; of the fields below only 'offset' is then used: it moves the seat's",
     "                    eye forward, right and up in the vehicle's own frame, so each vehicle's first-person",
     "                    view can be set where you want it)",
-    "  showBody          true | false (firstperson cameras; Halo 3): true draws your body in the seat as the",
+    "  showHeadlessBody  true | false (firstperson cameras; Halo 3): true draws your body in the seat as the",
     "                    game seats it, all of it but your head; false (left out) is the game's own first-person",
     "                    seat, which shows your legs only",
     "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
@@ -864,8 +864,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += ", \"boomPitch\": null";
     if (camera.aimMarker >= 0)
         out += std::string(", \"aimMarker\": ") + (camera.aimMarker ? "true" : "false");
-    if (camera.showBody)
-        out += ", \"showBody\": true";
+    if (camera.showHeadlessBody)
+        out += ", \"showHeadlessBody\": true";
     if (camera.tethering.empty())
     {
         out += " }";
@@ -1319,14 +1319,14 @@ bool EffectiveAimMarker(const Vehicle& vehicle, int camera, int mode)
     return tether.rotYaw;
 }
 
-bool AnyShowsBody(const Table& table, const char* gameKey)
+bool AnyShowsHeadlessBody(const Table& table, const char* gameKey)
 {
     const Game* game = table.FindGame(gameKey);
     if (!game)
         return false;
     for (const Vehicle& vehicle : game->vehicles)
         for (const Camera& camera : vehicle.cameras)
-            if (camera.type == CameraType::FirstPerson && camera.showBody)
+            if (camera.type == CameraType::FirstPerson && camera.showHeadlessBody)
                 return true;
     return false;
 }

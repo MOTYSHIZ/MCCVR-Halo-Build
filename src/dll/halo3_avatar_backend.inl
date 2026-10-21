@@ -16,6 +16,12 @@ struct Runtime {
     std::atomic<uint32_t> callbacks{0},generation{0};
     std::atomic<uint64_t> posed{0},uploads{0},refusals{0},ordering{0},faults{0};
     std::atomic<uint64_t> seatDrawn{0},seatRefused{0},seatLegs{0}; // a seat's body (SeatBodyRegions)
+    // The last model a seat's body was refused for, and why (SeatBodyRefusal): what the log says, so a player's log
+    // names a model to add.
+    std::atomic<uint32_t> seatRefusedChecksum{0},seatRefusedNodes{0},seatRefusedRegions{0},seatRefusedWhy{0};
+    // Dev builds (dev_seat_body_probe): the one region of an unknown model's seated body to hide, or -1.
+    std::atomic<int32_t> seatProbe{-1};
+    std::atomic<uint64_t> seatProbed{0};
     uintptr_t base{};size_t size{};void* targets[8]{};
     ExcludeFn exclude{};ProducerFn producer{};RegionsFn regions{};
     UploadFn upload{};MapFn map{};CommitFn commit{};WorldFn world{};
@@ -37,7 +43,7 @@ struct Pair {
     bool wristsValid=false,hideLower=false;
     unsigned nestedDepth=0;
     Candidate rows[4]{};
-    // A SEAT'S BODY (a vehicle camera's "showBody"): in a seat, where the avatar is never active. The unit whose
+    // A SEAT'S BODY (a vehicle camera's "showHeadlessBody"): in a seat, where the avatar is never active. The unit whose
     // own rows are drawn without the head, and the hook generation that decided it.
     bool seatBody=false;uint32_t seatUnit=UINT32_MAX,seatGeneration=0;
 };
@@ -147,6 +153,22 @@ __declspec(noinline) bool MaskInfo(void* info,const halo3_avatar::Profile& profi
     if(fault){RestoreRegions(true);Fault();}return result;
 }
 bool Mask(Candidate& c) {return MaskInfo(c.info,c.profile,pair.hideLower);}
+// A seat's body: exactly `mask`'s regions of a row of `regions` regions left out, staged in the submit that asked.
+__declspec(noinline) bool MaskInfoRegions(void* info,unsigned regions,uint16_t mask) {
+    volatile bool fault=false;bool result=false;
+    __try {
+        const auto* bytes=static_cast<const uint8_t*>(info);
+        std::array<int16_t,halo3_avatar::RegionCapacity> meshes{};
+        const auto count=*reinterpret_cast<const volatile uint32_t*>(bytes);
+        if(count==regions&&count<=meshes.size()&&StageRegionChange(info,count)) {
+            std::memcpy(meshes.data(),bytes+0xE,count*2);
+            for(unsigned i=0;i<count;++i)if(mask&(1u<<i))meshes[i]=-1;
+            regionScope.after=meshes;
+            std::memcpy(static_cast<uint8_t*>(info)+0xE,meshes.data(),count*2);result=true;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
+    if(fault){RestoreRegions(true);Fault();}return result;
+}
 __declspec(noinline) void RestoreRegions(bool interrupted) {
     volatile bool fault=false;
     __try {
@@ -234,9 +256,35 @@ __declspec(noinline) void SeatBodyRegions(void* model,void* info) {
                 runtime.seatLegs.fetch_add(1,std::memory_order_relaxed);
             return;
         }
-        halo3_avatar::Profile profile{};
-        const bool drawn=extra==0&&halo3_avatar::SelectProfile(checksum,count,profile)&&MaskInfo(info,profile,false);
+        uint32_t regions{};std::memcpy(&regions,bytes,4);
+        // SeatBodyRefusal: 1 a skeleton the mod does not know, 2 an instanced model, 3 another region count, 4 the
+        // write was not staged.
+        const halo3_avatar::SeatBodyModel* known=halo3_avatar::FindSeatBodyModel(checksum,count);
+        uint32_t why=0;
+        if(!known)why=1;
+        else if(extra!=0)why=2;
+        else if(regions!=known->regions)why=3;
+        else if(!MaskInfoRegions(info,regions,known->head))why=4;
+        const bool drawn=why==0;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        // Dev builds' probe (dev_seat_body_probe): an unknown model is drawn with one region left out instead.
+        const int32_t probe=runtime.seatProbe.load(std::memory_order_relaxed);
+        if((why==1||why==3)&&probe>=0&&uint32_t(probe)<regions&&regions<=halo3_avatar::RegionCapacity&&
+           StageRegionChange(info,regions)) {
+            std::memcpy(regionScope.after.data(),bytes+0xE,regions*2);
+            regionScope.after[size_t(probe)]=-1;
+            std::memcpy(static_cast<uint8_t*>(info)+0xE,regionScope.after.data(),regions*2);
+            runtime.seatProbed.fetch_add(1,std::memory_order_relaxed);
+        }
+        else
+#endif
         if(!drawn)(void)Hide(info);
+        if(!drawn) {
+            runtime.seatRefusedChecksum.store(checksum,std::memory_order_relaxed);
+            runtime.seatRefusedNodes.store(count,std::memory_order_relaxed);
+            runtime.seatRefusedRegions.store(regions,std::memory_order_relaxed);
+            runtime.seatRefusedWhy.store(why,std::memory_order_relaxed);
+        }
         seatMemory={pair.seatUnit,pair.seatGeneration,drawn};
         (drawn?runtime.seatDrawn:runtime.seatRefused).fetch_add(1,std::memory_order_relaxed);
     } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
