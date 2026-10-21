@@ -18390,6 +18390,12 @@ int main()
                   !Halo3AnchorWithinBounds(skyPos, boundsCenter, 1e9f, 2.0f),
                 "Frame composition carries mounted turrets and the sanity "
                 "gate rejects wrong-frame anchors");
+            // A giant: HugeGrass's Lich has a live sphere of 112.25 wu, and its seat's frame stands inside it.
+            const float lichCenter[3] = {40.0f, -12.0f, 30.0f};
+            const float lichOrigin[3] = {10.0f, 5.0f, 2.0f};
+            Check(Halo3AnchorWithinBounds(lichOrigin, lichCenter, 112.25f, 2.0f) &&
+                      !Halo3AnchorWithinBounds(skyPos, boundsCenter, kHalo3MaxBoundsRadiusWu + 1.0f, 2.0f),
+                  "A giant vehicle's bounding sphere is a real one; past the limit is still a bad read");
         }
 
         // C17 native parenting: calibration must preserve the exact Blender

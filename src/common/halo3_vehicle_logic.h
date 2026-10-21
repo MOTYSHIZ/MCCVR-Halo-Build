@@ -1089,6 +1089,11 @@ inline bool Halo3FingerprintIsUnique(float bestDistance, float runnerUpDistance,
     return runnerUpDistance >= separate;
 }
 
+// The largest bounding sphere radius read as a real object's, in world units: a guard against a wrong or garbage
+// read, not a size limit. A mod map's giant flyer is far past the stock vehicles' few units: HugeGrass's Lich has a
+// live sphere of 112.25 wu (342 m), which the old 100 wu limit refused, so its seat never had a frame.
+inline constexpr float kHalo3MaxBoundsRadiusWu = 1000.0f;
+
 // Anchor-frame sanity: the frame origin must sit inside the seated parent's
 // own bounding sphere (+0x1C center / +0x28 radius) plus a margin generous
 // enough for every authored point yet far below any wrong-frame miss (the C6
@@ -1096,7 +1101,7 @@ inline bool Halo3FingerprintIsUnique(float bestDistance, float runnerUpDistance,
 inline bool Halo3AnchorWithinBounds(const float pos[3], const float center[3],
                                     float radius, float margin)
 {
-    if (!std::isfinite(radius) || radius < 0.0f || radius > 100.0f)
+    if (!std::isfinite(radius) || radius < 0.0f || radius > kHalo3MaxBoundsRadiusWu)
         return false;
     float d2 = 0.0f;
     for (int i = 0; i < 3; ++i)
