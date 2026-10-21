@@ -10015,6 +10015,10 @@ namespace
         return nullptr;
     }
 
+    // vehicle_cameras.inl: a firstperson camera's offset for exactly this seat, in world units [forward, right, up].
+    bool Halo3VehicleCameraEyeNudge(uint32_t generation, int32_t vehicle, int32_t seatIndex, uint32_t identity,
+                                    bool mounted, float outWu[3]);
+
     // Sampled from CamCopyHook: the engine's own camera thread, whose engine
     // TLS is proven live by ReadCinematicControl running in ApplyHeadLook.
     // Allocation-, log-, and lock-free; ~66 Hz via the tick latch. All engine
@@ -10574,6 +10578,26 @@ namespace
                             memcpy(cameraAnchor, headAnchor,
                                    sizeof(cameraAnchor));
                             headParented = true;
+                        }
+                        // THE CAMERA FILE'S FIRSTPERSON OFFSET: the seat's eye moved forward, right and up in the
+                        // vehicle's own frame, live, eye and hands together (as the seat trims move them), and only
+                        // where the result is still inside the vehicle's bounds.
+                        float nudge[3];
+                        if (anchorValid &&
+                            Halo3VehicleCameraEyeNudge(generation, parent, seat, static_cast<uint32_t>(anchorId),
+                                                       mountedTurret, nudge))
+                        {
+                            float moved[3];
+                            for (int i = 0; i < 3; ++i)
+                                moved[i] = world.fwd[i] * nudge[0] + headRight[i] * nudge[1] + world.up[i] * nudge[2];
+                            const float eye[3] = {cameraAnchor[0] + moved[0], cameraAnchor[1] + moved[1],
+                                                  cameraAnchor[2] + moved[2]};
+                            if (Halo3AnchorWithinBounds(eye, frameBoundsCenter, frameBoundsRadius, 2.0f))
+                                for (int i = 0; i < 3; ++i)
+                                {
+                                    cameraAnchor[i] += moved[i];
+                                    bodyAnchor[i] += moved[i];
+                                }
                         }
                     }
                     else

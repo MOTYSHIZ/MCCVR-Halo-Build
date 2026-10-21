@@ -46,11 +46,13 @@ struct VehicleCameraSeatKey
     friend bool operator==(const VehicleCameraSeatKey&, const VehicleCameraSeatKey&) = default;
 };
 
-// One writer (the cold worker). `chase` is the readers' whole cost while no chase camera is in use.
+// One writer (the cold worker). `chase` is the readers' whole cost while no chase camera is in use, and
+// `eyeNudge` theirs while no firstperson camera moves the seat's eye.
 struct VehicleCameraPublished
 {
     std::atomic<uint32_t> seq{0}; // even = stable
     std::atomic<uint32_t> chase{0};
+    std::atomic<uint32_t> eyeNudge{0};
     vehicle_camera_select::ActiveCamera camera{};
     VehicleCameraSeatKey seat{};
 };
@@ -63,7 +65,43 @@ void VehicleCameraPublish(const vehicle_camera_select::ActiveCamera& camera, con
     published.camera = camera;
     published.seat = seat;
     published.chase.store(camera.valid && camera.chase ? 1u : 0u, std::memory_order_relaxed);
+    const bool nudged = camera.offsetCm[0] != 0.0f || camera.offsetCm[1] != 0.0f || camera.offsetCm[2] != 0.0f;
+    published.eyeNudge.store(camera.valid && !camera.chase && nudged ? 1u : 0u, std::memory_order_relaxed);
     published.seq.fetch_add(1, std::memory_order_release);
+}
+
+// A FIRSTPERSON CAMERA'S OFFSET (vehicle_camera_file.h): how far the seat's eye is moved for this seat, in world
+// units [forward, right, up] in the vehicle's own frame. False while the camera in use for exactly this seat is not
+// a firstperson camera with an offset. The seat sampler's question, every frame of a seat: one atomic load while
+// none is set.
+bool Halo3VehicleCameraEyeNudge(uint32_t generation, int32_t vehicle, int32_t seatIndex, uint32_t identity,
+                                bool mounted, float outWu[3])
+{
+    const VehicleCameraPublished& published = g_vehicleCameraPublished;
+    if (!published.eyeNudge.load(std::memory_order_acquire))
+        return false;
+    const VehicleCameraSeatKey wanted{generation, vehicle, seatIndex, identity, mounted};
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = published.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const vehicle_camera_select::ActiveCamera camera = published.camera;
+        const VehicleCameraSeatKey seat = published.seat;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (published.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        if (!camera.valid || camera.chase || !(seat == wanted))
+            return false;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            outWu[axis] = camera.offsetCm[axis] * vehicle_camera_frame::kWorldUnitsPerCm;
+            if (!std::isfinite(outWu[axis]))
+                return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 bool VehicleCameraRead(vehicle_camera_select::ActiveCamera& camera, VehicleCameraSeatKey& seat)

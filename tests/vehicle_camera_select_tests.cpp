@@ -383,6 +383,38 @@ static void TestNoSeatView()
     Check(!known.Active().chase, "a vehicle with a seat view starts in it");
 }
 
+// A FIRSTPERSON CAMERA'S OFFSET: the seat view, with its eye moved; nothing else of the placement fields.
+static void TestFirstPersonOffset()
+{
+    const std::string text =
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"seraph_reach\": { \"cameras\": ["
+        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"offset\": [12, -3, 8] },"
+        " { \"name\": \"Seat as it is\", \"type\": \"firstperson\" } ] } } } } }";
+    Selector selector;
+    selector.SetTable(Read(text));
+    selector.Update("halo3", true, "seraph_reach", kSeatDriver, true);
+    const ActiveCamera& active = selector.Active();
+    Check(active.valid && !active.chase, "a firstperson camera with an offset is still the seat view");
+    Check(active.offsetCm[0] == 12.0f && active.offsetCm[1] == -3.0f && active.offsetCm[2] == 8.0f,
+          "and carries its offset to the camera thread");
+    Check(Has(selector.Describe(), "the seat view, its eye moved 12 -3 8 cm (forward, right, up)"),
+          "the log says how far its eye is moved");
+    selector.StepCamera(1);
+    Check(!selector.Active().chase && selector.Active().offsetCm[0] == 0.0f && selector.Active().offsetCm[2] == 0.0f &&
+              !Has(selector.Describe(), "moved"),
+          "one without an offset is the seat's eye itself");
+
+    // Written back as it was read: the offset kept, the fields it does not use left out.
+    const Table table = Read(text);
+    const std::string written = ToJson(table, false);
+    Check(Has(written, "\"type\": \"firstperson\", \"offset\": [12, -3, 8]") && !Has(written, "\"lag\": 0,"),
+          "the file is written back with the offset and nothing it does not use");
+    Table again;
+    Check(FromJson(written.c_str(), written.size(), again).ok &&
+              again.games[0].vehicles[0].cameras[0].offset[1] == -3.0f,
+          "and reads back the same");
+}
+
 static void TestMemoryPerVehicleAndSeat()
 {
     Selector selector;
@@ -580,6 +612,7 @@ int main()
     TestTwoCamerasOfOneName();
     TestCarryAcrossCameras();
     TestNoSeatView();
+    TestFirstPersonOffset();
     TestMemoryPerVehicleAndSeat();
     TestControlChoice();
     TestMemoryFile();

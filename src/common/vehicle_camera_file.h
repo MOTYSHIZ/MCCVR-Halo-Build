@@ -36,8 +36,9 @@ inline constexpr const char* kGameKeys[] = {"halo3", "odst", "reach", "halo4", "
 inline constexpr int kGameKeyCount = static_cast<int>(sizeof(kGameKeys) / sizeof(kGameKeys[0]));
 inline constexpr const char* kDefaultKey = "default";
 
-// chase: a camera this mod places. firstperson: the seat view the game and the mod already give that seat; its
-// placement fields are not used.
+// chase: a camera this mod places. firstperson: the seat view the game and the mod already give that seat, seen
+// from the seat's own eye moved by its "offset" ([forward, right, up] cm in the vehicle's own frame; the seat's
+// eye itself where it is left out). Its other placement fields are not used.
 enum class CameraType : uint8_t { Chase = 0, FirstPerson = 1 };
 
 // Where a camera's offset is measured FROM: the vehicle's own origin, the seat the player sits in, the seated

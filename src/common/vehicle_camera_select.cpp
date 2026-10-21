@@ -565,7 +565,13 @@ std::string Selector::Describe() const
     if (!cameraName_.empty())
         line += " \"" + cameraName_ + "\"";
     if (!active_.chase)
-        return line + ", the seat view";
+    {
+        line += ", the seat view";
+        if (active_.offsetCm[0] != 0.0f || active_.offsetCm[1] != 0.0f || active_.offsetCm[2] != 0.0f)
+            line += ", its eye moved " + Number(active_.offsetCm[0]) + " " + Number(active_.offsetCm[1]) + " " +
+                    Number(active_.offsetCm[2]) + " cm (forward, right, up)";
+        return line;
+    }
     if (active_.modeCount > 1)
     {
         line += ", mode " + std::to_string(active_.mode + 1) + " of " + std::to_string(active_.modeCount);
