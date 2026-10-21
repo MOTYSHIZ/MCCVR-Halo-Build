@@ -391,7 +391,7 @@ void __fastcall UploadBHook(void* postprocess, void* entry, void* table)
 }
 
 // The bind's copy of the parameters (`parameters`, one float4 each), with the noted fade applied once. `entry` is
-// the bind's seventh argument, the postprocess entry + 0x50. Guarded.
+// the bind's sixth argument, the postprocess entry + 0x50 (its seventh is the entry + 0x5C). Guarded.
 __declspec(noinline) void FadeCopy(void* parameters, const void* entry)
 {
     __try
@@ -417,14 +417,14 @@ __declspec(noinline) void FadeCopy(void* parameters, const void* entry)
     }
 }
 
-uint64_t __fastcall BindHook(uint32_t a1, void* parameters, void* a3, void* a4, void* a5, void* a6, void* entry)
+uint64_t __fastcall BindHook(uint32_t a1, void* parameters, void* a3, void* a4, void* a5, void* entry, void* a7)
 {
     runtime.callbacks.fetch_add(1, std::memory_order_acq_rel);
     uint64_t result = 0;
     __try
     {
         result = CallNativeWithSpareSlots(reinterpret_cast<BindFn>(runtime.bind.original), a1, parameters, a3, a4, a5,
-                                          a6, entry);
+                                          entry, a7);
 #if HALOMCCVR_DEV_DIAGNOSTICS
         if (fadeScope.active)
             runtime.bindCallsInFade.fetch_add(1, std::memory_order_relaxed);
