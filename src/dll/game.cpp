@@ -9253,6 +9253,9 @@ namespace
         // The carrier's definition for a mounted gunner (whose identity is the carrier's), else 0xFFFFFFFF: what the
         // seat is named by (Halo3SeatVehicleName).
         uint32_t carrierDefinitionIndex = 0xFFFFFFFFu;
+        // The frame's owner's bounding sphere radius, world units (0 = not read): how big the vehicle is, for a
+        // camera the mod places from it (vehicle_cameras.inl).
+        float boundsRadius = 0.0f;
         // The vehicle's root node as it is DRAWN, for a camera the mod places beside the vehicle
         // (vehicle_cameras.inl): the object frame above moves on the simulation's tick. Read only while
         // vehicle_cameras is on; valid only where it agrees with that object frame.
@@ -10726,6 +10729,7 @@ namespace
                 memcpy(xf.hullUp, world.up, sizeof(xf.hullUp));
                 xf.definitionIndex = defIndex;
                 xf.carrierDefinitionIndex = mountedTurret ? carrierDefIndex : 0xFFFFFFFFu;
+                xf.boundsRadius = frameBoundsValid ? frameBoundsRadius : 0.0f;
                 memcpy(xf.rootPos, rootNode.position, sizeof(xf.rootPos));
                 memcpy(xf.rootFwd, rootNode.forward, sizeof(xf.rootFwd));
                 memcpy(xf.rootLeft, rootNode.left, sizeof(xf.rootLeft));
@@ -10977,6 +10981,7 @@ namespace
         float hullUp[3] = {0.0f, 0.0f, 0.0f};
         uint32_t definitionIndex = 0xFFFFFFFFu;
         uint32_t carrierDefinitionIndex = 0xFFFFFFFFu; // a mounted gunner's carrier (Halo3VehicleTransform)
+        float boundsRadiusWu = 0.0f; // the vehicle's bounding sphere (Halo3VehicleTransform); 0 = not read
         // The vehicle's drawn root node (Halo3VehicleTransform); false leaves the object frame above.
         bool rootValid = false;
         float rootPos[3] = {0.0f, 0.0f, 0.0f};
@@ -11017,6 +11022,7 @@ namespace
         memcpy(out.hullUp, xf.hullUp, sizeof(out.hullUp));
         out.definitionIndex = xf.definitionIndex;
         out.carrierDefinitionIndex = xf.carrierDefinitionIndex;
+        out.boundsRadiusWu = xf.boundsRadius;
         out.rootValid = xf.rootValid != 0;
         memcpy(out.rootPos, xf.rootPos, sizeof(out.rootPos));
         memcpy(out.rootFwd, xf.rootFwd, sizeof(out.rootFwd));

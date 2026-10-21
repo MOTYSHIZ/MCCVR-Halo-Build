@@ -208,6 +208,18 @@ static void TestThirdPersonRest()
     Check(Near3(point, 10.0f, 20.0f - kStandInBehindCm * kWorldUnitsPerCm, 3.0f + kStandInAboveCm * kWorldUnitsPerCm),
           "gets the mod's stand-in behind and above the vehicle's origin");
     Check(state.standIn, "and the caller is told");
+    // A vehicle larger than a few metres: the stand-in stands off by its size, out of its hull (a Longsword's
+    // sphere is some 20 m, a Lich's 342 m).
+    in.vehicleRadiusCm = 2000.0f;
+    Check(Place(camera, in, state, point) &&
+              Near3(point, 10.0f, 20.0f - 3000.0f * kWorldUnitsPerCm, 3.0f + 1000.0f * kWorldUnitsPerCm),
+          "a large vehicle's stand-in is behind and above it by its own size");
+    float behind = 0.0f, above = 0.0f;
+    StandInOffsetCm(100.0f, behind, above);
+    Check(behind == kStandInBehindCm && above == kStandInAboveCm, "a small one keeps the mod's own stand-in");
+    StandInOffsetCm(std::numeric_limits<float>::quiet_NaN(), behind, above);
+    Check(behind == kStandInBehindCm && above == kStandInAboveCm, "and so does one whose size is not a number");
+    in.vehicleRadiusCm = 0.0f;
     in.restValid = true;
     in.restOffset[0] = std::numeric_limits<float>::quiet_NaN();
     Check(Place(camera, in, state, point) && state.standIn, "a place that is not a number is no resting place either");

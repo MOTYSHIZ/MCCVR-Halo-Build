@@ -19,6 +19,8 @@ struct Inputs
     // against the vehicle at speed.
     float vehicleOrigin[3]{};
     vehicle_camera_frame::Basis vehicle{};
+    // How big it is: its bounding sphere's radius in cm, 0 where the game does not say.
+    float vehicleRadiusCm = 0.0f;
     // The seat's own point and the seated character's head, where the game has them.
     bool seatValid = false;
     float seat[3]{};
@@ -37,9 +39,18 @@ struct Inputs
 };
 
 // The mod's own stand-in for a third-person rest place the game could not give: behind and above the
-// vehicle's origin, in cm.
+// vehicle's origin, in cm -- for a vehicle of a few metres. A larger one stands it off by its own size (its bounding
+// sphere's radius), since a fixed 4.5 m behind the origin of a 40 m Longsword or a 340 m Lich is inside its hull.
 inline constexpr float kStandInBehindCm = 450.0f;
 inline constexpr float kStandInAboveCm = 180.0f;
+inline constexpr float kStandInBehindPerRadius = 1.5f;
+inline constexpr float kStandInAbovePerRadius = 0.5f;
+inline void StandInOffsetCm(float radiusCm, float& behindCm, float& aboveCm) noexcept
+{
+    const float r = std::isfinite(radiusCm) && radiusCm > 0.0f ? radiusCm : 0.0f;
+    behindCm = r * kStandInBehindPerRadius > kStandInBehindCm ? r * kStandInBehindPerRadius : kStandInBehindCm;
+    aboveCm = r * kStandInAbovePerRadius > kStandInAboveCm ? r * kStandInAbovePerRadius : kStandInAboveCm;
+}
 
 struct State
 {
@@ -99,8 +110,10 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
         }
         else
         {
-            offsetCm[0] -= kStandInBehindCm;
-            offsetCm[2] += kStandInAboveCm;
+            float behindCm = 0.0f, aboveCm = 0.0f;
+            StandInOffsetCm(in.vehicleRadiusCm, behindCm, aboveCm);
+            offsetCm[0] -= behindCm;
+            offsetCm[2] += aboveCm;
             standIn = true;
         }
         break;
