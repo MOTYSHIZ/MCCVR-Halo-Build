@@ -116,12 +116,74 @@ static void TestWheelOnOffer()
     Check(!TakeWheelOnOffer(held, fresh, true, true) && held.engaged && fresh.made, "a wheel already held is not taken twice");
 }
 
+// Following the hull and authoring the steering for every seat with a view (halo3_vehicle_logic.h): a tuned seat
+// answers exactly as before; a seat with no tuned point (a mod map's vehicle, the Elephant) by its role.
+static void TestFollowForEverySeat()
+{
+    using Id = Halo3VehicleId;
+    const Id named[] = {Id::Scorpion, Id::Warthog, Id::Mongoose, Id::Ghost,   Id::Wraith,
+                        Id::Mauler,   Id::Banshee, Id::Hornet,   Id::Chopper, Id::StationaryTurret};
+    unsigned tuned = 0;
+    for (Id id : named)
+        for (int seatIndex = -1; seatIndex < 12; ++seatIndex)
+            for (bool mounted : {false, true})
+            {
+                if (!Halo3FindSeatPoint(id, seatIndex, mounted) && id != Id::StationaryTurret)
+                    continue;
+                ++tuned;
+                for (bool driver : {false, true})
+                    Check(Halo3SeatViewFollowsHull(id, Id::Unknown, driver, seatIndex, mounted, true) ==
+                                  Halo3SeatFollowsHull(id, seatIndex, mounted) &&
+                              Halo3SeatViewFollowsPitch(id, Id::Unknown, driver, seatIndex, mounted, true) ==
+                                  Halo3SeatFollowsPitch(id, seatIndex, mounted),
+                          "a tuned seat follows its hull exactly as before");
+                const Halo3SeatRole role = Halo3SeatRoleOf(id, Id::Unknown, seatIndex, mounted, 0);
+                Check(Halo3SeatRoleAuthorsSteering(role, true) == Halo3SeatAuthorsSteering(id, seatIndex, mounted, true) &&
+                          !Halo3SeatRoleAuthorsSteering(role, false),
+                      "and has its steering authored exactly as before");
+                Check(Halo3SeatRoleUsesWheel(role) == Halo3VehicleUsesWheel(id), "and takes the wheel exactly as before");
+            }
+    Check(tuned > 10, "the tuned seats were all asked");
+
+    const auto Follows = [](Id cls, bool driver, bool eye) {
+        return Halo3SeatViewFollowsHull(Id::Unknown, cls, driver, 0, false, eye);
+    };
+    const auto Pitch = [](Id cls, bool driver) { return Halo3SeatViewFollowsPitch(Id::Unknown, cls, driver, 0, false, true); };
+    Check(Follows(Id::Warthog, true, true) && Pitch(Id::Warthog, true), "a mod jeep's driver follows in yaw and pitch");
+    Check(Follows(Id::Hornet, true, true) && !Pitch(Id::Hornet, true) && Follows(Id::Banshee, true, true) &&
+              !Pitch(Id::Banshee, true),
+          "a mod flyer's pilot follows in yaw only");
+    Check(Follows(Id::Scorpion, true, true) && Pitch(Id::Scorpion, true), "a mod tank's driver follows");
+    Check(!Follows(Id::Unknown, true, true) && Follows(Id::Unknown, false, true),
+          "the driver of a vehicle of no known class keeps the view; its other seats follow");
+    Check(!Follows(Id::StationaryTurret, false, true) && !Follows(Id::StationaryTurret, true, true),
+          "never on a turret's own frame");
+    Check(!Follows(Id::Warthog, false, false), "never a seat with no view");
+
+    const Halo3SeatRole pilot = Halo3SeatRoleOf(Id::Unknown, Id::Hornet, 0, false, kHalo3SeatDriverBit);
+    Check(Halo3SeatRoleAuthorsSteering(pilot, true) && !Halo3SeatRoleUsesWheel(pilot),
+          "a mod flyer's pilot is steered by the stick, never a wheel");
+    const Halo3SeatRole jeep = Halo3SeatRoleOf(Id::Unknown, Id::Warthog, 0, false, kHalo3SeatDriverBit);
+    Check(Halo3SeatRoleAuthorsSteering(jeep, true) && Halo3SeatRoleUsesWheel(jeep), "a mod jeep's driver may take the wheel");
+    const Halo3SeatRole rider = Halo3SeatRoleOf(Id::Unknown, Id::Warthog, 1, false, 0);
+    Check(!rider.driver && !Halo3SeatRoleAuthorsSteering(rider, true) && Follows(Id::Warthog, rider.driver, true),
+          "its passenger follows the hull and steers nothing");
+    const Halo3SeatRole tank = Halo3SeatRoleOf(Id::Unknown, Id::Scorpion, 0, false, kHalo3SeatDriverBit);
+    Check(tank.driver && !Halo3SeatRoleAuthorsSteering(tank, true), "a mod tank's look aims its gun: nothing to author");
+
+    Check(!Halo3FindSeatPoint(Id::Elephant, 0, false) &&
+              Halo3SeatViewFollowsHull(Id::Elephant, Id::Scorpion, true, 0, false, true) &&
+              Halo3SeatViewFollowsPitch(Id::Elephant, Id::Scorpion, true, 0, false, true),
+          "the Elephant, named with no tuned point, follows its hull from the occupant's head");
+}
+
 int main()
 {
     TestWhoSteers();
     TestStickAims();
     TestNext();
     TestWheelOnOffer();
+    TestFollowForEverySeat();
     std::printf("PASS: %u vehicle control checks\n", g_checks);
     return 0;
 }

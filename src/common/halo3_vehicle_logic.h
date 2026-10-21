@@ -2161,6 +2161,33 @@ inline constexpr bool Halo3SeatFollowsPitch(Halo3VehicleId id, int seatIndex,
     return id != Halo3VehicleId::Banshee && id != Halo3VehicleId::Hornet;
 }
 
+// THE SAME TWO QUESTIONS FOR ANY SEAT WITH A VIEW, a seat with no tuned point included: a vehicle the mod cannot
+// name (a mod map's own) or one it names without one (the Elephant). A tuned seat answers exactly as above. A seat
+// with no tuned point has its view at the occupant's head (`seatEye`), and its view may follow its hull wherever that
+// is safe for the reason above: never on a turret's own frame, and in a driver's seat (`driver`, Halo3SeatRoleOf)
+// only where it is known how the vehicle steers -- by its name, or by its control class (Halo3ControlClass) for one
+// the mod cannot name: a look-steered one has its steering authored as the stock vehicle's is
+// (Halo3SeatRoleAuthorsSteering), a tank's look aims its gun. The driver of a vehicle of no known class (a walker, a
+// giant) keeps the view as it is. An aircraft, by name or by class, keeps the yaw-only follow.
+inline constexpr bool Halo3SeatViewFollowsHull(Halo3VehicleId id, Halo3VehicleId controlClass, bool driver,
+                                               int seatIndex, bool mountedTurret, bool seatEye)
+{
+    if (id == Halo3VehicleId::StationaryTurret)
+        return false;
+    if (Halo3SeatFollowsHull(id, seatIndex, mountedTurret))
+        return true;
+    if (!seatEye || controlClass == Halo3VehicleId::StationaryTurret)
+        return false;
+    return !driver || id != Halo3VehicleId::Unknown || controlClass != Halo3VehicleId::Unknown;
+}
+inline constexpr bool Halo3SeatViewFollowsPitch(Halo3VehicleId id, Halo3VehicleId controlClass, bool driver,
+                                                int seatIndex, bool mountedTurret, bool seatEye)
+{
+    const Halo3VehicleId flown = id != Halo3VehicleId::Unknown ? id : controlClass;
+    return Halo3SeatViewFollowsHull(id, controlClass, driver, seatIndex, mountedTurret, seatEye) &&
+        flown != Halo3VehicleId::Banshee && flown != Halo3VehicleId::Hornet;
+}
+
 // A seat whose weapon is a physically slewing gun rather than the occupant's
 // own: a walk-up emplacement or any mounted gunner. Their aim carries an
 // authored rate cap the closed loop cannot exceed. From H3EK seat blocks,
@@ -2186,6 +2213,18 @@ inline constexpr bool Halo3SeatAuthorsSteering(Halo3VehicleId id, int seatIndex,
 {
     return followEnabled && Halo3SeatIsDriver(id, seatIndex, mountedTurret) &&
         Halo3VehicleIsLookSteered(id);
+}
+
+// Halo3SeatAuthorsSteering and Halo3VehicleUsesWheel for any seat, by its role (Halo3SeatRoleOf): a vehicle the mod
+// cannot name is a look-steered driver's by its seat's driver flag and its control class. A named vehicle's role is
+// its identity's, so for it these answer exactly as those do.
+inline constexpr bool Halo3SeatRoleAuthorsSteering(const Halo3SeatRole& role, bool followEnabled)
+{
+    return followEnabled && role.driver && role.lookSteered;
+}
+inline constexpr bool Halo3SeatRoleUsesWheel(const Halo3SeatRole& role)
+{
+    return role.lookSteered && !role.aircraft;
 }
 
 // The right stick is normally the steering fallback in an authored driver

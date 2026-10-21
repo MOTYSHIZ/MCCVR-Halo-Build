@@ -982,12 +982,12 @@ VehicleCameraSeatRead Halo3VehicleCameraSeat(VehicleCameraSeatKey& key, const ch
     name = turret ? "turret" : Halo3SeatVehicleName(seat, customName);
     // A vehicle the mod cannot name has its driver's seat named by the seat's own tag flag (Halo3SeatRoleOf), so
     // its pilot reads as a driver, not as a passenger.
-    const bool driver = turret ||
-        Halo3SeatRoleOf(id, static_cast<Halo3VehicleId>(seat.controlClass), seat.seatIndex, seat.mounted,
-                        Halo3OccupiedSeatFlags()).driver;
+    const Halo3SeatRole role = Halo3SeatRoleOf(id, static_cast<Halo3VehicleId>(seat.controlClass), seat.seatIndex,
+                                               seat.mounted, Halo3OccupiedSeatFlags());
+    const bool driver = turret || role.driver;
     seatBits = vehicle_camera_file::SeatBits(driver, turret || seat.mounted);
     seatView = Halo3FindSeatPoint(id, seat.seatIndex, seat.mounted) != nullptr;
-    wheelSeat = Halo3SeatAuthorsSteering(id, seat.seatIndex, seat.mounted, true) && Halo3VehicleUsesWheel(id);
+    wheelSeat = Halo3SeatRoleAuthorsSteering(role, true) && Halo3SeatRoleUsesWheel(role);
     definitionIndex = seat.definitionIndex;
     return VehicleCameraSeatRead::Seated;
 }

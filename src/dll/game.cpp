@@ -11448,10 +11448,17 @@ namespace
         const bool fpActive = Halo3VehicleFpActive();
         const bool haveAuthoredSeat =
             fpActive && Halo3ReadSeatSnapshot(seat) && seat.anchorValid;
+        // A vehicle the mod cannot name follows its hull too, by its seat's role (Halo3SeatViewFollowsHull), so a
+        // Tethered camera turns with it and its driver's steering is authored as a named vehicle's is.
+        const auto seatId = static_cast<Halo3VehicleId>(seat.identity);
+        const auto seatClass = static_cast<Halo3VehicleId>(seat.controlClass);
+        const Halo3SeatRole seatRole = haveAuthoredSeat
+            ? Halo3SeatRoleOf(seatId, seatClass, seat.seatIndex, seat.mounted, Halo3OccupiedSeatFlags())
+            : Halo3SeatRole{};
         const bool active =
             haveAuthoredSeat &&
-            Halo3SeatFollowsHull(static_cast<Halo3VehicleId>(seat.identity),
-                                 seat.seatIndex, seat.mounted);
+            Halo3SeatViewFollowsHull(seatId, seatClass, seatRole.driver, seat.seatIndex, seat.mounted,
+                                     seat.anchorValid);
         // How the view turns in this seat. A chase camera from the vehicle camera file says for itself, by its
         // mode's rotationTracking; every other seat view follows the setting. How the seat is STEERED is
         // decided apart from this, below.
@@ -11459,9 +11466,9 @@ namespace
         bool pitchWanted = true;
         Halo3VehicleCameraViewTurn(followEnabled, pitchWanted);
         const bool pitchEligible =
-            active && pitchWanted && Halo3SeatFollowsPitch(
-                static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex,
-                seat.mounted);
+            active && pitchWanted && Halo3SeatViewFollowsPitch(
+                seatId, seatClass, seatRole.driver, seat.seatIndex, seat.mounted,
+                seat.anchorValid);
 
         // Position-neutral and yaw-neutral are different transactions. Every
         // concrete authored seat gets a fresh OpenXR position zero exactly once,
@@ -11597,6 +11604,10 @@ namespace
         // cutoff. A torn/missing frame keeps the identity and last valid yaw,
         // so the next valid sample catches up instead of accumulating drift.
         const bool followActive = followEnabled && active;
+        // A tuned seat follows its own node, as proven. A seat with no tuned point follows its hull's own frame: the
+        // node a mod map's vehicle seats its occupant on may be a part that turns with the aim.
+        const float* followFwd =
+            Halo3SeatFollowsHull(seatId, seat.seatIndex, seat.mounted) ? seat.rawFwd : seat.hullFwd;
         if (followActive)
         {
             const uint32_t generation =
@@ -11611,7 +11622,7 @@ namespace
                 g_halo3SeatYaw = {};
             }
             const float delta =
-                Halo3SeatYawDelta(g_halo3SeatYaw, seat.rawFwd, true);
+                Halo3SeatYawDelta(g_halo3SeatYaw, followFwd, true);
             if (delta != 0.0f)
                 g_gameYawRef = WrapPi(g_gameYawRef + delta);
 
@@ -11620,7 +11631,7 @@ namespace
             // freshness bound; the new feature then fails to the old mapping.
             float hullPitch = 0.0f;
             if (pitchEligible && g_halo3SeatYaw.armed &&
-                Halo3RollStablePitchFromForward(seat.rawFwd, hullPitch))
+                Halo3RollStablePitchFromForward(followFwd, hullPitch))
                 Halo3PublishRollStableFollow(g_halo3SeatYaw.lastYaw,
                                              hullPitch);
         }
@@ -11646,9 +11657,7 @@ namespace
         // Who steers a look-steered driver's seat is the player's choice (vehicle_control; the modes are in
         // vehicle_control_logic.h). Automatic is the rule this had before the choice: the stick or wheel
         // steers exactly while the view follows the hull, the hand otherwise.
-        const bool lookSteeredDriver = haveAuthoredSeat && Halo3SeatAuthorsSteering(
-            static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex,
-            seat.mounted, true);
+        const bool lookSteeredDriver = haveAuthoredSeat && Halo3SeatRoleAuthorsSteering(seatRole, true);
         const bool authors = vehicle_control::Authored(
             VehicleControlModeNow(), lookSteeredDriver, followActive);
         // The wheel state itself belongs to the input thread, which releases it
@@ -11687,8 +11696,9 @@ namespace
             Halo3SeatSnapshot seat;
             if (!Halo3ReadSeatSnapshot(seat))
                 return false;
-            return Halo3VehicleUsesWheel(
-                static_cast<Halo3VehicleId>(seat.identity));
+            return Halo3SeatRoleUsesWheel(Halo3SeatRoleOf(
+                static_cast<Halo3VehicleId>(seat.identity), static_cast<Halo3VehicleId>(seat.controlClass),
+                seat.seatIndex, seat.mounted, Halo3OccupiedSeatFlags()));
         }
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
         // O3: the wheel is title-agnostic once a seat authors steering.
@@ -55873,8 +55883,10 @@ static bool Halo3VehicleAimRejectStep(float& yaw, float pitch, const float* poin
     Halo3SeatSnapshot seat;
     if (!Halo3ReadSeatSnapshot(seat) || seat.parentHandle == -1)
         return false;
-    const auto id = static_cast<Halo3VehicleId>(seat.identity);
-    if (!Halo3SeatIsDriver(id, seat.seatIndex, seat.mounted) || !Halo3VehicleIsLookSteered(id))
+    const Halo3SeatRole role = Halo3SeatRoleOf(static_cast<Halo3VehicleId>(seat.identity),
+                                               static_cast<Halo3VehicleId>(seat.controlClass), seat.seatIndex,
+                                               seat.mounted, Halo3OccupiedSeatFlags());
+    if (!role.driver || !role.lookSteered)
         return false;
     vehicle_aim_reject::Ground ground{};
     float forwardYaw = 0.0f;
