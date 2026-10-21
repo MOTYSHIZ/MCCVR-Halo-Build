@@ -104,6 +104,7 @@ bool Halo3VehicleCameraHidePartsWanted()
 struct Halo3PartFade
 {
     uint32_t material = UINT32_MAX;
+    uintptr_t method = 0; // the render method's definition (what the shader select is handed)
     uintptr_t postprocess = 0;
     uint32_t parameters = 0;
     float kept = 1.0f;
@@ -311,6 +312,7 @@ bool Halo3ReadRenderModelRaw(uint32_t vehicleDefIndex, Halo3RenderModelRaw& out)
 // ids of its template's real parameters.
 struct Halo3MaterialRaw
 {
+    uintptr_t method = 0;
     uintptr_t postprocess = 0;
     int32_t blend = -1;
     uint32_t parameters = 0;
@@ -328,6 +330,7 @@ bool Halo3ReadMaterialRaw(uint32_t methodDatum, Halo3MaterialRaw& out)
         const uint8_t* postprocess = Halo3PartsBlock(tagBase, method, 0x28, count);
         if (!postprocess)
             return false;
+        out.method = reinterpret_cast<uintptr_t>(method);
         out.postprocess = reinterpret_cast<uintptr_t>(postprocess);
         std::memcpy(&out.blend, postprocess + 0x68, 4);
         out.parameters = Halo3PartsU32(postprocess + 0x1C);
@@ -719,6 +722,7 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
                     }
                     Halo3PartFade fade;
                     fade.material = i;
+                    fade.method = material.method;
                     fade.postprocess = material.postprocess;
                     fade.parameters = material.parameters;
                     fade.kept = kept;

@@ -48,6 +48,11 @@ struct Runtime
 {
     std::atomic<uint32_t> callbacks{0};
     std::atomic<uint64_t> skipped{0}, faded{0}, uploads{0}, swapped{0};
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    // Dev builds: how far a faded draw gets -- draws noted, the shader select left holding this material's render
+    // method after one (it ran for it), and upload calls in all and during a noted draw.
+    std::atomic<uint64_t> fadeDraws{0}, fadeSelected{0}, uploadCalls{0}, uploadCallsInFade{0}, bindCallsInFade{0};
+#endif
     Hook draw, bind, uploadA, uploadB;
     uint8_t* const* mappedA = nullptr; // the upload's mapped constant buffer, as each stores it
     uint8_t* const* mappedB = nullptr;
@@ -167,6 +172,10 @@ __declspec(noinline) void ForgetBoundShaders()
     }
 }
 
+#if HALOMCCVR_DEV_DIAGNOSTICS
+bool SelectHolds(uintptr_t method);
+#endif
+
 void __fastcall DrawHook(void* record, uint32_t entry)
 {
     runtime.callbacks.fetch_add(1, std::memory_order_acq_rel);
@@ -194,6 +203,14 @@ void __fastcall DrawHook(void* record, uint32_t entry)
             runtime.skipped.fetch_add(1, std::memory_order_relaxed);
         else
             CallNativeWithSpareSlots(reinterpret_cast<DrawFn>(runtime.draw.original), record, entry);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        if (fading)
+        {
+            runtime.fadeDraws.fetch_add(1, std::memory_order_relaxed);
+            if (SelectHolds(fadeScope.fade.method))
+                runtime.fadeSelected.fetch_add(1, std::memory_order_relaxed);
+        }
+#endif
     }
     __finally
     {
@@ -203,6 +220,26 @@ void __fastcall DrawHook(void* record, uint32_t entry)
         runtime.callbacks.fetch_sub(1, std::memory_order_acq_rel);
     }
 }
+
+#if HALOMCCVR_DEV_DIAGNOSTICS
+// Dev builds: whether the shader select's cache now holds `method` (it stores the render method it selected 8 bytes
+// after its cached-shaders byte). Guarded.
+__declspec(noinline) bool SelectHolds(uintptr_t method)
+{
+    __try
+    {
+        if (!runtime.cacheNote || !method)
+            return false;
+        uintptr_t held = 0;
+        std::memcpy(&held, const_cast<const uint8_t*>(runtime.cacheNote) + 8, sizeof(held));
+        return held == method;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+#endif
 
 // The noted fade applied to one parameter value the game just wrote, once per bind. Not guarded: its callers are.
 void FadeValue(uint32_t parameter, float (&value)[4], bool once)
@@ -270,6 +307,11 @@ void __fastcall UploadAHook(void* postprocess, void* entry, void* table)
     __try
     {
         CallNativeWithSpareSlots(reinterpret_cast<UploadFn>(runtime.uploadA.original), postprocess, entry, table);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        runtime.uploadCalls.fetch_add(1, std::memory_order_relaxed);
+        if (fadeScope.active)
+            runtime.uploadCallsInFade.fetch_add(1, std::memory_order_relaxed);
+#endif
         if (fadeScope.active)
             FadeUpload(runtime.mappedA, postprocess, entry, kUploadAWord, table);
     }
@@ -285,6 +327,11 @@ void __fastcall UploadBHook(void* postprocess, void* entry, void* table)
     __try
     {
         CallNativeWithSpareSlots(reinterpret_cast<UploadFn>(runtime.uploadB.original), postprocess, entry, table);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        runtime.uploadCalls.fetch_add(1, std::memory_order_relaxed);
+        if (fadeScope.active)
+            runtime.uploadCallsInFade.fetch_add(1, std::memory_order_relaxed);
+#endif
         if (fadeScope.active)
             FadeUpload(runtime.mappedB, postprocess, entry, kUploadBWord, table);
     }
@@ -329,6 +376,10 @@ uint64_t __fastcall BindHook(uint32_t a1, void* parameters, void* a3, void* a4, 
     {
         result = CallNativeWithSpareSlots(reinterpret_cast<BindFn>(runtime.bind.original), a1, parameters, a3, a4, a5,
                                           a6, entry);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        if (fadeScope.active)
+            runtime.bindCallsInFade.fetch_add(1, std::memory_order_relaxed);
+#endif
         if (fadeScope.active && parameters && entry)
             FadeCopy(parameters, entry);
     }
@@ -530,4 +581,23 @@ void ReportHalo3PartDraw()
             static_cast<unsigned long long>(now[2] - shown[2]), static_cast<unsigned long long>(now[3] - shown[3]));
         std::memcpy(shown, now, sizeof(now));
     }
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    static uint64_t probeShown[5]{};
+    static ULONGLONG probeLogged = 0;
+    const uint64_t probe[5]{runtime.fadeDraws.load(), runtime.fadeSelected.load(), runtime.uploadCalls.load(),
+                            runtime.uploadCallsInFade.load(), runtime.bindCallsInFade.load()};
+    if (probe[0] != probeShown[0] && clock - probeLogged >= 5000)
+    {
+        probeLogged = clock;
+        LOG("DEV vehicle parts fade probe: since the last line, %llu faded draws, after %llu of them the shader select "
+            "held the material's render method; %llu constant uploads in all, %llu during a faded draw; %llu material "
+            "binds during a faded draw",
+            static_cast<unsigned long long>(probe[0] - probeShown[0]),
+            static_cast<unsigned long long>(probe[1] - probeShown[1]),
+            static_cast<unsigned long long>(probe[2] - probeShown[2]),
+            static_cast<unsigned long long>(probe[3] - probeShown[3]),
+            static_cast<unsigned long long>(probe[4] - probeShown[4]));
+        std::memcpy(probeShown, probe, sizeof(probe));
+    }
+#endif
 }
