@@ -53,6 +53,9 @@
                 nativeResult=LegacyCollisionSchedulerDetourBody(
                     g_halo3WorldCollision,flags,mode,start,query,ignoredObjectA,
                     ignoredObjectB,ignoredObjectC,result);
+            // Where a seated crosshair query -- the line the shot follows -- stopped, against the point.
+            if(!g_legacyCollisionOwnedQuery)
+                LegacySightNoteCrosshairResult(GameTitle::Halo3,start,query,result,nativeResult);
 #if HALOMCCVR_DEV_DIAGNOSTICS
             // Dev SHOT IMPACT (halo3_impact_witness.inl): a tracked projectile's own query records where it hit.
             if(!g_legacyCollisionOwnedQuery)

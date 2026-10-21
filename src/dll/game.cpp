@@ -2759,6 +2759,10 @@ namespace
                                  uint64_t& atUs);
     void LegacySightNoteCrosshairQuery(GameTitle title, uint64_t flags, const float* start, const float* vector,
         int32_t ignoredA, uintptr_t caller);
+    // After the game's own trace of a seated crosshair query (legacy_sight_trace.inl, THE SEAT'S SHOT LINE): where it
+    // stopped, against the point. Collision-hook thread.
+    void LegacySightNoteCrosshairResult(GameTitle title, const float* start, const float* vector, const void* result,
+        uint8_t returned);
     // True on a fire thread while another gun's own line owns the local fire: Halo 3's independent shot scope (the
     // off-hand gun under independent dual aim, or a barrel / muzzle shot), ODST's and Reach's muzzle shot scopes. The
     // firing assist's camera is then that gun's ray, so the crosshair re-aims leave its query alone. Defined after
