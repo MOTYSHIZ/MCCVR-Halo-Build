@@ -1112,6 +1112,11 @@ if(BUILD_TESTING)
     add_executable(halomccvr_halo3_tag_names_runtime_tests tests/halo3_tag_names_runtime_tests.cpp)
     target_include_directories(halomccvr_halo3_tag_names_runtime_tests PRIVATE src/common)
     add_test(NAME halomccvr_halo3_tag_names_runtime_tests COMMAND halomccvr_halo3_tag_names_runtime_tests)
+    # Halo 3 string ids (src/common/halo3_string_ids.h): a map's strings on a synthetic table and buffer laid out as
+    # retail's, every refusal, the text of global, map and unknown ids, and the decode of the three signatures.
+    add_executable(halomccvr_halo3_string_ids_tests tests/halo3_string_ids_tests.cpp)
+    target_include_directories(halomccvr_halo3_string_ids_tests PRIVATE src/common)
+    add_test(NAME halomccvr_halo3_string_ids_tests COMMAND halomccvr_halo3_string_ids_tests)
     # Halo 3: the motion tracker's blips move with the HUD height (src/common/halo3_tracker_hud_height_logic.h;
     # retail-derived and run): the decode of the five sites on an image built from the header's patterns and
     # every way it refuses (a missing site, a call elsewhere, a neighbouring field, a scale pair not beside its

@@ -387,6 +387,24 @@ static void TestNoSeatView()
 // gunner's seat, never by default in a passenger's (who may hold a weapon, whose arms would then be drawn twice).
 // Read, published, described, written back; and the table says whether any camera can ask for it (what installs the
 // body drawing at all).
+// "hideRegions": published joined by commas for the cold worker to resolve against the vehicle's regions, and
+// described; a camera without it hides nothing.
+static void TestHideRegions()
+{
+    const std::string text =
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"sparrowhawk\": { \"cameras\": ["
+        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"hideRegions\": [\"canopy\", 3] },"
+        " { \"name\": \"Behind\", \"type\": \"chase\" } ] } } } } }";
+    Selector selector;
+    selector.SetTable(Read(text));
+    selector.Update("halo3", true, "sparrowhawk", kSeatDriver, true);
+    Check(selector.Active().valid && std::string(selector.Active().hideRegions) == "canopy,3",
+          "a camera's hideRegions is published joined by commas");
+    Check(Has(selector.Describe(), "hiding canopy,3"), "and described");
+    selector.StepCamera(1);
+    Check(selector.Active().chase && selector.Active().hideRegions[0] == '\0', "a camera without it hides nothing");
+}
+
 static void TestShowBody()
 {
     const std::string text =
@@ -679,6 +697,7 @@ int main()
     TestNoSeatView();
     TestFirstPersonOffset();
     TestShowBody();
+    TestHideRegions();
     TestMemoryPerVehicleAndSeat();
     TestControlChoice();
     TestMemoryFile();

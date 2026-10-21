@@ -18,6 +18,10 @@
 namespace vehicle_camera_select
 {
 inline constexpr int kMarkerCapacity = 48;
+// Room for a camera's "hideRegions", its names joined by commas (vehicle_camera_file::kMaxHideRegions names of at
+// most kMaxRegionName characters each).
+inline constexpr int kHideRegionsCapacity =
+    vehicle_camera_file::kMaxHideRegions * (static_cast<int>(vehicle_camera_file::kMaxRegionName) + 1);
 // StandDownReason() while the player is not in a seat at all.
 inline constexpr char kOnFoot[] = "on foot";
 
@@ -39,6 +43,7 @@ struct ActiveCamera
     float boomPitchDeg = vehicle_camera_file::kBoomPitchUnset; // the camera's "boomPitch"
     bool aimMarker = false;  // vehicle_camera_file::EffectiveAimMarker: the ring where the vehicle aims
     bool showHeadlessBody = false;   // a firstperson camera's "showHeadlessBody": the seated body drawn without its head
+    char hideRegions[kHideRegionsCapacity]{}; // the camera's "hideRegions", joined by commas; "" = none
     int camera = 0, cameraCount = 0;
     int mode = 0, modeCount = 0;
     // Counts the times the camera or mode in use became a different one by the player's doing or the seat's:

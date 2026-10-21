@@ -516,6 +516,35 @@ struct Reader
                 ok = TriState(item, at, camera.showHeadlessBody,
                               "true, false or null (null = on in a driver's or gunner's seat, off in a passenger's)");
             }
+            else if (key == "hideRegions")
+            {
+                if (item.IsNull())
+                {
+                    camera.hideRegions.clear();
+                    continue;
+                }
+                const char* want = "a list of region names or numbers (the parts file lists them), at most 8";
+                // One name alone is taken as a list of one.
+                const bool list = item.IsArray();
+                const std::size_t count = list ? item.items.size() : 1;
+                if (count > static_cast<std::size_t>(kMaxHideRegions))
+                    return TypeError(item, at, want);
+                std::vector<std::string> names;
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    const Value& one = list ? item.items[i] : item;
+                    std::string name;
+                    if (one.IsString())
+                        name = one.text;
+                    else if (one.IsNumber() && one.number >= 0.0 && one.number < 64.0 &&
+                             one.number == std::floor(one.number))
+                        name = std::to_string(static_cast<int>(one.number));
+                    if (name.empty() || name.size() > kMaxRegionName || name.find(',') != std::string::npos)
+                        return TypeError(one, list ? Indexed(at, i) : at, want);
+                    names.push_back(name);
+                }
+                camera.hideRegions = std::move(names);
+            }
             else if (key == "tethering")
             {
                 if (!item.IsArray() || item.items.empty())
@@ -880,6 +909,9 @@ const char* const kGuide[] = {
     "                    game seats it, all of it but your head; false is the game's own first-person seat, which",
     "                    shows your legs only. Left out: on in a driver's or gunner's seat, off in a passenger's",
     "                    (a passenger may hold a weapon, and its arms would be drawn twice)",
+    "  hideRegions       [\"canopy\", ...] (Halo 3): parts of your own vehicle this camera does not draw, by",
+    "                    the region names halomccvr_vehicle_parts.txt lists for it (or their numbers there) --",
+    "                    e.g. a tinted canopy in front of a first-person seat. Left out: the vehicle drawn whole",
     "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
     "                    vehicle's own origin, your seat, your character's head, or where the game's own",
     "                    third-person camera stands for that seat at the boom's angle, see boomPitch -- with a",
@@ -978,6 +1010,19 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += std::string(", \"aimMarker\": ") + (camera.aimMarker ? "true" : "false");
     if (camera.showHeadlessBody >= 0)
         out += std::string(", \"showHeadlessBody\": ") + (camera.showHeadlessBody ? "true" : "false");
+    if (!camera.hideRegions.empty())
+    {
+        out += ", \"hideRegions\": [";
+        for (std::size_t i = 0; i < camera.hideRegions.size(); ++i)
+        {
+            const std::string& name = camera.hideRegions[i];
+            const bool number = !name.empty() && std::all_of(name.begin(), name.end(), [](char c) {
+                return c >= '0' && c <= '9';
+            });
+            out += (i ? ", " : "") + (number ? name : Quoted(name));
+        }
+        out += "]";
+    }
     if (camera.tethering.empty())
     {
         out += " }";
@@ -1460,6 +1505,18 @@ bool EffectiveShowHeadlessBody(const Camera& camera, uint8_t seatBits)
     if (camera.showHeadlessBody >= 0)
         return camera.showHeadlessBody != 0;
     return (seatBits & (kSeatDriver | kSeatGunner)) != 0;
+}
+
+bool AnyHidesRegions(const Table& table, const char* gameKey)
+{
+    const Game* game = table.FindGame(gameKey);
+    if (!game)
+        return false;
+    for (const Vehicle& vehicle : game->vehicles)
+        for (const Camera& camera : vehicle.cameras)
+            if (!camera.hideRegions.empty())
+                return true;
+    return false;
 }
 
 bool AnyShowsHeadlessBody(const Table& table, const char* gameKey)

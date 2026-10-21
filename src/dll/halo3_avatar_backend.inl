@@ -16,6 +16,9 @@ struct Runtime {
     std::atomic<uint32_t> callbacks{0},generation{0};
     std::atomic<uint64_t> posed{0},uploads{0},refusals{0},ordering{0},faults{0};
     std::atomic<uint64_t> seatDrawn{0},seatRefused{0},seatLegs{0}; // a seat's body (SeatBodyRegions)
+    // A camera's "hideRegions" (VehicleHideRegions): rows of the seat's vehicle drawn without them, and rows of it that
+    // did not match the model the cold worker read (another render model or region count), left as they were.
+    std::atomic<uint64_t> partsHidden{0},partsMismatched{0};
     // The last model a seat's body was refused for, and why (SeatBodyRefusal): what the log says, so a player's log
     // names a model to add.
     std::atomic<uint32_t> seatRefusedChecksum{0},seatRefusedNodes{0},seatRefusedRegions{0},seatRefusedWhy{0};
@@ -46,6 +49,9 @@ struct Pair {
     // A SEAT'S BODY (a vehicle camera's "showHeadlessBody"): in a seat, where the avatar is never active. The unit whose
     // own rows are drawn without the head, and the hook generation that decided it.
     bool seatBody=false;uint32_t seatUnit=UINT32_MAX,seatGeneration=0;
+    // A CAMERA'S "hideRegions" (halo3_vehicle_parts.inl): the seat's vehicle, its render model's tag index and region
+    // count, and the regions its rows leave out; mask 0 = none.
+    uint32_t hideObject=UINT32_MAX,hideModel=UINT32_MAX,hideRegions=0,hideMask=0,hideGeneration=0;
 };
 // Whether the seated body was drawn without its head on the pair before, and for which unit: its first-person legs
 // are left out only then, so a body whose head cannot be hidden keeps the legs the game gives the seat.
@@ -290,6 +296,26 @@ __declspec(noinline) void SeatBodyRegions(void* model,void* info) {
     } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
     if(fault){RestoreRegions(true);Fault();}
 }
+// A CAMERA'S "hideRegions": the seat's vehicle's own rows drawn without the regions its camera names, staged in the
+// submit that asked and undone when it returns, as the seated body's are. A row of another render model or region
+// count than the one the cold worker read is left as it is (a model swapped since, or another object's row).
+__declspec(noinline) void VehicleHideRegions(void* info) {
+    volatile bool fault=false;
+    __try {
+        if(!info||!pair.hideMask||pair.hideGeneration!=runtime.generation.load(std::memory_order_acquire)||
+           !SeatBodyGate())return;
+        const auto* bytes=static_cast<const uint8_t*>(info);
+        uint32_t object{},flags{},tag{},count{};
+        std::memcpy(&object,bytes+0x48,4);
+        if(object!=pair.hideObject)return;
+        std::memcpy(&flags,bytes+0x58,4);std::memcpy(&tag,bytes+4,4);std::memcpy(&count,bytes,4);
+        if(flags&0x10)return;
+        if((tag&0xFFFFu)!=pair.hideModel||count!=pair.hideRegions||count>halo3_avatar::RegionCapacity) {
+            runtime.partsMismatched.fetch_add(1,std::memory_order_relaxed);return;}
+        if(MaskInfoRegions(info,count,uint16_t(pair.hideMask)))runtime.partsHidden.fetch_add(1,std::memory_order_relaxed);
+    } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
+    if(fault){RestoreRegions(true);Fault();}
+}
 void __fastcall RegionsHook(void* model,void* info) {
     runtime.callbacks.fetch_add(1,std::memory_order_acq_rel);
     __try {
@@ -311,6 +337,7 @@ void __fastcall RegionsHook(void* model,void* info) {
         } else if(pair.seatBody&&!pair.nestedDepth) {
             SeatBodyRegions(model,info);
         }
+        if(pair.hideMask&&!pair.nestedDepth)VehicleHideRegions(info);
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_acq_rel);}
 }
 void __fastcall UploadHook(void* mesh,uint8_t flags) {

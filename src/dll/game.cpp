@@ -21,6 +21,7 @@
 #include "../common/support_grip_logic.h"
 #include "../common/halo4_owner_evidence.h"
 #include "../common/anatomical_palette_logic.h"
+#include "../common/halo3_avatar_logic.h"
 #include "../common/reach_finger_pose_logic.h"
 #include "../common/halo4_runtime_weapon_bounds.h"
 #include "../common/legacy_runtime_weapon_bounds.h"
@@ -44,6 +45,7 @@
 #include "../common/halo3_head_relative_logic.h"
 #include "../common/halo3_tracker_hud_height_logic.h"
 #include "../common/halo3_tag_names.h"
+#include "../common/halo3_string_ids.h"
 #include "host_unload_gate.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -9378,6 +9380,7 @@ namespace
     // The loaded map's tag names (a vehicle's tag path): the camera thread's verdict per tag index, the cold worker's
     // copy of the names.
     #include "halo3_tag_names.inl"
+    #include "halo3_string_ids.inl"
 
     // C8: definition index -> vehicle identity, resolved once per distinct
     // vehicle instead of per frame. Direct-mapped and tiny; a collision only
@@ -17813,6 +17816,7 @@ namespace
         if (!RemoveHalo3HeadRelative()) return false;
         RemoveHalo3HudNote();
         RemoveHalo3TagNames();
+        RemoveHalo3StringIds();
         RetireHalo3VehicleBoom();
         if (!RemoveHalo3TrackerHudHeight()) return false;
         if (!LegacyDriveRemove(GameTitle::Halo3)) return false;
@@ -18870,6 +18874,9 @@ namespace
         // The loaded map's tag names (halo3_tag_names.inl): two sites, no hook, read-only; not bound, vehicles are
         // identified by their physics alone, as before.
         (void)InstallHalo3TagNames(base,size,runtimeGeneration);
+        // The loaded map's string ids (halo3_string_ids.inl): three sites, no hook, read-only; not bound, a vehicle
+        // camera's hideRegions is not applied.
+        (void)InstallHalo3StringIds(base,size,runtimeGeneration);
         // The third-person boom's game side (halo3_vehicle_boom.inl): anchors and tag reads only, no hook; each part
         // unbound alone leaves the boom on its own fallback.
         BindHalo3VehicleBoom(base,size,runtimeGeneration);
@@ -50716,6 +50723,7 @@ namespace
             LogOdstFpLayoutSelfCheckIfNew(); // emit FP weapon-layout self-check
             LogOdstNativeHudRouteOnce();    // bounded in-place CHUD route result
             Halo3TagNames_ColdTick();      // the loaded H3 map's tag names, read once per map
+            Halo3StringIds_ColdTick();     // and its string ids
             LogHalo3VehicleProbeIfNew();   // live H3 feature status/fallback
             if constexpr (kEnableRetiredHalo3Diagnostics)
             {
@@ -50730,6 +50738,7 @@ namespace
             Sleep(50);
 #else
             Halo3TagNames_ColdTick();      // the loaded H3 map's tag names, read once per map
+            Halo3StringIds_ColdTick();     // and its string ids
             LogHalo3VehicleProbeIfNew();   // live H3 feature status/fallback
             if constexpr (kEnableRetiredHalo3Diagnostics)
             {

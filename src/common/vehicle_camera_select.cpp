@@ -215,6 +215,13 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
                                                                            : vehicle_camera_file::kBoomPitchUnset;
     next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
     next.showHeadlessBody = vehicle_camera_file::EffectiveShowHeadlessBody(chosen, seat_);
+    {
+        std::string joined;
+        for (const std::string& name : chosen.hideRegions)
+            joined += (joined.empty() ? "" : ",") + name;
+        const size_t room = sizeof(next.hideRegions) - 1;
+        std::memcpy(next.hideRegions, joined.data(), joined.size() < room ? joined.size() : room);
+    }
     next.camera = camera;
     next.cameraCount = count;
     next.mode = mode;
@@ -573,6 +580,8 @@ std::string Selector::Describe() const
                     Number(active_.offsetCm[2]) + " cm (forward, right, up)";
         if (active_.showHeadlessBody)
             line += ", your body shown without its head";
+        if (active_.hideRegions[0])
+            line += std::string(", hiding ") + active_.hideRegions;
         return line;
     }
     if (active_.modeCount > 1)
@@ -601,6 +610,8 @@ std::string Selector::Describe() const
         line += ", boom from " + Number(active_.boomPitchDeg) + " deg";
     if (active_.aimMarker)
         line += ", aim ring";
+    if (active_.hideRegions[0])
+        line += std::string(", hiding ") + active_.hideRegions;
     return line;
 }
 } // namespace vehicle_camera_select

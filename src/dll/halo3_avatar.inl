@@ -177,6 +177,19 @@ __declspec(noinline) void Begin(const void* centerCamera) {
                 if(show){pair.seatBody=true;pair.seatUnit=unit;pair.seatGeneration=generation;}
             }
         }
+        // A CAMERA'S "hideRegions": the regions of the seat's own vehicle its camera leaves out, for this pair. One
+        // atomic load while no camera in use hides any.
+        if(Halo3VehicleCameraHideRegionsWanted()&&g_halo3PlayerUnitGetter&&g_halo3UnitInVehicle&&SeatBodyGate()) {
+            const uint32_t unit=uint32_t(g_halo3PlayerUnitGetter(0));
+            Halo3SeatSnapshot seat;
+            uint32_t model=UINT32_MAX,regions=0,mask=0;
+            if(unit!=UINT32_MAX&&(unit>>16)&&g_halo3UnitInVehicle(int32_t(unit))&&Halo3ReadSeatSnapshot(seat)&&
+               Halo3VehicleHideRegions(g_halo3RuntimeGeneration.load(std::memory_order_acquire),
+                                       uint32_t(seat.parentHandle),model,regions,mask)) {
+                pair.hideObject=uint32_t(seat.parentHandle);pair.hideModel=model;pair.hideRegions=regions;
+                pair.hideMask=mask;pair.hideGeneration=runtime.generation.load(std::memory_order_acquire);
+            }
+        }
     } __except(EXCEPTION_EXECUTE_HANDLER){fault=true;}
     if(fault)Fault();
 }
@@ -193,8 +206,9 @@ enum class Level : uint8_t {Off,SeatBody,Full};
 struct DesiredBinding {uintptr_t base{};size_t size{};uint32_t generation{};Level lastRequested=Level::Off;} desired;
 Level RequestedLevel() noexcept {
     if(g_config.experimental_body_ik)return Level::Full;
-    return g_config.vehicle_first_person&&g_config.vehicle_hide_body&&Halo3VehicleCameraHeadlessBodyWanted()?
-        Level::SeatBody:Level::Off;
+    // A seat's body, or a camera hiding regions of its vehicle: the same four hooks.
+    const bool body=g_config.vehicle_first_person&&g_config.vehicle_hide_body&&Halo3VehicleCameraHeadlessBodyWanted();
+    return body||Halo3VehicleCameraHideRegionsWanted()?Level::SeatBody:Level::Off;
 }
 // The hooks (in the order of the bindings below) each level installs.
 bool LevelHooks(Level level,unsigned index) noexcept {
@@ -297,8 +311,14 @@ bool InstallHalo3Avatar(uintptr_t base,size_t size,uint32_t generation) {
     }
     r.enabled.store(true,std::memory_order_release);
     if(full)LOG("Halo 3 avatar Installed: exact local full-world body, private GPU output; headset validation pending");
-    else LOG("Halo 3 seat body: ready (first-person cameras show it in drivers' and gunners' seats unless the vehicle "
-             "camera file says showHeadlessBody false): your body is drawn as the game seats it, without its head");
+    else {
+        if(g_config.vehicle_first_person&&g_config.vehicle_hide_body&&Halo3VehicleCameraHeadlessBodyWanted())
+            LOG("Halo 3 seat body: ready (first-person cameras show it in drivers' and gunners' seats unless the vehicle "
+                "camera file says showHeadlessBody false): your body is drawn as the game seats it, without its head");
+        if(Halo3VehicleCameraHideRegionsWanted())
+            LOG("Halo 3 vehicle parts: ready (a camera's hideRegions leaves those regions of your own vehicle out of "
+                "your view)");
+    }
     return true;
 }
 void ReportHalo3Avatar() {
@@ -347,6 +367,19 @@ void ReportHalo3Avatar() {
         }
     }
 #endif
+    // A camera's "hideRegions", at most every 5 s while it is applied.
+    {
+        static uint64_t partsShown[2]{};
+        static ULONGLONG partsLog=0;
+        const uint64_t partsNow[]{r.partsHidden.load(),r.partsMismatched.load()};
+        if(std::memcmp(partsShown,partsNow,sizeof(partsNow))!=0&&clock-partsLog>=5000) {
+            partsLog=clock;
+            LOG("Halo 3 vehicle parts: the seat's vehicle drawn without its camera's hideRegions %llu times, left whole "
+                "%llu (a row of another model or region count) since the last line",
+                partsNow[0]-partsShown[0],partsNow[1]-partsShown[1]);
+            std::memcpy(partsShown,partsNow,sizeof(partsNow));
+        }
+    }
     // A seat's body, at most every 5 s while it is drawn.
     static uint64_t seatShown[3]{};
     static ULONGLONG seatLog=0;

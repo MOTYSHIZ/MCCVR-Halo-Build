@@ -131,6 +131,9 @@ struct Camera
     // its head; 0 = the seat view as the game gives it, which draws its first-person legs only; -1 (left out) = the
     // seat's default (EffectiveShowHeadlessBody). A chase camera is not changed by it.
     int showHeadlessBody = -1;
+    // "hideRegions" (Halo 3): the regions of the player's own vehicle this camera does not draw -- each a region's
+    // name as the parts file lists it ("canopy"), or its number there. Empty = the vehicle drawn whole.
+    std::vector<std::string> hideRegions;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -277,6 +280,11 @@ bool EffectiveShowHeadlessBody(const Camera& camera, uint8_t seatBits);
 // Whether a firstperson camera of `gameKey`'s section (else the "default" section) can show the headless body in some
 // seat: whether the title's body drawing for seats is wanted at all.
 bool AnyShowsHeadlessBody(const Table& table, const char* gameKey);
+// Whether any camera of `gameKey`'s section hides a region of its vehicle (the region hook is installed only then).
+bool AnyHidesRegions(const Table& table, const char* gameKey);
+// At most this many regions per camera, each a name of at most kMaxRegionName characters.
+inline constexpr int kMaxHideRegions = 8;
+inline constexpr std::size_t kMaxRegionName = 31;
 
 const char* TypeName(CameraType type) noexcept;
 // As the file writes it: the marker's name for a Marker origin.

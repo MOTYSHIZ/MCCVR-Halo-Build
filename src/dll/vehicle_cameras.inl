@@ -1097,6 +1097,9 @@ bool VehicleCameraWriteText(const std::wstring& path, const std::string& text)
     return true;
 }
 
+// The parts of each vehicle sat in, and the regions a camera hides (its "hideRegions").
+#include "halo3_vehicle_parts.inl"
+
 struct VehicleCameraRuntime;
 void VehicleCameraAutoAdd(VehicleCameraRuntime& r, const char* gameKey, const char* name, uint8_t seatBits);
 
@@ -1459,6 +1462,8 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 runtime->markerNoTraceLogged = false;
             }
             g_vehicleCameraHeadlessBodyWanted.store(false, std::memory_order_release);
+            g_halo3VehicleHideWanted.store(false, std::memory_order_release);
+            Halo3VehicleParts_ColdTick({}, {}, false, 0xFFFFFFFFu, nowMs);
             LOG("Vehicle cameras: off (vehicle_cameras = 0); every seat keeps the view it has without them");
         }
         return;
@@ -1507,6 +1512,8 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
             r.selector.SetTable(r.store.Current());
             g_vehicleCameraHeadlessBodyWanted.store(vehicle_camera_file::AnyShowsHeadlessBody(r.store.Current(), "halo3"),
                                                  std::memory_order_release);
+            g_halo3VehicleHideWanted.store(vehicle_camera_file::AnyHidesRegions(r.store.Current(), "halo3"),
+                                           std::memory_order_release);
         }
     }
 
@@ -1651,6 +1658,9 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
         r.publishedCamera = active;
         r.publishedSeat = r.seat;
     }
+    // An unknown read (the seat snapshot a moment stale) keeps what was published.
+    if (halo3 && read != VehicleCameraSeatRead::Unknown)
+        Halo3VehicleParts_ColdTick(active, r.seat, read == VehicleCameraSeatRead::Seated, definitionIndex, nowMs);
     VehicleBoomColdTick(r, active,
                         halo3 && read != VehicleCameraSeatRead::OnFoot && active.valid && active.chase &&
                             active.origin == static_cast<uint8_t>(vehicle_camera_file::Origin::ThirdPerson),

@@ -694,6 +694,44 @@ static void TestResilience()
     Check(!result.ok && attempt.games[0].vehicles[0].cameras[0].name == "Kept", "and so does a syntax error");
 }
 
+// "hideRegions": the regions of the player's own vehicle a camera does not draw, by name or number; one name alone
+// is a list of one; a wrong value costs only that field; the file writes them back.
+static void TestHideRegions()
+{
+    Table table;
+    ParseResult result = Read(OneVehicle("{ \"cameras\": [ { \"type\": \"firstperson\", \"hideRegions\": [\"canopy\", 2] },"
+                                         " { \"hideRegions\": \"glass\" }, { \"hideRegions\": null } ] }"),
+                              table);
+    const Vehicle& v = table.games[0].vehicles[0];
+    Check(result.ok && result.leftOut.empty() && v.cameras[0].hideRegions.size() == 2 &&
+              v.cameras[0].hideRegions[0] == "canopy" && v.cameras[0].hideRegions[1] == "2",
+          "names and numbers are read");
+    Check(v.cameras[1].hideRegions.size() == 1 && v.cameras[1].hideRegions[0] == "glass" &&
+              v.cameras[2].hideRegions.empty(),
+          "one name alone is a list of one; null is none");
+    Check(AnyHidesRegions(table, "halo3") && !AnyHidesRegions(table, "reach"), "the section that hides is known");
+
+    const std::string written = ToJson(table);
+    Check(Has(written, "\"hideRegions\": [\"canopy\", 2]") && Has(written, "\"hideRegions\": [\"glass\"]"),
+          "they are written back, numbers as numbers");
+    Table again;
+    Check(Read(written, again).ok && again.games[0].vehicles[0].cameras[0].hideRegions == v.cameras[0].hideRegions,
+          "and read back the same");
+
+    const char* wrong[] = {"[1.5]", "[\"\"]", "[\"a,b\"]", "[true]", "[-1]",
+                           "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]",
+                           "\"abcdefghijklmnopqrstuvwxyzabcdefg\""};
+    for (const char* value : wrong)
+    {
+        const std::string body = std::string("{ \"cameras\": [ { \"name\": \"A\", \"hideRegions\": ") + value + " } ] }";
+        result = Read(OneVehicle(body.c_str()), table);
+        const Camera& kept = table.games[0].vehicles[0].cameras[0];
+        Check(result.ok && Flagged(result, "hideRegions") && kept.name == "A" && kept.hideRegions.empty(),
+              "a wrong hideRegions is left out, the camera kept");
+    }
+    Check(!AnyHidesRegions(DefaultTable(), "halo3"), "the built-in cameras hide nothing");
+}
+
 int main()
 {
     TestBuiltInTable();
@@ -705,6 +743,7 @@ int main()
     TestCarryMode();
     TestBoundsAndErrors();
     TestResilience();
+    TestHideRegions();
     std::printf("PASS: %u vehicle camera file checks\n", g_checks);
     return 0;
 }
