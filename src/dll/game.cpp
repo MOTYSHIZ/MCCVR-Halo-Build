@@ -2641,6 +2641,9 @@ namespace
     bool InstallHalo3Avatar(uintptr_t base,size_t size,uint32_t generation);
     bool RemoveHalo3Avatar();
     void ReportHalo3Avatar();
+    void BindHalo3PartDraw(uintptr_t base,size_t size,uint32_t generation);
+    bool RemoveHalo3PartDraw();
+    void ReportHalo3PartDraw();
     void BeginHalo3AvatarPair(const void* centerCamera);
     void EndHalo3AvatarPair();
     void ObserveHalo3AvatarFp(uint16_t tag,const BoneMatrix* destination);
@@ -17804,6 +17807,7 @@ namespace
         // Optional publishers are now stopped too. Retire every old feature
         // before any new module can overwrite its target/original pair.
         if (!RemoveHalo3Avatar()) return false;
+        if (!RemoveHalo3PartDraw()) return false;
         if (!RemoveHalo3WeaponHaptics()) return false;
 #if HALOMCCVR_DEV_DIAGNOSTICS
         if (!RemoveHalo3AssistWitness()) return false;
@@ -18877,6 +18881,8 @@ namespace
         // The loaded map's string ids (halo3_string_ids.inl): three sites, no hook, read-only; not bound, a vehicle
         // camera's hideRegions is not applied.
         (void)InstallHalo3StringIds(base,size,runtimeGeneration);
+        // A camera's hideParts (halo3_part_draw.inl): its one hook goes in only while a camera asks for it.
+        BindHalo3PartDraw(base,size,runtimeGeneration);
         // The third-person boom's game side (halo3_vehicle_boom.inl): anchors and tag reads only, no hook; each part
         // unbound alone leaves the boom on its own fallback.
         BindHalo3VehicleBoom(base,size,runtimeGeneration);
@@ -27757,7 +27763,7 @@ namespace
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); }
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); }
         if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
@@ -29254,6 +29260,7 @@ namespace
     #include "halo3_impact_witness.inl"
     #include "halo3_weapon_haptics.inl"
     #include "halo3_avatar.inl"
+    #include "halo3_part_draw.inl"
     #include "halo3_head_relative.inl"
     #include "halo3_hud_note.inl"
     #include "halo3_tracker_hud_height.inl"

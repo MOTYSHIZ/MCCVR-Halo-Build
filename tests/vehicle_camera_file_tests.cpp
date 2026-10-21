@@ -732,6 +732,39 @@ static void TestHideRegions()
     Check(!AnyHidesRegions(DefaultTable(), "halo3"), "the built-in cameras hide nothing");
 }
 
+// "hideParts": parts by their material's name (the last part of its path, or the whole path); one name alone is a
+// list of one; a wrong value costs only that field; the file writes them back.
+static void TestHideParts()
+{
+    Table table;
+    ParseResult result = Read(OneVehicle("{ \"cameras\": [ { \"type\": \"firstperson\", \"hideParts\": [\"hornet_glass\","
+                                         " \"objects\\\\vehicles\\\\hornet\\\\shaders\\\\hornet_glass_damage\"] },"
+                                         " { \"hideParts\": \"longsword glass\" } ] }"),
+                              table);
+    const Vehicle& v = table.games[0].vehicles[0];
+    Check(result.ok && result.leftOut.empty() && v.cameras[0].hideParts.size() == 2 &&
+              v.cameras[0].hideParts[0] == "hornet_glass" &&
+              v.cameras[0].hideParts[1] == "objects\\vehicles\\hornet\\shaders\\hornet_glass_damage" &&
+              v.cameras[1].hideParts.size() == 1 && v.cameras[1].hideParts[0] == "longsword glass",
+          "material names and paths are read; one name alone is a list of one");
+    Check(AnyHidesParts(table, "halo3") && !AnyHidesRegions(table, "halo3") && !AnyHidesParts(DefaultTable(), "halo3"),
+          "the section that hides parts is known, apart from regions");
+    Table again;
+    Check(Read(ToJson(table), again).ok && again.games[0].vehicles[0].cameras[0].hideParts == v.cameras[0].hideParts &&
+              again.games[0].vehicles[0].cameras[1].hideParts == v.cameras[1].hideParts,
+          "they are written back and read back the same");
+    const char* wrong[] = {"[3]", "[\"\"]", "[\"a,b\"]", "[\"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv\"]",
+                           "[\"a\",\"b\",\"c\",\"d\",\"e\",\"f\",\"g\",\"h\",\"i\"]"};
+    for (const char* value : wrong)
+    {
+        const std::string body = std::string("{ \"cameras\": [ { \"name\": \"A\", \"hideParts\": ") + value + " } ] }";
+        result = Read(OneVehicle(body.c_str()), table);
+        const Camera& kept = table.games[0].vehicles[0].cameras[0];
+        Check(result.ok && Flagged(result, "hideParts") && kept.name == "A" && kept.hideParts.empty(),
+              "a wrong hideParts is left out, the camera kept");
+    }
+}
+
 int main()
 {
     TestBuiltInTable();
@@ -744,6 +777,7 @@ int main()
     TestBoundsAndErrors();
     TestResilience();
     TestHideRegions();
+    TestHideParts();
     std::printf("PASS: %u vehicle camera file checks\n", g_checks);
     return 0;
 }

@@ -22,6 +22,8 @@ inline constexpr int kMarkerCapacity = 48;
 // most kMaxRegionName characters each).
 inline constexpr int kHideRegionsCapacity =
     vehicle_camera_file::kMaxHideRegions * (static_cast<int>(vehicle_camera_file::kMaxRegionName) + 1);
+inline constexpr int kHidePartsCapacity =
+    vehicle_camera_file::kMaxHideParts * (static_cast<int>(vehicle_camera_file::kMaxPartName) + 1);
 // StandDownReason() while the player is not in a seat at all.
 inline constexpr char kOnFoot[] = "on foot";
 
@@ -44,6 +46,7 @@ struct ActiveCamera
     bool aimMarker = false;  // vehicle_camera_file::EffectiveAimMarker: the ring where the vehicle aims
     bool showHeadlessBody = false;   // a firstperson camera's "showHeadlessBody": the seated body drawn without its head
     char hideRegions[kHideRegionsCapacity]{}; // the camera's "hideRegions", joined by commas; "" = none
+    char hideParts[kHidePartsCapacity]{};     // the camera's "hideParts", likewise
     int camera = 0, cameraCount = 0;
     int mode = 0, modeCount = 0;
     // Counts the times the camera or mode in use became a different one by the player's doing or the seat's:

@@ -393,7 +393,8 @@ static void TestHideRegions()
 {
     const std::string text =
         "{ \"games\": { \"halo3\": { \"vehicles\": { \"sparrowhawk\": { \"cameras\": ["
-        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"hideRegions\": [\"canopy\", 3] },"
+        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"hideRegions\": [\"canopy\", 3],"
+        " \"hideParts\": [\"glass_dark\", \"sparrowhawk_glass\"] },"
         " { \"name\": \"Behind\", \"type\": \"chase\" } ] } } } } }";
     Selector selector;
     selector.SetTable(Read(text));
@@ -401,8 +402,12 @@ static void TestHideRegions()
     Check(selector.Active().valid && std::string(selector.Active().hideRegions) == "canopy,3",
           "a camera's hideRegions is published joined by commas");
     Check(Has(selector.Describe(), "hiding canopy,3"), "and described");
+    Check(std::string(selector.Active().hideParts) == "glass_dark,sparrowhawk_glass" &&
+              Has(selector.Describe(), "hiding parts glass_dark,sparrowhawk_glass"),
+          "its hideParts likewise");
     selector.StepCamera(1);
-    Check(selector.Active().chase && selector.Active().hideRegions[0] == '\0', "a camera without it hides nothing");
+    Check(selector.Active().chase && selector.Active().hideRegions[0] == '\0' && selector.Active().hideParts[0] == '\0',
+          "a camera without them hides nothing");
 }
 
 static void TestShowBody()

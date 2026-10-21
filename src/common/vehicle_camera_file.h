@@ -134,6 +134,10 @@ struct Camera
     // "hideRegions" (Halo 3): the regions of the player's own vehicle this camera does not draw -- each a region's
     // name as the parts file lists it ("canopy"), or its number there. Empty = the vehicle drawn whole.
     std::vector<std::string> hideRegions;
+    // "hideParts" (Halo 3): the parts of the player's own vehicle this camera does not draw, by their material -- the
+    // material's name as the parts file lists it ("hornet_glass", or its whole path). For glass that shares a region
+    // with what must stay (a hull, a screen). Empty = none.
+    std::vector<std::string> hideParts;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -285,6 +289,10 @@ bool AnyHidesRegions(const Table& table, const char* gameKey);
 // At most this many regions per camera, each a name of at most kMaxRegionName characters.
 inline constexpr int kMaxHideRegions = 8;
 inline constexpr std::size_t kMaxRegionName = 31;
+// Whether any camera of `gameKey`'s section hides a part by its material (the draw hook is installed only then).
+bool AnyHidesParts(const Table& table, const char* gameKey);
+inline constexpr int kMaxHideParts = 8;
+inline constexpr std::size_t kMaxPartName = 95; // a material's whole path fits
 
 const char* TypeName(CameraType type) noexcept;
 // As the file writes it: the marker's name for a Marker origin.

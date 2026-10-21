@@ -545,6 +545,29 @@ struct Reader
                 }
                 camera.hideRegions = std::move(names);
             }
+            else if (key == "hideParts")
+            {
+                if (item.IsNull())
+                {
+                    camera.hideParts.clear();
+                    continue;
+                }
+                const char* want = "a list of material names (the parts file lists them), at most 8";
+                const bool list = item.IsArray();
+                const std::size_t count = list ? item.items.size() : 1;
+                if (count > static_cast<std::size_t>(kMaxHideParts))
+                    return TypeError(item, at, want);
+                std::vector<std::string> names;
+                for (std::size_t i = 0; i < count; ++i)
+                {
+                    const Value& one = list ? item.items[i] : item;
+                    if (!one.IsString() || one.text.empty() || one.text.size() > kMaxPartName ||
+                        one.text.find(',') != std::string::npos)
+                        return TypeError(one, list ? Indexed(at, i) : at, want);
+                    names.push_back(one.text);
+                }
+                camera.hideParts = std::move(names);
+            }
             else if (key == "tethering")
             {
                 if (!item.IsArray() || item.items.empty())
@@ -912,6 +935,9 @@ const char* const kGuide[] = {
     "  hideRegions       [\"canopy\", ...] (Halo 3): parts of your own vehicle this camera does not draw, by",
     "                    the region names halomccvr_vehicle_parts.txt lists for it (or their numbers there) --",
     "                    e.g. a tinted canopy in front of a first-person seat. Left out: the vehicle drawn whole",
+    "  hideParts         [\"hornet_glass\", ...] (Halo 3): parts of your own vehicle this camera does not draw,",
+    "                    by the material names the parts file lists (the last part of the path is enough) -- for",
+    "                    glass that shares a region with the hull or a screen. Left out: nothing hidden",
     "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
     "                    vehicle's own origin, your seat, your character's head, or where the game's own",
     "                    third-person camera stands for that seat at the boom's angle, see boomPitch -- with a",
@@ -1021,6 +1047,13 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
             });
             out += (i ? ", " : "") + (number ? name : Quoted(name));
         }
+        out += "]";
+    }
+    if (!camera.hideParts.empty())
+    {
+        out += ", \"hideParts\": [";
+        for (std::size_t i = 0; i < camera.hideParts.size(); ++i)
+            out += (i ? ", " : "") + Quoted(camera.hideParts[i]);
         out += "]";
     }
     if (camera.tethering.empty())
@@ -1515,6 +1548,18 @@ bool AnyHidesRegions(const Table& table, const char* gameKey)
     for (const Vehicle& vehicle : game->vehicles)
         for (const Camera& camera : vehicle.cameras)
             if (!camera.hideRegions.empty())
+                return true;
+    return false;
+}
+
+bool AnyHidesParts(const Table& table, const char* gameKey)
+{
+    const Game* game = table.FindGame(gameKey);
+    if (!game)
+        return false;
+    for (const Vehicle& vehicle : game->vehicles)
+        for (const Camera& camera : vehicle.cameras)
+            if (!camera.hideParts.empty())
                 return true;
     return false;
 }

@@ -1463,6 +1463,7 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
             }
             g_vehicleCameraHeadlessBodyWanted.store(false, std::memory_order_release);
             g_halo3VehicleHideWanted.store(false, std::memory_order_release);
+            g_halo3VehiclePartsWanted.store(false, std::memory_order_release);
             Halo3VehicleParts_ColdTick({}, {}, false, 0xFFFFFFFFu, nowMs);
             LOG("Vehicle cameras: off (vehicle_cameras = 0); every seat keeps the view it has without them");
         }
@@ -1514,6 +1515,8 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                                                  std::memory_order_release);
             g_halo3VehicleHideWanted.store(vehicle_camera_file::AnyHidesRegions(r.store.Current(), "halo3"),
                                            std::memory_order_release);
+            g_halo3VehiclePartsWanted.store(vehicle_camera_file::AnyHidesParts(r.store.Current(), "halo3"),
+                                            std::memory_order_release);
         }
     }
 

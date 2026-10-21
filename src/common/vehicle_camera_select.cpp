@@ -221,6 +221,11 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
             joined += (joined.empty() ? "" : ",") + name;
         const size_t room = sizeof(next.hideRegions) - 1;
         std::memcpy(next.hideRegions, joined.data(), joined.size() < room ? joined.size() : room);
+        joined.clear();
+        for (const std::string& name : chosen.hideParts)
+            joined += (joined.empty() ? "" : ",") + name;
+        const size_t partsRoom = sizeof(next.hideParts) - 1;
+        std::memcpy(next.hideParts, joined.data(), joined.size() < partsRoom ? joined.size() : partsRoom);
     }
     next.camera = camera;
     next.cameraCount = count;
@@ -582,6 +587,8 @@ std::string Selector::Describe() const
             line += ", your body shown without its head";
         if (active_.hideRegions[0])
             line += std::string(", hiding ") + active_.hideRegions;
+        if (active_.hideParts[0])
+            line += std::string(", hiding parts ") + active_.hideParts;
         return line;
     }
     if (active_.modeCount > 1)
@@ -612,6 +619,8 @@ std::string Selector::Describe() const
         line += ", aim ring";
     if (active_.hideRegions[0])
         line += std::string(", hiding ") + active_.hideRegions;
+    if (active_.hideParts[0])
+        line += std::string(", hiding parts ") + active_.hideParts;
     return line;
 }
 } // namespace vehicle_camera_select

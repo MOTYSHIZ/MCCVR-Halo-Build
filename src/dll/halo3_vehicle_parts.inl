@@ -39,11 +39,15 @@ struct Halo3VehicleHidePublished
     uint32_t renderModel = UINT32_MAX; // its render model's tag index (a row's info+4, low 16 bits)
     uint32_t regions = 0;              // its region count
     uint32_t mask = 0;                 // the regions not drawn
+    // "hideParts": the materials whose parts are not drawn (bit i of materials[i / 64]); partsAny is the draw hook's
+    // whole cost while none are.
+    std::atomic<uint32_t> partsAny{0};
+    uint64_t materials[4]{};
 };
 Halo3VehicleHidePublished g_halo3VehicleHide;
 
 void Halo3VehicleHidePublish(uint32_t generation, uint32_t vehicle, uint32_t renderModel, uint32_t regions,
-                             uint32_t mask)
+                             uint32_t mask, const uint64_t (&materials)[4])
 {
     Halo3VehicleHidePublished& p = g_halo3VehicleHide;
     p.seq.fetch_add(1, std::memory_order_acq_rel);
@@ -53,8 +57,46 @@ void Halo3VehicleHidePublish(uint32_t generation, uint32_t vehicle, uint32_t ren
     p.renderModel = renderModel;
     p.regions = regions;
     p.mask = mask;
+    std::memcpy(p.materials, materials, sizeof(p.materials));
     p.any.store(mask ? 1u : 0u, std::memory_order_relaxed);
+    p.partsAny.store((materials[0] | materials[1] | materials[2] | materials[3]) ? 1u : 0u,
+                     std::memory_order_relaxed);
     p.seq.fetch_add(1, std::memory_order_release);
+}
+void Halo3VehicleHideWithdraw()
+{
+    const uint64_t none[4] = {};
+    Halo3VehicleHidePublish(0, UINT32_MAX, UINT32_MAX, 0, 0, none);
+}
+
+// The draw hook (render thread, every part drawn while any is published): whether part material `material` of
+// render model `model` on object `object` is one the seat's camera hides in `generation`.
+bool Halo3VehicleHidesMaterial(uint32_t generation, uint32_t object, uint32_t model, uint32_t material)
+{
+    const Halo3VehicleHidePublished& p = g_halo3VehicleHide;
+    if (!p.partsAny.load(std::memory_order_acquire) || material >= 256)
+        return false;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = p.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const uint32_t g = p.generation, v = p.vehicle, m = p.renderModel;
+        const uint64_t word = p.materials[material / 64];
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (p.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        return g == generation && v == object && m == model && ((word >> (material % 64)) & 1u) != 0;
+    }
+    return false;
+}
+
+// Whether the camera file asks any Halo 3 camera to hide a part by its material (one writer, the cold worker): the
+// draw hook is installed only while it does (halo3_part_draw.inl).
+std::atomic<bool> g_halo3VehiclePartsWanted{false};
+bool Halo3VehicleCameraHidePartsWanted()
+{
+    return g_halo3VehiclePartsWanted.load(std::memory_order_acquire);
 }
 
 // The stereo pair (render thread): the regions not drawn for the seat's vehicle `vehicle` in `generation`. False when
@@ -328,6 +370,35 @@ uint32_t Halo3VehicleHideMask(const Halo3RenderModelRaw& raw, const char* names,
     return mask;
 }
 
+// The materials of `raw` that `names` (a camera's "hideParts", joined by commas) asks to hide, by a material's
+// render method path or its last part; `missing` gets the names no material has.
+void Halo3VehicleHideMaterials(const Halo3RenderModelRaw& raw, const char* names, uint64_t (&materials)[4],
+                               std::string& missing)
+{
+    std::string_view rest(names);
+    while (!rest.empty())
+    {
+        const size_t comma = rest.find(',');
+        const std::string_view name = rest.substr(0, comma);
+        rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+        if (name.empty())
+            continue;
+        bool found = false;
+        for (uint32_t i = 0; i < raw.materialCount && i < 256; ++i)
+        {
+            const std::string_view path = Halo3TagNameOf(raw.materialMethod[i] & 0xFFFFu);
+            if (!path.empty() && (Halo3PartsSameName(path, name) ||
+                                  Halo3PartsSameName(halo3_tag_names::ShortName(path), name)))
+            {
+                materials[i / 64] |= 1ull << (i % 64);
+                found = true;
+            }
+        }
+        if (!found)
+            missing += (missing.empty() ? "" : ", ") + std::string(name);
+    }
+}
+
 // The cold worker's side: what it last did, so a pass that changes nothing costs a few comparisons.
 struct Halo3VehiclePartsState
 {
@@ -335,6 +406,7 @@ struct Halo3VehiclePartsState
     uint32_t definitionIndex = UINT32_MAX;
     uint32_t vehicle = UINT32_MAX;
     std::string hide;      // the names last resolved
+    std::string hideParts; // likewise, "hideParts"
     bool namesRead = false;
     bool published = false;
     std::vector<std::string> written; // "generation:definition" listed in the parts file this session
@@ -350,9 +422,11 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
     const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_acquire);
     const bool namesRead = g_halo3StringIds.loaded && g_halo3TagNames.loaded;
     const std::string hide = seated && active.valid ? active.hideRegions : "";
+    const std::string hideParts = seated && active.valid ? active.hideParts : "";
     const uint32_t vehicle = seated ? static_cast<uint32_t>(seat.vehicle) : UINT32_MAX;
     const bool changed = generation != s.generation || definitionIndex != s.definitionIndex ||
-                         vehicle != s.vehicle || hide != s.hide || namesRead != s.namesRead;
+                         vehicle != s.vehicle || hide != s.hide || hideParts != s.hideParts ||
+                         namesRead != s.namesRead;
     if (!changed && nowMs < s.nextAttemptMs)
         return;
     if (!changed && s.nextAttemptMs == 0)
@@ -361,13 +435,14 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
     s.definitionIndex = definitionIndex;
     s.vehicle = vehicle;
     s.hide = hide;
+    s.hideParts = hideParts;
     s.namesRead = namesRead;
     s.nextAttemptMs = 0;
     if (!seated || definitionIndex == UINT32_MAX || !generation)
     {
         if (s.published)
         {
-            Halo3VehicleHidePublish(0, UINT32_MAX, UINT32_MAX, 0, 0);
+            Halo3VehicleHideWithdraw();
             s.published = false;
         }
         return;
@@ -377,7 +452,7 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
     {
         if (s.published)
         {
-            Halo3VehicleHidePublish(0, UINT32_MAX, UINT32_MAX, 0, 0);
+            Halo3VehicleHideWithdraw();
             s.published = false;
         }
         s.nextAttemptMs = nowMs + 2000; // a model mid-load; once more shortly
@@ -437,6 +512,31 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
                     path.empty() ? "this vehicle" : std::string(path).c_str(), hide.c_str(), mask, raw->regionCount);
         }
     }
-    Halo3VehicleHidePublish(generation, vehicle, raw->renderModel & 0xFFFFu, raw->regionCount, mask);
-    s.published = mask != 0;
+    // THE PARTS ITS CAMERA HIDES, by material: names need the tag names.
+    uint64_t materials[4] = {};
+    if (!hideParts.empty())
+    {
+        std::string missing;
+        if (!g_halo3TagNames.loaded)
+            s.nextAttemptMs = nowMs + 1000;
+        else
+        {
+            Halo3VehicleHideMaterials(*raw, hideParts.c_str(), materials, missing);
+            std::string list;
+            for (uint32_t i = 0; i < raw->materialCount; ++i)
+            {
+                const std::string_view method = Halo3TagNameOf(raw->materialMethod[i] & 0xFFFFu);
+                list += (i ? ", " : "") + std::string(method.empty() ? "?" : halo3_tag_names::ShortName(method));
+            }
+            if (!missing.empty())
+                LOG("Vehicle parts: %s has no material %s (its materials: %s); the rest of the camera's hideParts "
+                    "applies",
+                    path.empty() ? "this vehicle" : std::string(path).c_str(), missing.c_str(), list.c_str());
+            else
+                LOG("Vehicle parts: %s drawn without its parts of material(s) %s in this camera",
+                    path.empty() ? "this vehicle" : std::string(path).c_str(), hideParts.c_str());
+        }
+    }
+    Halo3VehicleHidePublish(generation, vehicle, raw->renderModel & 0xFFFFu, raw->regionCount, mask, materials);
+    s.published = mask != 0 || (materials[0] | materials[1] | materials[2] | materials[3]) != 0;
 }
