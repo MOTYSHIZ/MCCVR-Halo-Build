@@ -390,7 +390,7 @@ std::string Halo3VehiclePartsBlock(const std::string& vehiclePath, const Halo3Re
         }
         out += "\r\n";
     }
-    out += "materials:\r\n";
+    out += "materials (a camera's hideParts and fadeParts name these):\r\n";
     for (uint32_t i = 0; i < raw.materialCount; ++i)
     {
         const std::string_view method = Halo3TagNameOf(raw.materialMethod[i] & 0xFFFFu);
@@ -418,8 +418,9 @@ std::string Halo3VehiclePartsMerge(const std::string& existing, const std::strin
 {
     static const char kHead[] =
         "# Halo 3 vehicle parts, written by the mod each time you sit in a vehicle it has not listed yet (or whose\r\n"
-        "# parts changed). A vehicle camera's \"hideRegions\" in halomccvr_vehicle_cameras.json names regions from\r\n"
-        "# here. Edits here are not read back; delete the file to start it over.\r\n\r\n";
+        "# parts changed). A vehicle camera in halomccvr_vehicle_cameras.json names regions from here in its\r\n"
+        "# \"hideRegions\", and materials (the last part of a path is enough) in its \"hideParts\" and \"fadeParts\".\r\n"
+        "# Edits here are not read back; delete the file to start it over.\r\n\r\n";
     std::string out = kHead;
     bool placed = false;
     const std::string wanted = "[" + vehiclePath + "]";
