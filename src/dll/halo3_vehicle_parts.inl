@@ -99,6 +99,86 @@ bool Halo3VehicleCameraHidePartsWanted()
     return g_halo3VehiclePartsWanted.load(std::memory_order_acquire);
 }
 
+// "fadeParts": one faded material of the seat's vehicle -- its index in the render model, the postprocess entry its
+// render method binds (the bind hook checks it is that one), and what to do to each of its parameters.
+struct Halo3PartFade
+{
+    uint32_t material = UINT32_MAX;
+    uintptr_t postprocess = 0;
+    uint32_t parameters = 0;
+    float kept = 1.0f;
+    uint8_t op[halo3_glass_fade::kMaxParameters]{};
+};
+struct Halo3VehicleFadePublished
+{
+    std::atomic<uint32_t> seq{0}; // even = stable
+    std::atomic<uint32_t> any{0}; // the draw hook's whole cost for fading while none is published
+    uint32_t generation = 0;
+    uint32_t vehicle = UINT32_MAX;
+    uint32_t renderModel = UINT32_MAX;
+    uint32_t count = 0;
+    Halo3PartFade fades[vehicle_camera_file::kMaxFadeParts]{};
+};
+Halo3VehicleFadePublished g_halo3VehicleFade;
+
+void Halo3VehicleFadePublish(uint32_t generation, uint32_t vehicle, uint32_t renderModel, const Halo3PartFade* fades,
+                             uint32_t count)
+{
+    Halo3VehicleFadePublished& p = g_halo3VehicleFade;
+    if (count > static_cast<uint32_t>(vehicle_camera_file::kMaxFadeParts))
+        count = vehicle_camera_file::kMaxFadeParts;
+    p.seq.fetch_add(1, std::memory_order_acq_rel);
+    std::atomic_thread_fence(std::memory_order_release);
+    p.generation = generation;
+    p.vehicle = vehicle;
+    p.renderModel = renderModel;
+    p.count = count;
+    for (uint32_t i = 0; i < count; ++i)
+        p.fades[i] = fades[i];
+    p.any.store(count ? 1u : 0u, std::memory_order_relaxed);
+    p.seq.fetch_add(1, std::memory_order_release);
+}
+
+// The draw hook (render thread): the fade of part material `material` of render model `model` on object `object` in
+// `generation`, if the seat's camera fades it.
+bool Halo3VehicleFadeFor(uint32_t generation, uint32_t object, uint32_t model, uint32_t material, Halo3PartFade& out)
+{
+    const Halo3VehicleFadePublished& p = g_halo3VehicleFade;
+    if (!p.any.load(std::memory_order_acquire))
+        return false;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = p.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const uint32_t g = p.generation, v = p.vehicle, m = p.renderModel;
+        uint32_t n = p.count;
+        if (n > static_cast<uint32_t>(vehicle_camera_file::kMaxFadeParts))
+            n = vehicle_camera_file::kMaxFadeParts;
+        bool found = false;
+        if (g == generation && v == object && m == model)
+            for (uint32_t i = 0; i < n && !found; ++i)
+                if (p.fades[i].material == material)
+                {
+                    out = p.fades[i];
+                    found = true;
+                }
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (p.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        return found;
+    }
+    return false;
+}
+
+// Whether the camera file asks any Halo 3 camera to fade a part (one writer, the cold worker): the bind hook is
+// installed only while it does (halo3_part_draw.inl).
+std::atomic<bool> g_halo3VehicleFadeWanted{false};
+bool Halo3VehicleCameraFadePartsWanted()
+{
+    return g_halo3VehicleFadeWanted.load(std::memory_order_acquire);
+}
+
 // The stereo pair (render thread): the regions not drawn for the seat's vehicle `vehicle` in `generation`. False when
 // none are, or the record was being written both times it was read.
 bool Halo3VehicleHideRegions(uint32_t generation, uint32_t vehicle, uint32_t& renderModel, uint32_t& regions,
@@ -219,6 +299,47 @@ bool Halo3ReadRenderModelRaw(uint32_t vehicleDefIndex, Halo3RenderModelRaw& out)
         out.materialCount = count < kHalo3PartsMaxMaterials ? count : kHalo3PartsMaxMaterials;
         for (uint32_t i = 0; i < out.materialCount; ++i)
             out.materialMethod[i] = Halo3PartsU32(materials + static_cast<size_t>(i) * 0x24 + 0xC);
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+// One material's render method as read (guarded, plain data): its first postprocess entry, blend mode and the string
+// ids of its template's real parameters.
+struct Halo3MaterialRaw
+{
+    uintptr_t postprocess = 0;
+    int32_t blend = -1;
+    uint32_t parameters = 0;
+    uint32_t nameSid[halo3_glass_fade::kMaxParameters]{};
+};
+bool Halo3ReadMaterialRaw(uint32_t methodDatum, Halo3MaterialRaw& out)
+{
+    __try
+    {
+        const uint8_t* tagBase = g_halo3TagDataBase ? static_cast<const uint8_t*>(*g_halo3TagDataBase) : nullptr;
+        const uint8_t* method = Halo3LoadedTagDefinition(methodDatum);
+        if (!tagBase || !method)
+            return false;
+        uint32_t count = 0;
+        const uint8_t* postprocess = Halo3PartsBlock(tagBase, method, 0x28, count);
+        if (!postprocess)
+            return false;
+        out.postprocess = reinterpret_cast<uintptr_t>(postprocess);
+        std::memcpy(&out.blend, postprocess + 0x68, 4);
+        out.parameters = Halo3PartsU32(postprocess + 0x1C);
+        const uint8_t* templ = Halo3LoadedTagDefinition(Halo3PartsU32(postprocess + 0x0C));
+        if (!templ)
+            return false;
+        uint32_t names = 0;
+        const uint8_t* sids = Halo3PartsBlock(tagBase, templ, 0x48, names);
+        if (names != out.parameters || names > static_cast<uint32_t>(halo3_glass_fade::kMaxParameters))
+            return false;
+        for (uint32_t i = 0; i < names; ++i)
+            out.nameSid[i] = Halo3PartsU32(sids + static_cast<size_t>(i) * 4);
         return true;
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
@@ -407,6 +528,8 @@ struct Halo3VehiclePartsState
     uint32_t vehicle = UINT32_MAX;
     std::string hide;      // the names last resolved
     std::string hideParts; // likewise, "hideParts"
+    std::string fadeParts; // likewise, "fadeParts" with its amounts
+    bool fadePublished = false;
     bool namesRead = false;
     bool published = false;
     std::vector<std::string> written; // "generation:definition" listed in the parts file this session
@@ -423,9 +546,17 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
     const bool namesRead = g_halo3StringIds.loaded && g_halo3TagNames.loaded;
     const std::string hide = seated && active.valid ? active.hideRegions : "";
     const std::string hideParts = seated && active.valid ? active.hideParts : "";
+    std::string fadeParts;
+    if (seated && active.valid && active.fadeParts[0])
+    {
+        fadeParts = active.fadeParts;
+        for (const float kept : active.fadeKept)
+            fadeParts += "|" + std::to_string(kept);
+    }
     const uint32_t vehicle = seated ? static_cast<uint32_t>(seat.vehicle) : UINT32_MAX;
     const bool changed = generation != s.generation || definitionIndex != s.definitionIndex ||
                          vehicle != s.vehicle || hide != s.hide || hideParts != s.hideParts ||
+                         fadeParts != s.fadeParts ||
                          namesRead != s.namesRead;
     if (!changed && nowMs < s.nextAttemptMs)
         return;
@@ -436,6 +567,7 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
     s.vehicle = vehicle;
     s.hide = hide;
     s.hideParts = hideParts;
+    s.fadeParts = fadeParts;
     s.namesRead = namesRead;
     s.nextAttemptMs = 0;
     if (!seated || definitionIndex == UINT32_MAX || !generation)
@@ -444,6 +576,11 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
         {
             Halo3VehicleHideWithdraw();
             s.published = false;
+        }
+        if (s.fadePublished)
+        {
+            Halo3VehicleFadePublish(0, UINT32_MAX, UINT32_MAX, nullptr, 0);
+            s.fadePublished = false;
         }
         return;
     }
@@ -454,6 +591,11 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
         {
             Halo3VehicleHideWithdraw();
             s.published = false;
+        }
+        if (s.fadePublished)
+        {
+            Halo3VehicleFadePublish(0, UINT32_MAX, UINT32_MAX, nullptr, 0);
+            s.fadePublished = false;
         }
         s.nextAttemptMs = nowMs + 2000; // a model mid-load; once more shortly
         return;
@@ -539,4 +681,75 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
     }
     Halo3VehicleHidePublish(generation, vehicle, raw->renderModel & 0xFFFFu, raw->regionCount, mask, materials);
     s.published = mask != 0 || (materials[0] | materials[1] | materials[2] | materials[3]) != 0;
+
+    // THE GLASS ITS CAMERA FADES: each named material's render method, its blend mode and its parameters by name
+    // (halo3_glass_fade.h). Names need the tag names and the string ids.
+    Halo3PartFade fades[vehicle_camera_file::kMaxFadeParts]{};
+    uint32_t fadeCount = 0;
+    if (seated && active.valid && active.fadeParts[0])
+    {
+        if (!namesRead)
+            s.nextAttemptMs = nowMs + 1000;
+        else
+        {
+            std::string_view rest(active.fadeParts);
+            int index = 0;
+            std::string report, missing;
+            while (!rest.empty() && index < vehicle_camera_file::kMaxFadeParts)
+            {
+                const size_t comma = rest.find(',');
+                const std::string_view name = rest.substr(0, comma);
+                rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+                const float kept = active.fadeKept[index++];
+                bool found = false;
+                for (uint32_t i = 0; i < raw->materialCount && i < 256; ++i)
+                {
+                    const std::string_view method = Halo3TagNameOf(raw->materialMethod[i] & 0xFFFFu);
+                    if (method.empty() || !(Halo3PartsSameName(method, name) ||
+                                            Halo3PartsSameName(halo3_tag_names::ShortName(method), name)))
+                        continue;
+                    found = true;
+                    Halo3MaterialRaw material;
+                    if (!Halo3ReadMaterialRaw(raw->materialMethod[i], material))
+                    {
+                        report += std::string(report.empty() ? "" : "; ") + std::string(name) +
+                                  ": its render method could not be read";
+                        continue;
+                    }
+                    Halo3PartFade fade;
+                    fade.material = i;
+                    fade.postprocess = material.postprocess;
+                    fade.parameters = material.parameters;
+                    fade.kept = kept;
+                    std::string scaled;
+                    for (uint32_t k = 0; k < material.parameters; ++k)
+                    {
+                        const std::string_view parameter = Halo3StringIdText(material.nameSid[k]);
+                        fade.op[k] = static_cast<uint8_t>(halo3_glass_fade::OpFor(material.blend, parameter));
+                        if (fade.op[k])
+                            scaled += (scaled.empty() ? "" : ", ") + std::string(parameter);
+                    }
+                    char line[160];
+                    std::snprintf(line, sizeof(line), "%s (%s) kept %.2f", std::string(name).c_str(),
+                                  halo3_glass_fade::BlendName(material.blend), static_cast<double>(kept));
+                    report += std::string(report.empty() ? "" : "; ") + line +
+                              (scaled.empty() ? ": nothing in it can fade (hide it instead)" : " through " + scaled);
+                    if (!scaled.empty() && fadeCount < static_cast<uint32_t>(vehicle_camera_file::kMaxFadeParts))
+                        fades[fadeCount++] = fade;
+                }
+                if (!found)
+                    missing += (missing.empty() ? "" : ", ") + std::string(name);
+            }
+            if (!missing.empty())
+                LOG("Vehicle parts: %s has no material %s to fade", path.empty() ? "this vehicle"
+                                                                           : std::string(path).c_str(),
+                    missing.c_str());
+            if (!report.empty())
+                LOG("Vehicle parts: %s glass faded in this camera: %s",
+                    path.empty() ? "this vehicle" : std::string(path).c_str(), report.c_str());
+        }
+    }
+    if (fadeCount || s.fadePublished)
+        Halo3VehicleFadePublish(generation, vehicle, raw->renderModel & 0xFFFFu, fades, fadeCount);
+    s.fadePublished = fadeCount != 0;
 }

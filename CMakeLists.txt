@@ -1117,6 +1117,11 @@ if(BUILD_TESTING)
     add_executable(halomccvr_halo3_string_ids_tests tests/halo3_string_ids_tests.cpp)
     target_include_directories(halomccvr_halo3_string_ids_tests PRIVATE src/common)
     add_test(NAME halomccvr_halo3_string_ids_tests COMMAND halomccvr_halo3_string_ids_tests)
+    # Halo 3 glass fade (src/common/halo3_glass_fade.h): which parameters a camera's fadeParts touches per blend mode,
+    # read against the stock glass shaders, and what it does to each.
+    add_executable(halomccvr_halo3_glass_fade_tests tests/halo3_glass_fade_tests.cpp)
+    target_include_directories(halomccvr_halo3_glass_fade_tests PRIVATE src/common)
+    add_test(NAME halomccvr_halo3_glass_fade_tests COMMAND halomccvr_halo3_glass_fade_tests)
     # Halo 3: the motion tracker's blips move with the HUD height (src/common/halo3_tracker_hud_height_logic.h;
     # retail-derived and run): the decode of the five sites on an image built from the header's patterns and
     # every way it refuses (a missing site, a call elsewhere, a neighbouring field, a scale pair not beside its

@@ -394,7 +394,7 @@ static void TestHideRegions()
     const std::string text =
         "{ \"games\": { \"halo3\": { \"vehicles\": { \"sparrowhawk\": { \"cameras\": ["
         " { \"name\": \"Seat\", \"type\": \"firstperson\", \"hideRegions\": [\"canopy\", 3],"
-        " \"hideParts\": [\"glass_dark\", \"sparrowhawk_glass\"] },"
+        " \"hideParts\": [\"glass_dark\", \"sparrowhawk_glass\"], \"fadeParts\": { \"sparrowhawk_glass\": 0.25 } },"
         " { \"name\": \"Behind\", \"type\": \"chase\" } ] } } } } }";
     Selector selector;
     selector.SetTable(Read(text));
@@ -405,6 +405,9 @@ static void TestHideRegions()
     Check(std::string(selector.Active().hideParts) == "glass_dark,sparrowhawk_glass" &&
               Has(selector.Describe(), "hiding parts glass_dark,sparrowhawk_glass"),
           "its hideParts likewise");
+    Check(std::string(selector.Active().fadeParts) == "sparrowhawk_glass" && selector.Active().fadeKept[0] == 0.25f &&
+              Has(selector.Describe(), "fading sparrowhawk_glass"),
+          "its fadeParts with how much is kept");
     selector.StepCamera(1);
     Check(selector.Active().chase && selector.Active().hideRegions[0] == '\0' && selector.Active().hideParts[0] == '\0',
           "a camera without them hides nothing");

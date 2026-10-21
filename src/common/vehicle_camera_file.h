@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace vehicle_camera_file
@@ -138,6 +139,9 @@ struct Camera
     // material's name as the parts file lists it ("hornet_glass", or its whole path). For glass that shares a region
     // with what must stay (a hull, a screen). Empty = none.
     std::vector<std::string> hideParts;
+    // "fadeParts" (Halo 3): glass of the player's own vehicle this camera shows less of -- each a material's name (as
+    // "hideParts" names them) and how much of it is kept, 0 (none) to 1 (as the game draws it). Empty = none.
+    std::vector<std::pair<std::string, float>> fadeParts;
     // "tethering": the modes this camera steps through. Empty = one mode, the camera's own fields above.
     std::vector<Tether> tethering;
 
@@ -293,6 +297,9 @@ inline constexpr std::size_t kMaxRegionName = 31;
 bool AnyHidesParts(const Table& table, const char* gameKey);
 inline constexpr int kMaxHideParts = 8;
 inline constexpr std::size_t kMaxPartName = 95; // a material's whole path fits
+// Whether any camera of `gameKey`'s section fades a part (the bind hook is installed only then).
+bool AnyFadesParts(const Table& table, const char* gameKey);
+inline constexpr int kMaxFadeParts = 8;
 
 const char* TypeName(CameraType type) noexcept;
 // As the file writes it: the marker's name for a Marker origin.

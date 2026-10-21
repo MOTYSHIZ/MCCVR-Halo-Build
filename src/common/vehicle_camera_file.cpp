@@ -568,6 +568,33 @@ struct Reader
                 }
                 camera.hideParts = std::move(names);
             }
+            else if (key == "fadeParts")
+            {
+                if (item.IsNull())
+                {
+                    camera.fadeParts.clear();
+                    continue;
+                }
+                const char* want = "an object of material names and how much of each is kept, 0 to 1 "
+                                   "({ \"sparrowhawk_glass\": 0.3 }), at most 8";
+                if (!item.IsObject() || item.keys.size() > static_cast<std::size_t>(kMaxFadeParts))
+                    return TypeError(item, at, want);
+                std::vector<std::pair<std::string, float>> fades;
+                for (std::size_t i = 0; i < item.keys.size(); ++i)
+                {
+                    const std::string& name = item.keys[i];
+                    const std::string fadeAt = at + "." + name;
+                    if (name.empty() || name.size() > kMaxPartName || name.find(',') != std::string::npos)
+                        return TypeError(item.items[i], fadeAt, want);
+                    float kept = -1.0f;
+                    if (!Number(item.items[i], fadeAt, kept))
+                        return false;
+                    if (!(kept >= 0.0f && kept <= 1.0f))
+                        return TypeError(item.items[i], fadeAt, "how much of the glass is kept, 0 to 1");
+                    fades.emplace_back(name, kept);
+                }
+                camera.fadeParts = std::move(fades);
+            }
             else if (key == "tethering")
             {
                 if (!item.IsArray() || item.items.empty())
@@ -938,6 +965,9 @@ const char* const kGuide[] = {
     "  hideParts         [\"hornet_glass\", ...] (Halo 3): parts of your own vehicle this camera does not draw,",
     "                    by the material names the parts file lists (the last part of the path is enough) -- for",
     "                    glass that shares a region with the hull or a screen. Left out: nothing hidden",
+    "  fadeParts         { \"sparrowhawk_glass\": 0.3, ... } (Halo 3): glass of your own vehicle this camera",
+    "                    shows less of, by material name, with how much of it is kept: 1 = as the game draws",
+    "                    it, 0 = none of its tint or glare (an opaque material cannot fade: hide it instead)",
     "  origin            vehicle | seat | playerhead | thirdperson : where 'offset' is measured from (the",
     "                    vehicle's own origin, your seat, your character's head, or where the game's own",
     "                    third-person camera stands for that seat at the boom's angle, see boomPitch -- with a",
@@ -1055,6 +1085,13 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         for (std::size_t i = 0; i < camera.hideParts.size(); ++i)
             out += (i ? ", " : "") + Quoted(camera.hideParts[i]);
         out += "]";
+    }
+    if (!camera.fadeParts.empty())
+    {
+        out += ", \"fadeParts\": { ";
+        for (std::size_t i = 0; i < camera.fadeParts.size(); ++i)
+            out += (i ? ", " : "") + Quoted(camera.fadeParts[i].first) + ": " + NumberText(camera.fadeParts[i].second);
+        out += " }";
     }
     if (camera.tethering.empty())
     {
@@ -1548,6 +1585,18 @@ bool AnyHidesRegions(const Table& table, const char* gameKey)
     for (const Vehicle& vehicle : game->vehicles)
         for (const Camera& camera : vehicle.cameras)
             if (!camera.hideRegions.empty())
+                return true;
+    return false;
+}
+
+bool AnyFadesParts(const Table& table, const char* gameKey)
+{
+    const Game* game = table.FindGame(gameKey);
+    if (!game)
+        return false;
+    for (const Vehicle& vehicle : game->vehicles)
+        for (const Camera& camera : vehicle.cameras)
+            if (!camera.fadeParts.empty())
                 return true;
     return false;
 }

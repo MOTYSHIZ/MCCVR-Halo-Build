@@ -47,6 +47,8 @@ struct ActiveCamera
     bool showHeadlessBody = false;   // a firstperson camera's "showHeadlessBody": the seated body drawn without its head
     char hideRegions[kHideRegionsCapacity]{}; // the camera's "hideRegions", joined by commas; "" = none
     char hideParts[kHidePartsCapacity]{};     // the camera's "hideParts", likewise
+    char fadeParts[kHidePartsCapacity]{};     // the camera's "fadeParts" names, likewise
+    float fadeKept[vehicle_camera_file::kMaxFadeParts]{}; // how much of each is kept, in that order
     int camera = 0, cameraCount = 0;
     int mode = 0, modeCount = 0;
     // Counts the times the camera or mode in use became a different one by the player's doing or the seat's:

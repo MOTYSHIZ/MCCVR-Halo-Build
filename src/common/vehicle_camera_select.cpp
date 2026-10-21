@@ -226,6 +226,17 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
             joined += (joined.empty() ? "" : ",") + name;
         const size_t partsRoom = sizeof(next.hideParts) - 1;
         std::memcpy(next.hideParts, joined.data(), joined.size() < partsRoom ? joined.size() : partsRoom);
+        joined.clear();
+        int fades = 0;
+        for (const auto& fade : chosen.fadeParts)
+        {
+            const std::string piece = (joined.empty() ? "" : ",") + fade.first;
+            if (fades == vehicle_camera_file::kMaxFadeParts || joined.size() + piece.size() >= sizeof(next.fadeParts))
+                break;
+            joined += piece;
+            next.fadeKept[fades++] = fade.second;
+        }
+        std::memcpy(next.fadeParts, joined.data(), joined.size());
     }
     next.camera = camera;
     next.cameraCount = count;
@@ -589,6 +600,8 @@ std::string Selector::Describe() const
             line += std::string(", hiding ") + active_.hideRegions;
         if (active_.hideParts[0])
             line += std::string(", hiding parts ") + active_.hideParts;
+        if (active_.fadeParts[0])
+            line += std::string(", fading ") + active_.fadeParts;
         return line;
     }
     if (active_.modeCount > 1)
@@ -621,6 +634,8 @@ std::string Selector::Describe() const
         line += std::string(", hiding ") + active_.hideRegions;
     if (active_.hideParts[0])
         line += std::string(", hiding parts ") + active_.hideParts;
+    if (active_.fadeParts[0])
+        line += std::string(", fading ") + active_.fadeParts;
     return line;
 }
 } // namespace vehicle_camera_select

@@ -765,6 +765,34 @@ static void TestHideParts()
     }
 }
 
+// "fadeParts": materials by name with how much of each is kept; a wrong value costs only that field; written back.
+static void TestFadeParts()
+{
+    Table table;
+    ParseResult result = Read(OneVehicle("{ \"cameras\": [ { \"type\": \"firstperson\", \"fadeParts\":"
+                                         " { \"sparrowhawk_glass\": 0.3, \"glass_dark\": \"0\" } } ] }"),
+                              table);
+    const Camera& c = table.games[0].vehicles[0].cameras[0];
+    Check(result.ok && result.leftOut.empty() && c.fadeParts.size() == 2 && c.fadeParts[0].first == "sparrowhawk_glass" &&
+              c.fadeParts[0].second == 0.3f && c.fadeParts[1].first == "glass_dark" && c.fadeParts[1].second == 0.0f,
+          "names with how much is kept are read (a quoted number too)");
+    Check(AnyFadesParts(table, "halo3") && !AnyHidesParts(table, "halo3") && !AnyFadesParts(DefaultTable(), "halo3"),
+          "the section that fades is known, apart from hiding");
+    Table again;
+    Check(Read(ToJson(table), again).ok && again.games[0].vehicles[0].cameras[0].fadeParts == c.fadeParts,
+          "they are written back and read back the same");
+    const char* wrong[] = {"[\"glass\"]", "{ \"glass\": 1.5 }", "{ \"glass\": -0.1 }", "{ \"glass\": \"half\" }",
+                           "{ \"a,b\": 0.5 }", "{ \"glass\": null }"};
+    for (const char* value : wrong)
+    {
+        const std::string body = std::string("{ \"cameras\": [ { \"name\": \"A\", \"fadeParts\": ") + value + " } ] }";
+        result = Read(OneVehicle(body.c_str()), table);
+        const Camera& kept = table.games[0].vehicles[0].cameras[0];
+        Check(result.ok && Flagged(result, "fadeParts") && kept.name == "A" && kept.fadeParts.empty(),
+              "a wrong fadeParts is left out, the camera kept");
+    }
+}
+
 int main()
 {
     TestBuiltInTable();
@@ -778,6 +806,7 @@ int main()
     TestResilience();
     TestHideRegions();
     TestHideParts();
+    TestFadeParts();
     std::printf("PASS: %u vehicle camera file checks\n", g_checks);
     return 0;
 }

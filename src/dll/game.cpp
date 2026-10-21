@@ -46,6 +46,7 @@
 #include "../common/halo3_tracker_hud_height_logic.h"
 #include "../common/halo3_tag_names.h"
 #include "../common/halo3_string_ids.h"
+#include "../common/halo3_glass_fade.h"
 #include "host_unload_gate.h"
 #include <windows.h>
 #include <tlhelp32.h>
