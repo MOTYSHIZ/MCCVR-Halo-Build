@@ -9917,6 +9917,15 @@ namespace
     Halo3SeatEyeWatch g_halo3SeatEyeWatch;
     std::atomic<uint32_t> g_halo3SeatEyeMissSerial{0};
     std::atomic<uint32_t> g_halo3SeatEyeMissFrames{0};
+    // The seat's chain as the last frame without a usable vehicle frame saw it, for the no-eye line: the frame's
+    // status (Halo3FrameStatus), the direct parent's kind and physics type, the native in-vehicle answer, the
+    // carrier's kind (0xFF = none) and whether the chain ran deeper than one carrier.
+    std::atomic<uint32_t> g_halo3SeatEyeMissFrameStatus{0};
+    std::atomic<uint32_t> g_halo3SeatEyeMissParentKind{0xFF};
+    std::atomic<int32_t> g_halo3SeatEyeMissDirectType{-1};
+    std::atomic<uint32_t> g_halo3SeatEyeMissNative{0};
+    std::atomic<uint32_t> g_halo3SeatEyeMissCarrierKind{0xFF};
+    std::atomic<uint32_t> g_halo3SeatEyeMissTooDeep{0};
     std::atomic<uint32_t> g_halo3SeatEyeMisses[static_cast<size_t>(Halo3SeatEyeMiss::Count)] = {};
     // Whether the last seat eye chosen from the head took the simulated pose (an occupant the game does not draw).
     std::atomic<uint32_t> g_halo3SeatEyeHeadSimulated{0};
@@ -10104,6 +10113,7 @@ namespace
         // identified (and anchored) by the vehicle carrying the gun.
         uint32_t carrierDefIndex = 0xFFFFFFFFu;
         int carrierType = -1;
+        uint8_t carrierKind = 0xFF; // the carrier's object kind (a vehicle, a giant's)
         bool faulted = false;
         __try
         {
@@ -10181,6 +10191,7 @@ namespace
                                         carrierDefIndex =
                                             *reinterpret_cast<const uint16_t*>(
                                                 grandData);
+                                        carrierKind = grandKind;
                                         carrierType = grandKind == kHalo3ObjectKindVehicle
                                             ? g_halo3VehicleTypeAccessor(
                                                   static_cast<unsigned short>(
@@ -10265,8 +10276,12 @@ namespace
         // non-turret, i.e. there is a carrier under it. C7 log: chaingun
         // directType=5 nativeInVehicle=1, stationary turret directType=5
         // nativeInVehicle=0.
-        const bool mountedTurret = seated && directType == 5 && native == 1 &&
-            grandWindowValid && !chainTooDeep;
+        // A gun on a GIANT (a Scarab's AA gun) is mounted too, though the native flag answers 0 there: it asks
+        // whether the ultimate parent is a vehicle, and a giant is not one. Taken as walked up to, its frame was
+        // composed from the carrier's origin -- off by the gun's attachment node, on a 76 m Scarab far outside the
+        // gun's own bounds -- and the seat had no eye at all.
+        const bool mountedTurret = seated && directType == 5 &&
+            (native == 1 || carrierKind == kHalo3ObjectKindGiant) && grandWindowValid && !chainTooDeep;
         Halo3VehicleId carrierClass = Halo3VehicleId::Unknown;
         const Halo3VehicleId carrierId = mountedTurret
             ? Halo3ResolveIdentityCached(carrierDefIndex, carrierType,
@@ -10274,7 +10289,7 @@ namespace
             : Halo3VehicleId::Unknown;
         // A turret with no carrier under it is one the player walked up to.
         const bool stationaryTurret =
-            seated && directType == 5 && native == 0;
+            seated && directType == 5 && native == 0 && !mountedTurret;
         const Halo3VehicleId anchorId = mountedTurret
             ? carrierId
             : (stationaryTurret ? Halo3VehicleId::StationaryTurret
@@ -10879,6 +10894,15 @@ namespace
                 g_halo3SeatNodeCache = {};
                 g_halo3HeadReference = {};
             }
+        }
+        if (seated && eyeMiss == Halo3SeatEyeMiss::Frame)
+        {
+            g_halo3SeatEyeMissFrameStatus.store(static_cast<uint32_t>(frameStatus), std::memory_order_relaxed);
+            g_halo3SeatEyeMissParentKind.store(parentKind, std::memory_order_relaxed);
+            g_halo3SeatEyeMissDirectType.store(directType, std::memory_order_relaxed);
+            g_halo3SeatEyeMissNative.store(native, std::memory_order_relaxed);
+            g_halo3SeatEyeMissCarrierKind.store(carrierKind, std::memory_order_relaxed);
+            g_halo3SeatEyeMissTooDeep.store(chainTooDeep ? 1u : 0u, std::memory_order_relaxed);
         }
         if (seated)
             Halo3SeatEyeWatchStep(nowMs, generation, unit, parent, seat, eyeMiss);
@@ -12356,6 +12380,23 @@ namespace
                 m[static_cast<size_t>(Halo3SeatEyeMiss::HeadUnproven)],
                 m[static_cast<size_t>(Halo3SeatEyeMiss::HeadUnplaced)],
                 m[static_cast<size_t>(Halo3SeatEyeMiss::OutOfBounds)]);
+            if (m[static_cast<size_t>(Halo3SeatEyeMiss::Frame)])
+            {
+                static const char* const frameNames[] = {
+                    "none", "direct", "composed", "rejected", "too deep", "the carrier's"};
+                const uint32_t status = g_halo3SeatEyeMissFrameStatus.load(std::memory_order_relaxed);
+                LOG("H3 seat eye (%s): its vehicle frame was %s -- the seat's parent is object kind %u (physics type "
+                    "%d), the game says the rider is %s a vehicle, its carrier is %s%u%s",
+                    missSeatName, status < 6 ? frameNames[status] : "?",
+                    g_halo3SeatEyeMissParentKind.load(std::memory_order_relaxed),
+                    g_halo3SeatEyeMissDirectType.load(std::memory_order_relaxed),
+                    g_halo3SeatEyeMissNative.load(std::memory_order_relaxed) ? "in" : "not in",
+                    g_halo3SeatEyeMissCarrierKind.load(std::memory_order_relaxed) == 0xFF ? "none (kind " : "object kind ",
+                    g_halo3SeatEyeMissCarrierKind.load(std::memory_order_relaxed),
+                    g_halo3SeatEyeMissTooDeep.load(std::memory_order_relaxed)
+                        ? "), and the chain runs deeper than one carrier"
+                        : (g_halo3SeatEyeMissCarrierKind.load(std::memory_order_relaxed) == 0xFF ? ")" : ""));
+            }
         }
 
         static uint32_t seatRecentersLogged = 0;
