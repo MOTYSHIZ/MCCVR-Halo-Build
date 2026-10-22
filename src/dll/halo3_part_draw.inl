@@ -471,8 +471,9 @@ bool Remove(Hook& hook, const void* detour, const char* what)
 
 // The unique match of `pattern`, or 0 (and `hook.refused`, with the log line) when there is none or more than one.
 // A function another program has detoured first (foreign_detour.h: Project Reclaimer's client jumps from the part
-// draw's first 14 bytes into its own executable) is found by the rest of its signature, provided the jump is exactly
-// that absolute jump and lands in another loaded module's executable code. The hook then goes in front of that
+// draw's first 15 bytes -- the jump and a NOP -- into its own executable) is found by the rest of its signature,
+// provided the jump is exactly that absolute jump, padded with nothing but NOPs, and lands in another loaded module's
+// executable code. The hook then goes in front of that
 // detour, which still runs: the trampoline MinHook makes from the jump continues into it.
 uintptr_t FindOnce(Hook& hook, const char* pattern, const char* what)
 {
@@ -485,8 +486,16 @@ uintptr_t FindOnce(Hook& hook, const char* pattern, const char* what)
     }
     if (hit)
         return hit;
-    const std::string jumped = foreign_detour::JumpedPattern(pattern);
-    const uintptr_t detoured = jumped.empty() ? 0 : sig::Find(runtime.base, runtime.size, jumped.c_str());
+    // The jump with no padding first, then with one NOP more each time: the first padding that matches decides.
+    std::string jumped;
+    uintptr_t detoured = 0;
+    size_t padding = 0;
+    for (; padding <= foreign_detour::kMaximumPadding && !detoured; ++padding)
+    {
+        jumped = foreign_detour::JumpedPattern(pattern, padding);
+        if (!jumped.empty())
+            detoured = sig::Find(runtime.base, runtime.size, jumped.c_str());
+    }
     const bool unique = detoured &&
         !sig::Find(detoured + 1, runtime.base + runtime.size - detoured - 1, jumped.c_str());
     if (unique)
@@ -512,9 +521,10 @@ uintptr_t FindOnce(Hook& hook, const char* pattern, const char* what)
             for (DWORD i = 0; i < length; ++i)
                 if (path[i] == L'\\' || path[i] == L'/')
                     leaf = path + i + 1;
-            LOG("Halo 3 vehicle parts: the %s is detoured by %ls (its first 14 bytes jump to +0x%llX there); the hook "
-                "goes in front of that detour, which still runs after it",
-                what, leaf, static_cast<unsigned long long>(target - reinterpret_cast<uintptr_t>(owner)));
+            LOG("Halo 3 vehicle parts: the %s is detoured by %ls (its first %zu bytes jump to +0x%llX there); the "
+                "hook goes in front of that detour, which still runs after it",
+                what, leaf, foreign_detour::kAbsoluteJumpBytes + padding - 1,
+                static_cast<unsigned long long>(target - reinterpret_cast<uintptr_t>(owner)));
             return detoured;
         }
         hook.refused = true;
