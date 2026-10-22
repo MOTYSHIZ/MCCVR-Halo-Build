@@ -47,6 +47,7 @@
 #include "../common/halo3_tag_names.h"
 #include "../common/halo3_string_ids.h"
 #include "../common/halo3_glass_fade.h"
+#include "../common/foreign_detour.h"
 #include "host_unload_gate.h"
 #include <windows.h>
 #include <tlhelp32.h>

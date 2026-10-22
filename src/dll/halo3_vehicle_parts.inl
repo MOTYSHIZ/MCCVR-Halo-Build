@@ -2,7 +2,7 @@
 // the regions a vehicle camera's "hideRegions" leaves out of the player's own vehicle. Included by
 // vehicle_cameras.inl (the cold worker's helpers are its), after the tag names and string ids it reads names with.
 //
-// THE RENDER MODEL (halo3.dll's own reads of it, docs/HALO3-VEHICLE-PARTS-AND-GLASS-2026-10-20.md section 2): a
+// THE RENDER MODEL (as halo3.dll's own code reads it): a
 // vehicle's definition names its model (+0x40), the model its render model (+0x0C). In the render model, each
 // block is { int32 count; uint32 address } with its elements at the tag data base + address * 4:
 //   +0x0C regions, 16 bytes each: string id, then its permutations block (0x18 bytes each: string id first);
@@ -508,17 +508,28 @@ void Halo3VehicleHideMaterials(const Halo3RenderModelRaw& raw, const char* names
         rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
         if (name.empty())
             continue;
-        bool found = false;
+        // Exact matches, else a variant's (halo3_tag_names::MatchPartName).
+        uint64_t exact[4]{}, variant[4]{};
+        bool anyExact = false, anyVariant = false;
         for (uint32_t i = 0; i < raw.materialCount && i < 256; ++i)
         {
-            const std::string_view path = Halo3TagNameOf(raw.materialMethod[i] & 0xFFFFu);
-            if (!path.empty() && (Halo3PartsSameName(path, name) ||
-                                  Halo3PartsSameName(halo3_tag_names::ShortName(path), name)))
+            const auto match =
+                halo3_tag_names::MatchPartName(Halo3TagNameOf(raw.materialMethod[i] & 0xFFFFu), name);
+            if (match == halo3_tag_names::PartNameMatch::Exact)
             {
-                materials[i / 64] |= 1ull << (i % 64);
-                found = true;
+                exact[i / 64] |= 1ull << (i % 64);
+                anyExact = true;
+            }
+            else if (match == halo3_tag_names::PartNameMatch::Variant)
+            {
+                variant[i / 64] |= 1ull << (i % 64);
+                anyVariant = true;
             }
         }
+        const uint64_t* picked = anyExact ? exact : variant;
+        for (int k = 0; k < 4; ++k)
+            materials[k] |= picked[k];
+        const bool found = anyExact || anyVariant;
         if (!found)
             missing += (missing.empty() ? "" : ", ") + std::string(name);
     }
@@ -705,12 +716,18 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
                 const std::string_view name = rest.substr(0, comma);
                 rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
                 const float kept = active.fadeKept[index++];
+                // Exact matches, else a variant's (halo3_tag_names::MatchPartName).
+                bool anyExact = false;
+                for (uint32_t i = 0; i < raw->materialCount && i < 256 && !anyExact; ++i)
+                    anyExact = halo3_tag_names::MatchPartName(Halo3TagNameOf(raw->materialMethod[i] & 0xFFFFu),
+                                                              name) == halo3_tag_names::PartNameMatch::Exact;
+                const auto wanted =
+                    anyExact ? halo3_tag_names::PartNameMatch::Exact : halo3_tag_names::PartNameMatch::Variant;
                 bool found = false;
                 for (uint32_t i = 0; i < raw->materialCount && i < 256; ++i)
                 {
                     const std::string_view method = Halo3TagNameOf(raw->materialMethod[i] & 0xFFFFu);
-                    if (method.empty() || !(Halo3PartsSameName(method, name) ||
-                                            Halo3PartsSameName(halo3_tag_names::ShortName(method), name)))
+                    if (halo3_tag_names::MatchPartName(method, name) != wanted)
                         continue;
                     found = true;
                     Halo3MaterialRaw material;
@@ -734,8 +751,10 @@ void Halo3VehicleParts_ColdTick(const vehicle_camera_select::ActiveCamera& activ
                         if (fade.op[k])
                             scaled += (scaled.empty() ? "" : ", ") + std::string(parameter);
                     }
-                    char line[160];
-                    std::snprintf(line, sizeof(line), "%s (%s) kept %.2f", std::string(name).c_str(),
+                    char line[224];
+                    const std::string as = anyExact ? std::string()
+                                                    : " as " + std::string(halo3_tag_names::ShortName(method));
+                    std::snprintf(line, sizeof(line), "%s%s (%s) kept %.2f", std::string(name).c_str(), as.c_str(),
                                   halo3_glass_fade::BlendName(material.blend), static_cast<double>(kept));
                     report += std::string(report.empty() ? "" : "; ") + line +
                               (scaled.empty() ? ": nothing in it can fade (hide it instead)" : " through " + scaled);

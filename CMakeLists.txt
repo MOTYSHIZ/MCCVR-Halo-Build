@@ -1146,6 +1146,9 @@ if(BUILD_TESTING)
     add_test(NAME halomccvr_halo3_string_ids_tests COMMAND halomccvr_halo3_string_ids_tests)
     # Halo 3 glass fade (src/common/halo3_glass_fade.h): which parameters a camera's fadeParts touches per blend mode,
     # read against the stock glass shaders, and what it does to each.
+    add_executable(halomccvr_foreign_detour_tests tests/foreign_detour_tests.cpp)
+    target_include_directories(halomccvr_foreign_detour_tests PRIVATE src/common)
+    add_test(NAME halomccvr_foreign_detour_tests COMMAND halomccvr_foreign_detour_tests)
     add_executable(halomccvr_halo3_glass_fade_tests tests/halo3_glass_fade_tests.cpp)
     target_include_directories(halomccvr_halo3_glass_fade_tests PRIVATE src/common)
     add_test(NAME halomccvr_halo3_glass_fade_tests COMMAND halomccvr_halo3_glass_fade_tests)

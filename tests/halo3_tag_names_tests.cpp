@@ -644,6 +644,22 @@ void TestSameSize()
               Halo3VehicleNameSource::Identity,
           "a stationary turret stays a turret");
 }
+// A camera file's part name against a material path: exact first; a variant's suffix only as a fallback the caller
+// takes when nothing matches exactly.
+void TestPartNames()
+{
+    const std::string_view snow = "objects/vehicles/warthog/shaders/windshield_snow";
+    Check(MatchPartName(snow, "windshield_snow") == PartNameMatch::Exact, "a material's own last part is exact");
+    Check(MatchPartName(snow, snow) == PartNameMatch::Exact, "and so is its whole path");
+    Check(MatchPartName(snow, "WINDSHIELD") == PartNameMatch::Variant, "a name and an underscore suffix is a variant");
+    Check(MatchPartName(snow, "windshield_") == PartNameMatch::None, "a bare underscore is not a name");
+    Check(MatchPartName(snow, "wind") == PartNameMatch::None, "a name cut short of the underscore is nothing");
+    Check(MatchPartName("objects/vehicles/sparrowhawk/shaders/sparrowhawk_glass_dark", "sparrowhawk_glass") ==
+              PartNameMatch::Variant,
+          "the Sparrowhawk's dark glass is only a variant of its glass, taken when its glass is not there");
+    Check(MatchPartName(snow, "") == PartNameMatch::None && MatchPartName("", "glass") == PartNameMatch::None,
+          "empty names match nothing");
+}
 } // namespace
 
 int main()
@@ -657,6 +673,7 @@ int main()
     TestSignatures();
     TestStockPaths();
     TestSameSize();
+    TestPartNames();
     std::printf("halo3_tag_names_tests: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

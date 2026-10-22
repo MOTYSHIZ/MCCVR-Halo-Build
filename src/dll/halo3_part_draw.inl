@@ -4,7 +4,7 @@
 // worker's half is halo3_vehicle_parts.inl, the fading rule halo3_glass_fade.h.
 //
 // THE PART DRAW. halo3.dll draws one part of one mesh of one object per call of its part draw (+0x2B5590 on retail,
-// found by a unique signature; docs/HALO3-VEHICLE-PARTS-AND-GLASS-2026-10-20.md section 3), from the opaque and the
+// found by a unique signature, or behind another program's detour of it: FindOnce), from the opaque and the
 // transparent passes alike; neither caller reads a result. Its record (rcx) names the object's row (+8: info, whose
 // +4 is the render model's tag index and +0x48 the object), the mesh (+0x1A) and the part (+0x18); the part's
 // material is the first int16 of the render model's mesh -> parts entry. A call whose object, model and material
@@ -470,17 +470,63 @@ bool Remove(Hook& hook, const void* detour, const char* what)
 }
 
 // The unique match of `pattern`, or 0 (and `hook.refused`, with the log line) when there is none or more than one.
+// A function another program has detoured first (foreign_detour.h: Project Reclaimer's client jumps from the part
+// draw's first 14 bytes into its own executable) is found by the rest of its signature, provided the jump is exactly
+// that absolute jump and lands in another loaded module's executable code. The hook then goes in front of that
+// detour, which still runs: the trampoline MinHook makes from the jump continues into it.
 uintptr_t FindOnce(Hook& hook, const char* pattern, const char* what)
 {
-    const uintptr_t hit = sig::Find(runtime.base, runtime.size, pattern);
-    if (!hit || sig::Find(hit + 1, runtime.base + runtime.size - hit - 1, pattern))
+    uintptr_t hit = sig::Find(runtime.base, runtime.size, pattern);
+    if (hit && sig::Find(hit + 1, runtime.base + runtime.size - hit - 1, pattern))
     {
         hook.refused = true;
-        LOG("Halo 3 vehicle parts: the %s is %s; that part of the camera file is not applied", what,
-            hit ? "ambiguous" : "not found");
+        LOG("Halo 3 vehicle parts: the %s is ambiguous; that part of the camera file is not applied", what);
         return 0;
     }
-    return hit;
+    if (hit)
+        return hit;
+    const std::string jumped = foreign_detour::JumpedPattern(pattern);
+    const uintptr_t detoured = jumped.empty() ? 0 : sig::Find(runtime.base, runtime.size, jumped.c_str());
+    const bool unique = detoured &&
+        !sig::Find(detoured + 1, runtime.base + runtime.size - detoured - 1, jumped.c_str());
+    if (unique)
+    {
+        uint8_t head[foreign_detour::kAbsoluteJumpBytes]{};
+        std::memcpy(head, reinterpret_cast<const void*>(detoured), sizeof(head));
+        const uintptr_t target = static_cast<uintptr_t>(foreign_detour::JumpTarget(head));
+        HMODULE owner = nullptr;
+        MEMORY_BASIC_INFORMATION page{};
+        const bool outside = target < runtime.base || target >= runtime.base + runtime.size;
+        const bool inModule = GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                                     GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                                 reinterpret_cast<LPCWSTR>(target), &owner) && owner;
+        const bool executable = VirtualQuery(reinterpret_cast<const void*>(target), &page, sizeof(page)) ==
+                                    sizeof(page) && page.State == MEM_COMMIT &&
+                                (page.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE |
+                                                 PAGE_EXECUTE_WRITECOPY)) != 0;
+        if (outside && inModule && executable)
+        {
+            wchar_t path[MAX_PATH]{};
+            const DWORD length = GetModuleFileNameW(owner, path, MAX_PATH);
+            const wchar_t* leaf = path;
+            for (DWORD i = 0; i < length; ++i)
+                if (path[i] == L'\\' || path[i] == L'/')
+                    leaf = path + i + 1;
+            LOG("Halo 3 vehicle parts: the %s is detoured by %ls (its first 14 bytes jump to +0x%llX there); the hook "
+                "goes in front of that detour, which still runs after it",
+                what, leaf, static_cast<unsigned long long>(target - reinterpret_cast<uintptr_t>(owner)));
+            return detoured;
+        }
+        hook.refused = true;
+        LOG("Halo 3 vehicle parts: the %s starts with a jump that does not land in another module's code "
+            "(outside=%d module=%d executable=%d); that part of the camera file is not applied",
+            what, outside ? 1 : 0, inModule ? 1 : 0, executable ? 1 : 0);
+        return 0;
+    }
+    hook.refused = true;
+    LOG("Halo 3 vehicle parts: the %s is %s; that part of the camera file is not applied", what,
+        detoured ? "ambiguous behind a detour" : "not found");
+    return 0;
 }
 
 bool InstallAt(Hook& hook, uintptr_t hit, void* detour, const char* what)

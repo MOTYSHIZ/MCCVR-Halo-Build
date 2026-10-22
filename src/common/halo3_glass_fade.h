@@ -1,8 +1,8 @@
 // HALO 3 GLASS FADE: how a vehicle camera's "fadeParts" makes a glass material show less of itself, by scaling the
 // copy of its parameters the game makes for each draw. Pure: no game, engine or OpenXR includes.
 //
-// EVIDENCE CLASS: RETAIL-DERIVED (disassembly of halo3.dll's material bind +0x289B90 and the shader tags of the stock
-// maps and HugeGrass; docs/HALO3-VEHICLE-PARTS-AND-GLASS-2026-10-20.md sections 3 and 5). Not tuned in a headset.
+// EVIDENCE CLASS: RETAIL-DERIVED (disassembly of halo3.dll's material bind +0x289B90, and the shader tags of the
+// stock maps and a workshop map). Not tuned in a headset.
 //
 // A material's render method has one postprocess entry: its blend mode (+0x68: 0 opaque, 1 additive, 2 multiply,
 // 3 alpha blend, 4 double multiply, 5 premultiplied alpha) and its real parameters, one float4 each, in the order
