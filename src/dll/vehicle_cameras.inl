@@ -696,6 +696,9 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
     memcpy(in.seat, seat.anchorBase, sizeof(in.seat));
     in.headValid = seat.anchorValid;
     memcpy(in.head, seat.anchor, sizeof(in.head));
+    // The frame of the node the seat is attached to, as drawn (the seat sampler's live node; the object's own frame
+    // where it has none): a camera measured from the seat or the head turns with it -- a walker's torso, a turret.
+    in.seatFrameValid = vehicle_camera_frame::FromForwardUp(seat.fwd, seat.up, in.seatFrame);
     in.viewYaw = viewYaw;
     in.vehicleRadiusCm = std::isfinite(seat.boundsRadiusWu) && seat.boundsRadiusWu > 0.0f
         ? seat.boundsRadiusWu / vehicle_camera_frame::kWorldUnitsPerCm : 0.0f;

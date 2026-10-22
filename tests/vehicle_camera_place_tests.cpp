@@ -495,6 +495,58 @@ static void TestLagAtSpeed()
           "a leap in flight starts over on the place, counted as a jump");
 }
 
+// A camera measured from the seat (or the head) lays its offset out in the SEAT'S frame -- the part the seat sits on,
+// a walker's torso that turns on its legs -- and a camera measured from the vehicle keeps the vehicle's.
+static void TestSeatFrame()
+{
+    ActiveCamera camera = Behind();
+    camera.origin = static_cast<uint8_t>(Origin::Seat);
+    camera.offsetCm[0] = 900.0f;
+    camera.offsetCm[1] = 0.0f;
+    camera.offsetCm[2] = 0.0f;
+    float turned[3]{}, riding[3]{}, kept[3]{};
+    // The same seat point on a vehicle turned a quarter turn, with no seat frame given: the offset turns with it.
+    {
+        State state;
+        Inputs in = At(0.0f, 0.0f, 0.0f, kQuarterTurn, 0.0f, 0.0f);
+        in.seatValid = true;
+        in.seat[0] = 2.0f;
+        Check(Place(camera, in, state, turned), "a seat camera on a turned vehicle is placed");
+    }
+    // The vehicle facing ahead and the seat's part turned the quarter turn: the offset rides the seat.
+    {
+        State state;
+        Inputs in = At(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        in.seatValid = true;
+        in.seat[0] = 2.0f;
+        in.seatFrameValid = true;
+        in.seatFrame = FromAngles(kQuarterTurn, 0.0f, 0.0f);
+        Check(Place(camera, in, state, riding), "a seat camera on a turned seat is placed");
+        Check(Near3(riding, turned[0], turned[1], turned[2]),
+              "its offset turns with the seat's part, not with the vehicle under it");
+        camera.origin = static_cast<uint8_t>(Origin::Head);
+        float head[3]{};
+        Check(Place(camera, in, state, head) && Near3(head, riding[0], riding[1], riding[2]),
+              "a head camera with no head rides the seat's part too");
+        camera.origin = static_cast<uint8_t>(Origin::Vehicle);
+        Check(Place(camera, in, state, kept) &&
+                  Near3(kept, 900.0f * kWorldUnitsPerCm, 0.0f, 0.0f),
+              "a vehicle camera keeps the vehicle's frame");
+    }
+    // An unusable seat frame is the vehicle's.
+    {
+        State state;
+        camera.origin = static_cast<uint8_t>(Origin::Seat);
+        Inputs in = At(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        in.seatValid = true;
+        in.seat[0] = 2.0f;
+        in.seatFrameValid = true; // all zero: not a frame
+        float point[3]{};
+        Check(Place(camera, in, state, point) && Near3(point, 2.0f + 900.0f * kWorldUnitsPerCm, 0.0f, 0.0f),
+              "a seat frame that is not one leaves the vehicle's");
+    }
+}
+
 int main()
 {
     TestRigid();
@@ -502,6 +554,7 @@ int main()
     TestWorldHeadingIsKept();
     TestOrbit();
     TestOrigins();
+    TestSeatFrame();
     TestThirdPersonRest();
     TestCollide();
     TestLeash();

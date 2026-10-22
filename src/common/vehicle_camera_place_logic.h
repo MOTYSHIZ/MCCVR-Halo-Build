@@ -26,6 +26,11 @@ struct Inputs
     float seat[3]{};
     bool headValid = false;
     float head[3]{};
+    // The frame of the part the seat sits on (the node its occupant is attached to), as drawn this frame: a camera
+    // measured from the seat or the head lays its offset out in it, so it turns with whatever the seat turns with --
+    // a walker's torso, a turret -- where a seat on the hull turns with the hull as before. False: the vehicle's.
+    bool seatFrameValid = false;
+    vehicle_camera_frame::Basis seatFrame{};
     // Where the game's own third-person camera stands for this seat ("origin": "thirdperson"): the point it
     // turns about, and where it stands from that point -- world units along the carrier's forward, LEFT and up --
     // at the boom's angle (vehicle_boom_logic.h), never at the aim's. A game that cannot say leaves restValid
@@ -92,6 +97,10 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
     const bool seatUsable = in.seatValid && Finite3(in.seat);
     const bool headUsable = in.headValid && Finite3(in.head);
     const float* origin = in.vehicleOrigin;
+    // The frame the offset is laid out in: the vehicle's, or -- for a camera measured from the seat or the head --
+    // the seat's own (Inputs::seatFrame).
+    const bool seatFrameUsable = in.seatFrameValid && vehicle_camera_frame::Usable(in.seatFrame);
+    const vehicle_camera_frame::Basis* frame = &in.vehicle;
     float offsetCm[3]{camera.offsetCm[0], camera.offsetCm[1], camera.offsetCm[2]};
     bool standIn = false;
     switch (static_cast<Origin>(camera.origin))
@@ -119,13 +128,19 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
         break;
     case Origin::Seat:
         if (seatUsable)
+        {
             origin = in.seat;
+            if (seatFrameUsable)
+                frame = &in.seatFrame;
+        }
         break;
     case Origin::Head:
         if (headUsable)
             origin = in.head;
         else if (seatUsable)
             origin = in.seat;
+        if ((headUsable || seatUsable) && seatFrameUsable)
+            frame = &in.seatFrame;
         break;
     default: // the vehicle, or a marker the game has not resolved
         break;
@@ -133,13 +148,13 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
 
     if (!state.latched || state.changes != camera.changes)
     {
-        state.freeYaw = vehicle_camera_frame::Heading(in.vehicle);
+        state.freeYaw = vehicle_camera_frame::Heading(*frame);
         state.changes = camera.changes;
         state.latched = true;
     }
     const vehicle_camera_frame::Basis carrier =
         camera.locView ? vehicle_camera_frame::FromAngles(in.viewYaw, 0.0f, 0.0f)
-                       : vehicle_camera_frame::Tracked(in.vehicle, camera.locYaw, camera.locPitch, camera.locRoll,
+                       : vehicle_camera_frame::Tracked(*frame, camera.locYaw, camera.locPitch, camera.locRoll,
                                                        state.freeYaw);
     float offset[3];
     vehicle_camera_frame::OffsetToWorld(carrier, offsetCm, 1.0f, offset);
