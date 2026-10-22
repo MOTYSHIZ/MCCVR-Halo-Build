@@ -90,6 +90,11 @@ inline constexpr float kThirdPersonLagDamping = 1.5f;
 inline constexpr float kMaxLagSeconds = 5.0f;
 inline constexpr float kMinLagDamping = 0.1f;
 inline constexpr float kMaxLagDamping = 2.0f;
+// THE LAG'S LIMIT ("lagLimit"): the furthest, in cm, a lagged camera may stand from its place -- trailing it in a turn
+// or a speed change, or run past it. At the limit the camera is held there instead of springing back, so at speed it
+// is a fixed distance behind rather than swinging out and pulling in again. Unset: no limit (0), the lag as it was.
+inline constexpr float kDefaultLagLimitCm = 0.0f;
+inline constexpr float kMaxLagLimitCm = 100000.0f;
 
 // THE BOOM ("boomPitch", vehicle_boom_logic.h): for a camera where the game's own rests, the angle in degrees above
 // level at which it first stands from the game's pivot; the right stick then raises and lowers it. Unset (null in
@@ -125,6 +130,7 @@ struct Camera
     // slower to settle; < 0 = not set (LagDampingOf).
     float lag = -1.0f;
     float lagDamping = -1.0f;
+    float lagLimit = -1.0f; // "lagLimit", cm; < 0 = not set (LagLimitOf)
     float boomPitch = kBoomPitchUnset; // "boomPitch": degrees above level, or unset
     // "aimMarker": the ring where the vehicle aims (vehicle_aim_marker_logic.h) in this camera. -1 = the seat's.
     int aimMarker = -1;
@@ -164,6 +170,12 @@ inline float LagSecondsOf(const Camera& camera) noexcept
     if (camera.lag >= 0.0f)
         return camera.lag;
     return camera.origin == Origin::ThirdPerson ? kThirdPersonLagSeconds : 0.0f;
+}
+
+// Its limit: its own "lagLimit", else kDefaultLagLimitCm. 0 = none.
+inline float LagLimitOf(const Camera& camera) noexcept
+{
+    return camera.lagLimit >= 0.0f ? camera.lagLimit : kDefaultLagLimitCm;
 }
 
 // Its damping: its own "lagDamping", else kThirdPersonLagDamping where it rests where the game's camera does, else 1.

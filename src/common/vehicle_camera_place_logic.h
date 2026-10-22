@@ -275,6 +275,7 @@ struct LagState
     uint32_t jumps = 0;
     uint32_t runaways = 0;
     float trailWu = 0.0f;
+    uint32_t limited = 0; // frames the lag's limit held the camera (ActiveCamera::lagLimitCm)
 };
 inline constexpr float kLagStiffness = 3.0f;      // the spring's frequency is this over the lag's seconds
 inline constexpr float kLagSubstepSeconds = 0.004f;
@@ -297,7 +298,9 @@ inline float Median3(float a, float b, float c) noexcept
 }
 
 // The camera's point this frame, in `out`. `seconds` since the last call: 0 (the same frame again) moves nothing.
-// A camera without lag, a different camera, a long gap, a jump or a runaway puts the point on its place.
+// A camera without lag, a different camera, a long gap, a jump or a runaway puts the point on its place. A camera with
+// a LIMIT (lagLimitCm) never stands further than that from its place: there it is held on the limit, and whatever of
+// its speed would carry it further out is taken off, so it rides the limit instead of springing back from it.
 inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const float place[3], float seconds,
                       LagState& state, float out[3]) noexcept
 {
@@ -375,6 +378,9 @@ inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const f
                                                           : zeta;
         int count = static_cast<int>(step / kLagSubstepSeconds) + 1;
         const float h = step / static_cast<float>(count);
+        const float limit = std::isfinite(camera.lagLimitCm) && camera.lagLimitCm > 0.0f
+            ? camera.lagLimitCm * vehicle_camera_frame::kWorldUnitsPerCm : 0.0f;
+        bool limited = false;
         const float blend = 1.0f - std::exp(-seconds / lag);
         for (int axis = 0; axis < 3; ++axis)
         {
@@ -385,15 +391,60 @@ inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const f
         for (int i = 0; i < count; ++i)
         {
             const float t = h * static_cast<float>(i) / step; // 0..1 across the stepped part of the frame
+            float at[3];
             for (int axis = 0; axis < 3; ++axis)
             {
-                const float at = state.place[axis] + (place[axis] - state.place[axis]) * t;
-                const float accel = w * w * (at - state.pos[axis]) +
+                at[axis] = state.place[axis] + (place[axis] - state.place[axis]) * t;
+                const float accel = w * w * (at[axis] - state.pos[axis]) +
                                     2.0f * zeta * w * (state.placeVel[axis] - state.vel[axis]);
                 state.vel[axis] += accel * h;
                 state.pos[axis] += state.vel[axis] * h;
             }
+            if (limit > 0.0f)
+            {
+                float d[3], apart2 = 0.0f;
+                for (int axis = 0; axis < 3; ++axis)
+                {
+                    d[axis] = state.pos[axis] - at[axis];
+                    apart2 += d[axis] * d[axis];
+                }
+                if (apart2 > limit * limit)
+                {
+                    // Onto the limit, and the speed away from the place (as it moves across this frame) taken off.
+                    const float apart = std::sqrt(apart2);
+                    float outward = 0.0f;
+                    for (int axis = 0; axis < 3; ++axis)
+                    {
+                        d[axis] /= apart;
+                        state.pos[axis] = at[axis] + d[axis] * limit;
+                        outward += (state.vel[axis] - (place[axis] - state.place[axis]) / step) * d[axis];
+                    }
+                    if (outward > 0.0f)
+                        for (int axis = 0; axis < 3; ++axis)
+                            state.vel[axis] -= outward * d[axis];
+                    limited = true;
+                }
+            }
         }
+        // The place has moved on across the frame's last substep: the limit is kept against where it ends.
+        if (limit > 0.0f)
+        {
+            float d[3], apart2 = 0.0f;
+            for (int axis = 0; axis < 3; ++axis)
+            {
+                d[axis] = state.pos[axis] - place[axis];
+                apart2 += d[axis] * d[axis];
+            }
+            if (apart2 > limit * limit)
+            {
+                const float scale = limit / std::sqrt(apart2);
+                for (int axis = 0; axis < 3; ++axis)
+                    state.pos[axis] = place[axis] + d[axis] * scale;
+                limited = true;
+            }
+        }
+        if (limited)
+            ++state.limited;
         float apart = 0.0f;
         for (int axis = 0; axis < 3; ++axis)
             apart += (place[axis] - state.pos[axis]) * (place[axis] - state.pos[axis]);
@@ -409,5 +460,32 @@ inline void FollowLag(const vehicle_camera_select::ActiveCamera& camera, const f
     }
     for (int axis = 0; axis < 3; ++axis)
         out[axis] = state.pos[axis];
+}
+// LAG ON THE BOOM: FollowLag applied to the camera's OFFSET from its pivot, not to its place in the world. The pivot
+// rides the vehicle exactly, so the vehicle's travel never reaches the spring -- at any speed, speeding up or stopping
+// short, the camera stays with it -- and only the boom's swing (a turn, a pitch, a bump that tilts the vehicle) comes
+// through slowly. Lagging the place in the world instead let every change of the vehicle's speed through: the spring
+// steers by the place's velocity smoothed over the lag's seconds, so after a change it goes on at the old velocity
+// for a while, and the camera runs ahead or falls behind by about a quarter of a second of the change -- a fast flyer
+// stopping from 240 m/s threw it some 50 m past the vehicle and back, and a flyer's constant small changes of speed
+// were a constant surge and pull-back. On the boom the velocities are the boom's (its length times how fast it turns),
+// and the lagged offset keeps the boom's length, so the camera never stands further from its pivot than the camera
+// file puts it.
+inline void FollowLagOnBoom(const vehicle_camera_select::ActiveCamera& camera, const float pivot[3],
+                            const float place[3], float seconds, LagState& state, float out[3]) noexcept
+{
+    if (!Finite3(pivot) || !Finite3(place))
+    {
+        FollowLag(camera, place, seconds, state, out);
+        return;
+    }
+    const float offset[3]{place[0] - pivot[0], place[1] - pivot[1], place[2] - pivot[2]};
+    float lagged[3];
+    FollowLag(camera, offset, seconds, state, lagged);
+    const float want = std::sqrt(vehicle_camera_frame::Dot(offset, offset));
+    const float have = std::sqrt(vehicle_camera_frame::Dot(lagged, lagged));
+    const float scale = want > 1.0e-4f && have > 1.0e-4f && std::isfinite(have) ? want / have : 1.0f;
+    for (int axis = 0; axis < 3; ++axis)
+        out[axis] = pivot[axis] + lagged[axis] * scale;
 }
 } // namespace vehicle_camera_place

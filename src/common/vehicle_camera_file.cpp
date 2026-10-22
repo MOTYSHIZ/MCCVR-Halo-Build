@@ -494,6 +494,12 @@ struct Reader
                 if (ok && !(camera.lagDamping >= kMinLagDamping && camera.lagDamping <= kMaxLagDamping))
                     return TypeError(item, at, "a damping from 0.1 to 2 (1 = no overshoot)");
             }
+            else if (key == "lagLimit")
+            {
+                ok = Number(item, at, camera.lagLimit);
+                if (ok && !(camera.lagLimit >= 0.0f && camera.lagLimit <= kMaxLagLimitCm))
+                    return TypeError(item, at, "cm from 0 (no limit) to 100000");
+            }
             else if (key == "boomPitch")
             {
                 if (item.IsNull())
@@ -997,11 +1003,14 @@ const char* const kGuide[] = {
     "  aimMarker         true | false: the purple ring where the VEHICLE is aiming, beside the crosshair, in",
     "                    this camera (left out = the seat's). A tethering mode may say otherwise",
     "  collide           pull the camera in when a wall is in the way; collideMargin = cm to stop short",
-    "  lag               seconds the camera takes to catch up when the vehicle turns or bumps: it follows on a",
-    "                    spring instead of a rigid boom (0 = rigid). A steady speed does not lag. Left out: 0.5",
+    "  lag               seconds the camera takes to catch up when the vehicle turns or bumps: its boom swings on a",
+    "                    spring instead of being rigid (0 = rigid). The vehicle's travel never lags, at any speed",
+    "                    or change of speed: only the boom's swing does. Left out: 0.5",
     "                    for an origin of \"thirdperson\", 0 for any other. lagDamping: 1 = no overshoot, lower =",
     "                    a softer spring that swings past its place and back, higher = slower to settle (left",
-    "                    out: 1.5 for \"thirdperson\", 1 for any other)",
+    "                    out: 1.5 for \"thirdperson\", 1 for any other). lagLimit: the furthest in cm the camera",
+    "                    may stand from its place; there it is held instead of springing back, so a fast flyer's",
+    "                    camera stays that far behind rather than swinging out and in (left out or 0: no limit)",
     "  boomPitch         for an origin of \"thirdperson\": the angle in degrees above level (-89 to 89) at",
     "                    which the camera first stands from the game's own pivot. In the seat the right stick",
     "                    raises and lowers it, inside the range the game gives your look, the way the game's",
@@ -1060,6 +1069,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += ", \"lag\": " + NumberText(camera.lag);
     if (camera.lag >= 0.0f || camera.lagDamping >= 0.0f)
         out += ", \"lagDamping\": " + NumberText(LagDampingOf(camera));
+    if (camera.lagLimit >= 0.0f)
+        out += ", \"lagLimit\": " + NumberText(camera.lagLimit);
     // A camera where the game's own rests names its boom, so the file shows it is there to set.
     if (BoomPitchSet(camera.boomPitch))
         out += ", \"boomPitch\": " + NumberText(camera.boomPitch);

@@ -495,6 +495,154 @@ static void TestLagAtSpeed()
           "a leap in flight starts over on the place, counted as a jump");
 }
 
+// THE LAG'S LIMIT: a camera never stands further than its limit from its place, and at the limit it rides it -- a
+// fixed distance behind -- instead of swinging out and in.
+static void TestLagLimit()
+{
+    ActiveCamera camera = Behind();
+    camera.lagSeconds = 0.5f;
+    camera.lagDamping = 1.5f;
+    camera.lagLimitCm = 300.0f;
+    const float limit = 300.0f * kWorldUnitsPerCm;
+    camera.changes = 31;
+    LagState state;
+    float out[3]{};
+    const float dt = 1.0f / 90.0f;
+    float place[3] = {0.0f, 0.0f, 0.0f};
+    float x = 0.0f, speed = 0.0f, worst = 0.0f;
+    // Speeding up to 240 m/s: without the limit it falls back about 5.6 world units (TestLagAtSpeed).
+    for (int i = 0; i < 720; ++i)
+    {
+        if (i < 360)
+            speed += 20.0f * dt;
+        x += speed * dt;
+        place[0] = x;
+        FollowLag(camera, place, dt, state, out);
+        const float gap = std::fabs(out[0] - place[0]);
+        worst = gap > worst ? gap : worst;
+    }
+    Check(worst <= limit * 1.001f && state.limited > 0 && state.jumps == 0 && state.runaways == 0,
+          "a speeding flyer's camera falls back no further than its limit, and is never started over");
+    Check(std::fabs(out[0] - place[0]) < 0.02f, "and sits on its place again at a steady speed");
+
+    // A 300 m/s flyer turning at 60 degrees a second: held on the limit, steadily, once it gets there.
+    camera.changes = 32;
+    const float rate = 60.0f * 3.14159265f / 180.0f, radius = 100.0f / rate;
+    worst = 0.0f;
+    float least = 1.0e9f;
+    for (int i = 0; i < 360; ++i)
+    {
+        const float a = rate * dt * static_cast<float>(i);
+        place[0] = radius * std::cos(a);
+        place[1] = radius * std::sin(a);
+        place[2] = 0.0f;
+        FollowLag(camera, place, dt, state, out);
+        const float gap = std::sqrt((out[0] - place[0]) * (out[0] - place[0]) +
+                                    (out[1] - place[1]) * (out[1] - place[1]));
+        worst = gap > worst ? gap : worst;
+        if (i > 180)
+            least = gap < least ? gap : least;
+    }
+    Check(worst <= limit * 1.001f, "a fast turn trails no further than the limit");
+    Check(least > limit * 0.98f, "and through the turn it rides the limit instead of springing in and out");
+
+    // Stopping hard from 240 m/s: the camera runs past its place no further than the limit either.
+    camera.changes = 33;
+    x = 0.0f;
+    speed = 80.0f;
+    worst = 0.0f;
+    for (int i = 0; i < 900; ++i)
+    {
+        if (i >= 90)
+            speed = speed > 160.0f * dt ? speed - 160.0f * dt : 0.0f;
+        x += speed * dt;
+        place[0] = x;
+        place[1] = 0.0f;
+        FollowLag(camera, place, dt, state, out);
+        const float past = out[0] - place[0];
+        worst = past > worst ? past : worst;
+    }
+    Check(worst <= limit * 1.001f && std::fabs(out[0] - place[0]) < 0.02f,
+          "a hard stop runs past the place no further than the limit, then settles on it");
+
+    // No limit: as before.
+    camera.lagLimitCm = 0.0f;
+    camera.changes = 34;
+    x = 0.0f;
+    speed = 0.0f;
+    worst = 0.0f;
+    const uint32_t before = state.limited;
+    for (int i = 0; i < 360; ++i)
+    {
+        speed += 20.0f * dt;
+        x += speed * dt;
+        place[0] = x;
+        FollowLag(camera, place, dt, state, out);
+        const float gap = std::fabs(out[0] - place[0]);
+        worst = gap > worst ? gap : worst;
+    }
+    Check(worst > limit * 2.0f && state.limited == before, "a camera with no limit trails as far as its lag takes it");
+}
+
+// LAG ON THE BOOM: the vehicle's travel never lags, at any speed or change of speed; only the boom's swing does, and
+// the camera keeps the boom's length from its pivot.
+static void TestLagOnBoom()
+{
+    ActiveCamera camera = Behind();
+    camera.lagSeconds = 0.5f;
+    camera.lagDamping = 1.5f;
+    camera.changes = 41;
+    LagState state;
+    float out[3]{};
+    const float dt = 1.0f / 90.0f;
+    const float boom[3]{-1.5f, 0.0f, 0.5f};
+    const float boomLength = std::sqrt(boom[0] * boom[0] + boom[2] * boom[2]);
+    float x = 0.0f, speed = 0.0f, worst = 0.0f;
+    // Speeding up to 240 m/s, a steady run, then a hard stop: the camera stays exactly on its place throughout.
+    for (int i = 0; i < 900; ++i)
+    {
+        if (i < 360)
+            speed += 20.0f * dt;
+        else if (i >= 450)
+            speed = speed > 160.0f * dt ? speed - 160.0f * dt : 0.0f;
+        x += speed * dt;
+        const float pivot[3]{x, 0.0f, 0.0f};
+        const float place[3]{x + boom[0], boom[1], boom[2]};
+        FollowLagOnBoom(camera, pivot, place, dt, state, out);
+        const float gap = std::sqrt((out[0] - place[0]) * (out[0] - place[0]) + (out[2] - place[2]) * (out[2] - place[2]));
+        worst = gap > worst ? gap : worst;
+    }
+    Check(worst < 1.0e-3f && state.jumps == 0 && state.runaways == 0,
+          "on the boom, speeding up to 240 m/s and stopping hard leave the camera on its place");
+
+    // A turn: the boom swings round a vehicle turning at 90 degrees a second while it flies at 120 m/s. The camera
+    // trails the swing, never further from its pivot than the boom, and catches up once the turn ends.
+    camera.changes = 42;
+    const float rate = 90.0f * 3.14159265f / 180.0f;
+    float heading = 0.0f, px = 0.0f, py = 0.0f, lagged = 0.0f, worstLength = 0.0f;
+    for (int i = 0; i < 450; ++i)
+    {
+        if (i < 180)
+            heading += rate * dt;
+        px += 40.0f * std::cos(heading) * dt;
+        py += 40.0f * std::sin(heading) * dt;
+        const float pivot[3]{px, py, 0.0f};
+        const float place[3]{px + boom[0] * std::cos(heading), py + boom[0] * std::sin(heading), boom[2]};
+        FollowLagOnBoom(camera, pivot, place, dt, state, out);
+        const float fromPivot[3]{out[0] - px, out[1] - py, out[2]};
+        const float length = std::sqrt(fromPivot[0] * fromPivot[0] + fromPivot[1] * fromPivot[1] +
+                                       fromPivot[2] * fromPivot[2]);
+        worstLength = std::fabs(length - boomLength) > worstLength ? std::fabs(length - boomLength) : worstLength;
+        if (i == 179)
+            lagged = std::sqrt((out[0] - place[0]) * (out[0] - place[0]) + (out[1] - place[1]) * (out[1] - place[1]));
+        if (i == 449)
+            Check(std::fabs(out[0] - place[0]) < 0.02f && std::fabs(out[1] - place[1]) < 0.02f,
+                  "once the turn ends the camera comes round behind the vehicle again");
+    }
+    Check(lagged > 0.1f && lagged < 2.0f * boomLength, "through the turn it trails the boom's swing");
+    Check(worstLength < 1.0e-3f, "and always stands the boom's length from its pivot");
+}
+
 // A camera measured from the seat (or the head) lays its offset out in the SEAT'S frame -- the part the seat sits on,
 // a walker's torso that turns on its legs -- and a camera measured from the vehicle keeps the vehicle's.
 static void TestSeatFrame()
@@ -574,6 +722,8 @@ int main()
     TestOrbit();
     TestOrigins();
     TestSeatFrame();
+    TestLagLimit();
+    TestLagOnBoom();
     TestThirdPersonRest();
     TestCollide();
     TestLeash();

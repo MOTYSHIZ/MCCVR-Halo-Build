@@ -211,6 +211,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
     next.collideMarginCm = chosen.collideMargin;
     next.lagSeconds = vehicle_camera_file::LagSecondsOf(chosen);
     next.lagDamping = vehicle_camera_file::LagDampingOf(chosen);
+    next.lagLimitCm = vehicle_camera_file::LagLimitOf(chosen);
     next.boomPitchDeg = vehicle_camera_file::BoomPitchSet(chosen.boomPitch) ? chosen.boomPitch
                                                                            : vehicle_camera_file::kBoomPitchUnset;
     next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
@@ -625,7 +626,8 @@ std::string Selector::Describe() const
     line += ", rotation " + vehicle_camera_file::RotationTrackingText(mode);
     line += ", leash " + vehicle_camera_file::LeashText(active_.leashMinCm, active_.leashMaxCm);
     if (active_.lagSeconds > 0.0f)
-        line += ", lag " + Number(active_.lagSeconds) + " s";
+        line += ", lag " + Number(active_.lagSeconds) + " s" +
+                (active_.lagLimitCm > 0.0f ? " up to " + Number(active_.lagLimitCm) + " cm" : std::string());
     if (vehicle_camera_file::BoomPitchSet(active_.boomPitchDeg))
         line += ", boom from " + Number(active_.boomPitchDeg) + " deg";
     if (active_.aimMarker)
