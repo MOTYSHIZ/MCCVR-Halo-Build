@@ -528,6 +528,25 @@ static void TestSeatFrame()
         float head[3]{};
         Check(Place(camera, in, state, head) && Near3(head, riding[0], riding[1], riding[2]),
               "a head camera with no head rides the seat's part too");
+        // A head turned a quarter turn the other way on that seat: a head camera follows the head, a seat camera
+        // keeps to the seat.
+        in.headValid = true;
+        in.head[0] = 2.0f;
+        in.headFrameValid = true;
+        in.headFrame = FromAngles(0.0f, 0.0f, 0.0f);
+        float looked[3]{};
+        Check(Place(camera, in, state, looked) &&
+                  Near3(looked, 2.0f + 900.0f * kWorldUnitsPerCm, 0.0f, 0.0f),
+              "a head camera lays its offset out along the head");
+        in.headFrameValid = false;
+        Check(Place(camera, in, state, looked) && Near3(looked, riding[0], riding[1], riding[2]),
+              "and along the seat's part where the head's turn is not known");
+        in.headFrameValid = true;
+        camera.origin = static_cast<uint8_t>(Origin::Seat);
+        Check(Place(camera, in, state, looked) && Near3(looked, riding[0], riding[1], riding[2]),
+              "a seat camera ignores the head");
+        in.headValid = false;
+        in.headFrameValid = false;
         camera.origin = static_cast<uint8_t>(Origin::Vehicle);
         Check(Place(camera, in, state, kept) &&
                   Near3(kept, 900.0f * kWorldUnitsPerCm, 0.0f, 0.0f),

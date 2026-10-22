@@ -31,6 +31,11 @@ struct Inputs
     // a walker's torso, a turret -- where a seat on the hull turns with the hull as before. False: the vehicle's.
     bool seatFrameValid = false;
     vehicle_camera_frame::Basis seatFrame{};
+    // The seated character's head as a frame: the seat's frame above, turned as far as the head has turned since
+    // it settled in the seat (vehicle_camera_frame::TurnedSince). A camera measured from the head lays its offset
+    // out in it, so it turns and nods with the head. False: the seat's frame, as for a camera measured from the seat.
+    bool headFrameValid = false;
+    vehicle_camera_frame::Basis headFrame{};
     // Where the game's own third-person camera stands for this seat ("origin": "thirdperson"): the point it
     // turns about, and where it stands from that point -- world units along the carrier's forward, LEFT and up --
     // at the boom's angle (vehicle_boom_logic.h), never at the aim's. A game that cannot say leaves restValid
@@ -97,9 +102,11 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
     const bool seatUsable = in.seatValid && Finite3(in.seat);
     const bool headUsable = in.headValid && Finite3(in.head);
     const float* origin = in.vehicleOrigin;
-    // The frame the offset is laid out in: the vehicle's, or -- for a camera measured from the seat or the head --
-    // the seat's own (Inputs::seatFrame).
+    // The frame the offset is laid out in: the vehicle's, the seat's own for a camera measured from the seat
+    // (Inputs::seatFrame), and the head's for one measured from the head (Inputs::headFrame; the seat's where the
+    // head's turn is not known).
     const bool seatFrameUsable = in.seatFrameValid && vehicle_camera_frame::Usable(in.seatFrame);
+    const bool headFrameUsable = in.headFrameValid && vehicle_camera_frame::Usable(in.headFrame);
     const vehicle_camera_frame::Basis* frame = &in.vehicle;
     float offsetCm[3]{camera.offsetCm[0], camera.offsetCm[1], camera.offsetCm[2]};
     bool standIn = false;
@@ -136,11 +143,19 @@ inline bool Place(const vehicle_camera_select::ActiveCamera& camera, const Input
         break;
     case Origin::Head:
         if (headUsable)
+        {
             origin = in.head;
+            if (headFrameUsable)
+                frame = &in.headFrame;
+            else if (seatFrameUsable)
+                frame = &in.seatFrame;
+        }
         else if (seatUsable)
+        {
             origin = in.seat;
-        if ((headUsable || seatUsable) && seatFrameUsable)
-            frame = &in.seatFrame;
+            if (seatFrameUsable)
+                frame = &in.seatFrame;
+        }
         break;
     default: // the vehicle, or a marker the game has not resolved
         break;

@@ -212,6 +212,48 @@ inline void LeashShift(const float head[3], const Basis& basis, const LeashBox& 
     }
 }
 
+// `v`, given in `basis`'s forward / left / up coordinates, as a world vector; and a world vector in them.
+inline void FromBasis(const Basis& basis, const float v[3], float out[3]) noexcept
+{
+    for (int k = 0; k < 3; ++k)
+        out[k] = basis.forward[k] * v[0] + basis.left[k] * v[1] + basis.up[k] * v[2];
+}
+inline void ToBasis(const Basis& basis, const float v[3], float out[3]) noexcept
+{
+    const float x = Dot(basis.forward, v), y = Dot(basis.left, v), z = Dot(basis.up, v);
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+}
+
+// `child`'s axes as seen from `parent`, in its forward / left / up coordinates.
+inline Basis InFrame(const Basis& parent, const Basis& child) noexcept
+{
+    Basis out{};
+    ToBasis(parent, child.forward, out.forward);
+    ToBasis(parent, child.left, out.left);
+    ToBasis(parent, child.up, out.up);
+    return out;
+}
+
+// `parent` turned as far as a child seen from it (InFrame) has turned since `rest` (the same, taken earlier),
+// about the parent's own axes. At rest the result is `parent` itself whichever way the child's own axes point --
+// a head marker's need not be its face's.
+inline Basis TurnedSince(const Basis& parent, const Basis& child, const Basis& rest) noexcept
+{
+    static constexpr float kAxes[3][3]{{1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+    Basis out{};
+    float* const outAxes[3]{out.forward, out.left, out.up};
+    for (int a = 0; a < 3; ++a)
+    {
+        float inRest[3], turned[3];
+        ToBasis(rest, kAxes[a], inRest);    // the rest's inverse, applied to the parent's axis
+        FromBasis(child, inRest, turned);   // ... then the child's turn
+        FromBasis(parent, turned, outAxes[a]);
+    }
+    return out;
+}
+
 // The difference between two yaws, wrapped into (-pi, pi].
 inline float YawDelta(float to, float from) noexcept
 {

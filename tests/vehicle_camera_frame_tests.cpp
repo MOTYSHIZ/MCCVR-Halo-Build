@@ -245,6 +245,44 @@ static void TestYawDelta()
           "half a turn is half a turn");
 }
 
+// A frame seen from another, and a parent turned as far as its child has turned since a rest pose.
+static void TestTurnedSince()
+{
+    const Basis parent = FromAngles(0.3f, 0.1f, -0.2f);
+    // A child whose own axes point nowhere useful (a head marker's up its neck), in the parent's coordinates.
+    const Basis rest = FromAngles(1.2f, -0.7f, 0.4f);
+    Basis world{};
+    FromBasis(parent, rest.forward, world.forward);
+    FromBasis(parent, rest.left, world.left);
+    FromBasis(parent, rest.up, world.up);
+    Check(SameBasis(InFrame(parent, world), rest), "a frame seen from its parent is what it was laid out as");
+    Check(SameBasis(TurnedSince(parent, rest, rest), parent), "a child at rest leaves the parent as it is");
+    // The child turned 30 degrees left about the parent's up, from rest.
+    const Basis turn = FromAngles(Radians(30.0f), 0.0f, 0.0f);
+    Basis turned{};
+    FromBasis(turn, rest.forward, turned.forward);
+    FromBasis(turn, rest.left, turned.left);
+    FromBasis(turn, rest.up, turned.up);
+    Basis expected{};
+    FromBasis(parent, turn.forward, expected.forward);
+    FromBasis(parent, turn.left, expected.left);
+    FromBasis(parent, turn.up, expected.up);
+    const Basis got = TurnedSince(parent, turned, rest);
+    Check(SameBasis(got, expected), "the parent turns 30 degrees left about its own up, as the child did");
+    Check(Usable(got), "and stays a frame");
+    // A nod: 20 degrees nose down about the parent's left.
+    const Basis nod = FromAngles(0.0f, Radians(-20.0f), 0.0f);
+    Basis nodded{};
+    FromBasis(nod, rest.forward, nodded.forward);
+    FromBasis(nod, rest.left, nodded.left);
+    FromBasis(nod, rest.up, nodded.up);
+    Basis nodExpected{};
+    FromBasis(parent, nod.forward, nodExpected.forward);
+    FromBasis(parent, nod.left, nodExpected.left);
+    FromBasis(parent, nod.up, nodExpected.up);
+    Check(SameBasis(TurnedSince(parent, nodded, rest), nodExpected), "a nod tilts the parent the same way");
+}
+
 int main()
 {
     TestFrames();
@@ -252,6 +290,7 @@ int main()
     TestOffsets();
     TestLeash();
     TestYawDelta();
+    TestTurnedSince();
     std::printf("PASS: %u vehicle camera frame checks\n", g_checks);
     return 0;
 }
