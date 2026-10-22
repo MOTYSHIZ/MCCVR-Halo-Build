@@ -327,6 +327,37 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad);
 bool Game_Halo3VehicleSwallowsGrips();
 // True while the wheel, rather than the turn stick, authors the steering.
 bool Game_Halo3VehicleWheelActive();
+// Vehicle cameras (vehicle_cameras.inl), for the F1 menu. Step asks for the seat's next (+1) or previous (-1)
+// camera and tethering mode; the cold worker takes it up within a poll. Readout copies one line saying which
+// camera is in use, or why none is; false when there is nothing to say (the feature is off).
+void Game_VehicleCameraStep(int cameraDirection, int modeDirection);
+bool Game_VehicleCameraReadout(char* out, size_t capacity);
+// The lag of the vehicle camera in use (F1 > Vehicles): false when no chase camera is in use. `tuned`: the player
+// has set it from the menu, in place of the camera file's.
+bool Game_VehicleCameraLag(float& seconds, float& damping, bool& tuned);
+// Sets the lag of the chase camera in use, kept for that camera in halomccvr_vehicle_cameras_tuning.txt.
+void Game_VehicleCameraSetLag(float seconds, float damping);
+// Back to the camera file's lag for the camera in use.
+void Game_VehicleCameraResetLag();
+// THE VEHICLE AIM RING (vehicle_cameras.inl; src/common/vehicle_aim_marker_logic.h): true while a Halo 3 chase
+// camera whose "aimMarker" asks for it is up and its ring was placed within the last tenth of a second. `outDir`: the
+// direction from the rendered centre eye to the point the vehicle aims at, a VR-space unit vector in the reticle's
+// convention; `outDistanceM`: how far along it the ring is drawn, VR metres.
+bool Game_GetVehicleAimMarker(float outDir[3], float& outDistanceM);
+// The vehicle camera buttons (vehicle_seat_buttons.h), for the input hook. Live: the seat the player is in is one
+// the vehicle cameras run in, so left X, left Y and the left stick click are theirs; `passenger` says it is a
+// passenger's. ControlStep asks for the seat's next way to be controlled (the left stick click).
+bool Game_VehicleSeatButtonsLive(bool& passenger);
+void Game_VehicleControlStep();
+// THE THIRD-PERSON BOOM (vehicle_boom_logic.h), for the input hook and the F1 menu. TakesStick: a Halo 3 seat's
+// camera stands where the game's own third-person camera does, and the right stick's Y aims nothing in it (not a
+// stick-aimed seat), so the boom raises and lowers it. Stick hands that Y over (0 when it is not the boom's); the
+// caller sends the game none of it. Recenter puts the boom back at its camera's start. Game_VehicleBoom: false while
+// no boom is in use; else its angle and the angles it reaches, degrees above level.
+bool Game_VehicleBoomTakesStick();
+void Game_VehicleBoomStick(float y);
+void Game_VehicleBoomRecenter();
+bool Game_VehicleBoom(float& degrees, float& lowDegrees, float& highDegrees, bool& fromTrack, bool& inverted);
 // C13 per-SEAT trim: the config storage slot for the seat the player occupies
 // right now (see ConfigSeatTrimSlot; a mounted gunner reports the carrier
 // vehicle's gunner slot), -1 when on foot or unidentified, plus its display

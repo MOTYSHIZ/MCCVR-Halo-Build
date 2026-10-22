@@ -2592,6 +2592,7 @@ void LegacyDriveReport()
                         double(g_legacySeatAskLeadMm.load(std::memory_order_relaxed)) / 1000.0,
                         g_legacySeatAskRefused.load(std::memory_order_relaxed)
                             ? "; the asked camera is NOT on the line the game queries along here and is not used" : "");
+                LegacySightReportSeatShotLine();
                 // Once per fault: the chase path is no longer asked.
                 static bool s_chaseFaultLogged = false;
                 const bool chaseFaulted = g_halo3Dual.chaseFaulted.load(std::memory_order_acquire);

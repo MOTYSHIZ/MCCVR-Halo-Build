@@ -1329,6 +1329,35 @@ namespace
             "Reach and Halo 4 seats are not affected.");
         ImGui::Spacing();
         ImGui::Separator();
+        ImGui::Text("How you control a seat (Halo 3)");
+        changed |= ImGui::Combo("Seat controls", &g_config.vehicle_control,
+                                "As before\0Motion: your hand\0Stick\0Wheel\0");
+        ImGui::TextDisabled(
+            "Apart from how your view turns: each works with a view the world\n"
+            "holds still and with one that turns with the vehicle.\n"
+            "Motion: your hand aims in every seat, and a Warthog, Mongoose,\n"
+            "Ghost, Prowler, Chopper, Banshee or Hornet turns toward it.\n"
+            "Stick: the right stick aims and steers in every seat, as on a flat\n"
+            "screen; your hand aims nothing and the stick no longer turns your view.\n"
+            "Wheel: in those ground vehicles the invisible wheel is in your hands\n"
+            "from the moment you sit; every other seat is your hand's.\n"
+            "As before: your hand aims, except that the stick or wheel steers\n"
+            "those vehicles while the view turns with them.\n"
+            "With vehicle cameras on, the left stick click changes this for the\n"
+            "seat you are in, and each seat keeps its own choice.");
+        changed |= vr_menu::SliderFloat("Ignore aim behind, within (m)",
+            &g_config.vehicle_aim_reject_metres, 0.0f, 20.0f, "%.1f");
+        changed |= vr_menu::SliderFloat("Behind is a dot below",
+            &g_config.vehicle_aim_reject_dot, -1.0f, 1.0f, "%.2f");
+        ImGui::TextDisabled(
+            "While your hand steers one of those vehicles, a point you aim at\n"
+            "that is behind the vehicle and this close to it does not turn it:\n"
+            "it keeps its forward. With a camera outside the vehicle your hand\n"
+            "easily lands on the ground just behind it. Measured along the\n"
+            "vehicle's own floor; 0 m = off. Behind: -0.5 = more than 120\n"
+            "degrees off the nose, 0 = more than 90, -1 = nothing.");
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Text("Motion steering (Halo 3, ODST, Reach)");
         changed |= ImGui::Checkbox("Virtual steering wheel",
                                    &g_config.vehicle_motion);
@@ -1343,6 +1372,99 @@ namespace
             &g_config.vehicle_wheel_max_deg, 30.0f, 180.0f, "%.0f");
         changed |= vr_menu::SliderFloat("Wheel deadzone (deg)",
             &g_config.vehicle_wheel_deadzone_deg, 0.0f, 30.0f, "%.0f");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Text("Vehicle cameras (Halo 3)");
+        changed |= ImGui::Checkbox("Cameras from halomccvr_vehicle_cameras.json",
+                                   &g_config.vehicle_cameras);
+        changed |= ImGui::Combo("Note when the camera changes", &g_config.vehicle_camera_note,
+                                "Off\0In the game's HUD messages\0On the mod's panel\0");
+        changed |= ImGui::Checkbox("Add new vehicles to the camera file", &g_config.vehicle_camera_autoadd);
+        changed |= ImGui::Checkbox("Ring where the vehicle aims",
+                                   &g_config.vehicle_aim_marker);
+        ImGui::TextDisabled(
+            "A purple ring beside the crosshair, where the vehicle itself is\n"
+            "aiming. While your view turns with the vehicle (Tethered) it is\n"
+            "where the view comes to rest: aim at it to go straight without\n"
+            "turning. The file's \"aimMarker\" turns it on or off per seat,\n"
+            "camera or mode; the built-in cameras show it when Tethered.");
+        ImGui::TextDisabled(
+            "In a seat, step through the cameras that file lists for it. The\n"
+            "file is in the mod's folder, written the first time this is on;\n"
+            "edit it and it is read again when you save. Its first camera is\n"
+            "the seat view you already have; a vehicle the mod does not know\n"
+            "starts where the game's own third-person camera sits.\n"
+            "In a seat: left Y = next camera, left X = next tethering mode,\n"
+            "either held a second = re-centre the view, left stick click = next\n"
+            "way to control the seat. Right B then uses, gets out and reloads,\n"
+            "and a passenger's support trigger switches weapon. Each seat keeps\n"
+            "its last camera, mode and controls. Needs first-person vehicles on.");
+        if (g_config.vehicle_cameras)
+        {
+            if (ImGui::Button("Next camera"))
+                Game_VehicleCameraStep(1, 0);
+            ImGui::SameLine();
+            if (ImGui::Button("Previous camera"))
+                Game_VehicleCameraStep(-1, 0);
+            ImGui::SameLine();
+            if (ImGui::Button("Next mode"))
+                Game_VehicleCameraStep(0, 1);
+            char cameraLine[384];
+            if (Game_VehicleCameraReadout(cameraLine, sizeof(cameraLine)))
+                ImGui::TextWrapped("%s", cameraLine);
+            // Lag of the camera in use, kept for that camera (halomccvr_vehicle_cameras_tuning.txt).
+            float lagSeconds = 0.0f, lagDamping = 1.0f;
+            bool lagTuned = false;
+            if (Game_VehicleCameraLag(lagSeconds, lagDamping, lagTuned))
+            {
+                bool lagChanged = vr_menu::SliderFloat("Camera lag (s)", &lagSeconds, 0.0f, 2.0f, "%.2f");
+                lagChanged |= vr_menu::SliderFloat("Lag damping", &lagDamping, 0.1f, 2.0f, "%.2f");
+                if (lagChanged)
+                    Game_VehicleCameraSetLag(lagSeconds, lagDamping);
+                if (lagTuned && ImGui::Button("Back to the camera file's lag"))
+                    Game_VehicleCameraResetLag();
+                ImGui::TextDisabled(
+                    "For the camera you are in: seconds it takes to catch up\n"
+                    "with a turn or a bump (0 = rigid). Damping 1 settles\n"
+                    "without overshoot; lower swings past and back. Kept for\n"
+                    "this camera in halomccvr_vehicle_cameras_tuning.txt.");
+            }
+            else
+            {
+                ImGui::TextDisabled("Camera lag: sit in a vehicle with a chase camera to tune it.");
+            }
+            // The third-person boom of the camera in use (vehicle_boom_logic.h).
+            float boomDegrees = 0.0f, boomLow = 0.0f, boomHigh = 0.0f;
+            bool boomTrack = false, boomInverted = false;
+            if (Game_VehicleBoom(boomDegrees, boomLow, boomHigh, boomTrack, boomInverted))
+            {
+                ImGui::Text("Third-person boom: %.1f deg above level (it goes from %.0f to %.0f)%s", boomDegrees,
+                            boomLow, boomHigh, boomInverted ? ", stick inverted" : "");
+                if (ImGui::Button("Back to the camera's start"))
+                    Game_VehicleBoomRecenter();
+                ImGui::TextDisabled(boomTrack
+                    ? "Where the game's own third-person camera would stand at that\n"
+                      "angle, from the game's camera track for this seat."
+                    : "The game's camera track could not be read for this seat, so\n"
+                      "the camera orbits the game's pivot at the game's distance.");
+            }
+            changed |= vr_menu::SliderFloat("Third-person boom speed (deg/s)",
+                &g_config.vehicle_boom_rate_deg_s, 5.0f, 360.0f, "%.0f");
+            int boomInvert = g_config.vehicle_boom_invert + 1;
+            if (ImGui::Combo("Third-person boom up and down", &boomInvert,
+                             "As the game's look inversion\0Not inverted\0Inverted\0"))
+            {
+                g_config.vehicle_boom_invert = boomInvert - 1;
+                changed = true;
+            }
+            ImGui::TextDisabled(
+                "A camera that stands where the game's own third-person camera\n"
+                "does: push the right stick up or down to lower or raise it, the\n"
+                "way the game's own stick moves its camera, in a seat where the\n"
+                "stick does not aim (your hand or the wheel does). It never\n"
+                "follows your aim. Each seat and camera keeps its angle; hold\n"
+                "left X or Y to put it back.");
+        }
         }
 
         if (CategorySection section{Cat_Reload}; section.visible)

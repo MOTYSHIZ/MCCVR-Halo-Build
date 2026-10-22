@@ -2359,6 +2359,12 @@ bool ReadAuxTrace(const AuxTracePublication& t, uint32_t generation, uint64_t ma
 // THE SEAT LIMIT RAY's own slots (player-facing, every build).
 AuxRayPublication g_limitRays[kTitleSlots];
 AuxTracePublication g_limitTraces[kTitleSlots];
+// THE VEHICLE CAMERA RAY's own slots (player-facing, every build).
+AuxRayPublication g_cameraRays[kTitleSlots];
+AuxTracePublication g_cameraTraces[kTitleSlots];
+// THE VEHICLE AIM RING RAY's own slots (player-facing, every build).
+AuxRayPublication g_markerRays[kTitleSlots];
+AuxTracePublication g_markerTraces[kTitleSlots];
 
 // Sight_MarkSeatLimitClamped: when each title's seat reticle was last clamped, and in which generation.
 std::atomic<uint64_t> g_seatLimitClampedMs[kTitleSlots]{};
@@ -2393,6 +2399,46 @@ void Sight_PublishLimitTrace(GameTitle title, uint32_t generation, bool hit, flo
 bool Sight_ReadLimitTrace(GameTitle title, uint32_t generation, uint64_t maxAgeMs, bool& hit, float& rangeWu)
 {
     return ReadAuxTrace(g_limitTraces[Slot(title)], generation, maxAgeMs, hit, rangeWu);
+}
+
+void Sight_PublishCameraRay(GameTitle title, const SightAuxRay& ray)
+{
+    PublishAuxRay(g_cameraRays[Slot(title)], ray);
+}
+
+bool Sight_ReadCameraRay(GameTitle title, uint32_t generation, uint64_t maxAgeMs, SightAuxRay& out)
+{
+    return ReadAuxRay(g_cameraRays[Slot(title)], generation, maxAgeMs, out);
+}
+
+void Sight_PublishCameraTrace(GameTitle title, uint32_t generation, bool hit, float rangeWu)
+{
+    PublishAuxTrace(g_cameraTraces[Slot(title)], generation, hit, rangeWu);
+}
+
+bool Sight_ReadCameraTrace(GameTitle title, uint32_t generation, uint64_t maxAgeMs, bool& hit, float& rangeWu)
+{
+    return ReadAuxTrace(g_cameraTraces[Slot(title)], generation, maxAgeMs, hit, rangeWu);
+}
+
+void Sight_PublishMarkerRay(GameTitle title, const SightAuxRay& ray)
+{
+    PublishAuxRay(g_markerRays[Slot(title)], ray);
+}
+
+bool Sight_ReadMarkerRay(GameTitle title, uint32_t generation, uint64_t maxAgeMs, SightAuxRay& out)
+{
+    return ReadAuxRay(g_markerRays[Slot(title)], generation, maxAgeMs, out);
+}
+
+void Sight_PublishMarkerTrace(GameTitle title, uint32_t generation, bool hit, float rangeWu)
+{
+    PublishAuxTrace(g_markerTraces[Slot(title)], generation, hit, rangeWu);
+}
+
+bool Sight_ReadMarkerTrace(GameTitle title, uint32_t generation, uint64_t maxAgeMs, bool& hit, float& rangeWu)
+{
+    return ReadAuxTrace(g_markerTraces[Slot(title)], generation, maxAgeMs, hit, rangeWu);
 }
 
 void Sight_MarkSeatLimitClamped(GameTitle title)

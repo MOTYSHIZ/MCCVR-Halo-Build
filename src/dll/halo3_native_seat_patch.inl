@@ -170,8 +170,10 @@
         if (sameSeat && patch.active && patch.tagWritten == writeTag && Halo3NativeSeatStillOwned(patch) &&
             (writeTag || Halo3SeatViewAvailable()))
         {
+            // A chase camera of the mod's own (vehicle_cameras.inl) shows the seat from outside: the
+            // director keeps its own third-person answer, so the game draws the player's character.
             if (!writeTag)
-                Halo3SeatViewArm(unit);
+                Halo3SeatViewArm(Halo3VehicleCameraThirdPerson() ? -1 : unit);
             return true;
         }
         if (sameSeat && !patch.active && patch.attemptWroteTag == writeTag &&
@@ -286,7 +288,7 @@
         g_halo3NativeAnchorCalibration = {};
         patch.attemptWroteTag = writeTag;
         if (!patch.tagWritten)
-            Halo3SeatViewArm(unit);
+            Halo3SeatViewArm(Halo3VehicleCameraThirdPerson() ? -1 : unit);
         g_halo3NativeSeatState.store(
             static_cast<uint32_t>(Halo3NativeSeatState::Active),
             std::memory_order_release);

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <share.h>
 #include <MinHook.h>
 #include "game.h"
@@ -24,6 +25,7 @@
 #include "../common/scope_action_input.h"
 #include "../common/physical_crouch_input.h"
 #include "../common/vr_action_passthrough.h"
+#include "../common/vehicle_seat_buttons.h"
 #include "physical_crouch_camera.h"
 #include "native_vr_actions.h"
 #include "dev_pad.h"
@@ -58,6 +60,11 @@ namespace
     std::atomic<bool> g_overrideLogged{false};
     MenuChordDetector g_menuChord;
     MenuChordDetector g_pauseChord;
+    // The vehicle camera buttons' one state machine, for every thread that polls the pad. MCC polls from more than
+    // one thread, and with a copy per thread a held button re-centred once for each of them, while a thread that
+    // polled too rarely to see the hold reach its second took the release for a tap and stepped the camera.
+    vehicle_seat_buttons::Seat g_seatButtons;
+    std::mutex g_seatButtonsLock;
     thread_local ScopeActionInput g_scopeInput;
     thread_local PhysicalCrouchInput g_physicalCrouchInput;
     std::atomic<bool> g_physicalCrouchRiseCapped{false};   // the menu's recalibrate hint
@@ -217,6 +224,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         VR_GetPadState(pad);
         if (!pad.valid)
         {
+            Game_VehicleBoomStick(0.0f);
             g_vrActionMapper.ready=false;
             g_scopeInput.Suspend();
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
@@ -231,6 +239,9 @@ std::atomic<uint32_t> g_menuPressSerial{0};
 
         const bool sharedGameplayInput =
             Game_AllowsSharedGameplayFeatures();
+        // The face buttons as the controllers gave them: the vehicle camera buttons below take left Y and right B
+        // over in a seat, and the pause chord further down is still read from these.
+        const bool rawPadY = pad.y, rawPadB = pad.b;
         const MenuChordResult chord =
             g_menuChord.Update(GetTickCount64(), pad.clickL, pad.clickR);
         if (chord.toggled)
@@ -242,6 +253,75 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             Game_RecenterManual();
             Menu_Toggle();
             LOG("L3+R3: recentered immersive/theatre space and toggled F1 menu");
+        }
+
+        // THE VEHICLE CAMERA BUTTONS (vehicle_seat_buttons.h): in a seat the vehicle cameras run in, left Y steps
+        // the camera, left X its tethering mode, either held re-centres the view, and the left stick click moves the
+        // seat to its next way of being controlled; right B is the game's own B (the Banshee's bomb), or left X's job
+        // (use, exit) where the action mapper binds B to nothing (vehicle_seat_buttons::RightBFor); and in a
+        // passenger's seat the support trigger switches weapon. Before anything below reads a button, so every
+        // route to the game -- the action mapper, the native bridge, legacy routing -- sees the seat's buttons.
+        {
+            bool passenger = false;
+            const bool live = Game_VehicleSeatButtonsLive(passenger) && !Menu_IsOpen() && !pad.exclusiveInput;
+            vehicle_seat_buttons::Buttons buttons;
+            buttons.x = pad.x;
+            buttons.y = pad.y;
+            buttons.b = pad.b;
+            buttons.clickL = pad.clickL;
+            buttons.clickR = pad.clickR;
+            buttons.supportTrigger = pad.trigL;
+            // Does the action mapper bind right B to anything in this game? (By default it binds it to nothing.)
+            bool bBound = false;
+            const int seatTitle = weapon_interaction::TitleIndex(TitleAdapter_GetActiveTitle());
+            if (seatTitle >= 0)
+                for (unsigned action = 0; action < vr_mapping::Count; ++action)
+                    bBound = bBound || vr_mapping::Resolve(static_cast<vr_mapping::Action>(action),
+                                                           g_config.vr_bindings[seatTitle][action]) == vr_mapping::B;
+            const vehicle_seat_buttons::RightB rightB =
+                vehicle_seat_buttons::RightBFor(g_config.vr_action_mapping, bBound);
+            vehicle_seat_buttons::Requests asked;
+            {
+                // The clock is read under the lock, so the polls the state machine sees are in time order.
+                std::lock_guard<std::mutex> lock(g_seatButtonsLock);
+                asked = g_seatButtons.Step(buttons, live, passenger, GetTickCount64(),
+                                           vehicle_seat_buttons::kDefaultHoldMs, rightB);
+            }
+#if HALOMCCVR_DEV_DIAGNOSTICS
+            static std::atomic<bool> seatBWas{false};
+            const bool seatB = live && rawPadB;
+            if (seatB != seatBWas.exchange(seatB, std::memory_order_relaxed) && seatB)
+                LOG("Vehicle cameras (dev): right B pressed in the seat; handed to the game as %s",
+                    buttons.b ? "its own B" : (buttons.x ? "use (left X's job)" : "nothing (the pause chord)"));
+#endif
+            if (live)
+            {
+                pad.x = buttons.x;
+                pad.y = buttons.y;
+                pad.b = buttons.b;
+                pad.clickL = buttons.clickL;
+                pad.trigL = buttons.supportTrigger;
+            }
+            if (asked.camera || asked.mode)
+                Game_VehicleCameraStep(asked.camera, asked.mode);
+            // A camera switched to starts with the view re-centred on the seat, as Campaign Evolved's do, so a tap of
+            // left Y needs no hold after it. The boom keeps its angle: that is the seat's, kept on purpose.
+            if (asked.camera && !asked.recenter)
+            {
+                Game_RecenterManual();
+                LOG("Vehicle cameras: view re-centred with the camera switch");
+            }
+            if (asked.control)
+                Game_VehicleControlStep();
+            if (asked.recenter)
+            {
+                Game_RecenterManual();
+                // A third-person camera's boom goes back to where its camera starts with the view.
+                Game_VehicleBoomRecenter();
+                LOG("Vehicle cameras: view re-centred (left X or Y held)");
+            }
+            if (asked.camera || asked.mode || asked.control || asked.recenter)
+                VR_SetGameHaptics(asked.recenter ? 0.6f : 0.35f);
         }
 
         static thread_local ExclusiveInputHolds physicalHolds;
@@ -289,8 +369,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         {
             pauseChord = g_pauseChord.Update(
                 GetTickCount64(),
-                pad.y || (physicalButtons & XINPUT_GAMEPAD_Y) != 0,
-                pad.b || (physicalButtons & XINPUT_GAMEPAD_B) != 0);
+                rawPadY || (physicalButtons & XINPUT_GAMEPAD_Y) != 0,
+                rawPadB || (physicalButtons & XINPUT_GAMEPAD_B) != 0);
             if (pauseChord.toggled)
                 Input_RequestPauseToggle();
         }
@@ -328,6 +408,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         if(!scopeFeatureAvailable) VR_SetScopeActive(false);
         if(menuOpen)
         {
+            Game_VehicleBoomStick(0.0f);
             g_vrActionMapper.ready=false;
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
             PhysicalCrouchCamera_Invalidate();
@@ -343,6 +424,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
 
         if(pad.exclusiveInput&&!Menu_IsOpen())
         {
+            Game_VehicleBoomStick(0.0f);
 #if HALOMCCVR_DEV_DIAGNOSTICS
             g_witness.route = seat_witness::RouteExclusive;
             g_witness.weapon = 0;   // the exclusive route never forwards weapon-gesture buttons
@@ -785,6 +867,12 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         else
 #endif
             haveStick = Game_ComputeAimStick(rx, ry);
+        // THE THIRD-PERSON BOOM (vehicle_boom_logic.h): in a Halo 3 seat whose camera stands where the game's own
+        // third-person camera does, the right stick's Y raises and lowers that camera -- only where it aims nothing.
+        // On this path the game's Y is the aim servo's (the hand's pitch, or nothing while the wheel steers), never
+        // the stick's, except in a stick-aimed seat, where the boom holds; the scope's magnification keeps the axis
+        // while the scope is open. Off this path the stick's Y goes to the game as it always has, and the boom holds.
+        Game_VehicleBoomStick(haveStick && !VR_IsScopeActive() && Game_VehicleBoomTakesStick() ? pad.turnY : 0.0f);
         if (haveStick)
         {
             state->Gamepad.sThumbRX = ToRawStick(rx);
