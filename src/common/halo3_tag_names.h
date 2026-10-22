@@ -3,8 +3,8 @@
 //
 // EVIDENCE CLASS: RETAIL-DERIVED AND CHECKED OFFLINE. The header layout and both signatures are read from retail
 // halo3.dll by disassembly (its cache-file loader and its own header check); the file layout is checked against
-// every Halo 3 map of the stock install and of the Steam workshop (tools/verify-halo3-tag-names.py re-derives both
-// from the patterns and the constants here).
+// every Halo 3 map of the stock install and of the Steam workshop, by an offline check that re-derives both from the
+// patterns and the constants here.
 //
 // THE CACHE FILE HEADER (an MCC Halo 3 .map opens with it, 0x4000 bytes; halo3.dll keeps a copy of the loaded
 // map's). halo3.dll's own check of it (+0xA619C) asks: version 13 at +4, 'head' at +0, 'foot' at +0x3FFC, the byte
@@ -270,6 +270,29 @@ inline std::string_view ShortName(std::string_view path)
 {
     const size_t slash = path.find_last_of("\\/");
     return slash == std::string_view::npos ? path : path.substr(slash + 1);
+}
+
+// A NAME IN THE CAMERA FILE ("hideParts", "fadeParts") AGAINST A MATERIAL'S PATH: Exact when it is the path or the
+// path's last part (case aside); Variant when the last part is the name and an underscore suffix -- a variant of a
+// vehicle names its materials with one ("windshield_snow" on the snow Warthog). A caller takes the Variant ones only
+// when no material of the vehicle matches the name exactly, so a file written for a vehicle fits its variants and a
+// name that already matches is never widened (the Sparrowhawk's "sparrowhawk_glass" stays off "sparrowhawk_glass_dark").
+enum class PartNameMatch : uint8_t
+{
+    None,
+    Exact,
+    Variant,
+};
+inline PartNameMatch MatchPartName(std::string_view path, std::string_view name)
+{
+    if (name.empty() || path.empty())
+        return PartNameMatch::None;
+    const std::string_view last = ShortName(path);
+    if (EqualNoCase(path, name) || EqualNoCase(last, name))
+        return PartNameMatch::Exact;
+    if (last.size() > name.size() + 1 && last[name.size()] == '_' && EqualNoCase(last.substr(0, name.size()), name))
+        return PartNameMatch::Variant;
+    return PartNameMatch::None;
 }
 
 // The name a vehicle the mod does not know goes by: its tag's short name in lower case, anything but a-z, 0-9, '_',
