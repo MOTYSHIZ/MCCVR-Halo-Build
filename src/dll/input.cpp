@@ -303,6 +303,13 @@ namespace
             }
             if (asked.camera || asked.mode)
                 Game_VehicleCameraStep(asked.camera, asked.mode);
+            // A camera switched to starts with the view re-centred on the seat, as Campaign Evolved's do, so a tap of
+            // left Y needs no hold after it. The boom keeps its angle: that is the seat's, kept on purpose.
+            if (asked.camera && !asked.recenter)
+            {
+                Game_RecenterManual();
+                LOG("Vehicle cameras: view re-centred with the camera switch");
+            }
             if (asked.control)
                 Game_VehicleControlStep();
             if (asked.recenter)
