@@ -42,6 +42,7 @@ static bool reaim{};
 static unsigned reaimAsks{},crosshairNotes{};
 static const float* lastNotedQuery{};
 static constexpr float kReaimed[3]{7.0f,-8.0f,9.0f};
+static bool LegacySightSeatLineFromEye(GameTitle,const float*,const float*,float*,float*){return false;}
 static bool LegacySightReaimCrosshairQuery(GameTitle title,uint64_t f,const float* a,const float* b,int32_t ignoredA,
     uintptr_t caller,float out[3])
 {

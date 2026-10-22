@@ -904,12 +904,30 @@ const uint8_t* Halo3SightObjectData(uint32_t handle);
 int Halo3SightObjectType(uint32_t handle);
 LegacySeatShotLineWindow g_legacySeatShotLine;
 inline constexpr float kLegacySeatShotShortWu = 1.0f / 3.048f;   // a stop over 1 m short of the point
+
+// A HALO 3 SEAT'S LINE FROM THE EYE (seat_fire_from_eye, as Halo 2's halo2_seat_fire.inl; only where fire-time changes
+// are allowed -- never in a shared co-op simulation, Sight_FireTimeChangesAllowed). A stock seat's crosshair query
+// starts at the game's OWN camera, which for a third-person-tagged seat (the Sparrowhawk's, most mod vehicles') stands
+// metres behind and above the vehicle while the player looks from the seat; anything between that camera and the
+// vehicle -- a parked Longsword, a hangar beam -- stops the line there, and the game turns the shot at that stop,
+// behind or above the player (the player's own round then hits him). This query instead starts at the rendered eye
+// the seat's point was traced from and runs through that point, so it sees what the player sees. A start already
+// within kLegacySeatFromEyeKeepWu of the eye (a first-person seat) is left as the game built it.
+struct LegacySeatFromEye
+{
+    bool valid = false;
+    float start[3]{}, head[3]{}, point[3]{};
+};
+thread_local LegacySeatFromEye t_legacySeatFromEye;
+std::atomic<uint32_t> g_legacySeatFromEyeLines{0};
+inline constexpr float kLegacySeatFromEyeKeepWu = 0.5f / 3.048f;
 inline constexpr float kLegacySeatShotAsideWu = 1.0f / 3.048f;   // a line passing over 1 m from the point
 
 bool LegacySightReaimCrosshairQuery(GameTitle title, uint64_t flags, const float* start, const float* vector,
                                     int32_t ignoredA, uintptr_t caller, float out[3])
 {
     t_legacySeatShotLine.valid = false;
+    t_legacySeatFromEye.valid = false;
     if ((title != GameTitle::Halo3 && title != GameTitle::Halo3ODST) || !start || !vector)
         return false;
     auto& state = LegacySight(title);
@@ -956,6 +974,17 @@ bool LegacySightReaimCrosshairQuery(GameTitle title, uint64_t flags, const float
         c.own[1] = ray.ignoreB;
         c.own[2] = ray.ignoreC;
         c.valid = true;
+        // The stock seat's line may start at the eye instead (LegacySightSeatLineFromEye, called next by the
+        // dispatch with the query as it then stands).
+        if (stockSeat && g_config.seat_fire_from_eye && Sight_FireTimeChangesAllowed() &&
+            shot_lag::Finite3(intent.p.head) && shot_lag::Finite3(point))
+        {
+            LegacySeatFromEye& f = t_legacySeatFromEye;
+            memcpy(f.start, start, sizeof(f.start));
+            memcpy(f.head, intent.p.head, sizeof(f.head));
+            memcpy(f.point, point, sizeof(f.point));
+            f.valid = true;
+        }
     }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // The capture first, from the query as the game built it.
@@ -1032,6 +1061,38 @@ bool LegacySightReaimCrosshairQuery(GameTitle title, uint64_t flags, const float
         LegacySightNoteStockLine(stock, reaimed, intent.solvePoint);
 #endif
     return reaimed;
+}
+
+// The dispatch, right after LegacySightReaimCrosshairQuery: a stock seat's query moved to start at the eye (see
+// LegacySeatFromEye). True = trace from `outStart` along `outVector` (the query's own length) instead.
+bool LegacySightSeatLineFromEye(GameTitle title, const float* start, const float* vector, float outStart[3],
+                                float outVector[3])
+{
+    LegacySeatFromEye& f = t_legacySeatFromEye;
+    if (!f.valid)
+        return false;
+    f.valid = false;
+    if (title != GameTitle::Halo3 || !start || !vector || std::memcmp(start, f.start, sizeof(f.start)) != 0)
+        return false;
+    const float fromEye[3]{start[0] - f.head[0], start[1] - f.head[1], start[2] - f.head[2]};
+    if (shot_lag::Length(fromEye) < kLegacySeatFromEyeKeepWu)
+        return false;   // already at the eye
+    const float toPoint[3]{f.point[0] - f.head[0], f.point[1] - f.head[1], f.point[2] - f.head[2]};
+    const float range = shot_lag::Length(toPoint), length = shot_lag::Length(vector);
+    if (!std::isfinite(range) || !(range > shot_lag::ReaimRails{}.minRangeWu) || !std::isfinite(length) ||
+        !(length > 1.0e-6f))
+        return false;
+    const float scale = length / range;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        outStart[axis] = f.head[axis];
+        outVector[axis] = toPoint[axis] * scale;
+    }
+    // The SHOT LINE witness measures the line that is traced.
+    if (t_legacySeatShotLine.valid)
+        memcpy(t_legacySeatShotLine.start, outStart, sizeof(t_legacySeatShotLine.start));
+    g_legacySeatFromEyeLines.fetch_add(1, std::memory_order_relaxed);
+    return true;
 }
 
 void LegacySightNoteCrosshairResult(GameTitle title, const float* start, const float* vector, const void* result,
@@ -1166,15 +1227,16 @@ void LegacySightReportSeatShotLine()
     const uint32_t aside = win.passedAside.exchange(0, std::memory_order_relaxed);
     const uint32_t shortCm = win.maxShortCm.exchange(0, std::memory_order_relaxed);
     const uint32_t angle = win.maxAngleCdeg.exchange(0, std::memory_order_relaxed);
+    const uint32_t fromEye = g_legacySeatFromEyeLines.exchange(0, std::memory_order_relaxed);
     if (!blocked && !aside)
         return;
-    LOG("SHOT LINE Halo 3 seated: of %u crosshair queries (the line each shot follows, from the game's own camera "
-        "through the point), %u stopped short of the point (%u on an object -- %u of them you or a part of your "
+    LOG("SHOT LINE Halo 3 seated: of %u crosshair queries (the line each shot follows, through the point; %u of them "
+        "started at your eye, seat_fire_from_eye, the rest at the game's own camera), %u stopped short of the point (%u on an object -- %u of them you or a part of your "
         "vehicle, %u you yourself -- and %u on the world; by up to %.1f m, the "
         "last at %.1f m of %.1f m), the stop up to %.1f deg off the point as the eye sees it (%u above it, %u below) "
         "-- a shot goes where its query stops, not to the reticle; %u lines passed over 1 m from the point; the lines "
         "started up to %.1f m from your eye (the last %.1f m)%s",
-        queries, blocked, byObject, byOwn, byYou, blocked - byObject, double(shortCm) / 100.0,
+        queries, fromEye, blocked, byObject, byOwn, byYou, blocked - byObject, double(shortCm) / 100.0,
         double(win.lastStopCm.load(std::memory_order_relaxed)) / 100.0,
         double(win.lastPointCm.load(std::memory_order_relaxed)) / 100.0, double(angle) / 100.0, above, below, aside,
         double(maxStartCm) / 100.0, double(lastStartCm) / 100.0, objectText);

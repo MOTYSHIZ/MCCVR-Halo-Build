@@ -1211,12 +1211,15 @@ struct Config
     // known beforehand). 0 = the camera's line always. Only the written aim changes (what the title replicates).
     // Needs seat_direct_drive and converged_aim. Read live.
     bool seat_aim_through_barrel = true;
-    // A SEATED FIRE'S CROSSHAIR TEST RUNS ALONG THE PLAYER'S LINE (Halo 2; halo2_seat_fire.inl). The engine traces
+    // A SEATED FIRE'S CROSSHAIR TEST RUNS ALONG THE PLAYER'S LINE (Halo 2, halo2_seat_fire.inl; Halo 3, the stock
+    // seat's crosshair query, legacy_sight_trace.inl LegacySightSeatLineFromEye: its camera is the seat's third-person
+    // camera metres behind the vehicle, so anything behind the player could take his shot). The engine traces
     // the crosshair from the seat's own camera, which is not where a player's eye is (a head anywhere in the room
     // but at the seat's camera): aiming over a low obstacle, the seat camera's line can hit the obstacle, and the
     // engine then turns the shot at it. 1 = at a local seated fire that test starts at the rendered eye the
     // crosshair's point was traced from and runs through that point. 0 = from the seat's camera through the
-    // point. Local to the fire (as the re-aim it replaces is). Needs converged_aim. Read live.
+    // point. Local to the fire (as the re-aim it replaces is), and only where fire-time changes are allowed (never
+    // in co-op). Needs converged_aim. Read live.
     bool seat_fire_from_eye = true;
 
     // rendering. The game's own HUD reticle sits at head-center and is wrong

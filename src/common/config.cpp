@@ -2684,9 +2684,11 @@ void ConfigSave()
     fprintf(f, "# about the distance from your view to the barrel. Needs seat_direct_drive and converged_aim.\n");
     fprintf(f, "# Live. (default %d)\n", d.seat_aim_through_barrel ? 1 : 0);
     fprintf(f, "seat_aim_through_barrel = %d\n\n", g_config.seat_aim_through_barrel ? 1 : 0);
-    fprintf(f, "# Halo 2. 1 = when you fire a vehicle's gun the game checks what is under the crosshair along YOUR\n");
-    fprintf(f, "# line of sight. 0 = along the line from the seat's own camera, as the game does: a shot aimed over\n");
-    fprintf(f, "# something low and near can then be pulled down onto it. Needs converged_aim. Live.\n");
+    fprintf(f, "# Halo 2 and Halo 3. 1 = when you fire a vehicle's gun the game checks what is under the crosshair\n");
+    fprintf(f, "# along YOUR line of sight. 0 = along the line from the seat's own camera, as the game does: a shot\n");
+    fprintf(f, "# aimed over something low and near can then be pulled down onto it, and in Halo 3 something behind\n");
+    fprintf(f, "# your vehicle (that camera stands behind it) can take the shot. Not in co-op. Needs converged_aim.\n");
+    fprintf(f, "# Live.\n");
     fprintf(f, "# (default %d)\n", d.seat_fire_from_eye ? 1 : 0);
     fprintf(f, "seat_fire_from_eye = %d\n\n", g_config.seat_fire_from_eye ? 1 : 0);
     fprintf(f, "# Halo 4. 1 = CONVERGED AIM IN HALO 4 SEATS: the game traces the ray from your eye\n");

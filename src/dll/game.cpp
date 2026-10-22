@@ -2765,6 +2765,9 @@ namespace
                                  uint64_t& atUs);
     void LegacySightNoteCrosshairQuery(GameTitle title, uint64_t flags, const float* start, const float* vector,
         int32_t ignoredA, uintptr_t caller);
+    // A stock Halo 3 seat's crosshair query moved to start at the player's eye (seat_fire_from_eye; outside co-op).
+    bool LegacySightSeatLineFromEye(GameTitle title, const float* start, const float* vector, float outStart[3],
+        float outVector[3]);
     // After the game's own trace of a seated crosshair query (legacy_sight_trace.inl, THE SEAT'S SHOT LINE): where it
     // stopped, against the point. Collision-hook thread.
     void LegacySightNoteCrosshairResult(GameTitle title, const float* start, const float* vector, const void* result,
