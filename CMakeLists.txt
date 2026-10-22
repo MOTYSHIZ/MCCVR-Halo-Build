@@ -411,6 +411,31 @@ if(MSVC)
     target_link_options(halo3xr_launcher PRIVATE "/MANIFESTUAC:level='asInvoker' uiAccess='false'")
 endif()
 
+# THE PROJECT RECLAIMER RELAY (experimental; not packaged: package-candidate.ps1 copies named files only).
+# Project Reclaimer runs MCC's halo3.dll in a worker process two generations below the one a launcher can start,
+# so HaloMCCVRReclaimerRelay.dll rides its process starts and loads HaloMCCVR.dll into the engine worker before
+# that worker runs (src/relay/reclaimer_relay.cpp). The launcher uses it when it sits beside a Project Reclaimer
+# client and no MCC install is around it.
+add_library(halomccvr_reclaimer_relay SHARED src/relay/reclaimer_relay.cpp)
+set_target_properties(halomccvr_reclaimer_relay PROPERTIES OUTPUT_NAME "HaloMCCVRReclaimerRelay")
+target_include_directories(halomccvr_reclaimer_relay PRIVATE src/common "${minhook_SOURCE_DIR}/include")
+target_compile_definitions(halomccvr_reclaimer_relay PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(halomccvr_reclaimer_relay PRIVATE minhook)
+
+# The launcher for a Project Reclaimer folder: the same sources WITHOUT the administrator manifest. The MCC
+# launcher asks for administrator to install into the game's folder; a game it starts is then elevated, and the
+# OpenXR loader ignores XR_RUNTIME_JSON in an elevated process, so a player who selects their runtime with that
+# variable got the machine's registered one instead (seen: Oculus with no headset, SteamVR running). Project
+# Reclaimer needs no install step, so its launcher runs as the player. It never shows the MCC menu.
+add_executable(halo3xr_reclaimer_launcher WIN32 src/launcher/launcher.cpp
+    src/launcher/installer.cpp src/launcher/menu.cpp src/launcher/updater.cpp)
+set_target_properties(halo3xr_reclaimer_launcher PROPERTIES OUTPUT_NAME "HaloMCCVRReclaimerLauncher")
+target_compile_definitions(halo3xr_reclaimer_launcher PRIVATE
+    UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
+    HALOMCCVR_RECLAIMER_LAUNCHER=1
+    HALOMCCVR_DEV_DIAGNOSTICS=$<BOOL:${HALOMCCVR_DEV_DIAGNOSTICS}>)
+target_link_libraries(halo3xr_reclaimer_launcher PRIVATE ole32 bcrypt advapi32 winhttp crypt32 shell32 uxtheme)
+
 # THE FLAT PROBE (dev preset only; never packaged -- package-candidate.ps1 refuses a dev cache and copies named
 # files only). HaloMCCFlatProbe.dll is the AS SEEN control arm: stock flat Halo 3 measured with the same code as the
 # VR witness (src/common/as_seen_logic.h). OBSERVE ONLY: no OpenXR, no stereo, no presentation change, no writes.
@@ -547,6 +572,8 @@ if(BUILD_TESTING)
     add_test(NAME halomccvr_host_unload_gate_tests COMMAND halomccvr_host_unload_gate_tests)
     add_executable(halomccvr_title_build_identity_tests tests/title_build_identity_tests.cpp)
     add_test(NAME halomccvr_title_build_identity_tests COMMAND halomccvr_title_build_identity_tests)
+    add_executable(halomccvr_reclaimer_host_logic_tests tests/reclaimer_host_logic_tests.cpp)
+    add_test(NAME halomccvr_reclaimer_host_logic_tests COMMAND halomccvr_reclaimer_host_logic_tests)
     # Packaging runs this tiny program against a nonexistent path to generate
     # the current source tree's exact default config. It is intentionally not
     # installed by CMake: package-candidate stages and hashes its output while
@@ -1334,6 +1361,12 @@ if(BUILD_TESTING)
         src/common/config.cpp)
     target_compile_definitions(halomccvr_config_player_roundtrip_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_config_player_roundtrip_tests COMMAND halomccvr_config_player_roundtrip_tests)
+    add_executable(halomccvr_hook_cost_tests tests/hook_cost_tests.cpp)
+    add_test(NAME halomccvr_hook_cost_tests COMMAND halomccvr_hook_cost_tests)
+    add_executable(halomccvr_host_ui_panel_pixels_tests tests/host_ui_panel_pixels_tests.cpp)
+    target_compile_definitions(halomccvr_host_ui_panel_pixels_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_host_ui_panel_pixels_tests PRIVATE d3d11 d3dcompiler)
+    add_test(NAME halomccvr_host_ui_panel_pixels_tests COMMAND halomccvr_host_ui_panel_pixels_tests)
     add_executable(halomccvr_ce_hud_target_tests tests/haloce_hud_target_tests.cpp)
     target_include_directories(halomccvr_ce_hud_target_tests PRIVATE src/common src/dll)
     target_compile_definitions(halomccvr_ce_hud_target_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

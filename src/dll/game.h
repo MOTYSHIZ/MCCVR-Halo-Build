@@ -441,6 +441,8 @@ int Input_ClaimXInputIat();
 // Injects a real XINPUT_GAMEPAD_START pulse and requests the matching
 // stereo/flat pause presentation. Used when a runtime reserves its system key.
 void Input_RequestPauseToggle();
+// How many times the player has asked for the game's menu from the controller (wraps; compare for change only).
+uint32_t Input_MenuPressSerial();
 // MCC's crouch-lock (toggle crouch) settings, read from its GameUserSettings.ini by the cold worker
 // (a timestamp check every 2 s, a parse only when MCC rewrites the file) for the CROUCH log line.
 // Diagnostic only: the file did not predict Reach's crouch behaviour in FA (see input.cpp).

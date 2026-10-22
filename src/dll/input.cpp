@@ -63,6 +63,7 @@ namespace
     std::atomic<bool> g_physicalCrouchRiseCapped{false};   // the menu's recalibrate hint
     thread_local vr_mapping::Mapper g_vrActionMapper;
     std::atomic<uint64_t> g_startPulseUntilMs{0};
+std::atomic<uint32_t> g_menuPressSerial{0};
 
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // MCC's crouch-lock (toggle crouch) preference as saved in GameUserSettings.ini
@@ -539,6 +540,7 @@ namespace
         const bool menuEdge = pad.menu && !previousMenu;
         if (menuEdge)
         {
+            g_menuPressSerial.fetch_add(1, std::memory_order_relaxed);
             if (Game_IsCameraOnlyBringup())
             {
                 // OpenXR exposes the reserved Menu action as a short edge. ODST
@@ -1191,6 +1193,11 @@ void Input_Halo2SwitchInputEvidence(Halo2SwitchInputEvidence& evidence)
         fedBackMs && fedBackMs <= now ? now - fedBackMs : UINT64_MAX;
 }
 
+uint32_t Input_MenuPressSerial()
+{
+    return g_menuPressSerial.load(std::memory_order_relaxed);
+}
+
 void Input_RequestPauseToggle()
 {
     if (!Game_AllowsPauseToggleInput())
@@ -1199,6 +1206,7 @@ void Input_RequestPauseToggle()
     // Hold Start long enough to cross MCC's input polling boundary, then let
     // the normal released state provide the edge needed by a later toggle.
     g_startPulseUntilMs = GetTickCount64() + 350;
+    g_menuPressSerial.fetch_add(1, std::memory_order_relaxed);
     const bool authoritative = Game_HasAuthoritativePauseState();
     if (!authoritative)
         VR_RequestPausePresentation(paused);

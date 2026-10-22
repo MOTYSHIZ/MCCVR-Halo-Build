@@ -93,6 +93,7 @@
 #include "ik.h"
 #include "title_adapter.h"
 #include "../common/authored_reticle_logic.h"
+#include "../common/reclaimer_host_logic.h"
 #include "../common/seat_view_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
@@ -4123,6 +4124,9 @@ namespace
         ReleaseSRWLockExclusive(&g_hudLayoutWriteLock);
     }
 
+    // Halo 3's tag data base, the VALUE (0 while it is not resolved). Defined beside g_halo3TagDataBase.
+    uintptr_t Halo3TagDataBaseValue();
+
     // Plain helpers: SEH frames must stay free of C++ unwinding (C2712), and a
     // region can decommit between VirtualQuery and the read, so every touch of
     // foreign memory is guarded.
@@ -4147,33 +4151,75 @@ namespace
         uintptr_t regionBase, size_t len, const HudLayoutAdapter& adapter,
         uintptr_t* out, int maxOut)
     {
+        // The region is COPIED OUT through ReadProcessMemory, a window at a time,
+        // and the copy is scanned. The game can decommit a region between
+        // VirtualQuery and the read. Read in place under __try, that raises an
+        // access violation the handler below it catches -- in MCC. A host with a
+        // vectored exception handler sees that fault FIRST and may not let it
+        // pass: Project Reclaimer closes the game on any access violation.
+        // A kernel copy of a page that has gone fails with a count; it raises
+        // nothing, in any host. One scan runs at a time
+        // (g_safeFrameScanInFlight), so the window is a static.
+        constexpr size_t kWindow = (size_t{1} << 20) + 4096;
+        static unsigned char* s_window = nullptr;
+        if (!s_window)
+            s_window = static_cast<unsigned char*>(VirtualAlloc(
+                nullptr, kWindow, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (!s_window)
+            return 0;
         int found = 0;
         const unsigned char* p =
             reinterpret_cast<const unsigned char*>(regionBase);
         const int anchorCount = HudLayoutAnchorCount(adapter);
-        __try
+        uint64_t prefixes[1 + kHudLayoutMaxAltAnchors]{};
+        size_t needs[1 + kHudLayoutMaxAltAnchors]{};
+        size_t maxNeed = 8;
+        for (int a = 0; a < anchorCount; ++a)
         {
-            uint64_t prefixes[1 + kHudLayoutMaxAltAnchors]{};
-            size_t spans[1 + kHudLayoutMaxAltAnchors]{};
-            for (int a = 0; a < anchorCount; ++a)
+            const HudLayoutAnchorView view = HudLayoutAnchorAt(adapter, a);
+            memcpy(&prefixes[a], view.anchor, sizeof(prefixes[a]));
+            // What a match reads from its first byte: the scan span, and the
+            // whole anchor the compare walks.
+            needs[a] = (std::max)(
+                static_cast<size_t>(HudLayoutScanSpan(view)),
+                static_cast<size_t>(view.anchorLength));
+            maxNeed = (std::max)(maxNeed, needs[a]);
+        }
+        const HANDLE self = GetCurrentProcess();
+        size_t pos = 0; // the next candidate's offset in the region
+        while (pos + 8 <= len && found < maxOut)
+        {
+            const size_t want = (std::min)(len - pos, kWindow);
+            SIZE_T got = 0;
+            ReadProcessMemory(self, p + pos, s_window, want, &got);
+            if (got < 8)
             {
-                const HudLayoutAnchorView view = HudLayoutAnchorAt(adapter, a);
-                memcpy(&prefixes[a], view.anchor, sizeof(prefixes[a]));
-                spans[a] = static_cast<size_t>(HudLayoutScanSpan(view));
+                // An unreadable page: go on at the next one (the region's
+                // base is page-aligned, so offsets are too).
+                pos = ((pos >> 12) + 1) << 12;
+                continue;
             }
-            for (size_t i = 0; i + 8 <= len && found < maxOut; ++i)
+            // A full window that is not the region's end leaves its last
+            // candidates, whose match would run past the copy, to the next
+            // window. Any other copy is scanned to its end.
+            const bool more = got == want && pos + got < len;
+            const size_t limit = more
+                ? (got >= maxNeed ? got - (maxNeed - 1) : 0)
+                : got - 7;
+            size_t i = 0;
+            for (; i < limit && found < maxOut; ++i)
             {
-                const uint64_t here =
-                    *reinterpret_cast<const uint64_t*>(p + i);
+                uint64_t here;
+                memcpy(&here, s_window + i, sizeof(here));
                 for (int a = 0; a < anchorCount; ++a)
                 {
-                    if (here != prefixes[a] || i + spans[a] > len)
+                    if (here != prefixes[a] || i + needs[a] > got)
                         continue;
                     const HudLayoutAnchorView view =
                         HudLayoutAnchorAt(adapter, a);
-                    if (!SafeFrameAnchorEquals(p + i, view))
+                    if (!SafeFrameAnchorEquals(s_window + i, view))
                         continue;
-                    out[found++] = regionBase + i +
+                    out[found++] = regionBase + pos + i +
                         static_cast<size_t>(view.safeFrameOffset);
                     // Skip the matched identity only: two curvature records
                     // are far further apart than one anchor.
@@ -4181,8 +4227,13 @@ namespace
                     break;
                 }
             }
+            if (more)
+                pos += (std::max)(i, size_t{1});
+            else if (got == want)
+                break; // the region's end
+            else
+                pos = (((pos + got) >> 12) + 1) << 12; // past the page that would not copy
         }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return found; }
         return found;
     }
 
@@ -4192,16 +4243,25 @@ namespace
         uintptr_t slot, const HudLayoutAdapter& adapter,
         uint32_t* destinationZ, uint32_t* h, uint32_t* v)
     {
-        __try
-        {
-            *destinationZ = HudLayoutHasDepthField(adapter)
-                ? *reinterpret_cast<const volatile uint32_t*>(
-                      slot + adapter.depthFromSlot)
-                : 0u;
-            *h = *reinterpret_cast<const volatile uint32_t*>(slot);
-            *v = *reinterpret_cast<const volatile uint32_t*>(slot + 4);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
+        // Copied out, not read in place: see SafeFrameScanRegion.
+        const HANDLE self = GetCurrentProcess();
+        SIZE_T got = 0;
+        uint32_t pair[2]{};
+        if (!ReadProcessMemory(self, reinterpret_cast<const void*>(slot),
+                               pair, sizeof(pair), &got) ||
+            got != sizeof(pair))
+            return 0;
+        uint32_t depth = 0;
+        if (HudLayoutHasDepthField(adapter) &&
+            (!ReadProcessMemory(
+                 self,
+                 reinterpret_cast<const void*>(slot + adapter.depthFromSlot),
+                 &depth, sizeof(depth), &got) ||
+             got != sizeof(depth)))
+            return 0;
+        *destinationZ = depth;
+        *h = pair[0];
+        *v = pair[1];
         return 1;
     }
 
@@ -4521,6 +4581,49 @@ namespace
                 "cancelling before the next memory region", adapter->name);
             g_safeFrameScanInFlight.store(false, std::memory_order_release);
             return 0;
+        }
+
+        // MORE RECORDS THAN THE TITLE HAS (Halo 3). A host can hold a second copy of the level's tag data in
+        // its own memory: Project Reclaimer keeps the map it merged, so the scan finds the three layout records
+        // twice. An exact count alone rejects all six on every scan: hud_size and hud_aspect never apply, and the
+        // scan runs without end. The engine draws from ITS tag data, whose
+        // base the vehicle lane decodes from the engine's own tag accessor: the records near that base are the
+        // engine's, the others are a copy nothing renders from. Applied only when the count is over, and only
+        // when what is left is exactly what the title has; otherwise everything is rejected, as before.
+        if (profile == HudLayoutProfile::Halo3 && accepted > adapter->maxBlocks)
+        {
+            // Tag addresses are a 32-bit offset in 4-byte units from the base: 16 GiB spans all of them.
+            constexpr uintptr_t kTagDataSpan = uintptr_t{1} << 34;
+            const uintptr_t tagBase = Halo3TagDataBaseValue();
+            uintptr_t keptSlots[kMaxSafeFrameHits]{};
+            uint32_t keptBaselines[kMaxSafeFrameHits]{};
+            int kept = 0;
+            for (int i = 0; tagBase && i < accepted; ++i)
+            {
+                const uintptr_t slot = acceptedSlots[i];
+                const uintptr_t distance = slot >= tagBase ? slot - tagBase : tagBase - slot;
+                if (distance < kTagDataSpan)
+                {
+                    keptSlots[kept] = slot;
+                    keptBaselines[kept] = acceptedBaselines[i];
+                    ++kept;
+                }
+            }
+            const bool told = tagBase && HudLayoutAcceptedCountOk(*adapter, kept);
+            LOG("SAFEFRAME [%s]: %d records where the title has %d; the engine's tag data is based at %p and %d "
+                "of them lie by it -> %s", adapter->name, accepted, adapter->expectedBlocks,
+                reinterpret_cast<void*>(tagBase), kept,
+                told ? "those are the engine's own; the rest are a copy nothing draws from"
+                     : "not told apart; all rejected");
+            if (told)
+            {
+                for (int i = 0; i < kept; ++i)
+                {
+                    acceptedSlots[i] = keptSlots[i];
+                    acceptedBaselines[i] = keptBaselines[i];
+                }
+                accepted = kept;
+            }
         }
 
         const int observedAccepted = accepted;
@@ -9017,6 +9120,17 @@ namespace
     // accessor body (E4 instruction layout) â€” never from absolute RVAs.
     void** g_halo3TagInstanceTable = nullptr;
     void** g_halo3TagDataBase = nullptr;
+    // Copied out, never read in place: the caller is a worker that may outlive the level.
+    uintptr_t Halo3TagDataBaseValue()
+    {
+        void** const slot = g_halo3TagDataBase;
+        uintptr_t value = 0;
+        SIZE_T got = 0;
+        if (!slot || !ReadProcessMemory(GetCurrentProcess(), slot, &value, sizeof(value), &got) ||
+            got != sizeof(value))
+            return 0;
+        return value;
+    }
     std::atomic<uint64_t> g_halo3VehicleSnapshot{0};
     std::atomic<uint32_t> g_halo3VehicleFaults{0};
     std::atomic<uint64_t> g_halo3VehicleSampleMs{0};
@@ -50987,6 +51101,7 @@ CinematicControlState Game_GetCinematicControlState()
         publication, runtime.runtime.owner, runtime.runtime.generation,
         enabled, now);
 }
+
 bool Game_GetCutsceneTheaterPresentation(float& authoredAspect)
 {
     authoredAspect = 0.0f;
@@ -51121,8 +51236,10 @@ bool Game_HasAuthoritativePauseState()
     const bool halo3Owned = activeTitle == GameTitle::Halo3 ||
         (runtime.runtime.owner == GameTitle::Halo3 &&
          runtime.runtime.qualifyingOwnerCount == 1);
+    // In a host that draws its own screens the screen itself decides the picture (Game_AutoVrTick, D3D_HostDrawsOverFrame),
+    // so a Start edge must not toggle it blind there either.
     if (halo3Owned &&
-        g_enginePauseValidated.load(std::memory_order_acquire))
+        (g_enginePauseValidated.load(std::memory_order_acquire) || g_hostOwnsRenderSize))
         return true;
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     if ((activeTitle == GameTitle::Halo3ODST ||
@@ -52243,7 +52360,75 @@ void Game_AutoVrTick()
     // The native flag below is a Halo 3 proof. Keep it completely out of
     // resident-module transitions so H2/Reach/ODST cannot inherit Halo 3's
     // pause state merely because halo3.dll is still loaded.
-    if (haloTitleActive && ReadEnginePaused(enginePaused))
+    // A HOST'S OWN SCREEN counts as the pause for PRESENTATION where it cannot be shown any other way: Project
+    // Reclaimer draws its menus into the frame after the eyes were taken, so of the game's own pictures only the
+    // flat frame shows them (D3D_HostDrawsOverFrame). The game itself is not paused (a multiplayer game never is)
+    // and nothing but the picture follows this. In such a host the screen decides even where the engine's flag
+    // cannot be read, and an unproven flag still never moves the picture.
+    // OVER A FRAME OF THE GAME the host's UI is shown as a panel in front of the stereo picture instead
+    // (reclaimer_host_logic.h, "the host's UI as a panel"): a screen then leaves the picture stereo, and only
+    // turns the menu pointer on for the panel.
+    // Not everything the host draws is a screen (reclaimer_host::ScreenRule): in play it is one only when the
+    // player's own press opened it. The controller's Menu presses are counted by the input path; Esc is counted
+    // here, and only while this process is the foreground one (the key goes nowhere else then).
+    const bool hostDraws = D3D_HostDrawsOverFrame();
+    static reclaimer_host::ScreenRule hostScreenRule;
+    static uint32_t escPresses = 0;
+    static bool escWasDown = false;
+    if (g_hostOwnsRenderSize)
+    {
+        const bool escDown = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
+        if (escDown && !escWasDown)
+        {
+            DWORD foregroundProcess = 0;
+            const HWND foreground = GetForegroundWindow();
+            if (foreground)
+                GetWindowThreadProcessId(foreground, &foregroundProcess);
+            if (foregroundProcess == GetCurrentProcessId())
+                ++escPresses;
+        }
+        escWasDown = escDown;
+    }
+    reclaimer_host::ScreenRule::In hostDrawing_{};
+    hostDrawing_.hostDraws = hostDraws;
+    hostDrawing_.inPlay = inLevelStable && !Game_AimFreeCamera();
+    hostDrawing_.menuPressSerial = Input_MenuPressSerial() + escPresses;
+    hostDrawing_.nowMs = now;
+    hostDrawing_.coverageKnown = hostDraws && D3D_HostUiCoverage(hostDrawing_.coveragePermille);
+    // The engine's camera ran within the last half second: its frame is what the host draws over.
+    hostDrawing_.gameFrame = cameraFresh;
+    const bool hostScreenUp = g_hostOwnsRenderSize && hostScreenRule.Step(hostDrawing_);
+    const bool hostScreenOnPanel =
+        reclaimer_host::ScreenShownAsPanel(hostScreenUp, hostDrawing_.gameFrame, D3D_HostUiPanelUsable());
+    const bool hostScreenFlat = hostScreenUp && !hostScreenOnPanel;
+    D3D_HostUiPanelCarriesScreen(hostScreenOnPanel);
+    static int previousHostDrawing = 0; // 0 nothing, 1 an overlay, 2 a screen on the flat picture, 3 one on the panel
+    const int hostDrawing = hostScreenOnPanel ? 3 : hostScreenUp ? 2 : hostDraws ? 1 : 0;
+    if (hostDrawing != previousHostDrawing)
+    {
+        previousHostDrawing = hostDrawing;
+        char measured[96] = "not measured";
+        if (hostDrawing_.coverageKnown)
+            snprintf(measured, sizeof(measured), "it changes %u.%u%% of the picture%s",
+                hostDrawing_.coveragePermille / 10, hostDrawing_.coveragePermille % 10,
+                hostDrawing_.gameFrame ? "" : ", not over a frame of the game: not consulted");
+        if (hostDrawing == 0)
+            LOG("host screen: gone");
+        else
+            LOG("host screen: %s (%s; %s, Menu or Esc presses so far %u)",
+                hostDrawing == 3 ? "up, on the panel: the host is drawing a screen of its own over a frame of the "
+                                   "game; the picture stays stereo and the menu pointer works on the panel"
+                : hostDrawing == 2 ? "up: the host is drawing a screen of its own into the frame"
+                                   : "none: the host is drawing an overlay into the frame, the picture stays stereo",
+                measured, hostDrawing_.inPlay ? "in play" : "not in play", hostDrawing_.menuPressSerial);
+    }
+    bool pauseKnown = haloTitleActive && ReadEnginePaused(enginePaused);
+    if (haloTitleActive && g_hostOwnsRenderSize)
+    {
+        enginePaused = hostScreenFlat || (pauseKnown && g_enginePauseValidated.load() && enginePaused);
+        pauseKnown = true;
+    }
+    if (pauseKnown)
     {
         if (!enginePauseLogged || enginePaused != previousEnginePaused)
         {
@@ -52254,14 +52439,16 @@ void Game_AutoVrTick()
             enginePauseLogged = true;
         }
         const bool targetPaused = VR_IsPausePresentationTarget();
-        if (g_enginePauseValidated.load() && enginePaused != targetPaused)
+        if ((g_enginePauseValidated.load() || g_hostOwnsRenderSize) && enginePaused != targetPaused)
         {
             if (pauseMismatchSince == 0 || pauseMismatchValue != enginePaused)
             {
                 pauseMismatchSince = now;
                 pauseMismatchValue = enginePaused;
             }
-            else if (now - pauseMismatchSince >= 50)
+            // A host's screen has to stay up a quarter of a second before the picture goes flat for it: a
+            // one-frame overlay must not cost the player two fades.
+            else if (now - pauseMismatchSince >= ((g_hostOwnsRenderSize && enginePaused) ? 250u : 50u))
             {
                 VR_RequestPausePresentation(enginePaused);
                 LOG("pause state: authoritative engine value corrected "
@@ -52305,7 +52492,11 @@ void Game_AutoVrTick()
             g_halo3RuntimeGeneration.load(std::memory_order_acquire);
         if (generation)
         {
-            RuntimeMode mode = pausePresentation ? RuntimeMode::Paused
+            // A host's loading screen is SHOWN like a pause (flat) but is a loading state: published as Paused it
+            // disagreed with the title adapter's own Loading, and the mode flapped between the two every 40 ms
+            // for the length of a load.
+            const bool hostLoadingScreen = pausePresentation && hostScreenUp && !inLevelStable;
+            RuntimeMode mode = (pausePresentation && !hostLoadingScreen) ? RuntimeMode::Paused
                 : (inLevelStable ? RuntimeMode::Gameplay
                                  : RuntimeMode::Loading);
             if (mode == RuntimeMode::Gameplay)

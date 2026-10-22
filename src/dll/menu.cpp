@@ -654,6 +654,23 @@ namespace
         changed |= vr_menu::SliderFloat("Screen distance (m)", &g_config.screen_distance_m, 0.3f, 20.0f, "%.1f");
         ImGui::TextDisabled("The flat screen the game is shown on in menus and 2D mode.\n"
                             "This is NOT the F1 panel; that one lives under Advanced.");
+        // A host that draws its own UI over the game's frame (Project Reclaimer): its menus, scoreboard and chat
+        // as a panel in front of the 3D picture.
+        if (g_hostOwnsRenderSize)
+        {
+            ImGui::Spacing();
+            ImGui::Text("Project Reclaimer's menus and on-screen items");
+            changed |= ImGui::Checkbox("Show them as a panel over the 3D picture", &g_config.host_ui_panel);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("On: Project Reclaimer's in-game menus, scoreboard, chat and names appear on a panel\n"
+                                  "fixed in front of you, and the game stays 3D behind it.\n"
+                                  "Off: the picture goes flat while one of its menus is up.");
+            ImGui::BeginDisabled(!g_config.host_ui_panel);
+            changed |= vr_menu::SliderFloat("Panel width (m)", &g_config.host_ui_panel_width_m, 0.5f, 20.0f, "%.1f");
+            changed |= vr_menu::SliderFloat("Panel distance (m)", &g_config.host_ui_panel_distance_m, 0.3f, 20.0f,
+                                            "%.1f");
+            ImGui::EndDisabled();
+        }
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Head motion");
@@ -2170,6 +2187,12 @@ namespace
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Headset picture resolution");
+        // In a host that draws the game at its own size (Project Reclaimer) the scale does nothing: say where
+        // the size is set and leave the controls visibly off.
+        if (g_hostOwnsRenderSize)
+            ImGui::TextWrapped("Project Reclaimer draws the game at its own size. Change it in Project "
+                               "Reclaimer: Settings > Graphics > Render resolution.");
+        ImGui::BeginDisabled(g_hostOwnsRenderSize);
         changed |= vr_menu::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
         // Same even-rounding the launcher applies, so this is the exact render
@@ -2198,6 +2221,7 @@ namespace
                 changed = true;
             }
         }
+        ImGui::EndDisabled();
         const int nextWidth=scaleEven(kNativeRenderWidth,g_config.resolution_scale);
         const int nextHeight=scaleEven(kNativeRenderHeight,g_config.resolution_scale);
         ImGui::TextDisabled("Requested picture: %d x %d per eye",nextWidth,nextHeight);

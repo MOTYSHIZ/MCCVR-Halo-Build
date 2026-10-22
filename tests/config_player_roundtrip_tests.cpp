@@ -52,6 +52,10 @@ int main()
     g_config = Config{};
     ConfigLoad(path);
     g_config.mono_rendering = true;
+    g_config.hook_cost_frames = 503;
+    g_config.host_ui_panel = false;
+    g_config.host_ui_panel_width_m = 3.3f;
+    g_config.host_ui_panel_distance_m = 1.7f;
     ConfigSave();
 
     g_unknownKeys.clear();
@@ -63,6 +67,12 @@ int main()
         std::printf("FAIL: written by a player build and not read by one: %s\n", line.c_str());
     failures += static_cast<int>(g_unknownKeys.size());
     Check(g_config.mono_rendering, "mono_rendering is remembered");
+    Check(g_config.hook_cost_frames == 503, "hook_cost_frames is remembered");
+    Check(!g_config.host_ui_panel, "host_ui_panel is remembered");
+    Check(g_config.host_ui_panel_width_m > 3.29f && g_config.host_ui_panel_width_m < 3.31f,
+          "host_ui_panel_width_m is remembered");
+    Check(g_config.host_ui_panel_distance_m > 1.69f && g_config.host_ui_panel_distance_m < 1.71f,
+          "host_ui_panel_distance_m is remembered");
 
     if (failures)
         std::printf("%d check(s) failed\n", failures);

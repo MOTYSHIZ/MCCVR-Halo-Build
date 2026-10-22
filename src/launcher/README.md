@@ -116,3 +116,29 @@ locked-destination rollback and strict GitHub JSON parsing.
 with valid and malicious local archives. Neither test launches or writes to a
 real MCC installation. Native Steam/Store launch behavior still requires user
 runtime testing; those paths were preserved, not runtime-accepted by these tests.
+
+## Project Reclaimer (experimental)
+
+The menu's last section starts Project Reclaimer, a standalone client that runs MCC's `halo3.dll`, with the VR
+mod. It needs `HaloMCCVR.dll` and `HaloMCCVRReclaimerRelay.dll` beside the launcher (or in its `ModFiles`
+folder); the relay is not in a player package.
+
+- **The path** of the game program (`project-reclaimer-v<version>.exe`) is typed, pasted, or picked with
+  Browse. It is kept as the one line of `reclaimer_client.txt` beside the launcher and read back at the next
+  start. Clearing the field forgets it.
+- **Detect** looks, in this order, where the client's own join links point (it registers a `reclaimer:` link
+  for the user the first time it runs: `Software\Classes\reclaimer\shell\open\command`), at a client that is
+  running now, and in the folders around the launcher. With no path kept, the menu offers what Detect finds
+  when it opens and keeps it only once it is used.
+- **The line under the path** gives the client's version from the file itself (the client updates itself in
+  place and keeps its first name) and whether the VR mod has been run with that version.
+- **Launch Project Reclaimer** starts the client suspended, loads the relay and resumes it. Logs and settings
+  are the launcher folder's own: `HaloMCCVRLauncher.log`, `HaloMCCVRReclaimerRelay.log`, `HaloMCCVR.log`,
+  `halomccvr.cfg`.
+
+`HaloMCCVRReclaimerLauncher.exe` is the same program as a one-click start: in a folder with the relay and a
+client it can find (the kept path first), it starts that client with no menu. Where it finds none it opens
+the menu. `HaloMCCVRLauncher.exe` always opens the menu.
+
+Validation: `halomccvr_reclaimer_host_logic_tests` covers the path tidying and the join-link command. The menu
+was drawn and read off screen; the launch from the menu's button has not been run.
