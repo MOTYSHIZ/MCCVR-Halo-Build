@@ -8738,6 +8738,14 @@ namespace
     void ApplyCachedPhysicalCrouch(GameTitle title,float* position,float physicalDown,bool playerControlled);
     void ReportReachCachedCrouch();
 
+#include "engine_exposure_lock.inl"
+    // Each title's own render_exposure_lock (engine_exposure_lock.inl). ODST's is engaged while a first-person seat
+    // owns the view (vehicle_steady_exposure); Halo 3's while the camera in use says "eyeAdjust": false.
+    EngineExposureLock g_odstExposure{"ODST vehicle exposure"};
+    EngineExposureLock g_halo3Exposure{"Halo 3 vehicle exposure"};
+    // Whether the vehicle camera in use for the seat the player is in holds the exposure (vehicle_cameras.inl).
+    bool Halo3VehicleCameraHoldsExposure();
+
     bool ApplyHeadLook(void* src)
     {
         // Every exit publishes what this pass lifted the view by (g_baseCamViewLiftZ): 0 unless it is
@@ -8902,6 +8910,8 @@ namespace
         // supplies the exact Blender point already parented through Halo's live
         // rendered node; consuming that world point directly is essential.
         Halo3VehicleCameraBeginPass();
+        EngineExposureLockApply(g_halo3Exposure,
+                                !cinematic && Halo3VehicleFpActive() && Halo3VehicleCameraHoldsExposure());
         if (!cinematic && Halo3VehicleFpActive())
         {
             // A chase camera chosen for this seat (vehicle_cameras.inl) stands in for the seat's own point;
@@ -9140,19 +9150,6 @@ namespace
         static_cast<uint8_t>(OdstVehicleBindingState::NotInstalled)};
     std::atomic<uint64_t> g_odstVehicleProbeMs{0};
     std::atomic<uint32_t> g_odstVehicleProbeFaults{0};
-    // ODST's own render_exposure_lock byte, in both of the copies the engine
-    // keeps: the EDITABLE block it rebuilds from every frame, and the INTERNAL
-    // block the eye-adaptation integrator actually reads. Engaged only while a
-    // first-person seat owns the view, so ordinary play keeps its adaptation.
-    uint8_t* g_odstExposureLock = nullptr;
-    uint8_t* g_odstExposureEditableLock = nullptr;
-    std::atomic<uint32_t> g_odstExposureLockState{0};
-    std::atomic<uint32_t> g_odstExposureEngages{0};
-    // Reads back the byte the ENGINE holds a frame after we engage, so the log
-    // reports whether the hold actually took rather than only that we wrote it.
-    // That distinction is exactly what let an inert lock ship.
-    std::atomic<uint32_t> g_odstExposureVerifyPending{0};
-    std::atomic<uint32_t> g_odstExposureVerified{0};
 
     // The personal-weapon shot line. The engine's weapon-barrel code calls the
     // occupant's camera-position evaluator into its OWN stack buffer and then
@@ -14169,116 +14166,19 @@ namespace
         return xf.occupiedSeatFlags;
     }
 
-    // Hold the engine's exposure steady while a seat owns the view. Looking
-    // down at a dashboard fills the luminance measurement with a large dark
-    // surface, so the eye-adaptation integrator ramps the whole scene's
-    // exposure -- something flat play never provokes because nobody looks at
-    // the dash. This is the engine's own lock, so authored/scripted cinematic
-    // exposure changes deliberately bypass it and still work.
-    //
-    // ASSERTED, never restored from a captured value: this is a module global
-    // that outlives our camera generation, and the engine's per-view save and
-    // restore copies the whole render-debug block around it. The stock value
-    // is the known constant 0, so leaving a seat writes that constant back
-    // rather than anything we remembered.
+    // Hold the engine's exposure steady while a seat owns the view. Looking down at a dashboard fills the luminance
+    // measurement with a large dark surface, so the eye-adaptation integrator ramps the whole scene's exposure --
+    // something flat play never provokes because nobody looks at the dash (engine_exposure_lock.inl).
     void OdstApplyExposureLock(bool engage)
     {
-        if (!g_odstExposureLock && !g_odstExposureEditableLock)
-            return;
-        uint8_t observed = 0xFFu;
-        __try
-        {
-            // Stock is 0 and held is 1 in BOTH copies. Write the internal one
-            // first: it is the copy the engine rewrites every frame, so if the
-            // editable write faults we are left latched on the self-healing
-            // copy rather than the permanent one.
-            const uint8_t want = engage ? 1u : 0u;
-            if (g_odstExposureLock)
-            {
-                observed = *g_odstExposureLock;
-                if (observed != want)
-                    *g_odstExposureLock = want;
-            }
-            // The editable block is the SOURCE main_render rebuilds the
-            // internal block from, and nothing in the module ever writes it
-            // but us. That makes this write stick -- which is the whole point,
-            // and also why every teardown path must release it.
-            if (g_odstExposureEditableLock &&
-                *g_odstExposureEditableLock != want)
-            {
-                *g_odstExposureEditableLock = want;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            g_odstExposureLock = nullptr;
-            g_odstExposureEditableLock = nullptr;
-            LOG("ODST vehicle exposure: FAULTED writing an adaptation switch; "
-                "exposure control abandoned, everything else unaffected");
-            return;
-        }
-        // One frame after engaging, `observed` is what the engine carried into
-        // this frame. If the hold is real it reads 1; if something still
-        // rebuilds it from stock it reads 0 and we say so once, loudly.
-        if (engage && g_odstExposureVerifyPending.load(std::memory_order_relaxed)
-            && observed != 0xFFu)
-        {
-            g_odstExposureVerifyPending.store(0, std::memory_order_relaxed);
-            g_odstExposureVerified.store(observed == 1u ? 1u : 2u,
-                                         std::memory_order_relaxed);
-            if (observed != 1u)
-            {
-                LOG("ODST vehicle exposure: the hold is NOT taking -- the "
-                    "engine's own copy read %u a frame after we engaged, so "
-                    "something still rebuilds it; auto-exposure is effectively "
-                    "still the engine's", (unsigned)observed);
-            }
-            else
-            {
-                LOG("ODST vehicle exposure: hold verified against the engine's "
-                    "own copy (reads 1 a frame after engaging)");
-            }
-        }
-        const uint32_t state = engage ? 1u : 0u;
-        if (g_odstExposureLockState.exchange(state, std::memory_order_relaxed)
-            != state)
-        {
-            // The engage COUNT is the diagnostic that matters: a steady ride
-            // must show one engage, not a stream of them. A stream would mean
-            // something is still releasing the lock mid-ride.
-            const uint32_t engages = engage
-                ? g_odstExposureEngages.fetch_add(
-                      1, std::memory_order_relaxed) + 1
-                : g_odstExposureEngages.load(std::memory_order_relaxed);
-            if (engage)
-            {
-                g_odstExposureVerifyPending.store(1, std::memory_order_relaxed);
-                g_odstExposureVerified.store(0, std::memory_order_relaxed);
-            }
-            LOG("ODST vehicle exposure: adaptation %s (engage #%u; internal "
-                "copy %s, editable copy %s)",
-                engage ? "HELD steady for the seat view"
-                       : "returned to the engine's own control",
-                engages, g_odstExposureLock ? "on" : "unavailable",
-                g_odstExposureEditableLock ? "on" : "unavailable");
-        }
+        EngineExposureLockApply(g_odstExposure, engage);
     }
 
-    // Teardown release. This is a prerequisite, not tidiness: nothing in the
-    // module ever writes the editable copy but us, and halo3odst.dll stays
-    // resident after a title exit, so an engage left latched would freeze
-    // auto-exposure for the menus, on-foot play and the next level. Release
-    // first, then drop the pointers, so we can never write through an address
-    // whose module has gone.
+    // Teardown release (engine_exposure_lock.inl): halo3odst.dll stays resident after a title exit, so an engage left
+    // latched would freeze auto-exposure for the menus, on-foot play and the next level.
     void ReleaseOdstExposureLock()
     {
-        if (g_odstExposureLock || g_odstExposureEditableLock)
-            OdstApplyExposureLock(false);
-        g_odstExposureLock = nullptr;
-        g_odstExposureEditableLock = nullptr;
-        g_odstExposureLockState.store(0, std::memory_order_relaxed);
-        g_odstExposureVerifyPending.store(0, std::memory_order_relaxed);
-        g_odstExposureVerified.store(0, std::memory_order_relaxed);
+        EngineExposureLockRelease(g_odstExposure);
     }
 
     // The shot-origin hook must come out with the module. Its detour reads
@@ -17378,35 +17278,6 @@ namespace
         "48 8B C4 48 89 58 08 48 89 68 10 48 89 70 18 "
         "57 41 54 41 55 41 56 41 57 48 83 EC 30 "
         "4C 8B EA 0F 29 70 C8 48 8D 50 20 8B F9 4D 8B F0";
-    // ODST's eye-adaptation integrator tests this byte before it writes the
-    // blended exposure; nonzero freezes adaptation. It is the engine's own
-    // `render_exposure_lock` (named in HREK's debug menu and present in
-    // H3ODSTEK's unstripped debug-var table), and it is read at exactly one
-    // place in the whole module. The debug-var record ships with a NULL value
-    // pointer in retail, so the storage is decoded from this instruction
-    // instead: lock byte = matchRva + 7 + disp32 at match+3.
-    const char* kOdstExposureLockSig =
-        "40 38 2D ?? ?? ?? ?? 0F 57 C9 0F 28 C4 F3 0F 5C C6 F3 0F 5A C8";
-    // The byte kOdstExposureLockSig finds is the engine's INTERNAL copy of the
-    // post-process settings block, and the engine rebuilds that copy from a
-    // second, editable block once per rendered frame. `accept_edited_settings`
-    // is inlined into main_render as this 0x38-byte global-to-global copy, and
-    // it runs AFTER the camera-copy pass where we write and BEFORE the only
-    // instruction that reads the lock. So writing the internal copy alone is
-    // erased every frame before anyone looks at it -- measured: the byte held
-    // exactly as designed for nine seat entries and the exposure still moved.
-    // Matching the copy itself yields BOTH blocks, so we can write the source
-    // the engine propagates from as well as the destination it lands in.
-    //   editableBase = hit + 7  + disp32 at hit+3   (expected +0x2D7E210)
-    //   internalBase = hit + 14 + disp32 at hit+10  (expected +0x8F0D40)
-    //   *Lock        = *Base + 0x30 (m_auto_exposure_lock)
-    // The internal lock this yields must equal the address the independent
-    // kOdstExposureLockSig decode produces; two signatures agreeing on one
-    // field is what replaces a hardcoded address here.
-    const char* kOdstPostprocessAcceptSig =
-        "0F 10 05 ?? ?? ?? ?? 0F 11 05 ?? ?? ?? ?? 0F 10 0D ?? ?? ?? ?? "
-        "0F 11 0D ?? ?? ?? ?? 0F 10 05 ?? ?? ?? ?? 0F 11 05 ?? ?? ?? ?? "
-        "F2 0F 10 0D ?? ?? ?? ?? F2 0F 11 0D ?? ?? ?? ??";
 
     // The occupant camera-position evaluator (`unit_get_camera_position`) and
     // the weapon-barrel firing-data function that calls it. Both patterns also
@@ -17962,6 +17833,7 @@ namespace
         RemoveHalo3HudNote();
         RemoveHalo3TagNames();
         RemoveHalo3StringIds();
+        EngineExposureLockRelease(g_halo3Exposure);
         RetireHalo3VehicleBoom();
         if (!RemoveHalo3TrackerHudHeight()) return false;
         if (!LegacyDriveRemove(GameTitle::Halo3)) return false;
@@ -18184,6 +18056,8 @@ namespace
         }
 
         Halo3PreparePhysicalCrouchCamera(base,size);
+        // The exposure lock a vehicle camera's "eyeAdjust": false holds (engine_exposure_lock.inl). Optional.
+        EngineExposureLockResolve(g_halo3Exposure, base, size);
 
         // Halo 3 vehicle-camera transactions. The three established vehicle
         // identities own only the base sampler. Render-node interpolation and
@@ -19807,109 +19681,9 @@ namespace
             (unsigned long long)(tagBaseAddress - base),
             (unsigned long long)kOdstEngineTlsIndexRva);
 
-        // Exposure lock: a third independent transaction. Losing it costs only
-        // the steady exposure in a seat.
-        g_odstExposureLock = nullptr;
-        const uintptr_t exposureHit =
-            sig::Find(base, size, kOdstExposureLockSig);
-        const bool exposureUnique = exposureHit && !sig::Find(
-            exposureHit + 1, base + size - exposureHit - 1,
-            kOdstExposureLockSig);
-        if (exposureUnique)
-        {
-            const uintptr_t lockAddress = exposureHit + 7 +
-                *reinterpret_cast<const int32_t*>(exposureHit + 3);
-            if (lockAddress >= base && lockAddress + 1 <= base + size)
-            {
-                g_odstExposureLock = reinterpret_cast<uint8_t*>(lockAddress);
-                LOG("ODST vehicle exposure: render_exposure_lock resolved at "
-                    "+0x%llX (from the adaptation test at +0x%llX); seat views "
-                    "will hold a steady exposure",
-                    (unsigned long long)(lockAddress - base),
-                    (unsigned long long)(exposureHit - base));
-            }
-        }
-        if (!g_odstExposureLock)
-        {
-            LOG("ODST vehicle exposure: adaptation-lock signature "
-                "missing/ambiguous (found=%d unique=%d); the dash will keep "
-                "driving auto-exposure and everything else is unaffected",
-                exposureHit ? 1 : 0, exposureUnique ? 1 : 0);
-        }
-
-        // The editable copy is what makes the lock stick. The engine rebuilds
-        // the internal copy from it once per rendered frame, between our write
-        // and the integrator's only read, so the internal write alone is
-        // erased before it is ever consulted. Accept this only if the copy's
-        // own decode of the internal block lands on the exact address the
-        // independent adaptation-test signature above produced.
-        g_odstExposureEditableLock = nullptr;
-        const uintptr_t acceptHit =
-            sig::Find(base, size, kOdstPostprocessAcceptSig);
-        const bool acceptUnique = acceptHit && !sig::Find(
-            acceptHit + 1, base + size - acceptHit - 1,
-            kOdstPostprocessAcceptSig);
-        if (acceptUnique && g_odstExposureLock)
-        {
-            const uintptr_t editableBase = acceptHit + 7 +
-                *reinterpret_cast<const int32_t*>(acceptHit + 3);
-            const uintptr_t internalBase = acceptHit + 14 +
-                *reinterpret_cast<const int32_t*>(acceptHit + 10);
-            const uintptr_t editableLock = acceptHit + 50 +
-                *reinterpret_cast<const int32_t*>(acceptHit + 46);
-            const uintptr_t internalLock = acceptHit + 58 +
-                *reinterpret_cast<const int32_t*>(acceptHit + 54);
-            const bool inModule =
-                editableBase >= base && editableLock + 1 <= base + size &&
-                internalBase >= base && internalLock + 1 <= base + size;
-            // m_auto_exposure_lock is the last field of the 0x38-byte block.
-            const bool shaped =
-                editableLock == editableBase + 0x30 &&
-                internalLock == internalBase + 0x30;
-            // The cross-check that replaces a hardcoded address: two unrelated
-            // signatures must name the same byte.
-            const bool agrees = internalLock ==
-                reinterpret_cast<uintptr_t>(g_odstExposureLock);
-            if (inModule && shaped && agrees)
-            {
-                g_odstExposureEditableLock =
-                    reinterpret_cast<uint8_t*>(editableLock);
-                LOG("ODST vehicle exposure: settings-block copy at +0x%llX "
-                    "resolves editable=+0x%llX internal=+0x%llX; the internal "
-                    "address agrees with the adaptation test, so the seat hold "
-                    "writes the copy the engine propagates from",
-                    (unsigned long long)(acceptHit - base),
-                    (unsigned long long)(editableLock - base),
-                    (unsigned long long)(internalLock - base));
-            }
-            else
-            {
-                LOG("ODST vehicle exposure: settings-block copy failed its "
-                    "cross-check (inModule=%d shaped=%d agrees=%d; "
-                    "editable=+0x%llX internal=+0x%llX vs test +0x%llX); the "
-                    "seat hold is left OFF rather than writing a byte we "
-                    "cannot vouch for",
-                    inModule ? 1 : 0, shaped ? 1 : 0, agrees ? 1 : 0,
-                    (unsigned long long)(editableLock - base),
-                    (unsigned long long)(internalLock - base),
-                    (unsigned long long)(
-                        reinterpret_cast<uintptr_t>(g_odstExposureLock) - base));
-                // Without the editable copy the internal write is provably
-                // inert, so claiming a steady exposure would be a silent
-                // degrade. Refuse the whole feature instead.
-                g_odstExposureLock = nullptr;
-            }
-        }
-        else if (!g_odstExposureEditableLock)
-        {
-            LOG("ODST vehicle exposure: settings-block copy signature "
-                "missing/ambiguous (found=%d unique=%d lock=%d); the seat hold "
-                "is left OFF because writing only the internal copy is erased "
-                "every frame before the engine reads it",
-                acceptHit ? 1 : 0, acceptUnique ? 1 : 0,
-                g_odstExposureLock ? 1 : 0);
-            g_odstExposureLock = nullptr;
-        }
+        // Exposure lock: a third independent transaction (engine_exposure_lock.inl). Losing it costs only the
+        // steady exposure in a seat.
+        EngineExposureLockResolve(g_odstExposure, base, size);
 
         // The shot line. Resolve the camera-position evaluator and the weapon
         // barrel function that calls it, then find the ONE call inside that

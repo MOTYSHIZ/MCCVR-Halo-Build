@@ -517,6 +517,10 @@ struct Reader
             {
                 ok = TriState(item, at, camera.aimMarker, "true, false or null (null = the seat's aimMarker)");
             }
+            else if (key == "eyeAdjust")
+            {
+                ok = Boolean(item, at, camera.eyeAdjust);
+            }
             else if (key == "showHeadlessBody")
             {
                 ok = TriState(item, at, camera.showHeadlessBody,
@@ -965,6 +969,9 @@ const char* const kGuide[] = {
     "                    game seats it, all of it but your head; false is the game's own first-person seat, which",
     "                    shows your legs only. Left out: on in a driver's or gunner's seat, off in a passenger's",
     "                    (a passenger may hold a weapon, and its arms would be drawn twice)",
+    "  eyeAdjust         true | false (Halo 3): false holds the game's eye adaptation while this camera is in",
+    "                    use, so the exposure stays as it was when the camera was chosen -- a dark cockpit then",
+    "                    cannot brighten the view outside. Left out: true (the game adapts as it does)",
     "  hideRegions       [\"canopy\", ...] (Halo 3): parts of your own vehicle this camera does not draw, by",
     "                    the region names halomccvr_vehicle_parts.txt lists for it (or their numbers there) --",
     "                    e.g. a tinted canopy in front of a first-person seat. Left out: the vehicle drawn whole",
@@ -1080,6 +1087,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         out += std::string(", \"aimMarker\": ") + (camera.aimMarker ? "true" : "false");
     if (camera.showHeadlessBody >= 0)
         out += std::string(", \"showHeadlessBody\": ") + (camera.showHeadlessBody ? "true" : "false");
+    if (!camera.eyeAdjust)
+        out += ", \"eyeAdjust\": false";
     if (!camera.hideRegions.empty())
     {
         out += ", \"hideRegions\": [";

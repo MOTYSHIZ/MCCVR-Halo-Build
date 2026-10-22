@@ -54,6 +54,7 @@ struct VehicleCameraPublished
     std::atomic<uint32_t> chase{0};
     std::atomic<uint32_t> eyeNudge{0};
     std::atomic<uint32_t> showHeadlessBody{0};
+    std::atomic<uint32_t> holdExposure{0};
     vehicle_camera_select::ActiveCamera camera{};
     VehicleCameraSeatKey seat{};
 };
@@ -69,6 +70,7 @@ void VehicleCameraPublish(const vehicle_camera_select::ActiveCamera& camera, con
     const bool nudged = camera.offsetCm[0] != 0.0f || camera.offsetCm[1] != 0.0f || camera.offsetCm[2] != 0.0f;
     published.eyeNudge.store(camera.valid && !camera.chase && nudged ? 1u : 0u, std::memory_order_relaxed);
     published.showHeadlessBody.store(camera.valid && !camera.chase && camera.showHeadlessBody ? 1u : 0u, std::memory_order_relaxed);
+    published.holdExposure.store(camera.valid && camera.holdExposure ? 1u : 0u, std::memory_order_relaxed);
     published.seq.fetch_add(1, std::memory_order_release);
 }
 
@@ -104,6 +106,34 @@ bool Halo3VehicleCameraShowsHeadlessBody(uint32_t generation, int32_t vehicle, i
         return camera.valid && !camera.chase && camera.showHeadlessBody && seat == wanted;
     }
     known = false;
+    return false;
+}
+
+// A CAMERA'S "eyeAdjust": false for exactly the seat the player is in (any camera type): the camera pass's question
+// once a frame (engine_exposure_lock.inl holds the game's adaptation while it is true). One atomic load while no
+// camera in use asks for it; a camera being published both times it is read answers false for that frame.
+bool Halo3VehicleCameraHoldsExposure()
+{
+    const VehicleCameraPublished& published = g_vehicleCameraPublished;
+    if (!published.holdExposure.load(std::memory_order_acquire))
+        return false;
+    Halo3SeatSnapshot seat;
+    if (!Halo3ReadSeatSnapshot(seat))
+        return false;
+    const VehicleCameraSeatKey wanted{g_halo3RuntimeGeneration.load(std::memory_order_relaxed), seat.parentHandle,
+                                      seat.seatIndex, seat.identity, seat.mounted};
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = published.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        const bool hold = published.camera.valid && published.camera.holdExposure;
+        const VehicleCameraSeatKey chosenFor = published.seat;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (published.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        return hold && chosenFor == wanted;
+    }
     return false;
 }
 

@@ -413,6 +413,29 @@ static void TestHideRegions()
           "a camera without them hides nothing");
 }
 
+// "eyeAdjust": false holds the exposure for that camera, of either type; published, described; a camera without
+// it leaves the game's adaptation alone.
+static void TestEyeAdjust()
+{
+    const std::string text =
+        "{ \"games\": { \"halo3\": { \"vehicles\": { \"longsword\": { \"cameras\": ["
+        " { \"name\": \"Seat\", \"type\": \"firstperson\", \"eyeAdjust\": false },"
+        " { \"name\": \"Behind\", \"type\": \"chase\" },"
+        " { \"name\": \"Far\", \"type\": \"chase\", \"eyeAdjust\": false } ] } } } } }";
+    Selector selector;
+    selector.SetTable(Read(text));
+    selector.Update("halo3", true, "longsword", kSeatDriver, true);
+    Check(selector.Active().valid && !selector.Active().chase && selector.Active().holdExposure &&
+              Has(selector.Describe(), "exposure held"),
+          "a firstperson camera with eyeAdjust false holds the exposure, and the log says so");
+    selector.StepCamera(1);
+    Check(selector.Active().chase && !selector.Active().holdExposure && !Has(selector.Describe(), "exposure"),
+          "a camera without it leaves the game's adaptation alone");
+    selector.StepCamera(1);
+    Check(selector.Active().chase && selector.Active().holdExposure && Has(selector.Describe(), "exposure held"),
+          "and a chase camera can hold it too");
+}
+
 static void TestShowBody()
 {
     const std::string text =
@@ -706,6 +729,7 @@ int main()
     TestFirstPersonOffset();
     TestShowBody();
     TestHideRegions();
+    TestEyeAdjust();
     TestMemoryPerVehicleAndSeat();
     TestControlChoice();
     TestMemoryFile();

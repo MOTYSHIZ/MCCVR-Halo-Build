@@ -633,6 +633,21 @@ static void TestBoundsAndErrors()
           "camera types as the file writes them");
 }
 
+// "eyeAdjust": read, left out when true, written back when false, and a wrong value flagged.
+static void TestEyeAdjustKey()
+{
+    Table table;
+    Check(Read(OneVehicle("{ \"cameras\": [ { \"type\": \"firstperson\", \"eyeAdjust\": false }, {} ] }"), table).ok,
+          "a camera's eyeAdjust is read");
+    Check(!table.games[0].vehicles[0].cameras[0].eyeAdjust && table.games[0].vehicles[0].cameras[1].eyeAdjust,
+          "false where it says so, true where it is left out");
+    const std::string text = ToJson(table, false);
+    Check(Has(text, "\"eyeAdjust\": false") && text.find("\"eyeAdjust\": true") == std::string::npos,
+          "and written back only where it is false");
+    const ParseResult bad = Read(OneVehicle("{ \"cameras\": [ { \"eyeAdjust\": 3 } ] }"), table);
+    Check(Flagged(bad, "eyeAdjust"), "a value that is not true or false is flagged");
+}
+
 // A SLIP COSTS ONLY ITS OWN PART: a quoted true / false or number is read as meant; a wrong value leaves its field at
 // its default; a camera, tethering mode, entry or section that cannot be read is left out and the rest applies; only
 // a file of which nothing can be read leaves the table in use as it was.
@@ -803,6 +818,7 @@ int main()
     TestMatching();
     TestCarryMode();
     TestBoundsAndErrors();
+    TestEyeAdjustKey();
     TestResilience();
     TestHideRegions();
     TestHideParts();

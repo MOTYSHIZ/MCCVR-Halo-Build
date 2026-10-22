@@ -45,6 +45,7 @@ struct ActiveCamera
     float lagLimitCm = 0.0f; // vehicle_camera_file::LagLimitOf: the furthest from its place; 0 = no limit
     float boomPitchDeg = vehicle_camera_file::kBoomPitchUnset; // the camera's "boomPitch"
     bool aimMarker = false;  // vehicle_camera_file::EffectiveAimMarker: the ring where the vehicle aims
+    bool holdExposure = false;       // the camera's "eyeAdjust": false
     bool showHeadlessBody = false;   // a firstperson camera's "showHeadlessBody": the seated body drawn without its head
     char hideRegions[kHideRegionsCapacity]{}; // the camera's "hideRegions", joined by commas; "" = none
     char hideParts[kHidePartsCapacity]{};     // the camera's "hideParts", likewise

@@ -216,6 +216,7 @@ void Selector::Select(int camera, int mode, bool countsAsChange)
                                                                            : vehicle_camera_file::kBoomPitchUnset;
     next.aimMarker = vehicle_camera_file::EffectiveAimMarker(*entry, camera, mode);
     next.showHeadlessBody = vehicle_camera_file::EffectiveShowHeadlessBody(chosen, seat_);
+    next.holdExposure = !chosen.eyeAdjust;
     {
         std::string joined;
         for (const std::string& name : chosen.hideRegions)
@@ -603,6 +604,8 @@ std::string Selector::Describe() const
             line += std::string(", hiding parts ") + active_.hideParts;
         if (active_.fadeParts[0])
             line += std::string(", fading ") + active_.fadeParts;
+        if (active_.holdExposure)
+            line += ", exposure held";
         return line;
     }
     if (active_.modeCount > 1)
@@ -638,6 +641,8 @@ std::string Selector::Describe() const
         line += std::string(", hiding parts ") + active_.hideParts;
     if (active_.fadeParts[0])
         line += std::string(", fading ") + active_.fadeParts;
+    if (active_.holdExposure)
+        line += ", exposure held";
     return line;
 }
 } // namespace vehicle_camera_select
