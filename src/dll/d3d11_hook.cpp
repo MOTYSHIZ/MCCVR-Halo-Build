@@ -906,6 +906,13 @@ static std::atomic<UINT> g_planOutputW{0};
 static std::atomic<UINT> g_planOutputH{0};
 static std::atomic<bool> g_planDlss{false};
 static bool g_planDlssRuntimePresent = false;
+// In a host that draws the game at its own size (Project Reclaimer): the size the Picture panel asks for, width in
+// the high half, fitted to what the host accepts; what its Native render resolution is answered with
+// (HostEnumDisplaySettingsShim). 0 until planned.
+static std::atomic<uint64_t> g_hostWant{0};
+// `atStart`: the plan made as the mod starts, before the host has read its size; later, a change the host takes at
+// its next start.
+static void HostWantRenderSize(UINT width, UINT height, bool atStart);
 
 static bool DlssRuntimeBesideMod()
 {
@@ -972,6 +979,8 @@ static void InitRenderPlan()
         : (g_config.upscaler == dlss::kUpscalerDlss
                ? "DLSS selected but nvngx_dlss.dll is not beside the mod; full-size render"
                : "DLSS off"));
+    if (g_hostOwnsRenderSize)
+        HostWantRenderSize(g_planOutputW.load(), g_planOutputH.load(), true);
 }
 
 void D3D_GetRenderPlan(unsigned& renderW, unsigned& renderH,
@@ -1015,9 +1024,13 @@ D3DRenderPlanResult D3D_RequestRenderPlan(
 {
     if (!renderW || !renderH || !outputW || !outputH)
         return D3DRenderPlanResult::Unchanged;
-    // The host draws at its own size: no plan the config asks for can be applied, and none is queued.
+    // The host draws at its own size: nothing is queued. Project Reclaimer's follows the Picture panel through its
+    // Native render resolution, which the mod answers (HostEnumDisplaySettingsShim).
     if (g_hostOwnsRenderSize)
+    {
+        HostWantRenderSize(outputW, outputH, false);
         return D3DRenderPlanResult::Unchanged;
+    }
     static bool loggedLoadingDeferral = false;
     if (!dlss::CanDispatchLiveResize(TitleAdapter_GetRuntimeMode()))
     {
@@ -1187,8 +1200,9 @@ static void InitForcedRenderSize()
     {
         // The forced size stays 0, which is this file's pass-through: the swapchain is created and resized as
         // the game asks, no size is lied about, and AdoptHostRenderSize takes the game's size as the plan.
-        LOG("Live render sizing: OFF in this host. It draws the game at its own render resolution whatever the "
-            "swapchain's size, so the game's own swapchain is the VR raster and Resolution scale does nothing");
+        LOG("Live render sizing: the host draws the game at its own render resolution whatever the swapchain's "
+            "size, so the mod sizes no swapchain and the game's own is the VR raster. With Project Reclaimer's "
+            "Render resolution on Native that size is the Picture panel's (its display mode is answered with it)");
         return;
     }
     g_forcedRenderW = g_planRenderW.load();
@@ -1220,8 +1234,124 @@ static void AdoptHostRenderSize(UINT width, UINT height, const char* when)
     g_planOutputW = width;
     g_planOutputH = height;
     g_planDlss = false;
-    LOG("render plan: the host's own %ux%u (%s); the game renders and the headset gets that picture", width,
-        height, when);
+    const uint64_t want = g_hostWant.load(std::memory_order_relaxed);
+    const UINT wantW = static_cast<UINT>(want >> 32), wantH = static_cast<UINT>(want);
+    if (want && (wantW != width || wantH != height))
+    {
+        LOG("render plan: the host's own %ux%u (%s); the game renders and the headset gets that picture. It is not "
+            "the Picture panel's %ux%u: Project Reclaimer takes that size with its Render resolution on Native "
+            "(Settings > Graphics > Render resolution), from its next start", width, height, when, wantW, wantH);
+    }
+    else
+        LOG("render plan: the host's own %ux%u (%s)%s; the game renders and the headset gets that picture", width,
+            height, when, want ? ", the Picture panel's size" : "");
+}
+
+// PROJECT RECLAIMER'S RENDER SIZE FROM THE PICTURE PANEL. Its Native render resolution is the current display mode
+// of the window's monitor, which it reads through its own import of EnumDisplaySettingsW(ENUM_CURRENT_SETTINGS) (in
+// four places in 0.9.8, each choosing between Native and its 16:9 presets). That import is claimed and answers the
+// Picture panel's size, fitted to the range Reclaimer accepts (reclaimer_host::FitNativeRenderSize). Every other
+// field and mode number, and every caller outside its image -- DXGI, Windows, this mod -- see the real display. A
+// preset never asks, so it keeps its own size. Reclaimer reads it as it starts (its code suggests also when its own
+// settings change; unmeasured), not on a display-change message (a posted WM_DISPLAYCHANGE was not followed by a
+// read), so a size the panel asks for later is taken at its next start.
+using EnumDisplaySettingsWFn = BOOL(WINAPI*)(LPCWSTR, DWORD, DEVMODEW*);
+static EnumDisplaySettingsWFn g_hostPrevEnumDisplaySettingsW = nullptr;
+static std::atomic<uint64_t> g_hostLastAnswered{0};
+static std::atomic<uint32_t> g_hostAnswers{0};
+
+static BOOL WINAPI HostEnumDisplaySettingsShim(LPCWSTR device, DWORD mode, DEVMODEW* dm)
+{
+    const EnumDisplaySettingsWFn real =
+        g_hostPrevEnumDisplaySettingsW ? g_hostPrevEnumDisplaySettingsW : &EnumDisplaySettingsW;
+    const BOOL ok = real(device, mode, dm);
+    if (!ok || mode != ENUM_CURRENT_SETTINGS || !dm)
+        return ok;
+    const uint64_t want = g_hostWant.load(std::memory_order_relaxed);
+    if (!want)
+        return ok;
+    const DWORD realW = dm->dmPelsWidth, realH = dm->dmPelsHeight;
+    dm->dmPelsWidth = static_cast<DWORD>(want >> 32);
+    dm->dmPelsHeight = static_cast<DWORD>(want & 0xFFFFFFFFu);
+    // Every answer while there have been few (Reclaimer reads it when it decides its size, not each frame), then
+    // only a changed one.
+    const uint32_t answers = g_hostAnswers.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (g_hostLastAnswered.exchange(want, std::memory_order_relaxed) != want || answers <= 12)
+        LOG("render size: Project Reclaimer read its display mode (%lux%lu) and was given the Picture panel's "
+            "%lux%lu, what its Native render resolution renders at (read %u)", realW, realH, dm->dmPelsWidth,
+            dm->dmPelsHeight, answers);
+    return ok;
+}
+
+static void ClaimHostDisplayModeImport()
+{
+    const BYTE* base = reinterpret_cast<const BYTE*>(GetModuleHandleW(nullptr));
+    if (!base)
+        return;
+    const auto dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    const auto nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+    const auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    for (auto desc = dir.VirtualAddress ? reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress)
+                                        : nullptr;
+         desc && desc->Name; ++desc)
+    {
+        if (_stricmp(reinterpret_cast<const char*>(base + desc->Name), "user32.dll") != 0 ||
+            !desc->OriginalFirstThunk)
+            continue;
+        auto names = reinterpret_cast<const IMAGE_THUNK_DATA*>(base + desc->OriginalFirstThunk);
+        auto iat = reinterpret_cast<IMAGE_THUNK_DATA*>(const_cast<BYTE*>(base) + desc->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++iat)
+        {
+            if (IMAGE_SNAP_BY_ORDINAL(names->u1.Ordinal))
+                continue;
+            const auto imp = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            if (strcmp(imp->Name, "EnumDisplaySettingsW") != 0)
+                continue;
+            void** slot = reinterpret_cast<void**>(&iat->u1.Function);
+            if (*slot == reinterpret_cast<void*>(&HostEnumDisplaySettingsShim))
+                return;
+            DWORD oldProtect = 0;
+            if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &oldProtect))
+            {
+                LOG("render size: the host's import of EnumDisplaySettingsW could not be claimed (error %lu); its "
+                    "Native render resolution stays the display's", GetLastError());
+                return;
+            }
+            g_hostPrevEnumDisplaySettingsW = reinterpret_cast<EnumDisplaySettingsWFn>(*slot);
+            *slot = reinterpret_cast<void*>(&HostEnumDisplaySettingsShim);
+            VirtualProtect(slot, sizeof(void*), oldProtect, &oldProtect);
+            LOG("render size: claimed the host's import of EnumDisplaySettingsW (previous handler %p); its Native "
+                "render resolution renders at the Picture panel's size",
+                reinterpret_cast<void*>(g_hostPrevEnumDisplaySettingsW));
+            return;
+        }
+    }
+    LOG("render size: the host imports no EnumDisplaySettingsW by name; its render resolution stays its own");
+}
+
+static void HostWantRenderSize(UINT width, UINT height, bool atStart)
+{
+    if (!g_hostOwnsRenderSize || !width || !height)
+        return;
+    unsigned fitW = width, fitH = height;
+    if (!reclaimer_host::FitNativeRenderSize(fitW, fitH))
+    {
+        static std::atomic<bool> logged{false};
+        if (!logged.exchange(true, std::memory_order_relaxed))
+            LOG("render size: the Picture panel's %ux%u is outside what Project Reclaimer accepts (640x480 to "
+                "7680x4320) at any size of that shape; its Native render resolution stays the display's",
+                width, height);
+        return;
+    }
+    const uint64_t want = (uint64_t(fitW) << 32) | fitH;
+    if (g_hostWant.exchange(want, std::memory_order_relaxed) == want)
+        return;
+    const char* const when = atStart ? "" : "; Project Reclaimer takes it at its next start";
+    if (fitW != width || fitH != height)
+        LOG("render size: the Picture panel asks for %ux%u, %ux%u in the range Project Reclaimer accepts%s", width,
+            height, fitW, fitH, when);
+    else
+        LOG("render size: the Picture panel asks for %ux%u%s", fitW, fitH, when);
 }
 
 // Game-executable image range, used to scope the client-rect lie and cursor
@@ -3100,6 +3230,8 @@ bool InstallD3D11Hooks()
     // Install the complete size/metrics transaction for either window preference.
     InitRenderPlan();
     InitForcedRenderSize();
+    if (g_hostOwnsRenderSize)
+        ClaimHostDisplayModeImport();
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);

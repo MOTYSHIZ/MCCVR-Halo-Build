@@ -475,4 +475,31 @@ inline uint32_t ChangedTexels(const uint8_t* before, size_t beforePitch, const u
     }
     return changed;
 }
+
+// THE SIZE PROJECT RECLAIMER RENDERS AT. Its Render resolution is a preset (720p to 2160p, all 16:9) or Native: the
+// current display mode of the window's monitor, read with EnumDisplaySettingsW(ENUM_CURRENT_SETTINGS) and accepted
+// from 640 x 480 to 7680 x 4320 (outside that it renders 1920 x 1080; measured on 0.9.8). The mod answers that
+// read with the size the Picture panel asks for, so with Native the game renders at the size it would in MCC.
+// `width` x `height` is fitted into the accepted range: scaled down to fit, its shape kept, both even. False when
+// no size in the range has that shape or a side is 0.
+inline constexpr unsigned kNativeRenderMinWidth = 640, kNativeRenderMinHeight = 480;
+inline constexpr unsigned kNativeRenderMaxWidth = 7680, kNativeRenderMaxHeight = 4320;
+inline bool FitNativeRenderSize(unsigned& width, unsigned& height) noexcept
+{
+    if (!width || !height)
+        return false;
+    double scale = 1.0;
+    if (width > kNativeRenderMaxWidth)
+        scale = static_cast<double>(kNativeRenderMaxWidth) / width;
+    if (height * scale > kNativeRenderMaxHeight)
+        scale = static_cast<double>(kNativeRenderMaxHeight) / height;
+    const unsigned w = static_cast<unsigned>(width * scale) & ~1u;
+    const unsigned h = static_cast<unsigned>(height * scale) & ~1u;
+    if (w < kNativeRenderMinWidth || h < kNativeRenderMinHeight || w > kNativeRenderMaxWidth ||
+        h > kNativeRenderMaxHeight)
+        return false;
+    width = w;
+    height = h;
+    return true;
+}
 } // namespace reclaimer_host

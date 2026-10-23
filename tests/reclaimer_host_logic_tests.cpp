@@ -1,5 +1,6 @@
 // The Project Reclaimer decisions the launcher and the relay share (src/common/reclaimer_host_logic.h).
 #include "../src/common/reclaimer_host_logic.h"
+#include <cmath>
 #include <cstdio>
 
 using namespace reclaimer_host;
@@ -364,6 +365,24 @@ int main()
         CHECK(ChangedTexels(a.data(), pitch, b.data(), pitch, w, h, bpt) == 2);
         CHECK(ChangedTexels(a.data(), w * bpt - 1, b.data(), pitch, w, h, bpt) == 0);
         CHECK(ChangedTexels(nullptr, pitch, b.data(), pitch, w, h, bpt) == 0);
+    }
+    {
+        // The size Reclaimer's Native render resolution is answered with: the Picture panel's, fitted to its range.
+        unsigned w = 2912, h = 2100;
+        CHECK(FitNativeRenderSize(w, h) && w == 2912 && h == 2100);
+        w = 7688; h = 5544;                             // Resolution scale 2.64 ("Keith David")
+        CHECK(FitNativeRenderSize(w, h) && h <= kNativeRenderMaxHeight && w <= kNativeRenderMaxWidth &&
+              w % 2 == 0 && h % 2 == 0 && std::fabs(double(w) / h - 7688.0 / 5544.0) < 0.002);
+        w = 9000; h = 1000;                             // too wide: the width is the limit
+        CHECK(FitNativeRenderSize(w, h) && w == kNativeRenderMaxWidth && h == 852);
+        w = 1456; h = 1050;                             // Resolution scale 0.5
+        CHECK(FitNativeRenderSize(w, h) && w == 1456 && h == 1050);
+        w = 600; h = 400;                               // smaller than Reclaimer accepts: left alone
+        CHECK(!FitNativeRenderSize(w, h) && w == 600 && h == 400);
+        w = 0; h = 1050;
+        CHECK(!FitNativeRenderSize(w, h));
+        w = 20000; h = 100;                             // no size in range has that shape
+        CHECK(!FitNativeRenderSize(w, h));
     }
 
     if (g_failed)

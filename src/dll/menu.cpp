@@ -2309,12 +2309,12 @@ namespace
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("Headset picture resolution");
-        // In a host that draws the game at its own size (Project Reclaimer) the scale does nothing: say where
-        // the size is set and leave the controls visibly off.
+        // In a host that draws the game at its own size (Project Reclaimer) the scale sets that size while the
+        // host's own Render resolution is Native, from its next start (d3d11_hook.cpp, HostEnumDisplaySettingsShim).
         if (g_hostOwnsRenderSize)
-            ImGui::TextWrapped("Project Reclaimer draws the game at its own size. Change it in Project "
-                               "Reclaimer: Settings > Graphics > Render resolution.");
-        ImGui::BeginDisabled(g_hostOwnsRenderSize);
+            ImGui::TextWrapped("In Project Reclaimer this sets the game's size while Project Reclaimer's own "
+                               "Settings > Graphics > Render resolution is Native. Its other choices keep "
+                               "their own size. A change applies the next time Project Reclaimer starts.");
         changed |= vr_menu::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
         // Same even-rounding the launcher applies, so this is the exact render
@@ -2343,7 +2343,6 @@ namespace
                 changed = true;
             }
         }
-        ImGui::EndDisabled();
         const int nextWidth=scaleEven(kNativeRenderWidth,g_config.resolution_scale);
         const int nextHeight=scaleEven(kNativeRenderHeight,g_config.resolution_scale);
         ImGui::TextDisabled("Requested picture: %d x %d per eye",nextWidth,nextHeight);
@@ -2356,7 +2355,16 @@ namespace
         }
         unsigned actualW=0,actualH=0;
         const int resizeState=D3D_LiveResizeState(actualW,actualH);
-        if(resizeState==1) ImGui::TextDisabled("Applying resolution after the current frame...");
+        if(g_hostOwnsRenderSize)
+        {
+            if(!renderPlan.liveRenderW) ImGui::TextWrapped("Project Reclaimer has not drawn a frame yet.");
+            else if(renderPlan.liveRenderW!=(unsigned)nextWidth||renderPlan.liveRenderH!=(unsigned)nextHeight)
+                ImGui::TextWrapped("Project Reclaimer renders %u x %u. With its Render resolution on Native it "
+                                   "takes this size the next time it starts.",
+                                   renderPlan.liveRenderW,renderPlan.liveRenderH);
+            else ImGui::TextWrapped("Project Reclaimer renders at this size.");
+        }
+        else if(resizeState==1) ImGui::TextDisabled("Applying resolution after the current frame...");
         else if(resizeState==3) {
             ImGui::TextWrapped("Live resize could not complete. The current native render size was retained.");
             if(ImGui::Button("Retry resolution change")) D3D_RetryLiveResize();
