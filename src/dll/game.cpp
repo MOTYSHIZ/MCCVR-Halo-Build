@@ -52072,19 +52072,24 @@ void Game_GetHudSafeFrameStatus(int& matches, bool& scanning)
     matches = (c > 0) ? c : 0;
 }
 
-bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical)
+bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical, float* size)
 {
     const uint32_t h = g_hudAppliedSafeFrameHBits.load(std::memory_order_relaxed);
     const uint32_t v = g_hudAppliedSafeFrameVBits.load(std::memory_order_relaxed);
-    if (!h || !v)
+    const uint32_t s = g_hudAppliedBits.load(std::memory_order_relaxed);
+    if (!h || !v || !s)
         return false;
-    float readH = 0.0f, readV = 0.0f;
+    float readH = 0.0f, readV = 0.0f, readS = 0.0f;
     memcpy(&readH, &h, sizeof(readH));
     memcpy(&readV, &v, sizeof(readV));
-    if (!isfinite(readH) || !isfinite(readV) || readH <= 0.0f || readV <= 0.0f)
+    memcpy(&readS, &s, sizeof(readS));
+    if (!isfinite(readH) || !isfinite(readV) || !isfinite(readS) || readH <= 0.0f || readV <= 0.0f ||
+        readS <= 0.0f)
         return false;
     horizontal = readH;
     vertical = readV;
+    if (size)
+        *size = readS;
     return true;
 }
 

@@ -1821,6 +1821,25 @@ int main()
         Check(AuthoredReticleArtAspect(AuthoredReticleArtCentre{}) == 0.0f,
               "art shape: no measurement has no aspect");
         {
+            // Halo 3's magnification: the art keeps one size across rasters and safe frames for one HUD size.
+            const float mcc = Halo3ReticleCaptureScale(4.0f, true, 2100.0f, 0.2989f, 0.43f);
+            Check(std::fabs(mcc - 4.0f) < 1.0e-3f, "halo 3 magnification: the tuned raster keeps 4x");
+            const float reclaimer = Halo3ReticleCaptureScale(4.0f, true, 1440.0f, 0.2331f, 0.43f);
+            Check(std::fabs(reclaimer * 1440.0f * 0.2331f - mcc * 2100.0f * 0.2989f) < 1.0f,
+                  "halo 3 magnification: Project Reclaimer's smaller raster and safe frame show the art as large");
+            const float larger = Halo3ReticleCaptureScale(4.0f, true, 2100.0f, 0.2989f * 1.2f, 0.43f * 1.2f);
+            Check(std::fabs(larger - 4.0f) < 1.0e-3f,
+                  "halo 3 magnification: a larger HUD size still draws a larger crosshair");
+            Check(Halo3ReticleCaptureScale(4.0f, false, 1440.0f, 0.2331f, 0.43f) == 4.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 0.0f, 0.2331f, 0.43f) == 4.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 1440.0f, std::nanf(""), 0.43f) == 4.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 1440.0f, 0.2331f, 0.0f) == 4.0f,
+                  "halo 3 magnification: the title's own safe frame or an unusable input keeps 4x");
+            Check(Halo3ReticleCaptureScale(4.0f, true, 100.0f, 0.15f, 1.0f) == 16.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 100000.0f, 1.0f, 0.15f) == 1.0f,
+                  "halo 3 magnification: kept within a quarter and four times the tuned 4x");
+        }
+        {
             // The HUD's own scale: the pair measured in a headset with the ring 1.36 times as wide as tall.
             const float raster = 2912.0f / 2100.0f;
             const float measured = AuthoredReticleCanvasStretch(0.5246f, 0.2989f, raster, kHalo3HudCanvasAspect);
