@@ -168,7 +168,9 @@ void Game_GetHudSafeFrameStatus(int& matches, bool& scanning);
 // The safe-frame pair the active title's HUD is drawn with, while the mod's layout is in every slot; false while
 // it is not (the title's own safe frame then scales across and down alike). Lock-free: the crosshair capture
 // reads it on the thread that draws the HUD.
-bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical);
+// The safe-frame pair the title's HUD slots hold while every one holds the mod's layout; false otherwise.
+// `size`, when given, receives the HUD size that pair was computed from.
+bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical, float* size = nullptr);
 
 // Head-tracking controls, driven by hotkeys so we can tune it live in-headset.
 void Game_ToggleHeadTracking(); // F2

@@ -438,6 +438,8 @@ namespace
     // What the last capture was narrowed by, across and down, to give HUD art its authored shape back
     // (AuthoredReticleFitForCapture); 1 / 1 for a title whose capture is not fitted. For the art-centre log line.
     std::atomic<float> g_authoredReticleFitAcross{1.0f}, g_authoredReticleFitDown{1.0f};
+    // The last capture's magnification of the raster (Halo3ReticleCaptureScale for Halo 3 and ODST).
+    std::atomic<float> g_authoredReticleCaptureScale{1.0f};
     constexpr float kHalo2ReticleFollowEngage = 32.0f;     // texels: nearer the middle than this is centred art
     constexpr float kHalo2ReticleFollowDeadband = 6.0f;    // texels: a moved window holds the art this close
     constexpr float kHalo2ReticleFollowLimit = 768.0f;     // view pixels: no reticle is drawn farther out
@@ -18629,7 +18631,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         "for a %.2f deg crosshair (ink %llu); the quad is centred on the "
                                         "texture, not on the art; the latest capture's art is %.2f times as "
                                         "wide as it is tall (ink %llu, spread %.3f across, %.3f down); capture "
-                                        "fitted x%.3f across, x%.3f down for the HUD's own scale",
+                                        "fitted x%.3f across, x%.3f down for the HUD's own scale, magnified x%.2f",
                                         static_cast<int>(reticleTitle),
                                         g_authoredReticlePublishedCentre.u - 0.5f,
                                         g_authoredReticlePublishedCentre.v - 0.5f,
@@ -18645,7 +18647,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         g_authoredReticleLatestMeasured.spreadU,
                                         g_authoredReticleLatestMeasured.spreadV,
                                         g_authoredReticleFitAcross.load(std::memory_order_relaxed),
-                                        g_authoredReticleFitDown.load(std::memory_order_relaxed));
+                                        g_authoredReticleFitDown.load(std::memory_order_relaxed),
+                                        g_authoredReticleCaptureScale.load(std::memory_order_relaxed));
                                 else
                                     LOG("RETICLE art centre (title %d): not measured (%s)",
                                         static_cast<int>(reticleTitle),
@@ -24987,11 +24990,18 @@ static bool BeginAuthoredReticleCaptureInternal(
     // produced a totally blank result - consistent with a thin/hollow
     // reticle outline falling below rasterizer coverage at that extreme a
     // minification. Scope zoom remains separate.
+    // Halo 3's 4x was tuned on one raster and safe frame; it is scaled to keep the art that size on any other
+    // (Project Reclaimer runs a smaller raster and a smaller safe frame for the same settings).
+    const bool halo3Capture = captureTitle == GameTitle::Halo3 || captureTitle == GameTitle::Halo3ODST;
+    const bool reachCapture = captureTitle == GameTitle::HaloReach;
+    float safeHorizontal = 1.0f, safeVertical = 1.0f, hudSize = 0.0f;
+    const bool modLayoutApplied =
+        (halo3Capture || reachCapture) && Game_GetAppliedHudSafeFrame(safeHorizontal, safeVertical, &hudSize);
     const float authoredCaptureScale =
-        captureTitle == GameTitle::Halo3 ||
-        captureTitle == GameTitle::Halo3ODST ? 4.0f :
-        captureTitle == GameTitle::HaloReach ? 2.0f :
-        captureTitle == GameTitle::Halo4 ? 1.0f : 1.0f;
+        halo3Capture ? Halo3ReticleCaptureScale(4.0f, modLayoutApplied, captureViewport.Height, safeVertical,
+                                                hudSize) :
+        reachCapture ? 2.0f : 1.0f;
+    g_authoredReticleCaptureScale.store(authoredCaptureScale, std::memory_order_relaxed);
     captureViewport.Width *= authoredCaptureScale;
     captureViewport.Height *= authoredCaptureScale;
     // Halo 3 and ODST stretch their HUD's 16:9 canvas over the raster and scale it by the safe frame, across and
@@ -24999,12 +25009,9 @@ static bool BeginAuthoredReticleCaptureInternal(
     // shows it is square: narrow the wider axis here, by the HUD's own scale (authored_reticle_logic.h). Reach's
     // HUD is given the same safe-frame pair but is laid out for the raster itself, so only the pair stretches its
     // art; under its own safe frame it arrives as authored.
-    const bool reachCapture = captureTitle == GameTitle::HaloReach;
     AuthoredReticleCaptureFit captureFit{};
-    if (captureTitle == GameTitle::Halo3 || captureTitle == GameTitle::Halo3ODST || reachCapture)
+    if (halo3Capture || reachCapture)
     {
-        float safeHorizontal = 1.0f, safeVertical = 1.0f;
-        const bool modLayoutApplied = Game_GetAppliedHudSafeFrame(safeHorizontal, safeVertical);
         const float rasterAspect = captureViewport.Height > 0.0f
             ? captureViewport.Width / captureViewport.Height : 0.0f;
         captureFit = AuthoredReticleFitForCapture(modLayoutApplied, safeHorizontal, safeVertical, rasterAspect,
