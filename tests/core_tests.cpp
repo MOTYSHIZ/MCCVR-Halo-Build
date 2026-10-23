@@ -15513,10 +15513,10 @@ int main()
         const float reachSeed = sizeSeed(kTitleProfileReach);
         const float reachOpacitySeed = opacitySeed(kTitleProfileReach);
         Check(reachSeed == 10.3f && reachOpacitySeed == 0.69f && sizeSeed(4) == 8.0f && sizeSeed(5) == 8.0f &&
-                  sizeSeed(6) == 7.2f && sizeSeed(0) == 6.0f && sizeSeed(1) == 5.0f && sizeSeed(3) == 5.0f &&
+                  sizeSeed(6) == 7.2f && sizeSeed(0) == 6.0f && sizeSeed(1) == 6.0f && sizeSeed(3) == 5.0f &&
                   opacitySeed(0) == 0.8f && opacitySeed(4) == 0.8f,
-              "crosshair per game: the games' starts are Halo 3 6, Reach 10.3 at 0.69, Halo 2 8, Halo: Combat "
-              "Evolved 7.2 and the rest the shared 4 at 1.25");
+              "crosshair per game: the games' starts are Halo 3 and ODST 6, Reach 10.3 at 0.69, Halo 2 8, Halo: "
+              "Combat Evolved 7.2 and Halo 4 the shared 4 at 1.25");
         bool seeded = g_config.base_tunables.crosshair_size_deg == 5.0f &&
             g_config.base_tunables.crosshair_opacity == 0.8f;
         for (int i = 0; i < kTitleProfileCount; ++i)
@@ -15550,7 +15550,7 @@ int main()
                   g_config.base_tunables.crosshair_brightness == 1.5f,
               "crosshair per game: an edit lands in the running game's profile only");
         Config_ApplyTitleProfile(1);
-        Check(g_config.crosshair_size_deg == 5.0f && g_config.crosshair_opacity == 0.4f,
+        Check(g_config.crosshair_size_deg == 6.0f && g_config.crosshair_opacity == 0.4f,
               "crosshair per game: the next game brings its own");
         Config_ApplyTitleProfile(-1);
         Check(std::fabs(g_config.crosshair_size_deg - reachSeed) < 1.0e-4f &&
@@ -15604,7 +15604,7 @@ int main()
                   g_config.title_profiles[5].crosshair_size_deg == 8.0f &&
                   g_config.title_profiles[6].crosshair_size_deg == 7.2f &&
                   g_config.title_profiles[0].crosshair_opacity == 1.25f,
-              "crosshair per game: an older config's one size stays ODST's and Halo 4's, and Halo 3, Reach, "
+              "crosshair per game: an older config's one size stays Halo 4's, and Halo 3, ODST, Reach, "
               "Halo 2 and Halo: Combat Evolved start at their own");
         const Config untouched;
         bool defaults = untouched.crosshair_size_deg == 4.0f && untouched.crosshair_opacity == 1.25f &&

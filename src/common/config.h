@@ -382,7 +382,7 @@ struct CrosshairStart
 };
 inline constexpr CrosshairStart kCrosshairStarts[kTitleProfileCount] = {
     {6.00f, 1.25f},  // Halo 3
-    {4.00f, 1.25f},  // Halo 3: ODST
+    {6.00f, 1.25f},  // Halo 3: ODST
     {10.30f, 0.69f}, // Halo: Reach
     {4.00f, 1.25f},  // Halo 4
     {8.00f, 1.25f},  // Halo 2 Anniversary
