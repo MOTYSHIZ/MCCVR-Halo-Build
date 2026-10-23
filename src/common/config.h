@@ -495,6 +495,11 @@ struct Config
     bool host_ui_panel = true;
     float host_ui_panel_width_m = 2.8f;    // the panel's width, in meters (16:9 at 2.4 m: about 60 degrees across)
     float host_ui_panel_distance_m = 2.4f; // how far in front of the eyes it floats, in meters
+    // Project Reclaimer only: how its Hornet-class flyers (a Sparrowhawk, Falcon or Vulture on a mod map too)
+    // change height. Halo 3 reads that from a player preference MCC fills in and Reclaimer leaves at Halo 3's
+    // default, classic (aim up or down to climb or dive; the buttons do nothing). 1 = MCC's Ascend and Descend
+    // buttons (right A and the left grip); 0 = classic. Nothing in MCC. Followed live. (reclaimer_flight.inl)
+    bool reclaimer_flight_buttons = true;
 
     // Universal cutscene-only stereo theatre. A title enters it only after its
     // adapter proves the engine owns an authored camera and player camera

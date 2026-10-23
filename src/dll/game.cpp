@@ -400,6 +400,7 @@ bool Halo4Type13LogInstall(uintptr_t base, size_t size, uint32_t generation);
 #include "../common/scope_logic.h"
 #include "../common/two_hand_ik_logic.h"
 #include "gesture_melee_bindings.inl"
+#include "reclaimer_flight.inl"
 
 // AIM CALLER SPLIT (aim_caller_logic.h), engine side, shared by the Halo 3 / ODST / Halo 4 accumulator hook
 // (legacy_direct_drive.inl) and Reach's (ReachPcApplyForUser). The proofs an install makes on the loaded module
@@ -50054,6 +50055,7 @@ namespace
             // Fresh bridge admission waits for the resolver's proven snapshot.
             NativeVrActions_Poll();
             RefreshGestureMeleeBinding(activeTitle,activeLevelRunning,pollNow);
+            ReclaimerFlightPoll(activeTitle);
             Input_PollMccCrouchLock(pollNow);
             Input_ReportPhysicalCrouch(pollNow);
 #if HALOMCCVR_DEV_DIAGNOSTICS

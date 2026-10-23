@@ -1393,6 +1393,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "host_ui_panel")) { g_config.host_ui_panel = atoi(val) != 0; continue; }
         if (!strcmp(key, "host_ui_panel_width_m")) { g_config.host_ui_panel_width_m = (float)atof(val); continue; }
         if (!strcmp(key, "host_ui_panel_distance_m")) { g_config.host_ui_panel_distance_m = (float)atof(val); continue; }
+        if (!strcmp(key, "reclaimer_flight_buttons")) { g_config.reclaimer_flight_buttons = atoi(val) != 0; continue; }
 #if HALOMCCVR_DEV_DIAGNOSTICS   // research tools and dev overrides: a player build never reads them
         if (!strcmp(key, "reach_aim_probe")) { g_config.reach_aim_probe=atoi(val); continue; }
         if (!strcmp(key, "dev_install_search_check")) { g_config.dev_install_search_check = atoi(val) != 0 ? 1 : 0; continue; }
@@ -2214,6 +2215,10 @@ void ConfigSave()
             d.host_ui_panel_distance_m);
     fprintf(f, "host_ui_panel_width_m = %.2f\n", g_config.host_ui_panel_width_m);
     fprintf(f, "host_ui_panel_distance_m = %.2f\n\n", g_config.host_ui_panel_distance_m);
+    fprintf(f, "# Project Reclaimer only. How its Hornet-class flyers climb and dive. 1 = with the buttons, as in\n");
+    fprintf(f, "# MCC (right A climbs, the left grip dives). 0 = Project Reclaimer's classic Halo 3 controls: aim\n");
+    fprintf(f, "# up or down to climb or dive. (default %d)\n", d.reclaimer_flight_buttons ? 1 : 0);
+    fprintf(f, "reclaimer_flight_buttons = %d\n\n", g_config.reclaimer_flight_buttons ? 1 : 0);
     fprintf(f, "# Stereo 3D theatre for engine-confirmed cutscenes where the game\n");
     fprintf(f, "# has taken camera control away from the player. Shared by every\n");
     fprintf(f, "# supported title, including future title adapters. (default %d)\n",

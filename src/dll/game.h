@@ -171,6 +171,8 @@ void Game_GetHudSafeFrameStatus(int& matches, bool& scanning);
 // The safe-frame pair the title's HUD slots hold while every one holds the mod's layout; false otherwise.
 // `size`, when given, receives the HUD size that pair was computed from.
 bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical, float* size = nullptr);
+// Project Reclaimer: what reclaimer_flight_buttons does there right now, for the Vehicles panel.
+const char* Game_ReclaimerFlightStatus();
 
 // Head-tracking controls, driven by hotkeys so we can tune it live in-headset.
 void Game_ToggleHeadTracking(); // F2
