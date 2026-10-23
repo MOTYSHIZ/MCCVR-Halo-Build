@@ -80,7 +80,7 @@ uint8_t* ResolveReclaimerFlight(uintptr_t base, size_t size, const char*& why)
 // it. A host that sets it back (its defaults applied again) is answered on the next poll.
 void ReclaimerFlightPoll(const TitleDescriptor* title)
 {
-    if (!g_hostOwnsRenderSize || !title || title->title != GameTitle::Halo3)
+    if (!g_hostIsProjectReclaimer || !title || title->title != GameTitle::Halo3)
     {
         g_reclaimerFlightStatus.store(0, std::memory_order_relaxed);
         return;
@@ -156,7 +156,7 @@ const char* Game_ReclaimerFlightStatus()
 {
     switch (g_reclaimerFlightStatus.load(std::memory_order_relaxed))
     {
-    case 1: return "Flyers climb with right A and dive with the left grip, as in MCC.";
+    case 1: return "Flyers climb and dive with Ascend and Descend (right A and the left grip by default), as in MCC.";
     case 2: return "Flyers climb and dive by aiming up or down, as Halo 3 first shipped.";
     case 3: return "This version of Halo 3 does not match: flyers keep Project Reclaimer's own controls.";
     default: return "Applies once Halo 3 is running.";

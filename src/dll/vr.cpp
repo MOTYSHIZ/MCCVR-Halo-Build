@@ -220,6 +220,11 @@ namespace
     // since the last applied VR frame, so a short gunfire pulse that arrives and
     // clears between two frame samples is not aliased to zero. See SampleHapticPeak.
     std::atomic<float> g_peakHaptics{0.0f};
+    // The mod's own blip (VR_PulseGameHaptics): its amplitude and until when it is felt (GetTickCount64 ms). Held
+    // that long, not one frame: with nothing else asking, the next frame would otherwise stop the controller.
+    std::atomic<float> g_pulseHaptics{0.0f};
+    std::atomic<uint64_t> g_pulseHapticsUntilMs{0};
+    constexpr uint64_t kPulseHapticsMs = 80;
     // Optional world-contact feedback is hand-specific. These are one-shot
     // peak latches raised by a title's cold collision worker and consumed by
     // the existing OpenXR frame path; no engine thread calls OpenXR directly.
@@ -14390,9 +14395,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // Peak-hold: peek (without consuming) the max amplitude requested since
         // the last applied frame so a short gunfire pulse (SetState(high) then
         // SetState(0) between two frame samples) cannot be aliased to zero.
+        const float pulse = GetTickCount64() < g_pulseHapticsUntilMs.load(std::memory_order_acquire)
+            ? g_pulseHaptics.load(std::memory_order_relaxed) : 0.0f;
         const float latest = capabilityAllows
             ? std::clamp(
-                g_requestedHaptics.load(std::memory_order_acquire),
+                (std::max)(g_requestedHaptics.load(std::memory_order_acquire), pulse),
                 0.0f, 1.0f)
             : 0.0f;
         const float peekPeak = capabilityAllows
@@ -24675,6 +24682,8 @@ void VR_SetGameHaptics(float amplitude)
 void VR_PulseGameHaptics(float amplitude)
 {
     const float v = std::isfinite(amplitude) ? std::clamp(amplitude, 0.0f, 1.0f) : 0.0f;
+    g_pulseHaptics.store(v, std::memory_order_relaxed);
+    g_pulseHapticsUntilMs.store(GetTickCount64() + kPulseHapticsMs, std::memory_order_release);
     float cur = g_peakHaptics.load(std::memory_order_relaxed);
     while (v > cur && !g_peakHaptics.compare_exchange_weak(cur, v,
         std::memory_order_release, std::memory_order_relaxed))

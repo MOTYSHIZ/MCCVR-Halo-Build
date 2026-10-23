@@ -15596,7 +15596,7 @@ int main()
         ConfigLoad(crosshairPath.c_str());
         Check(g_config.base_tunables.crosshair_size_deg == 10.1f &&
                   g_config.title_profiles[0].crosshair_size_deg == 6.0f &&
-                  g_config.title_profiles[1].crosshair_size_deg == 10.1f &&
+                  g_config.title_profiles[1].crosshair_size_deg == 6.0f &&
                   g_config.title_profiles[3].crosshair_size_deg == 10.1f &&
                   g_config.title_profiles[kTitleProfileReach].crosshair_size_deg == 10.3f &&
                   g_config.title_profiles[kTitleProfileReach].crosshair_opacity == 0.69f &&
@@ -18427,6 +18427,14 @@ int main()
                 Check(first && held && std::fabs(stepped - 60.0f) < 0.5f && std::fabs(between - 60.0f) < 0.5f &&
                           std::fabs(next - 60.0f) < 0.5f && still == 0.0f && jump == 0.0f,
                       "step speed: each tick's step over the time since the last, held between ticks, 0 once still");
+                Halo3StepSpeed moving;
+                (void)Halo3StepSpeedUpdate(moving, p0, 20.0);
+                (void)Halo3StepSpeedUpdate(moving, p1, 20.0333);                  // 60 wu/s along +x: reach 7 wu
+                const float behind[3] = {-5.0f, 0.3f, 0.0f}, aside[3] = {0.0f, 4.0f, 0.0f}, tooFar[3] = {-9.0f, 0.0f, 0.0f};
+                Halo3StepSpeed resting;
+                Check(Halo3RootNodeWithinReach(behind, moving) && !Halo3RootNodeWithinReach(aside, moving) &&
+                          !Halo3RootNodeWithinReach(tooFar, moving) && !Halo3RootNodeWithinReach(behind, resting),
+                      "root node reach: along the motion it grows with speed, off it a world unit, at rest a world unit");
             }
             // A giant: HugeGrass's Lich has a live sphere of 112.25 wu, and its seat's frame stands inside it.
             const float lichCenter[3] = {40.0f, -12.0f, 30.0f};

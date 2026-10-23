@@ -166,10 +166,8 @@ void Game_DetachForVrRuntimeFailure();
 void Game_LocateHudSafeFrames();  // manual rescan (menu button; normally automatic)
 void Game_GetHudSafeFrameStatus(int& matches, bool& scanning);
 // The safe-frame pair the active title's HUD is drawn with, while the mod's layout is in every slot; false while
-// it is not (the title's own safe frame then scales across and down alike). Lock-free: the crosshair capture
-// reads it on the thread that draws the HUD.
-// The safe-frame pair the title's HUD slots hold while every one holds the mod's layout; false otherwise.
-// `size`, when given, receives the HUD size that pair was computed from.
+// it is not (the title's own safe frame then scales across and down alike). `size`, when given, receives the HUD
+// size that pair was computed from. Lock-free: the crosshair capture reads it on the thread that draws the HUD.
 bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical, float* size = nullptr);
 // Project Reclaimer: what reclaimer_flight_buttons does there right now, for the Vehicles panel.
 const char* Game_ReclaimerFlightStatus();

@@ -180,7 +180,7 @@ static DWORD WINAPI InitThread(LPVOID)
     ConfigLoadMigrating(primaryConfig.c_str(), legacyConfig.c_str());
     // Project Reclaimer draws the game at its own render resolution (config.h, g_hostOwnsRenderSize).
     if (reclaimer_host::IsClientExeName(reclaimer_host::Leaf(hostExe)))
-        g_hostOwnsRenderSize = true;
+        g_hostIsProjectReclaimer = g_hostOwnsRenderSize = true;
     if (!Telemetry_Init())
         LOG("telemetry: recorder unavailable; VR startup continues");
 #if HALOMCCVR_DEV_DIAGNOSTICS

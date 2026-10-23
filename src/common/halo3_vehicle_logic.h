@@ -1120,7 +1120,9 @@ inline bool Halo3AnchorWithinBounds(const float pos[3], const float center[3],
 // networked one where it was smoothed to), so its drawn root node stands off the simulation's origin by up to what
 // it covers in a tick or two. A world unit holds at rest and at MCC's ground speeds; a flyer boosting in Project
 // Reclaimer stood further off, and the vehicle cameras flipped frame by frame between the drawn and the simulated
-// frame, which is a shake. The reach is a world unit and what 0.1 s covers at the speed the origin moves.
+// frame, which is a shake. The reach is a world unit and what 0.1 s covers at the speed the origin moves, along
+// the way it moves only: off that line the root node must still stand within a world unit, so a model whose root
+// sits elsewhere is not taken once it moves fast.
 inline constexpr float kHalo3RootNodeRestReachWu = 1.0f;
 inline constexpr float kHalo3RootNodeLagSeconds = 0.1f;
 inline constexpr float kHalo3RootNodeMaxSpeedWu = 200.0f;
@@ -1137,6 +1139,7 @@ inline float Halo3RootNodeReachWu(float speedWuPerSecond) noexcept
 struct Halo3StepSpeed
 {
     float pos[3]{};
+    float dir[3]{};      // the way the last step went (unit), 0 with no speed
     double changedAt = 0.0;
     float speed = 0.0f;
     bool valid = false;
@@ -1160,14 +1163,39 @@ inline float Halo3StepSpeedUpdate(Halo3StepSpeed& track, const float pos[3], dou
     const double since = nowSeconds - track.changedAt;
     if (d2 > 0.0f)
     {
-        track.speed = since > 0.0 && since <= 0.5 ? static_cast<float>(std::sqrt(d2) / since) : 0.0f;
+        const float step = std::sqrt(d2);
+        track.speed = since > 0.0 && since <= 0.5 ? static_cast<float>(step / since) : 0.0f;
         for (int i = 0; i < 3; ++i)
+        {
+            track.dir[i] = track.speed > 0.0f ? (pos[i] - track.pos[i]) / step : 0.0f;
             track.pos[i] = pos[i];
+        }
         track.changedAt = nowSeconds;
     }
     else if (since > 0.5)
+    {
         track.speed = 0.0f;
+        track.dir[0] = track.dir[1] = track.dir[2] = 0.0f;
+    }
     return track.speed;
+}
+
+// Whether a drawn root node `away` (world units from the simulation's origin) stands in for that origin: within a
+// world unit off the line of motion, and along it within the reach the speed allows (Halo3RootNodeReachWu).
+inline bool Halo3RootNodeWithinReach(const float away[3], const Halo3StepSpeed& track) noexcept
+{
+    float d2 = 0.0f, along = 0.0f;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (!std::isfinite(away[i]))
+            return false;
+        d2 += away[i] * away[i];
+        along += away[i] * track.dir[i];
+    }
+    const float rest = kHalo3RootNodeRestReachWu;
+    const float side2 = d2 - along * along;
+    const float reach = Halo3RootNodeReachWu(track.speed);
+    return side2 <= rest * rest && std::fabs(along) <= reach;
 }
 
 // Frame provenance, published for the probe log so a headset report can be

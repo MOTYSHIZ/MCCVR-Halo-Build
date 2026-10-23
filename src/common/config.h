@@ -2009,6 +2009,8 @@ extern Config g_config;
 // the game's own swapchain as the VR raster; resolution_scale does nothing.
 // Set once at start (dllmain.cpp), before the D3D11 hooks are installed.
 extern bool g_hostOwnsRenderSize;
+// The game runs in Project Reclaimer (dllmain.cpp): what is Reclaimer's alone keys on this, not on the render size.
+extern bool g_hostIsProjectReclaimer;
 
 // C-TITLE-1 profile control. `profile` is 0..5 (Halo 3, ODST, Reach,
 // Halo 4, Halo 2 Anniversary, Halo 2 Classic) or -1 for the shared

@@ -991,12 +991,12 @@ namespace
             "OFF restores the stock behind-the-vehicle view instantly.");
         ImGui::Spacing();
         // Project Reclaimer only: how its flyers climb and dive (game.cpp, reclaimer_flight.inl).
-        if (g_hostOwnsRenderSize)
+        if (g_hostIsProjectReclaimer)
         {
             ImGui::Text("Project Reclaimer flying");
             changed |= ImGui::Checkbox("Climb and dive with buttons", &g_config.reclaimer_flight_buttons);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("On: Hornet-class flyers climb with right A and dive with the left grip, as in MCC.\n"
+                ImGui::SetTooltip("On: Hornet-class flyers climb and dive with Ascend and Descend, as in MCC.\n"
                                   "Off: Project Reclaimer's classic Halo 3 controls: aim up or down to climb or dive.");
             ImGui::TextDisabled("%s", Game_ReclaimerFlightStatus());
             ImGui::Spacing();

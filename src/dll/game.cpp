@@ -10852,8 +10852,7 @@ namespace
                         s_rootSpeed = Halo3StepSpeed{};
                         s_rootSpeedObject = nodeObject;
                     }
-                    const float reach = Halo3RootNodeReachWu(Halo3StepSpeedUpdate(s_rootSpeed, world.pos,
-                                                                                  Halo3NowSeconds()));
+                    (void)Halo3StepSpeedUpdate(s_rootSpeed, world.pos, Halo3NowSeconds());
                     bool rootInterpolated = false;
                     if (Halo3ReadLiveNodeMatrix(nodeObject, nodeObjectData, 0, rootNode, rootInterpolated))
                     {
@@ -10862,7 +10861,7 @@ namespace
                                                rootNode.position[2] - world.pos[2]};
                         rootValid =
                             Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f) &&
-                            away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= reach * reach &&
+                            Halo3RootNodeWithinReach(away, s_rootSpeed) &&
                             rootNode.forward[0] * world.fwd[0] + rootNode.forward[1] * world.fwd[1] +
                                     rootNode.forward[2] * world.fwd[2] > 0.94f &&
                             rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +

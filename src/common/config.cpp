@@ -21,6 +21,7 @@
 
 Config g_config;
 bool g_hostOwnsRenderSize = false;
+bool g_hostIsProjectReclaimer = false;
 
 // Shipped per-seat placements become built-in defaults, so a config file that
 // predates a key is still placed rather than bare. Halo 3/ODST rows are
