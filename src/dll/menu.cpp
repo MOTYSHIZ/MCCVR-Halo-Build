@@ -28,6 +28,7 @@
 #include "../common/log.h"
 #include "../common/config.h"
 #include "../common/roomscale_recenter_logic.h"
+#include "../common/reclaimer_host_logic.h"
 #include "../common/weapon_interaction_logic.h"
 #include "../common/vr_action_passthrough.h"
 #include "../common/halo2_vehicle_identity.h"
@@ -2314,9 +2315,12 @@ namespace
         if (g_hostOwnsRenderSize)
             ImGui::TextWrapped("In Project Reclaimer this sets the game's size while Project Reclaimer's own "
                                "Settings > Graphics > Render resolution is Native. Its other choices keep "
-                               "their own size. A change applies the next time Project Reclaimer starts.");
+                               "their own size. A change needs a restart of Project Reclaimer.");
         changed |= vr_menu::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
+        if (g_hostOwnsRenderSize && ImGui::IsItemHovered())
+            ImGui::SetTooltip("Project Reclaimer reads its size only as it starts:\n"
+                              "restart it for a change to take effect.");
         // Same even-rounding the launcher applies, so this is the exact render
         // size the next launch will ask MCC for.
         auto scaleEven = [](int base, float scale) {
@@ -2343,8 +2347,14 @@ namespace
                 changed = true;
             }
         }
-        const int nextWidth=scaleEven(kNativeRenderWidth,g_config.resolution_scale);
-        const int nextHeight=scaleEven(kNativeRenderHeight,g_config.resolution_scale);
+        int nextWidth=scaleEven(kNativeRenderWidth,g_config.resolution_scale);
+        int nextHeight=scaleEven(kNativeRenderHeight,g_config.resolution_scale);
+        // Project Reclaimer is given the size fitted into what it accepts (d3d11_hook.cpp, HostWantRenderSize).
+        if(g_hostOwnsRenderSize)
+        {
+            unsigned fitW=(unsigned)nextWidth,fitH=(unsigned)nextHeight;
+            if(reclaimer_host::FitNativeRenderSize(fitW,fitH)) {nextWidth=(int)fitW;nextHeight=(int)fitH;}
+        }
         ImGui::TextDisabled("Requested picture: %d x %d per eye",nextWidth,nextHeight);
         VrDlssRenderPlan renderPlan{};
         if(VR_GetDlssRenderPlan(renderPlan))
@@ -2359,9 +2369,11 @@ namespace
         {
             if(!renderPlan.liveRenderW) ImGui::TextWrapped("Project Reclaimer has not drawn a frame yet.");
             else if(renderPlan.liveRenderW!=(unsigned)nextWidth||renderPlan.liveRenderH!=(unsigned)nextHeight)
-                ImGui::TextWrapped("Project Reclaimer renders %u x %u. With its Render resolution on Native it "
-                                   "takes this size the next time it starts.",
-                                   renderPlan.liveRenderW,renderPlan.liveRenderH);
+            {
+                ImGui::TextColored(Rgb(kWarning),"Restart Project Reclaimer to apply this resolution.");
+                ImGui::TextWrapped("It renders %u x %u now. It takes the size above when it starts with its Render "
+                                   "resolution on Native.",renderPlan.liveRenderW,renderPlan.liveRenderH);
+            }
             else ImGui::TextWrapped("Project Reclaimer renders at this size.");
         }
         else if(resizeState==1) ImGui::TextDisabled("Applying resolution after the current frame...");
