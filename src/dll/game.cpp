@@ -10837,12 +10837,23 @@ namespace
 
                 // Vehicle cameras: the root node of the vehicle the occupant's node is on, from the same node
                 // bank as the seat's. Taken only where it stands in for the object frame above: inside the
-                // vehicle's bounds, within a world unit of the object's origin, and facing within 20 degrees
-                // of it. A model whose root is somewhere else keeps the object frame.
+                // vehicle's bounds, within a world unit of the object's origin (more at speed), and facing within
+                // 20 degrees of it. A model whose root is somewhere else keeps the object frame.
                 Halo3Matrix4x3 rootNode{};
                 bool rootValid = false;
                 if (g_config.vehicle_cameras && frameBoundsValid)
                 {
+                    // How far the drawn root may stand off the simulation's origin grows with the vehicle's speed
+                    // (Halo3RootNodeReachWu): the drawn vehicle trails the simulation by up to a tick or two.
+                    static thread_local Halo3StepSpeed s_rootSpeed;
+                    static thread_local int s_rootSpeedObject = -1;
+                    if (s_rootSpeedObject != nodeObject)
+                    {
+                        s_rootSpeed = Halo3StepSpeed{};
+                        s_rootSpeedObject = nodeObject;
+                    }
+                    const float reach = Halo3RootNodeReachWu(Halo3StepSpeedUpdate(s_rootSpeed, world.pos,
+                                                                                  Halo3NowSeconds()));
                     bool rootInterpolated = false;
                     if (Halo3ReadLiveNodeMatrix(nodeObject, nodeObjectData, 0, rootNode, rootInterpolated))
                     {
@@ -10851,7 +10862,7 @@ namespace
                                                rootNode.position[2] - world.pos[2]};
                         rootValid =
                             Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f) &&
-                            away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= 1.0f &&
+                            away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= reach * reach &&
                             rootNode.forward[0] * world.fwd[0] + rootNode.forward[1] * world.fwd[1] +
                                     rootNode.forward[2] * world.fwd[2] > 0.94f &&
                             rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +

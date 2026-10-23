@@ -18409,6 +18409,25 @@ int main()
                   !Halo3AnchorWithinBounds(skyPos, boundsCenter, 1e9f, 2.0f),
                 "Frame composition carries mounted turrets and the sanity "
                 "gate rejects wrong-frame anchors");
+            {
+                // The drawn root node may stand further off the simulation's origin at speed.
+                Check(Halo3RootNodeReachWu(0.0f) == 1.0f && std::fabs(Halo3RootNodeReachWu(60.0f) - 7.0f) < 1.0e-4f &&
+                          Halo3RootNodeReachWu(1.0e6f) == 1.0f + kHalo3RootNodeMaxSpeedWu * kHalo3RootNodeLagSeconds &&
+                          Halo3RootNodeReachWu(std::nanf("")) == 1.0f,
+                      "root node reach: a world unit at rest, more at speed, capped, and a bad speed is rest");
+                Halo3StepSpeed track;
+                const float p0[3] = {0.0f, 0.0f, 0.0f}, p1[3] = {2.0f, 0.0f, 0.0f}, p2[3] = {4.0f, 0.0f, 0.0f};
+                const bool first = Halo3StepSpeedUpdate(track, p0, 10.0) == 0.0f;
+                const bool held = Halo3StepSpeedUpdate(track, p0, 10.01) == 0.0f;   // no step yet
+                const float stepped = Halo3StepSpeedUpdate(track, p1, 10.0333);     // 2 wu in a 30 Hz tick
+                const float between = Halo3StepSpeedUpdate(track, p1, 10.05);       // a frame inside the tick
+                const float next = Halo3StepSpeedUpdate(track, p2, 10.0667);
+                const float still = Halo3StepSpeedUpdate(track, p2, 10.7);          // stopped
+                const float jump = Halo3StepSpeedUpdate(track, p0, 12.0);           // a step after a long gap
+                Check(first && held && std::fabs(stepped - 60.0f) < 0.5f && std::fabs(between - 60.0f) < 0.5f &&
+                          std::fabs(next - 60.0f) < 0.5f && still == 0.0f && jump == 0.0f,
+                      "step speed: each tick's step over the time since the last, held between ticks, 0 once still");
+            }
             // A giant: HugeGrass's Lich has a live sphere of 112.25 wu, and its seat's frame stands inside it.
             const float lichCenter[3] = {40.0f, -12.0f, 30.0f};
             const float lichOrigin[3] = {10.0f, 5.0f, 2.0f};
