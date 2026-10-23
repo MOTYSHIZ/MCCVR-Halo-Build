@@ -1202,6 +1202,10 @@ void VR_RequestScopeToggle();
 // Receives Halo's blended XInput rumble level (0..1). The render thread maps
 // it to portable OpenXR feedback on both hands and owns all stop conditions.
 void VR_SetGameHaptics(float amplitude);
+// One blip of the mod's own on both hands (a camera switched, the wheel taken): it raises only the peak, which
+// the next applied frame consumes, and never the held level VR_SetGameHaptics sets for the game. A host that
+// sends no vibration of its own until something changes (Project Reclaimer) would otherwise keep that level.
+void VR_PulseGameHaptics(float amplitude);
 // Adds a lock-free, one-shot collision pulse for one OpenXR hand. It is merged
 // with (and never replaces) the title's ordinary XInput rumble.
 void VR_PulseContactHaptics(bool left, float amplitude);

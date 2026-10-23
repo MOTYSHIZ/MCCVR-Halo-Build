@@ -53679,9 +53679,8 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
     if (Halo3UpdateWheelToggle(g_halo3Wheel, eligible, pad.gripL, pad.gripR,
                                GetTickCount64()))
     {
-        // The only feedback a toggle can give. VR_SetGameHaptics peak-holds,
-        // so this lands as one blip and the game's own rumble resumes.
-        VR_SetGameHaptics(g_halo3Wheel.engaged ? 0.6f : 0.35f);
+        // The only feedback a toggle can give: one blip (VR_PulseGameHaptics), and the game's own rumble goes on.
+        VR_PulseGameHaptics(g_halo3Wheel.engaged ? 0.6f : 0.35f);
         LOG("H3 vehicle: steering wheel %s (double-click both grips)",
             g_halo3Wheel.engaged ? "taken" : "released");
     }
@@ -53690,7 +53689,7 @@ void Game_Halo3UpdateVehicleWheel(const VrPadState& pad)
     static vehicle_control::WheelOffer wheelOffer;
     if (vehicle_control::TakeWheelOnOffer(g_halo3Wheel, wheelOffer, eligible, wheelChosen))
     {
-        VR_SetGameHaptics(0.6f);
+        VR_PulseGameHaptics(0.6f);
         LOG("H3 vehicle: steering wheel taken (vehicle_control = 3, the wheel is the chosen way to steer)");
     }
     g_halo3WheelSwallowsGrips.store(

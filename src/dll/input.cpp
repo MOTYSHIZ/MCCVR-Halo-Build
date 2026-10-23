@@ -321,7 +321,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                 LOG("Vehicle cameras: view re-centred (left X or Y held)");
             }
             if (asked.camera || asked.mode || asked.control || asked.recenter)
-                VR_SetGameHaptics(asked.recenter ? 0.6f : 0.35f);
+                VR_PulseGameHaptics(asked.recenter ? 0.6f : 0.35f);
         }
 
         static thread_local ExclusiveInputHolds physicalHolds;

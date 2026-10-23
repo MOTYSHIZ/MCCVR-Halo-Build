@@ -24672,6 +24672,16 @@ void VR_SetGameHaptics(float amplitude)
     }
 }
 
+void VR_PulseGameHaptics(float amplitude)
+{
+    const float v = std::isfinite(amplitude) ? std::clamp(amplitude, 0.0f, 1.0f) : 0.0f;
+    float cur = g_peakHaptics.load(std::memory_order_relaxed);
+    while (v > cur && !g_peakHaptics.compare_exchange_weak(cur, v,
+        std::memory_order_release, std::memory_order_relaxed))
+    {
+    }
+}
+
 void VR_PulseContactHaptics(bool left, float amplitude)
 {
     const float v = std::isfinite(amplitude) ? std::clamp(amplitude, 0.0f, 1.0f) : 0.0f;
