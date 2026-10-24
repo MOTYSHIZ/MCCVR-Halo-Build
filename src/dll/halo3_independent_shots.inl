@@ -145,6 +145,9 @@ __declspec(noinline) void __fastcall Halo3IndependentQueryDetour(
     t_halo3AcquisitionUser=inputUser;
     if(inputUser==0 && !g_legacyCollisionOwnedQuery)
         g_halo3AcquisitionUser0Us.store(Sight_NowUs(),std::memory_order_relaxed);
+    // The game's own zoom level for the local player (Aim Frame Zoom): the ordinary query only, never ours.
+    if(inputUser==0 && !(flags&1) && !g_legacyCollisionOwnedQuery)
+        Halo3NoteGameZoomLevel(zoom,feature.generation);
     __try
     {
         if(!feature.queryOriginal)__leave;

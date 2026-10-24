@@ -549,6 +549,17 @@ namespace
     // it. The render thread.
     std::atomic<int> g_monoPictureEye{-1};
     std::atomic<int> g_monoPictureTitle{-1};
+    // AIM FRAME ZOOM (config.h aim_frame_zoom): the latest one-pass picture was drawn along the aim at these
+    // half-angle tangents, to be shown as a frame this wide (VR_NoteAimFrameRendered). eye -1: it was not.
+    struct AimFramePicture
+    {
+        std::atomic<int> eye{-1}, title{-1};
+        std::atomic<float> tanX{0.0f}, tanY{0.0f}, widthDeg{0.0f};
+    };
+    AimFramePicture g_aimFramePicture;
+    // The frame sits this far out. Both eyes see one picture, so its distance changes only where the eyes meet;
+    // far out that is not seen, and the frame's apparent size is its width in degrees alone.
+    constexpr float kAimFrameDistanceM = 20.0f;
     // Per title: what its renderer has made of single passes (mono_view::MonoRejections), the module generation
     // that belongs to, and the setting as last seen (off and on again gives every title a new try).
     mono_view::MonoRejections g_monoRejections[kTitleRuntimeSlotCount];
@@ -9967,7 +9978,105 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     XrCompositionLayerQuad MakeQuad(XrSwapchain chain, int32_t imgW, int32_t imgH,
                                     float widthMeters, float distMeters, float yOffset,
                                     XrCompositionLayerFlags flags, bool headLocked,
-                                    float xOffset = 0.0f)
+                                    float xOffset = 0.0f);
+
+    // A rotation whose +X, +Y and +Z are the given unit axes (a right-handed, orthonormal basis).
+    XrQuaternionf QuatFromAxes(const XrVector3f& x, const XrVector3f& y, const XrVector3f& z)
+    {
+        XrQuaternionf q{0.0f, 0.0f, 0.0f, 1.0f};
+        const float trace = x.x + y.y + z.z;
+        if (trace > 0.0f)
+        {
+            const float s = sqrtf(trace + 1.0f) * 2.0f;
+            q.w = 0.25f * s;
+            q.x = (y.z - z.y) / s;
+            q.y = (z.x - x.z) / s;
+            q.z = (x.y - y.x) / s;
+        }
+        else if (x.x > y.y && x.x > z.z)
+        {
+            const float s = sqrtf(1.0f + x.x - y.y - z.z) * 2.0f;
+            q.w = (y.z - z.y) / s;
+            q.x = 0.25f * s;
+            q.y = (y.x + x.y) / s;
+            q.z = (z.x + x.z) / s;
+        }
+        else if (y.y > z.z)
+        {
+            const float s = sqrtf(1.0f + y.y - x.x - z.z) * 2.0f;
+            q.w = (z.x - x.z) / s;
+            q.x = (y.x + x.y) / s;
+            q.y = 0.25f * s;
+            q.z = (z.y + y.z) / s;
+        }
+        else
+        {
+            const float s = sqrtf(1.0f + z.z - x.x - y.y) * 2.0f;
+            q.w = (x.y - y.x) / s;
+            q.x = (z.x + x.z) / s;
+            q.y = (z.y + y.z) / s;
+            q.z = 0.25f * s;
+        }
+        const float l = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+        if (l > 1.0e-6f)
+        {
+            q.x /= l; q.y /= l; q.z /= l; q.w /= l;
+        }
+        return q;
+    }
+
+    // AIM FRAME ZOOM: the latest picture is the aim frame's (eye `monoEye` of the active title); show it as a
+    // frame centred on the aim, from the centre of the eyes, upright, `widthDeg` wide. It is put in place of the
+    // projection layer, so nothing of the immersive view is shown around it.
+    bool PrepareAimFrameQuad(bool monoFrame, int monoEye, bool haveAim, const float aimQ[4],
+                             const XrCompositionLayerProjectionView* views, XrCompositionLayerQuad& quad)
+    {
+        const int eye = g_aimFramePicture.eye.load(std::memory_order_acquire);
+        const int title = g_aimFramePicture.title.load(std::memory_order_relaxed);
+        if (!monoFrame || !haveAim || !views || !g_stereoChain || eye != monoEye || eye < 0 ||
+            title != g_monoPictureTitle.load(std::memory_order_acquire) ||
+            title != static_cast<int>(TitleAdapter_GetActiveTitle()))
+            return false;
+        const float tanX = g_aimFramePicture.tanX.load(std::memory_order_relaxed);
+        const float tanY = g_aimFramePicture.tanY.load(std::memory_order_relaxed);
+        const float widthDeg = g_aimFramePicture.widthDeg.load(std::memory_order_relaxed);
+        if (!(tanX > 1.0e-4f) || !(tanY > 1.0e-4f) || !(widthDeg > 1.0f) || !(widthDeg < 170.0f))
+            return false;
+        const XrQuaternionf aim{aimQ[0], aimQ[1], aimQ[2], aimQ[3]};
+        XrVector3f forward = Rotate(aim, {0.0f, 0.0f, -1.0f});
+        const float fl = sqrtf(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
+        if (!(fl > 1.0e-4f))
+            return false;
+        forward = {forward.x / fl, forward.y / fl, forward.z / fl};
+        // The quad's +Z faces the viewer; +Y is the room's up made square to it.
+        const XrVector3f z{-forward.x, -forward.y, -forward.z};
+        const XrVector3f worldUp{0.0f, 1.0f, 0.0f};
+        XrVector3f x{worldUp.y * z.z - worldUp.z * z.y, worldUp.z * z.x - worldUp.x * z.z,
+                     worldUp.x * z.y - worldUp.y * z.x};
+        const float xl = sqrtf(x.x * x.x + x.y * x.y + x.z * x.z);
+        if (!(xl > 0.05f))
+            return false;   // straight up or down: no upright frame; the picture is shown as it is
+        x = {x.x / xl, x.y / xl, x.z / xl};
+        const XrVector3f y{z.y * x.z - z.z * x.y, z.z * x.x - z.x * x.z, z.x * x.y - z.y * x.x};
+        const XrVector3f head{(views[0].pose.position.x + views[1].pose.position.x) * 0.5f,
+                              (views[0].pose.position.y + views[1].pose.position.y) * 0.5f,
+                              (views[0].pose.position.z + views[1].pose.position.z) * 0.5f};
+        const float width = 2.0f * kAimFrameDistanceM * tanf(widthDeg * 0.5f * 0.01745329f);
+        quad = MakeQuad(g_stereoChain, static_cast<int32_t>(g_stereoW), static_cast<int32_t>(g_stereoH),
+                        width, kAimFrameDistanceM, 0.0f, 0, false);
+        quad.space = g_localSpace;
+        quad.subImage.imageArrayIndex = static_cast<uint32_t>(eye);
+        quad.pose.orientation = QuatFromAxes(x, y, z);
+        quad.pose.position = {head.x + forward.x * kAimFrameDistanceM, head.y + forward.y * kAimFrameDistanceM,
+                              head.z + forward.z * kAimFrameDistanceM};
+        quad.size = {width, width * tanY / tanX};
+        return true;
+    }
+
+    XrCompositionLayerQuad MakeQuad(XrSwapchain chain, int32_t imgW, int32_t imgH,
+                                    float widthMeters, float distMeters, float yOffset,
+                                    XrCompositionLayerFlags flags, bool headLocked,
+                                    float xOffset)
     {
         XrCompositionLayerQuad q{XR_TYPE_COMPOSITION_LAYER_QUAD};
         q.layerFlags = flags;
@@ -17362,6 +17471,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // [assess-only end]
 #endif
         XrCompositionLayerQuad theaterQuads[2]{};
+        XrCompositionLayerQuad aimFrameQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};   // outlives `layers` this frame
         XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         XrCompositionLayerProjection theaterProjection{
             XR_TYPE_COMPOSITION_LAYER_PROJECTION};
@@ -18755,6 +18865,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             // Reach shows its crosshair only alongside its own
                             // admitted world projection.
                             (!reachTitle || reachProjectionAdmitted);
+                        // AIM FRAME ZOOM: the latest picture is the aim frame's: shown as a frame on the aim in
+                        // place of the projection layer.
+                        const bool aimFrameQueued = reachProjectionAdmitted && !theaterPresentation &&
+                            PrepareAimFrameQuad(monoFrame, monoEye, haveAim, aimQ, projectionViews.data(),
+                                                aimFrameQuad);
                         if (reachProjectionAdmitted)
                         {
                             if (theaterPresentation)
@@ -18837,6 +18952,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                             "unavailable; using the core "
                                             "eye-selective quad fallback");
                                     }
+                                }
+                            }
+                            else if (aimFrameQueued)
+                            {
+                                layers.push_back(
+                                    reinterpret_cast<XrCompositionLayerBaseHeader*>(
+                                        &aimFrameQuad));
+                                static bool loggedAimFrame = false;
+                                if (!loggedAimFrame)
+                                {
+                                    loggedAimFrame = true;
+                                    LOG("Aim Frame Zoom: frame submitted (%.2f x %.2f m at %.0f m, from eye image %d)",
+                                        aimFrameQuad.size.width, aimFrameQuad.size.height, kAimFrameDistanceM,
+                                        static_cast<int>(aimFrameQuad.subImage.imageArrayIndex));
                                 }
                             }
                             else
@@ -25867,6 +25996,7 @@ bool VR_MonoRenderThisFrame(GameTitle title, float coverFov[4])
 // answered for the other eye by this one's.
 void VR_NoteMonoFrameRendered(GameTitle title, int eye)
 {
+    g_aimFramePicture.eye.store(-1, std::memory_order_release);
     if (eye != 0 && eye != 1)
         return;
     const int other = 1 - eye;
@@ -25903,8 +26033,24 @@ void VR_NoteMonoFrameRendered(GameTitle title, int eye)
 // `title` drew a pair: the latest picture is two eyes' again. When that pair was the probe after a run of
 // dropped mono frames, it is the evidence that the title draws pairs and not single passes
 // (mono_view::MonoRejections); enough of it leaves the title in stereo, said once.
+// AIM FRAME ZOOM: the one pass of `title`'s frame was drawn along the aim at the half-angle tangents `tanX` and
+// `tanY` and captured as `eye`; it is shown as a frame `widthDeg` wide centred on the aim, in place of the
+// immersive view (PrepareAimFrameQuad). Everything a mono frame answers is answered as for one.
+void VR_NoteAimFrameRendered(GameTitle title, int eye, float tanX, float tanY, float widthDeg)
+{
+    VR_NoteMonoFrameRendered(title, eye);
+    const int pictureEye = g_monoPictureEye.load(std::memory_order_acquire);
+    if (pictureEye != 0 && pictureEye != 1)
+        return;
+    g_aimFramePicture.tanX.store(tanX, std::memory_order_relaxed);
+    g_aimFramePicture.tanY.store(tanY, std::memory_order_relaxed);
+    g_aimFramePicture.widthDeg.store(widthDeg, std::memory_order_relaxed);
+    g_aimFramePicture.title.store(static_cast<int>(title), std::memory_order_relaxed);
+    g_aimFramePicture.eye.store(pictureEye, std::memory_order_release);
+}
 void VR_NoteStereoFrameRendered(GameTitle title)
 {
+    g_aimFramePicture.eye.store(-1, std::memory_order_release);
     g_monoPictureEye.store(-1, std::memory_order_release);
     const size_t slot = TitleRuntimeSlotIndex(title);
     if (slot < kTitleRuntimeSlotCount && g_monoRejections[slot].StereoRendered())

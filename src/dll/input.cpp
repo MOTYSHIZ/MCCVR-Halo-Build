@@ -386,7 +386,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             !VR_IsPausePresentation()&&!VR_IsPausePresentationTarget()&&!VR_IsCutsceneTheaterActive();
         const uint64_t mappingEpoch=(uint64_t(TitleAdapter_GetGeneration(currentTitle))<<32)|
             (uint64_t(currentTitle)<<24)|pad.profileEpoch;
-        const bool scopeFeatureAvailable=g_config.scope_enabled&&Game_IsHeadTracking()&&Game_HasScopeRenderer();
+        const bool scopeFeatureAvailable=g_config.scope_enabled&&Game_IsHeadTracking()&&Game_HasScopeRenderer()&&
+            !Game_AimFrameZoomOwnsZoom();
         const bool scopeAvailable=scopeFeatureAvailable&&gameplayMode;
         const int zoomSource=mappingTitle>=0&&g_config.vr_action_mapping?
             vr_mapping::Resolve(vr_mapping::Zoom,g_config.vr_bindings[mappingTitle][vr_mapping::Zoom]):vr_mapping::RightClick;

@@ -652,6 +652,55 @@ namespace
     std::atomic<float> g_projectionTanX{1.091595f};
     std::atomic<float> g_projectionTanY{1.114286f};
     std::atomic<float> g_zoomFactor{1.0f}; // >1 while the player is zoomed (scope)
+    // AIM FRAME ZOOM (config.h aim_frame_zoom), Halo 3. The zoom level the game hands its own aim-assist query
+    // for the local player -- the unit's current zoom level, -1 while not zoomed -- and when, written by
+    // Halo3IndependentQueryDetour on the simulation thread. It is the game's own state: it follows toggles,
+    // cancels on a weapon switch and re-arms as the game decides, which the button cannot tell.
+    std::atomic<int> g_halo3GameZoomLevel{-1};
+    std::atomic<uint64_t> g_halo3GameZoomMs{0};
+    std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
+    void Halo3NoteGameZoomLevel(int16_t level, uint32_t generation)
+    {
+        const int previous = g_halo3GameZoomLevel.exchange(level, std::memory_order_relaxed);
+        g_halo3GameZoomGeneration.store(generation, std::memory_order_relaxed);
+        g_halo3GameZoomMs.store(GetTickCount64(), std::memory_order_release);
+        if (previous != level && g_config.aim_frame_zoom)
+            LOG("Halo 3 zoom: the game's zoom level is %d%s", static_cast<int>(level),
+                level < 0 ? " (not zoomed)" : "");
+    }
+    // The compact cameras CamCopy completed, and the tangents the game gave each BEFORE the headset's visibility
+    // cover widens them: while zoomed, the game's own zoomed field of view (the eye renderer's saved +0x28 is the
+    // widened one). A few slots, because CamCopy runs several times a frame for different cameras.
+    struct Halo3NativeCameraTangents
+    {
+        std::atomic<const void*> camera{nullptr};
+        std::atomic<float> tanX{0.0f}, tanY{0.0f};
+    };
+    Halo3NativeCameraTangents g_halo3NativeTangents[4];
+    std::atomic<unsigned> g_halo3NativeTangentsNext{0};
+    void Halo3NoteNativeTangents(const void* camera, float tanX, float tanY)
+    {
+        Halo3NativeCameraTangents* slot = nullptr;
+        for (auto& candidate : g_halo3NativeTangents)
+            if (candidate.camera.load(std::memory_order_relaxed) == camera) { slot = &candidate; break; }
+        if (!slot)
+            slot = &g_halo3NativeTangents[g_halo3NativeTangentsNext.fetch_add(1, std::memory_order_relaxed) % 4];
+        slot->tanX.store(tanX, std::memory_order_relaxed);
+        slot->tanY.store(tanY, std::memory_order_relaxed);
+        slot->camera.store(camera, std::memory_order_release);
+    }
+    bool Halo3NativeTangentsFor(const void* camera, float& tanX, float& tanY)
+    {
+        for (const auto& slot : g_halo3NativeTangents)
+            if (slot.camera.load(std::memory_order_acquire) == camera)
+            {
+                tanX = slot.tanX.load(std::memory_order_relaxed);
+                tanY = slot.tanY.load(std::memory_order_relaxed);
+                return std::isfinite(tanX) && std::isfinite(tanY) && tanX > 1.0e-3f && tanY > 1.0e-3f &&
+                    tanX < 5.0f && tanY < 5.0f;
+            }
+        return false;
+    }
     std::atomic<float> g_renderHalfFovX{atanf(1.091595f)};
     std::atomic<float> g_renderHalfFovY{atanf(1.114286f)};
 
@@ -13036,6 +13085,11 @@ namespace
         }
 
         void* result=g_origCamCopy(dst,src);
+        if(dst)
+        {
+            const float* nativeTangents=reinterpret_cast<const float*>(static_cast<const char*>(dst)+0x28);
+            Halo3NoteNativeTangents(dst,nativeTangents[0],nativeTangents[1]);
+        }
         // The native copy has now completed the compact camera (+28/+2C).
         // Widen before upstream visibility can consume it; the eye renderer
         // later restores its exact raster projection independently.
@@ -13106,6 +13160,132 @@ namespace
         memcpy(camera+0x00,pose.position,sizeof(pose.position));
         memcpy(camera+0x0C,pose.forward,sizeof(pose.forward));
         memcpy(camera+0x18,pose.up,sizeof(pose.up));
+        return true;
+    }
+
+    // AIM FRAME ZOOM (config.h aim_frame_zoom; the vr-game-conversion playbook's Aim Frame Zoom). While the game
+    // itself is zoomed, the eye renderer draws ONE picture, from the rendered centre eye along the aim, at the
+    // game's own zoomed field of view (over the level's strength), and the present shows it as a frame centred on
+    // the aim instead of the immersive view (vr.cpp, VR_NoteAimFrameRendered). The frame's width eases between the
+    // picture's own angles (where the view meets the world one to one) and the level's setting over the move time,
+    // so it grows out of the view on the way in and back into it on the way out.
+    struct Halo3AimFrame
+    {
+        float forward[3]{}, up[3]{};
+        float tanX = 0.0f, tanY = 0.0f;   // the picture's half-angle tangents
+        float widthDeg = 0.0f;            // the frame's width this frame
+        int level = 0;                    // 0 the first zoom level, 1 the second and higher
+    };
+    struct Halo3AimFrameState
+    {
+        float t = 0.0f;                   // 0 the immersive view, 1 the frame
+        uint64_t lastUs = 0;
+        int level = 0;
+        int loggedOn = -1;
+    };
+    Halo3AimFrameState g_halo3AimFrameState;   // the render thread
+
+    bool Halo3AimFrameAllowed()
+    {
+        return g_config.aim_frame_zoom && g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled() &&
+            TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && !Game_IsCameraOnlyBringup() &&
+            !VR_IsCutsceneTheaterActive() && !VR_IsPausePresentation() && !VR_IsPausePresentationTarget() &&
+            // DLSS keeps a history per eye; a picture along another axis would be blended into it.
+            !VR_DlssWantsEyeCamera();
+    }
+
+    // The game's own zoom level for the local player, read within the last half second of this generation.
+    bool Halo3GameZoomed(int& level)
+    {
+        const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_acquire);
+        const uint64_t ms = g_halo3GameZoomMs.load(std::memory_order_acquire);
+        const uint64_t now = GetTickCount64();
+        level = g_halo3GameZoomLevel.load(std::memory_order_relaxed);
+        return generation && g_halo3GameZoomGeneration.load(std::memory_order_relaxed) == generation && ms &&
+            now >= ms && now - ms <= 500 && level >= 0;
+    }
+
+    bool Halo3AimFrameThisFrame(const void* camera, const unsigned char* saved, Halo3AimFrame& out)
+    {
+        auto& s = g_halo3AimFrameState;
+        const uint64_t nowUs = Sight_NowUs();
+        const float dt = s.lastUs && nowUs > s.lastUs
+            ? std::min(0.1f, static_cast<float>(nowUs - s.lastUs) * 1.0e-6f) : 0.0f;
+        s.lastUs = nowUs;
+        const bool allowed = Halo3AimFrameAllowed();
+        int level = -1;
+        const bool zoomed = allowed && Halo3GameZoomed(level);
+        if (zoomed)
+            s.level = level >= 1 ? 1 : 0;
+        const float move = g_config.aim_frame_move_s;
+        const float step = move > 1.0e-3f ? dt / move : 1.0f;
+        s.t = !allowed ? 0.0f : zoomed ? std::min(1.0f, s.t + step) : std::max(0.0f, s.t - step);
+        float nativeX = 0.0f, nativeY = 0.0f;
+        bool ok = s.t > 0.0f && Halo3NativeTangentsFor(camera, nativeX, nativeY);
+        float forward[3]{}, up[3]{};
+        if (ok)
+        {
+            // The aim: the intent ray the converged aim and direct drive write the game's aim from (it starts at
+            // this same rendered centre eye), else the game's own aim forward.
+            SightRay ray{};
+            if (Sight_ReadRay(GameTitle::Halo3, TitleAdapter_GetGeneration(GameTitle::Halo3), kSightRayFreshMs, ray))
+                memcpy(forward, ray.dir, sizeof(forward));
+            else
+            {
+                forward[0] = g_aimFwdX.load();
+                forward[1] = g_aimFwdY.load();
+                forward[2] = g_aimFwdZ.load();
+            }
+            const float fl = sqrtf(forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]);
+            float worldUp[3]{g_worldUp[0].load(), g_worldUp[1].load(), g_worldUp[2].load()};
+            const float* savedUp = reinterpret_cast<const float*>(saved + 0x18);
+            ok = std::isfinite(fl) && fl > 1.0e-4f;
+            if (ok)
+            {
+                for (float& f : forward)
+                    f /= fl;
+                // Upright: the world's up made square to the aim (a flat screen does not roll with the wrist).
+                for (int attempt = 0; attempt < 2; ++attempt)
+                {
+                    const float* u = attempt == 0 ? worldUp : savedUp;
+                    const float along = u[0] * forward[0] + u[1] * forward[1] + u[2] * forward[2];
+                    for (int axis = 0; axis < 3; ++axis)
+                        up[axis] = u[axis] - along * forward[axis];
+                    const float ul = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+                    if (std::isfinite(ul) && ul > 0.05f)
+                    {
+                        for (float& v : up)
+                            v /= ul;
+                        break;
+                    }
+                    if (attempt == 1)
+                        ok = false;
+                }
+            }
+        }
+        const int on = ok ? 1 : 0;
+        if (on != s.loggedOn)
+        {
+            s.loggedOn = on;
+            if (on)
+                LOG("Halo 3 Aim Frame Zoom: on (zoom level %d; the game's view %.1f x %.1f deg, the frame %.0f deg "
+                    "wide at strength %.2f)",
+                    s.level + 1, 2.0f * atanf(nativeX) * 57.29578f, 2.0f * atanf(nativeY) * 57.29578f,
+                    g_config.aim_frame_size_deg[s.level], g_config.aim_frame_strength[s.level]);
+            else
+                LOG("Halo 3 Aim Frame Zoom: off; the immersive view is back");
+        }
+        if (!ok)
+            return false;
+        const float strength = g_config.aim_frame_strength[s.level];
+        out.tanX = nativeX / strength;
+        out.tanY = nativeY / strength;
+        memcpy(out.forward, forward, sizeof(forward));
+        memcpy(out.up, up, sizeof(up));
+        out.level = s.level;
+        const float trueDeg = 2.0f * atanf(out.tanX) * 57.29578f;
+        const float eased = s.t * s.t * (3.0f - 2.0f * s.t);
+        out.widthDeg = trueDeg + (g_config.aim_frame_size_deg[s.level] - trueDeg) * eased;
         return true;
     }
 
@@ -13196,12 +13376,17 @@ namespace
         // pass is drawn as the eye the eye-order setting draws first, so what is done once a frame in that pass
         // (the crosshair's capture) is done in it; its camera has no eye offset and no cant, and its frustum
         // covers either eye's.
+        // AIM FRAME ZOOM: while the game is zoomed, one pass along the aim (Halo3AimFrameThisFrame), drawn as the
+        // first eye like a mono frame; it wins over mono rendering.
+        Halo3AimFrame aimFrame{};
+        const bool aimFrameFrame = !cutsceneTheater && Halo3AimFrameThisFrame(camera, saved, aimFrame);
         float monoFov[4]{};
-        const bool monoFrame = VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) && !cutsceneTheater;
+        const bool monoFrame = !aimFrameFrame && VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) &&
+            !cutsceneTheater;
         bool monoCaptured = false;
         __try {
         const int firstEye = g_config.right_eye_first ? 1 : 0;
-        for (int pass = 0; pass < (monoFrame ? 1 : 2); ++pass)
+        for (int pass = 0; pass < (monoFrame || aimFrameFrame ? 1 : 2); ++pass)
         {
             const int eye = pass == 0 ? firstEye : 1 - firstEye;
             g_stereoEye = eye;
@@ -13219,11 +13404,16 @@ namespace
             float eyeOrientation[4]{};
             bool haveEyeView =
                 VR_GetEyeViewOffset(eye,eyePosition,eyeOrientation);
-            if (monoFrame)
+            if (monoFrame || aimFrameFrame)
             {
-                // The midpoint of the eyes, looking the way the head looks.
+                // The midpoint of the eyes, looking the way the head looks (mono) or along the aim (the frame).
                 eyePosition[0] = eyePosition[1] = eyePosition[2] = 0.0f;
                 haveEyeView = false;
+            }
+            if (aimFrameFrame)
+            {
+                memcpy(camera + 0x0C, aimFrame.forward, sizeof(aimFrame.forward));
+                memcpy(camera + 0x18, aimFrame.up, sizeof(aimFrame.up));
             }
             ApplyCutsceneTheaterEyeTransform(
                 cutsceneTheater,
@@ -13275,7 +13465,12 @@ namespace
                 float eyeFov[4];
                 float immersiveTangentX = tanf(1.07338f);
                 float immersiveTangentY = tanf(0.92502f);
-                if (monoFrame)
+                if (aimFrameFrame)
+                {
+                    immersiveTangentX = aimFrame.tanX;
+                    immersiveTangentY = aimFrame.tanY;
+                }
+                else if (monoFrame)
                 {
                     immersiveTangentX = tanf(monoFov[1]);
                     immersiveTangentY = tanf(monoFov[2]);
@@ -13457,7 +13652,13 @@ namespace
             VR_EndRasterEye();
         }
         // A capture that missed keeps the last picture, mono or a pair, as it was.
-        if (monoFrame && monoCaptured)
+        if (aimFrameFrame)
+        {
+            if (monoCaptured)
+                VR_NoteAimFrameRendered(GameTitle::Halo3, firstEye, aimFrame.tanX, aimFrame.tanY,
+                                        aimFrame.widthDeg);
+        }
+        else if (monoFrame && monoCaptured)
             VR_NoteMonoFrameRendered(GameTitle::Halo3, firstEye);
         else if (!monoFrame)
             VR_NoteStereoFrameRendered(GameTitle::Halo3);
@@ -50984,6 +51185,10 @@ bool Game_HasScopeRenderer()
         g_halo4OrigCuiGameplayRender&&g_halo4OrigModelSkinning;
 #endif
     return false;
+}
+bool Game_AimFrameZoomOwnsZoom()
+{
+    return g_config.aim_frame_zoom && TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && g_enabled.load();
 }
 bool Game_IsScopeRendering(){return g_scopeRenderActive.load(std::memory_order_acquire);}
 bool Game_SetScopeRendering(bool active){return g_scopeRenderActive.exchange(active,std::memory_order_acq_rel);}

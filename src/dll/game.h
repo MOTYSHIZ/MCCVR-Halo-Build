@@ -104,6 +104,9 @@ bool Game_IsStereoGeometryOnlyBringup();
 bool Game_UsesTitleOwnedHeadTracking();
 bool Game_IsCameraOnlyBringup(); // private ODST camera core; no gameplay features
 bool Game_HasScopeRenderer(); // optional title-local zoom view is available
+// Aim Frame Zoom has the zoom button in the active title (Halo 3 with aim_frame_zoom on): it reaches the game,
+// and the gun-mounted lens is not offered.
+bool Game_AimFrameZoomOwnsZoom();
 bool Game_IsScopeRendering();
 bool Game_SetScopeRendering(bool active);
 // True only while the exact Reach stereo + mandatory authored-crosshair

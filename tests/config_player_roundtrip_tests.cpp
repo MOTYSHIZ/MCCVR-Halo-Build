@@ -56,6 +56,10 @@ int main()
     g_config.host_ui_panel = false;
     g_config.host_ui_panel_width_m = 3.3f;
     g_config.host_ui_panel_distance_m = 1.7f;
+    g_config.aim_frame_zoom = true;
+    g_config.aim_frame_size_deg[1] = 70.0f;
+    g_config.aim_frame_strength[0] = 1.5f;
+    g_config.aim_frame_move_s = 0.3f;
     ConfigSave();
 
     g_unknownKeys.clear();
@@ -73,6 +77,13 @@ int main()
           "host_ui_panel_width_m is remembered");
     Check(g_config.host_ui_panel_distance_m > 1.69f && g_config.host_ui_panel_distance_m < 1.71f,
           "host_ui_panel_distance_m is remembered");
+    Check(g_config.aim_frame_zoom, "aim_frame_zoom is remembered");
+    Check(g_config.aim_frame_size_deg[1] > 69.9f && g_config.aim_frame_size_deg[1] < 70.1f,
+          "aim_frame_size_deg_2 is remembered");
+    Check(g_config.aim_frame_strength[0] > 1.49f && g_config.aim_frame_strength[0] < 1.51f,
+          "aim_frame_strength_1 is remembered");
+    Check(g_config.aim_frame_move_s > 0.29f && g_config.aim_frame_move_s < 0.31f,
+          "aim_frame_move_s is remembered");
 
     if (failures)
         std::printf("%d check(s) failed\n", failures);

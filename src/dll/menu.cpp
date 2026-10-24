@@ -2085,6 +2085,32 @@ namespace
 
         if (CategorySection section{Cat_Scope}; section.visible)
         {
+        ImGui::Text("Aim Frame Zoom (Halo 3)");
+        changed |= ImGui::Checkbox("Aim Frame Zoom##aimframe", &g_config.aim_frame_zoom);
+        ImGui::TextDisabled("While the game is zoomed, the headset shows the game's zoomed picture as a frame\n"
+                            "centred on your aim instead of the 3D view, like playing it on a flat screen. The\n"
+                            "zoom button reaches the game, so the lens below is not offered in Halo 3 while this\n"
+                            "is on. Halo 3 in MCC and Project Reclaimer. Off by default. Live.");
+        if (g_config.aim_frame_zoom)
+        {
+            ImGui::Indent();
+            changed |= vr_menu::SliderFloat("Frame size, first zoom (deg)##aimframe",
+                                          &g_config.aim_frame_size_deg[0], 10.0f, 120.0f, "%.0f");
+            changed |= vr_menu::SliderFloat("Frame size, second zoom (deg)##aimframe",
+                                          &g_config.aim_frame_size_deg[1], 10.0f, 120.0f, "%.0f");
+            changed |= vr_menu::SliderFloat("Zoom strength, first zoom##aimframe",
+                                          &g_config.aim_frame_strength[0], 0.5f, 4.0f, "%.2fx");
+            changed |= vr_menu::SliderFloat("Zoom strength, second zoom##aimframe",
+                                          &g_config.aim_frame_strength[1], 0.5f, 4.0f, "%.2fx");
+            ImGui::TextDisabled("Strength 1.00 shows the game's own zoom; higher narrows it further.\n"
+                                "A frame smaller than the game's zoomed view makes the zoom feel stronger.");
+            changed |= vr_menu::SliderFloat("Move time (s)##aimframe", &g_config.aim_frame_move_s,
+                                          0.0f, 1.0f, "%.2f");
+            ImGui::TextDisabled("How long the frame takes to grow out of the view and back. 0 = at once.");
+            ImGui::Unindent();
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
         ImGui::Text("Gun-mounted circular zoom lens");
         ImGui::TextDisabled("Halo 2, Halo 3, ODST, Reach and Halo 4. CE uses native zoom.");
         if (ImGui::Checkbox("Enable R3 zoom lens", &g_config.scope_enabled))

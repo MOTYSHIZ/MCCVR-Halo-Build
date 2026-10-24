@@ -681,6 +681,15 @@ static void Clamp()
         std::clamp(g_config.halo2_classic_gun_up_m, -0.3f, 0.3f);
     g_config.muzzle_height_m = std::clamp(g_config.muzzle_height_m, -0.3f, 0.3f);
     g_config.scope_zoom = std::clamp(g_config.scope_zoom, 6.0f, 24.0f);
+    for (int level = 0; level < 2; ++level)
+    {
+        const float size = g_config.aim_frame_size_deg[level];
+        g_config.aim_frame_size_deg[level] = std::isfinite(size) ? std::clamp(size, 10.0f, 120.0f) : 50.0f;
+        const float strength = g_config.aim_frame_strength[level];
+        g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.0f;
+    }
+    g_config.aim_frame_move_s = std::isfinite(g_config.aim_frame_move_s)
+        ? std::clamp(g_config.aim_frame_move_s, 0.0f, 1.0f) : 0.12f;
     g_config.scope_screen_width_m = std::clamp(g_config.scope_screen_width_m, 0.04f, 0.25f);
     g_config.scope_screen_right_m = std::clamp(g_config.scope_screen_right_m, -0.30f, 0.30f);
     g_config.scope_screen_up_m = std::clamp(g_config.scope_screen_up_m, -0.20f, 0.30f);
@@ -1385,6 +1394,12 @@ void ConfigLoad(const wchar_t* path)
         // A player's setting stands ABOVE the development-only part below: a key read only in there is saved by a
         // player build and then called unknown at its next start (tests/config_player_roundtrip_tests.cpp).
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
+        if (!strcmp(key, "aim_frame_zoom")) { g_config.aim_frame_zoom = atoi(val) != 0; continue; }
+        if (!strcmp(key, "aim_frame_size_deg_1")) { g_config.aim_frame_size_deg[0] = (float)atof(val); continue; }
+        if (!strcmp(key, "aim_frame_size_deg_2")) { g_config.aim_frame_size_deg[1] = (float)atof(val); continue; }
+        if (!strcmp(key, "aim_frame_strength_1")) { g_config.aim_frame_strength[0] = (float)atof(val); continue; }
+        if (!strcmp(key, "aim_frame_strength_2")) { g_config.aim_frame_strength[1] = (float)atof(val); continue; }
+        if (!strcmp(key, "aim_frame_move_s")) { g_config.aim_frame_move_s = (float)atof(val); continue; }
         if (!strcmp(key, "hook_cost_frames"))
         {
             const int frames = atoi(val);
@@ -3137,6 +3152,22 @@ void ConfigSave()
     fprintf(f, "# converged_aim and the aim written (direct drive). Live in F1 > Scope. (default %d)\n",
             d.scope_converge);
     fprintf(f, "scope_converge = %d\n\n", g_config.scope_converge);
+    fprintf(f, "# Aim Frame Zoom (Halo 3, MCC and Project Reclaimer): while the game itself is zoomed, the\n");
+    fprintf(f, "# headset shows the game's zoomed picture as a frame centred on your aim instead of the\n");
+    fprintf(f, "# immersive view. The zoom button then reaches the game, so the lens above is not offered in\n");
+    fprintf(f, "# Halo 3 while this is on. 1 = on. (default %d)\n", d.aim_frame_zoom ? 1 : 0);
+    fprintf(f, "aim_frame_zoom = %d\n\n", g_config.aim_frame_zoom ? 1 : 0);
+    fprintf(f, "# The frame's width in degrees at the first zoom level (_1) and the second and higher (_2).\n");
+    fprintf(f, "# (default %.0f / %.0f, range 10 to 120)\n", d.aim_frame_size_deg[0], d.aim_frame_size_deg[1]);
+    fprintf(f, "aim_frame_size_deg_1 = %.1f\n", g_config.aim_frame_size_deg[0]);
+    fprintf(f, "aim_frame_size_deg_2 = %.1f\n\n", g_config.aim_frame_size_deg[1]);
+    fprintf(f, "# How much further the frame narrows the game's own zoomed view, per level (1 = the game's).\n");
+    fprintf(f, "# (default %.2f / %.2f, range 0.5 to 4)\n", d.aim_frame_strength[0], d.aim_frame_strength[1]);
+    fprintf(f, "aim_frame_strength_1 = %.2f\n", g_config.aim_frame_strength[0]);
+    fprintf(f, "aim_frame_strength_2 = %.2f\n\n", g_config.aim_frame_strength[1]);
+    fprintf(f, "# Seconds the frame takes to move between the normal view and the frame. 0 = at once.\n");
+    fprintf(f, "# (default %.2f, range 0 to 1)\n", d.aim_frame_move_s);
+    fprintf(f, "aim_frame_move_s = %.2f\n\n", g_config.aim_frame_move_s);
     fprintf(f, "# Default experimental magnification used for every weapon.\n");
     fprintf(f, "# Initial zoom restored whenever R3 opens the scope; right-stick Y adjusts it.\n");
     fprintf(f, "# (default %.2f, range 6.0 to 24.0)\n", d.scope_zoom);
