@@ -1145,7 +1145,7 @@ ClientInfo Describe(const std::filesystem::path& launcherDir, const std::wstring
     ClientInfo info;
     if (exe.empty())
     {
-        info.text = L"Not set. Choose Detect, or Browse and pick the game program (project-reclaimer-v*.exe).";
+        info.text = L"Not set. Choose Detect, or Browse and pick the game program (project-reclaimer-client-v*.exe).";
         return info;
     }
     if (!FileExists(exe))
@@ -1155,8 +1155,9 @@ ClientInfo Describe(const std::filesystem::path& launcherDir, const std::wstring
     }
     if (!reclaimer_host::IsClientExeName(reclaimer_host::Leaf(exe)))
     {
-        info.text = L"This is not the Project Reclaimer game program. Its name is project-reclaimer-v<version>.exe "
-                    L"(not the dedicated server or the remote console).";
+        info.text = L"This is not the Project Reclaimer game program. Its name is "
+                    L"project-reclaimer-client-v<version>.exe (project-reclaimer-v<version>.exe before 0.9.23; not "
+                    L"the dedicated server or the remote console).";
         return info;
     }
     const reclaimer_host::Version version = ReclaimerVersionOfFile(exe);

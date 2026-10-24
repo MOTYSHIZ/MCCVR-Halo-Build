@@ -123,7 +123,8 @@ The menu's last section starts Project Reclaimer, a standalone client that runs 
 mod. It needs `HaloMCCVR.dll` and `HaloMCCVRReclaimerRelay.dll` beside the launcher (or in its `ModFiles`
 folder); the relay is not in a player package.
 
-- **The path** of the game program (`project-reclaimer-v<version>.exe`) is typed, pasted, or picked with
+- **The path** of the game program (`project-reclaimer-client-v<version>.exe`, or `project-reclaimer-v<version>.exe`
+  before 0.9.23) is typed, pasted, or picked with
   Browse. It is kept as the one line of `reclaimer_client.txt` beside the launcher and read back at the next
   start. Clearing the field forgets it.
 - **Detect** looks, in this order, where the client's own join links point (it registers a `reclaimer:` link

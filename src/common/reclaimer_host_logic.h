@@ -3,6 +3,8 @@
 // Project Reclaimer (projectreclaimer.dev) is a standalone client that loads MCC's own halo3.dll without MCC's
 // shell. Its executable is one file run in several roles (measured on 0.9.8):
 //
+// (0.9.23 names it project-reclaimer-client-v0.9.23.exe; IsClientExeName takes both names.)
+//
 //   project-reclaimer-v0.9.8.exe                       what the player starts; it starts itself again and exits
 //     project-reclaimer-v0.9.8.exe                     the supervisor: menus' owner, no engine
 //       project-reclaimer-v0.9.8.exe probe-engine-worker "<...>\halo3\halo3.dll" --guardian-slayer
@@ -36,13 +38,14 @@ inline std::wstring_view Leaf(std::wstring_view path)
     return slash == std::wstring_view::npos ? path : path.substr(slash + 1);
 }
 
-// The game client's file name: project-reclaimer.exe or project-reclaimer-v<version>.exe. The dedicated server
-// (project-reclaimer-dedicated-v*.exe) and the remote console (reclaimer-rcon-v*.exe) are other programs and
-// never get the mod.
+// The game client's file name: project-reclaimer-client-v<version>.exe (0.9.23 on), project-reclaimer-v<version>.exe
+// (up to 0.9.12 at least), or either without its version. The dedicated server (project-reclaimer-dedicated-v*.exe)
+// and the remote console (reclaimer-rcon-v*.exe) are other programs and never get the mod.
 inline bool IsClientExeName(std::wstring_view leaf)
 {
     const std::wstring name = Lower(leaf);
     static constexpr std::wstring_view kPrefix = L"project-reclaimer";
+    static constexpr std::wstring_view kClient = L"-client";
     static constexpr std::wstring_view kSuffix = L".exe";
     if (name.size() < kPrefix.size() + kSuffix.size())
         return false;
@@ -50,7 +53,9 @@ inline bool IsClientExeName(std::wstring_view leaf)
         return false;
     if (name.compare(name.size() - kSuffix.size(), kSuffix.size(), kSuffix) != 0)
         return false;
-    const std::wstring_view middle(name.data() + kPrefix.size(), name.size() - kPrefix.size() - kSuffix.size());
+    std::wstring_view middle(name.data() + kPrefix.size(), name.size() - kPrefix.size() - kSuffix.size());
+    if (middle.substr(0, kClient.size()) == kClient)
+        middle.remove_prefix(kClient.size());
     if (middle.empty())
         return true;
     // "-v0.9.8" and nothing else: a name with another word in it is another program.

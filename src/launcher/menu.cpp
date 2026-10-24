@@ -149,7 +149,7 @@ void BrowseReclaimer(Menu& menu) {
     DWORD flags = 0; dialog->GetOptions(&flags); dialog->SetOptions(flags | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
     const COMDLG_FILTERSPEC filter[]{{L"Project Reclaimer game program", L"project-reclaimer*.exe"}, {L"Programs", L"*.exe"}};
     dialog->SetFileTypes(static_cast<UINT>(std::size(filter)), filter);
-    dialog->SetTitle(L"Choose the Project Reclaimer game program (project-reclaimer-v*.exe)");
+    dialog->SetTitle(L"Choose the Project Reclaimer game program (project-reclaimer-client-v*.exe)");
     if (SUCCEEDED(dialog->Show(menu.window))) {
         IShellItem* item = nullptr; PWSTR path = nullptr;
         if (SUCCEEDED(dialog->GetResult(&item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
@@ -297,7 +297,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         case ReclaimerBrowse: BrowseReclaimer(*menu); break;
         case ReclaimerDetect: {
             std::wstring how; const auto found = reclaimer_launch::DetectClient(menu->selfDir, how);
-            if (found.empty()) menu->Text(menu->status, L"No Project Reclaimer was found. Run Project Reclaimer once so that Windows knows where it is, then choose Detect again; or choose Browse and pick its program (project-reclaimer-v*.exe).");
+            if (found.empty()) menu->Text(menu->status, L"No Project Reclaimer was found. Run Project Reclaimer once so that Windows knows where it is, then choose Detect again; or choose Browse and pick its program (project-reclaimer-client-v*.exe).");
             else { SetWindowTextW(menu->reclaimerPath, found.c_str()); ReclaimerShow(*menu, true); menu->Text(menu->status, how); }
         } break;
         case ReclaimerLaunch:

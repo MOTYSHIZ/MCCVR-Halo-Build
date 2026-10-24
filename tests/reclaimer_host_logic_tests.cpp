@@ -44,6 +44,12 @@ int main()
     CHECK(IsClientExeName(L"project-reclaimer-v0.9.8.exe"));
     CHECK(IsClientExeName(L"Project-Reclaimer-V1.0.exe"));
     CHECK(IsClientExeName(Leaf(L"D:\\Some Games\\Project Reclaimer\\0.9.8\\project-reclaimer-v0.9.8.exe")));
+    CHECK(IsClientExeName(L"project-reclaimer-client-v0.9.23.exe"));
+    CHECK(IsClientExeName(L"project-reclaimer-client.exe"));
+    CHECK(IsClientExeName(Leaf(L"D:\\Some Games\\Project Reclaimer\\0.9.23\\project-reclaimer-client-v0.9.23.exe")));
+    CHECK(!IsClientExeName(L"project-reclaimer-clientx-v0.9.23.exe"));
+    CHECK(!IsClientExeName(L"project-reclaimer-client-dedicated-v0.9.23.exe"));
+    CHECK(VersionOf(L"project-reclaimer-client-v0.9.23.exe").part[2] == 23);
     CHECK(!IsClientExeName(L"project-reclaimer-dedicated-v0.9.8.exe"));
     CHECK(!IsClientExeName(L"reclaimer-rcon-v0.9.8.exe"));
     CHECK(!IsClientExeName(L"project-reclaimer-v0.9.8.exe.bak"));
