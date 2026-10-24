@@ -1104,6 +1104,64 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
     g_halo3VehicleAimMarkerFrames.fetch_add(1, std::memory_order_relaxed);
     if (!traced)
         g_halo3VehicleAimMarkerUntracedFrames.fetch_add(1, std::memory_order_relaxed);
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    // Dev: where the ring sits across the view (degrees right of the head's straight ahead), against how fast the
+    // vehicle turns (degrees a second, right +), once a second: a ring that slides against the turn shows here.
+    {
+        struct RingWitness
+        {
+            uint64_t sinceMs = 0, lastMs = 0;
+            float lastHeading = 0.0f;
+            bool haveHeading = false;
+            uint32_t passes = 0, followedPasses = 0;
+            double offsetSum = 0.0, turnSum = 0.0, offsetTimesTurn = 0.0, rangeSum = 0.0;
+            float offsetMin = 1.0e9f, offsetMax = -1.0e9f;
+        };
+        static thread_local RingWitness w;
+        const uint64_t nowMs = GetTickCount64();
+        float hq[4], hp[3];
+        const float heading = std::atan2(vehicleForward[1], vehicleForward[0]);
+        if (VR_GetHeadPose(hq, hp))
+        {
+            const float x = hq[0], y = hq[1], z = hq[2], qw = hq[3];
+            const float headYaw = std::atan2(-2.0f * (qw * y + x * z), (1.0f - 2.0f * (x * x + y * y)));
+            const float offsetDeg = -Halo3WrapPi(vrYaw - headYaw) * 57.2958f;   // right of straight ahead +
+            float turnDegS = 0.0f;
+            if (w.haveHeading && nowMs > w.lastMs)
+                turnDegS = -Halo3WrapPi(heading - w.lastHeading) * 57.2958f * 1000.0f /
+                           static_cast<float>(nowMs - w.lastMs);                 // right turn +
+            if (!w.sinceMs)
+                w.sinceMs = nowMs;
+            ++w.passes;
+            w.followedPasses += followed ? 1u : 0u;
+            w.offsetSum += offsetDeg;
+            w.turnSum += turnDegS;
+            w.offsetTimesTurn += static_cast<double>(offsetDeg) * turnDegS;
+            w.rangeSum += range / unitsPerVrMetre;
+            w.offsetMin = offsetDeg < w.offsetMin ? offsetDeg : w.offsetMin;
+            w.offsetMax = offsetDeg > w.offsetMax ? offsetDeg : w.offsetMax;
+        }
+        if (nowMs != w.lastMs)
+        {
+            w.lastHeading = heading;
+            w.lastMs = nowMs;
+            w.haveHeading = true;
+        }
+        if (w.passes && nowMs - w.sinceMs >= 1000)
+        {
+            const double n = static_cast<double>(w.passes);
+            LOG("Vehicle cameras (dev): aim ring %s, %u passes (%u followed): across the view mean %+.2f deg (%+.2f .. "
+                "%+.2f), turning mean %+.1f deg/s, offset x turn %+.1f, range mean %.1f m",
+                pass.placed ? "chase" : "seat view", w.passes, w.followedPasses, w.offsetSum / n, w.offsetMin,
+                w.offsetMax, w.turnSum / n, w.offsetTimesTurn / n, w.rangeSum / n);
+            const RingWitness kept = w;
+            w = RingWitness{};
+            w.lastMs = kept.lastMs;
+            w.lastHeading = kept.lastHeading;
+            w.haveHeading = kept.haveHeading;
+        }
+    }
+#endif
 }
 
 // Any thread (the frame thread draws it). The ring's direction in the headset's space (yaw about +Y, pitch up, the
