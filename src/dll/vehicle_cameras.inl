@@ -1050,25 +1050,20 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
         g_halo3VehicleAimMarkerSeat = seatKey;
         g_halo3VehicleAimMarkerRange.Reset();
     }
-    // The line the vehicle aims along: the vehicle's heading at the game's aim pitch, from the eye a seat's steering
-    // is solved from -- the seat's own engine eye (g_baseCam, the camera this pass started from before the head-look:
-    // Game_ComputeAimStick bends the hand's point for it), so a point on this line is one the hand can aim at to go
-    // straight. NOT the game's third-person camera: it swings round the vehicle to look along the aim, so the line
-    // from it ran down the vehicle's side and the ring slid the opposite way to the aim. That camera stays the
-    // fallback while the seat's eye has not been read.
+    // The line the vehicle aims along: the vehicle's heading at the game's aim pitch, FROM THE EYE THIS PASS'S VIEW
+    // IS DRAWN FROM, so the ring sits on the heading wherever the camera is and however near the trace stops: its
+    // place in the view is the heading alone, and the range only sets its depth. Not from the seat's engine eye
+    // (g_baseCam): that is a game tick old and the camera can sit metres to its side (a side camera, a chase camera
+    // swinging wide in a turn), so a point on its line, seen from here, slid across the view as the vehicle turned,
+    // furthest when the trace stopped on the ground a few metres out. Nor from the game's third-person camera, which
+    // swings round the vehicle to look along the aim. That camera gives the pitch only.
     float at[3], about[3], looks[3], dir[3];
     if (!Halo3ReadObserverCamera(at, about, looks) || !vehicle_aim_marker::Direction(vehicleForward, looks, dir))
     {
         Halo3VehicleAimMarkerClear();
         return;
     }
-    if (g_baseCamValid.load(std::memory_order_acquire))
-    {
-        const float seatEye[3] = {g_baseCamX.load(std::memory_order_relaxed), g_baseCamY.load(std::memory_order_relaxed),
-                                  g_baseCamZ.load(std::memory_order_relaxed)};
-        if (std::isfinite(seatEye[0]) && std::isfinite(seatEye[1]) && std::isfinite(seatEye[2]))
-            memcpy(at, seatEye, sizeof(at));
-    }
+    memcpy(at, eye, sizeof(at));
     const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_relaxed);
     SightAuxRay ray{};
     ray.generation = generation;
@@ -1116,6 +1111,9 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
             uint32_t passes = 0, followedPasses = 0;
             double offsetSum = 0.0, turnSum = 0.0, offsetTimesTurn = 0.0, rangeSum = 0.0;
             float offsetMin = 1.0e9f, offsetMax = -1.0e9f;
+            // The hull against the view's yaw reference (constant while the view follows the hull), and the ring's
+            // line from the eye against the hull's heading (what the eye's place and the range add).
+            float hullRefMin = 1.0e9f, hullRefMax = -1.0e9f, ringHullMin = 1.0e9f, ringHullMax = -1.0e9f;
         };
         static thread_local RingWitness w;
         const uint64_t nowMs = GetTickCount64();
@@ -1140,6 +1138,12 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
             w.rangeSum += range / unitsPerVrMetre;
             w.offsetMin = offsetDeg < w.offsetMin ? offsetDeg : w.offsetMin;
             w.offsetMax = offsetDeg > w.offsetMax ? offsetDeg : w.offsetMax;
+            const float hullRef = Halo3WrapPi(heading - g_gameYawRef) * 57.2958f;
+            const float ringHull = Halo3WrapPi(std::atan2(fromEye[1], fromEye[0]) - heading) * 57.2958f;
+            w.hullRefMin = hullRef < w.hullRefMin ? hullRef : w.hullRefMin;
+            w.hullRefMax = hullRef > w.hullRefMax ? hullRef : w.hullRefMax;
+            w.ringHullMin = ringHull < w.ringHullMin ? ringHull : w.ringHullMin;
+            w.ringHullMax = ringHull > w.ringHullMax ? ringHull : w.ringHullMax;
         }
         if (nowMs != w.lastMs)
         {
@@ -1151,9 +1155,11 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
         {
             const double n = static_cast<double>(w.passes);
             LOG("Vehicle cameras (dev): aim ring %s, %u passes (%u followed): across the view mean %+.2f deg (%+.2f .. "
-                "%+.2f), turning mean %+.1f deg/s, offset x turn %+.1f, range mean %.1f m",
+                "%+.2f), turning mean %+.1f deg/s, offset x turn %+.1f, range mean %.1f m; hull - view ref %+.1f .. "
+                "%+.1f deg; ring line - hull %+.1f .. %+.1f deg",
                 pass.placed ? "chase" : "seat view", w.passes, w.followedPasses, w.offsetSum / n, w.offsetMin,
-                w.offsetMax, w.turnSum / n, w.offsetTimesTurn / n, w.rangeSum / n);
+                w.offsetMax, w.turnSum / n, w.offsetTimesTurn / n, w.rangeSum / n, w.hullRefMin, w.hullRefMax,
+                w.ringHullMin, w.ringHullMax);
             const RingWitness kept = w;
             w = RingWitness{};
             w.lastMs = kept.lastMs;
