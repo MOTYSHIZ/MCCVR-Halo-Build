@@ -472,6 +472,7 @@ struct Reader
             }
             else if (key == "rotationTracking")
             {
+                camera.rotationOwn = camera.rotationSet = true;
                 ok = Axes(item, at, camera.rotYaw, camera.rotPitch, camera.rotRoll);
             }
             else if (key == "collide")
@@ -642,7 +643,9 @@ struct Reader
                 one.mode.locPitch = camera.locPitch;
                 one.mode.locRoll = camera.locRoll;
             }
-            if (!one.hasRotation)
+            if (one.hasRotation)
+                camera.rotationSet = true;
+            else
             {
                 one.mode.rotYaw = camera.rotYaw;
                 one.mode.rotPitch = camera.rotPitch;
@@ -1066,7 +1069,8 @@ void WriteCamera(std::string& out, const Vehicle& vehicle, const Camera& camera)
         camera.locRoll != unset.locRoll)
         out += ", \"locationTracking\": " +
                (camera.locView ? std::string("\"view\"") : AxesJson(camera.locYaw, camera.locPitch, camera.locRoll));
-    if (all || camera.rotYaw != unset.rotYaw || camera.rotPitch != unset.rotPitch || camera.rotRoll != unset.rotRoll)
+    if (all || camera.rotationOwn || camera.rotYaw != unset.rotYaw || camera.rotPitch != unset.rotPitch ||
+        camera.rotRoll != unset.rotRoll)
         out += ", \"rotationTracking\": " + AxesJson(camera.rotYaw, camera.rotPitch, camera.rotRoll);
     if (all || camera.collide != unset.collide)
         out += std::string(", \"collide\": ") + (camera.collide ? "true" : "false");
@@ -1249,14 +1253,6 @@ namespace
 // The built-in cameras' parts. Every seat starts in its seat view, so the file changes nothing until another
 // camera is chosen; the second camera is where the game's own third-person camera rests, which suits a vehicle of
 // any size. A vehicle the mod knows adds one or two of its own, after Halo Campaign Evolved's.
-Camera SeatView()
-{
-    Camera seat;
-    seat.name = "Seat";
-    seat.type = CameraType::FirstPerson;
-    return seat;
-}
-
 // Two modes: the world held still, and the view turning with the vehicle's heading. The aim ring only in the second,
 // as Halo Campaign Evolved's built-in cameras have it: there it is where the view comes to rest.
 void UntetheredAndTethered(Camera& camera)
@@ -1268,6 +1264,18 @@ void UntetheredAndTethered(Camera& camera)
     turning.rotYaw = true;
     still.aimMarker = 0;
     camera.tethering = {still, turning};
+    camera.rotationSet = true;
+}
+
+// The seat view, Untethered first (the view as it is without the file) and Tethered, as Halo Campaign Evolved's
+// cockpit cameras are.
+Camera SeatView()
+{
+    Camera seat;
+    seat.name = "Seat";
+    seat.type = CameraType::FirstPerson;
+    UntetheredAndTethered(seat);
+    return seat;
 }
 
 Camera ThirdPerson()

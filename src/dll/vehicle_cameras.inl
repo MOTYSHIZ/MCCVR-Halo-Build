@@ -341,6 +341,15 @@ std::atomic<uint32_t> g_halo3VehicleCameraNoTraceFrames{0};
 float g_halo3VehicleCameraReach = 1.0f;
 // This pass's placement, for the leash on the head (Halo3VehicleCameraLeashHead), later in the same pass.
 // Camera thread.
+// The way a seat's vehicle faces for a view that turns with it: a tuned seat's own node, as its view follows; a seat
+// with no tuned point its hull's frame (the node a mod map's vehicle seats its occupant on may be a part that turns
+// with the aim). The aim ring takes the same, so it rests where the view comes to rest (Halo3ApplySeatYawFollow).
+const float* Halo3VehicleFollowForward(const Halo3SeatSnapshot& seat)
+{
+    return Halo3SeatFollowsHull(static_cast<Halo3VehicleId>(seat.identity), seat.seatIndex, seat.mounted)
+        ? seat.rawFwd : seat.hullFwd;
+}
+
 struct Halo3VehicleCameraPass
 {
     bool placed = false;
@@ -380,14 +389,47 @@ bool Halo3VehicleCameraThirdPerson()
     return Halo3VehicleCameraSelected(camera, seat, key);
 }
 
-// How a chosen chase camera turns the view (Halo3ApplySeatYawFollow): its mode's rotationTracking. Yaw follows
-// the hull's heading; pitch follows it too where the seat takes the hull's pitch at all, and only with yaw.
+// The camera in use for exactly this seat, a firstperson one included. False while none is, or while it was
+// being published both times it was read.
+bool VehicleCameraReadForSeat(const VehicleCameraSeatKey& wanted, vehicle_camera_select::ActiveCamera& camera)
+{
+    const VehicleCameraPublished& published = g_vehicleCameraPublished;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        const uint32_t before = published.seq.load(std::memory_order_acquire);
+        if (before & 1u)
+            continue;
+        camera = published.camera;
+        const VehicleCameraSeatKey seat = published.seat;
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (published.seq.load(std::memory_order_relaxed) != before)
+            continue;
+        return camera.valid && seat == wanted;
+    }
+    return false;
+}
+
+// How the camera in use turns the view (Halo3ApplySeatYawFollow): its mode's rotationTracking. Yaw follows the
+// hull's heading; pitch follows it too where the seat takes the hull's pitch at all, and only with yaw. A chase
+// camera always says; a firstperson one says when the file gives it, or any of its modes, "rotationTracking" (as
+// Halo Campaign Evolved's cockpit cameras do: "Untethered" [] and "Tethered" ["yaw", ...]). False: the camera does
+// not say, and the game's setting (vehicle_view_follow) decides.
 bool Halo3VehicleCameraViewTurn(bool& yaw, bool& pitch)
 {
     vehicle_camera_select::ActiveCamera camera;
     Halo3SeatSnapshot seat;
     VehicleCameraSeatKey key;
-    if (!Halo3VehicleCameraSelected(camera, seat, key))
+    if (Halo3VehicleCameraSelected(camera, seat, key))
+    {
+        yaw = camera.rotYaw;
+        pitch = camera.rotYaw && camera.rotPitch;
+        return true;
+    }
+    if (!Halo3ReadSeatSnapshot(seat))
+        return false;
+    key = VehicleCameraSeatKey{g_halo3RuntimeGeneration.load(std::memory_order_relaxed), seat.parentHandle,
+                               seat.seatIndex, seat.identity, seat.mounted};
+    if (!VehicleCameraReadForSeat(key, camera) || camera.chase || !camera.rotationSet)
         return false;
     yaw = camera.rotYaw;
     pitch = camera.rotYaw && camera.rotPitch;
@@ -880,7 +922,8 @@ bool Halo3VehicleCameraPlace(float viewYaw, float out[3])
     g_halo3VehicleCameraPass.camera = camera;
     g_halo3VehicleCameraPass.where = placed;
     g_halo3VehicleCameraPass.seat = key;
-    memcpy(g_halo3VehicleCameraPass.vehicleForward, seat.rawFwd, sizeof(g_halo3VehicleCameraPass.vehicleForward));
+    memcpy(g_halo3VehicleCameraPass.vehicleForward, Halo3VehicleFollowForward(seat),
+           sizeof(g_halo3VehicleCameraPass.vehicleForward));
 
     Halo3VehicleCameraPoint& published = g_halo3VehicleCameraPoint;
     published.seq.fetch_add(1, std::memory_order_acq_rel);
@@ -971,20 +1014,40 @@ void Halo3VehicleAimMarkerClear()
 
 // Camera thread, at the end of a camera pass, once the view is where it will be drawn from: `eye` that point (world
 // units), and `followed` with `hullYaw` / `hullPitch` the vehicle frame the view's rotation was composed in, when it
-// was (Halo3ReadRollStableFollow). The ring is placed only in a pass that placed a chase camera asking for it, and is
-// taken down in any other.
+// was (Halo3ReadRollStableFollow). The ring is placed in a pass that placed a chase camera asking for it, or in the
+// seat view of a firstperson camera whose mode asks for it (a Tethered one, as Halo Campaign Evolved's cockpit
+// cameras show it), and is taken down in any other.
 void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw, float hullPitch)
 {
     const Halo3VehicleCameraPass& pass = g_halo3VehicleCameraPass;
-    if (!g_config.vehicle_aim_marker || !pass.placed || !pass.camera.aimMarker || !eye)
+    VehicleCameraSeatKey seatKey = pass.seat;
+    float vehicleForward[3] = {pass.vehicleForward[0], pass.vehicleForward[1], pass.vehicleForward[2]};
+    bool wanted = pass.placed && pass.camera.aimMarker;
+    if (!pass.placed && g_config.vehicle_aim_marker && eye)
+    {
+        Halo3SeatSnapshot seat;
+        vehicle_camera_select::ActiveCamera camera;
+        if (Halo3ReadSeatSnapshot(seat))
+        {
+            const VehicleCameraSeatKey key{g_halo3RuntimeGeneration.load(std::memory_order_relaxed),
+                                           seat.parentHandle, seat.seatIndex, seat.identity, seat.mounted};
+            if (VehicleCameraReadForSeat(key, camera) && !camera.chase && camera.rotationSet && camera.aimMarker)
+            {
+                wanted = true;
+                seatKey = key;
+                memcpy(vehicleForward, Halo3VehicleFollowForward(seat), sizeof(vehicleForward));
+            }
+        }
+    }
+    if (!g_config.vehicle_aim_marker || !wanted || !eye)
     {
         Halo3VehicleAimMarkerClear();
         return;
     }
     // A seat measures afresh: the range held in the last one says nothing of this one's surroundings.
-    if (!(pass.seat == g_halo3VehicleAimMarkerSeat))
+    if (!(seatKey == g_halo3VehicleAimMarkerSeat))
     {
-        g_halo3VehicleAimMarkerSeat = pass.seat;
+        g_halo3VehicleAimMarkerSeat = seatKey;
         g_halo3VehicleAimMarkerRange.Reset();
     }
     // The line the vehicle aims along: the vehicle's heading at the game's aim pitch, from the eye a seat's steering
@@ -994,7 +1057,7 @@ void Halo3VehicleAimMarkerStep(const float eye[3], bool followed, float hullYaw,
     // from it ran down the vehicle's side and the ring slid the opposite way to the aim. That camera stays the
     // fallback while the seat's eye has not been read.
     float at[3], about[3], looks[3], dir[3];
-    if (!Halo3ReadObserverCamera(at, about, looks) || !vehicle_aim_marker::Direction(pass.vehicleForward, looks, dir))
+    if (!Halo3ReadObserverCamera(at, about, looks) || !vehicle_aim_marker::Direction(vehicleForward, looks, dir))
     {
         Halo3VehicleAimMarkerClear();
         return;

@@ -83,6 +83,9 @@ static void TestBuiltInTable()
     Check(othersBeyond && namedOnce, "and a known vehicle's entry adds cameras of its own under its own name");
     Check(any.cameras.size() == 2 && any.defaultCamera == 0, "two cameras, starting in the first");
     Check(any.cameras[0].type == CameraType::FirstPerson, "the first is the seat view the player already has");
+    Check(any.cameras[0].ModeCount() == 2 && any.cameras[0].rotationSet && !any.cameras[0].Mode(0).rotYaw &&
+              any.cameras[0].Mode(1).rotYaw,
+          "the seat view too: Untethered first, then Tethered to yaw, and says so");
     Check(any.cameras[1].type == CameraType::Chase && any.cameras[1].ModeCount() == 2, "the second has two modes");
     Check(!any.cameras[1].Mode(0).rotYaw && any.cameras[1].Mode(1).rotYaw, "untethered first, then tethered to yaw");
     Check(any.cameras[1].origin == Origin::ThirdPerson && any.cameras[1].offset[0] == 0.0f &&
@@ -105,8 +108,9 @@ static void TestBuiltInTable()
           "and counts every entry and camera");
     Check(ToJson(back) == text, "writing what was read gives the same text");
     Check(Has(text, "\"_readme\"") && !Has(ToJson(built, false), "\"_readme\""), "the guide is optional");
-    Check(Has(text, "{ \"name\": \"Seat\", \"type\": \"firstperson\" }"),
-          "a firstperson camera names only what was set");
+    Check(Has(text, "{ \"name\": \"Seat\", \"type\": \"firstperson\",\n") &&
+              !Has(text, "{ \"name\": \"Seat\", \"type\": \"firstperson\", \"origin\""),
+          "a firstperson camera names only what was set: its modes, no placement");
     Check(Has(text, "\"origin\": \"thirdperson\"") && back.games[1].vehicles[0].cameras[1].origin == Origin::ThirdPerson,
           "the game's own third-person place is written and read by name");
     Check(OriginText(Origin::ThirdPerson, "x") == "thirdperson", "and named so in a readout");
@@ -208,6 +212,8 @@ static void TestCamerasAndTethering()
     Check(behind.OriginOf(still) == Origin::Vehicle && behind.MarkerOf(still).empty(), "and the camera's origin");
     const Tether tethered = behind.Mode(1);
     Check(tethered.rotYaw && !tethered.rotPitch && tethered.rotRoll, "a mode's own rotation tracking");
+    Check(behind.rotationSet && behind.rotationOwn && !warthog.cameras[0].rotationSet,
+          "a camera says how its view turns when it or a mode gives rotationTracking, and one that never does does not");
     Check(tethered.offset[0] == -300.0f && tethered.offset[2] == 150.0f, "a mode's own offset");
     Check(tethered.locView && !tethered.locYaw, "a mode's own location tracking");
     Check(behind.OriginOf(tethered) == Origin::Marker && behind.MarkerOf(tethered) == "turret_base",
