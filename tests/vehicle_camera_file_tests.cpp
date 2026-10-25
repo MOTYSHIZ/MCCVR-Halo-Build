@@ -1,5 +1,6 @@
 // The vehicle camera file (src/common/vehicle_camera_file.h): reading, writing, the built-in table, per-game
 // sections, tethering modes, the leash cascade, vehicle matching, and every bound a hand-edited file can reach.
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -68,6 +69,10 @@ static void TestBuiltInTable()
     bool startsInSeat = true, thirdPersonSecond = true, othersBeyond = true, namedOnce = true;
     for (const Vehicle& vehicle : halo3.vehicles)
     {
+        // The stock vehicles' entries (named as the mod names them) and default; a mod map's vehicle, named by its
+        // tag, keeps the cameras tuned for it.
+        if (!vehicle.isDefault && !std::isupper(static_cast<unsigned char>(vehicle.name[0])))
+            continue;
         startsInSeat = startsInSeat && vehicle.cameras.size() >= 2 && vehicle.defaultCamera == 0 &&
                        vehicle.cameras[0].type == CameraType::FirstPerson;
         thirdPersonSecond = thirdPersonSecond && vehicle.cameras[1].origin == Origin::ThirdPerson &&
@@ -80,6 +85,19 @@ static void TestBuiltInTable()
             namedOnce = namedOnce && (&other == &vehicle || other.name != vehicle.name);
     }
     Check(startsInSeat && thirdPersonSecond, "every Halo 3 entry starts in the seat view, then the game's own");
+    {
+        int modEntries = 0;
+        bool longswordTuned = false;
+        for (const Vehicle& vehicle : halo3.vehicles)
+        {
+            if (vehicle.isDefault || std::isupper(static_cast<unsigned char>(vehicle.name[0])))
+                continue;
+            ++modEntries;
+            if (vehicle.name == "longswordh2a" && !vehicle.cameras.empty())
+                longswordTuned = vehicle.cameras[0].fadeParts.size() == 4;
+        }
+        Check(modEntries == 17 && longswordTuned, "the mod maps' vehicles are built in, with their tuned cameras");
+    }
     Check(othersBeyond && namedOnce, "and a known vehicle's entry adds cameras of its own under its own name");
     Check(any.cameras.size() == 2 && any.defaultCamera == 0, "two cameras, starting in the first");
     Check(any.cameras[0].type == CameraType::FirstPerson, "the first is the seat view the player already has");
@@ -257,6 +275,9 @@ static void TestAimMarker()
     for (const Game& game : built.games)
         for (const Vehicle& vehicle : game.vehicles)
         {
+            // A mod map's built-in vehicle is written as a player's file has it: the ring follows each mode's turn.
+            if (!vehicle.isDefault && !std::isupper(static_cast<unsigned char>(vehicle.name[0])))
+                continue;
             seatOn = seatOn && vehicle.aimMarker == 1;
             for (std::size_t c = 0; c < vehicle.cameras.size(); ++c)
             {
@@ -449,7 +470,7 @@ static void TestMatching()
               builtName("prowler", kSeatDriver) == "Prowler",
           "built in: mauler_fast takes the Prowler's");
     Check(builtName("warthog_fast", kSeatGunner) == "Warthog gunner" && builtName("ghost_aa", kSeatDriver) == "Ghost" &&
-              builtName("sparrowhawk", kSeatDriver) == "default",
+              builtName("custom_rover", kSeatDriver) == "default" && builtName("sparrowhawk", kSeatDriver) == "sparrowhawk",
           "built in: other variants by their own words; a vehicle like no stock one, the default entry");
 
     Table bare;
@@ -797,8 +818,11 @@ static void TestFadeParts()
     Check(result.ok && result.leftOut.empty() && c.fadeParts.size() == 2 && c.fadeParts[0].first == "sparrowhawk_glass" &&
               c.fadeParts[0].second == 0.3f && c.fadeParts[1].first == "glass_dark" && c.fadeParts[1].second == 0.0f,
           "names with how much is kept are read (a quoted number too)");
-    Check(AnyFadesParts(table, "halo3") && !AnyHidesParts(table, "halo3") && !AnyFadesParts(DefaultTable(), "halo3"),
+    Check(AnyFadesParts(table, "halo3") && !AnyHidesParts(table, "halo3"),
           "the section that fades is known, apart from hiding");
+    // The built-in mod vehicles fade their cockpit glass (the Sparrowhawk's, the Longsword's); none hides a part.
+    Check(AnyFadesParts(DefaultTable(), "halo3") && !AnyHidesParts(DefaultTable(), "halo3"),
+          "the built-in cameras fade glass and hide nothing");
     Table again;
     Check(Read(ToJson(table), again).ok && again.games[0].vehicles[0].cameras[0].fadeParts == c.fadeParts,
           "they are written back and read back the same");

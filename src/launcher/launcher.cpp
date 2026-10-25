@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include "installer.h"
 #include "../common/manual_vr_recovery.h"
 #include "../common/reclaimer_host_logic.h"
@@ -1181,6 +1182,67 @@ ClientInfo Describe(const std::filesystem::path& launcherDir, const std::wstring
 }
 } // namespace reclaimer_launch
 
+// Turn on the client's Centered crosshair (reclaimer_host::WithCenteredCrosshair) in its settings.json, under
+// Documents\My Games\Project Reclaimer, before it starts and reads it. Written through a temporary file, so the
+// player's settings are never left half written.
+static void ReclaimerEnsureCenteredCrosshair()
+{
+    PWSTR documents = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents)) || !documents)
+    {
+        LauncherLog("Project Reclaimer's centered crosshair: the Documents folder is unknown; left as it is");
+        return;
+    }
+    const std::filesystem::path folder = std::filesystem::path(documents) / L"My Games" / L"Project Reclaimer";
+    CoTaskMemFree(documents);
+    const std::filesystem::path file = folder / L"settings.json";
+    std::string text;
+    {
+        FILE* f = nullptr;
+        if (_wfopen_s(&f, file.c_str(), L"rb") == 0 && f)
+        {
+            char buffer[4096];
+            size_t n = 0;
+            while ((n = fread(buffer, 1, sizeof(buffer), f)) > 0)
+                text.append(buffer, n);
+            fclose(f);
+        }
+    }
+    std::string out;
+    const reclaimer_host::CenteredCrosshairEdit edit = reclaimer_host::WithCenteredCrosshair(text, out);
+    if (edit == reclaimer_host::CenteredCrosshairEdit::AlreadyOn)
+    {
+        LauncherLog("Project Reclaimer's centered crosshair: already on");
+        return;
+    }
+    if (edit == reclaimer_host::CenteredCrosshairEdit::Unreadable)
+    {
+        LauncherLog("Project Reclaimer's centered crosshair: %ls could not be read as its settings; left as it is. "
+                    "Turn on Settings > HUD > Centered crosshair in the game, or the hand will not take over its aim",
+                    file.c_str());
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    const std::filesystem::path temp = folder / L"settings.json.vr-launcher-tmp";
+    FILE* f = nullptr;
+    bool written = false;
+    if (_wfopen_s(&f, temp.c_str(), L"wb") == 0 && f)
+    {
+        written = fwrite(out.data(), 1, out.size(), f) == out.size();
+        written = (fclose(f) == 0) && written;
+    }
+    if (!written || !MoveFileExW(temp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        DeleteFileW(temp.c_str());
+        LauncherLog("Project Reclaimer's centered crosshair: could not write %ls; left as it is", file.c_str());
+        return;
+    }
+    LauncherLog("Project Reclaimer's centered crosshair: turned on in %ls (%s)", file.c_str(),
+                edit == reclaimer_host::CenteredCrosshairEdit::Created ? "a new settings file"
+                                                                       : "nothing else in it changed");
+}
+
 static int LaunchReclaimer(const std::wstring& dir, const ReclaimerClient& client)
 {
     const std::wstring& clientExe = client.exe;
@@ -1246,6 +1308,7 @@ static int LaunchReclaimer(const std::wstring& dir, const ReclaimerClient& clien
                  L"starts.");
         return kExitFailed;
     }
+    ReclaimerEnsureCenteredCrosshair();
     // The relay's log is this launch's: several processes append to it.
     {
         FILE* f = nullptr;

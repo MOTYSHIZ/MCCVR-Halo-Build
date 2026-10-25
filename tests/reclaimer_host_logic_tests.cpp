@@ -44,6 +44,24 @@ int main()
     CHECK(IsClientExeName(L"project-reclaimer-v0.9.8.exe"));
     CHECK(IsClientExeName(L"Project-Reclaimer-V1.0.exe"));
     CHECK(IsClientExeName(Leaf(L"D:\\Some Games\\Project Reclaimer\\0.9.8\\project-reclaimer-v0.9.8.exe")));
+    // The client's centered crosshair: on, changing nothing else.
+    {
+        std::string out;
+        CHECK(WithCenteredCrosshair("{\n  \"version\": 1,\n  \"centered_crosshair\": true\n}", out) ==
+              CenteredCrosshairEdit::AlreadyOn);
+        CHECK(WithCenteredCrosshair("{\"version\":1,\"centered_crosshair\" : false,\"fov\":70}", out) ==
+                  CenteredCrosshairEdit::TurnedOn &&
+              out == "{\"version\":1,\"centered_crosshair\" : true,\"fov\":70}");
+        CHECK(WithCenteredCrosshair("\xEF\xBB\xBF{\n  \"version\": 1,\n  \"fov\": 70\n}\n", out) ==
+                  CenteredCrosshairEdit::TurnedOn &&
+              out == "\xEF\xBB\xBF{\n  \"centered_crosshair\": true,\n  \"version\": 1,\n  \"fov\": 70\n}\n");
+        CHECK(WithCenteredCrosshair("{ }", out) == CenteredCrosshairEdit::TurnedOn &&
+              out == "{\n  \"centered_crosshair\": true\n }");
+        CHECK(WithCenteredCrosshair("", out) == CenteredCrosshairEdit::Created &&
+              out == "{\n  \"version\": 1,\n  \"centered_crosshair\": true\n}\n");
+        CHECK(WithCenteredCrosshair("{\"centered_crosshair\": 1}", out) == CenteredCrosshairEdit::Unreadable);
+        CHECK(WithCenteredCrosshair("[1, 2]", out) == CenteredCrosshairEdit::Unreadable);
+    }
     CHECK(IsClientExeName(L"project-reclaimer-client-v0.9.23.exe"));
     CHECK(IsClientExeName(L"project-reclaimer-client.exe"));
     CHECK(IsClientExeName(Leaf(L"D:\\Some Games\\Project Reclaimer\\0.9.23\\project-reclaimer-client-v0.9.23.exe")));

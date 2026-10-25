@@ -837,7 +837,7 @@ struct Config
     // the point's direction with the vehicle's forward below vehicle_aim_reject_dot (-0.5: more than 120 deg off the
     // nose; -1 refuses nothing). For a camera placed outside the vehicle, whose hand ray easily lands on the ground
     // just behind it. Every camera, the seat view included. Halo 3 for now. Live.
-    float vehicle_aim_reject_metres = 5.0f;
+    float vehicle_aim_reject_metres = 20.0f;
     float vehicle_aim_reject_dot = -0.5f;
     // THE THIRD-PERSON BOOM (vehicle_boom_logic.h): a vehicle camera that stands where the game's own third-person
     // camera does ("origin": "thirdperson") is raised and lowered by the right stick's Y in a seat where that axis

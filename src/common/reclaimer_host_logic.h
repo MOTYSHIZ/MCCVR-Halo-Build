@@ -99,6 +99,60 @@ inline std::vector<std::wstring> Arguments(std::wstring_view commandLine)
     return out;
 }
 
+// THE CLIENT'S CENTERED CROSSHAIR. Project Reclaimer draws its crosshair below the screen's centre unless
+// "centered_crosshair" is true in its settings.json (Settings > HUD), and then pitches the camera above the aim; the
+// mod's direct drive waits for the camera and the aim to agree, so with it off the hand never takes over the
+// game's aim. The launcher turns it on before it starts the client, changing nothing else in the file.
+enum class CenteredCrosshairEdit
+{
+    AlreadyOn,  // nothing to write
+    TurnedOn,   // `out` is the file with the key set to true
+    Created,    // there was no file: `out` is a new one with only the version and the key
+    Unreadable, // the key's value is not a JSON boolean, or the file is not one object: left alone
+};
+inline CenteredCrosshairEdit WithCenteredCrosshair(const std::string& text, std::string& out)
+{
+    constexpr std::string_view kKey = "\"centered_crosshair\"";
+    const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+    size_t first = 0;
+    if (text.compare(0, 3, "\xEF\xBB\xBF") == 0)
+        first = 3;
+    while (first < text.size() && space(text[first]))
+        ++first;
+    if (first == text.size())
+    {
+        out = "{\n  \"version\": 1,\n  \"centered_crosshair\": true\n}\n";
+        return CenteredCrosshairEdit::Created;
+    }
+    if (text[first] != '{')
+        return CenteredCrosshairEdit::Unreadable;
+    const size_t key = text.find(kKey);
+    if (key != std::string::npos)
+    {
+        size_t at = key + kKey.size();
+        while (at < text.size() && space(text[at]))
+            ++at;
+        if (at >= text.size() || text[at] != ':')
+            return CenteredCrosshairEdit::Unreadable;
+        ++at;
+        while (at < text.size() && space(text[at]))
+            ++at;
+        if (text.compare(at, 4, "true") == 0)
+            return CenteredCrosshairEdit::AlreadyOn;
+        if (text.compare(at, 5, "false") != 0)
+            return CenteredCrosshairEdit::Unreadable;
+        out = text.substr(0, at) + "true" + text.substr(at + 5);
+        return CenteredCrosshairEdit::TurnedOn;
+    }
+    size_t next = first + 1;
+    while (next < text.size() && space(text[next]))
+        ++next;
+    const bool empty = next < text.size() && text[next] == '}';
+    out = text.substr(0, first + 1) + "\n  \"centered_crosshair\": true" + (empty ? "\n" : ",") +
+          text.substr(first + 1);
+    return CenteredCrosshairEdit::TurnedOn;
+}
+
 // A path as a person gives it: pasted with quotes round it, with spaces or a line end after it.
 inline std::wstring TidyPath(std::wstring_view text)
 {
