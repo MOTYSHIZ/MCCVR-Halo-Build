@@ -7791,6 +7791,11 @@ int main()
                   !VrHalo4ReticleRtvNeedsTypedFallback(true, true, false),
             "Stage 3BQ retries a typed RTV only for a failed Halo 4 authored-"
             "reticle view creation");
+        Check(VrImageFormatIsTypeless(DXGI_FORMAT_R8G8B8A8_TYPELESS) &&
+                  VrImageFormatIsTypeless(DXGI_FORMAT_B8G8R8A8_TYPELESS) &&
+                  !VrImageFormatIsTypeless(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) &&
+                  !VrImageFormatIsTypeless(DXGI_FORMAT_B8G8R8A8_UNORM),
+            "a typeless XR image (SteamVR's) is named as one; a typed one keeps its default view");
         bool writebackTruthTable = true;
         for (uint32_t bits = 0; bits < 16; ++bits)
         {
