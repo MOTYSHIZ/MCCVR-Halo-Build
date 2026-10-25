@@ -550,6 +550,7 @@ try {
     $launcherPath = Join-Path $packageDir 'HaloMCCVRLauncher.exe'
     foreach ($requiredPath in @(
             $dllPath,
+            (Join-Path $payloadDir 'HaloMCCVRReclaimerRelay.dll'),
             $launcherPath,
             $configPath,
             (Join-Path $payloadDir 'LICENSE'),

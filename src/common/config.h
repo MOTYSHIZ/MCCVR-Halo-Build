@@ -803,7 +803,7 @@ struct Config
     // changes nothing until another camera is chosen (F1 > Vehicles). A camera the mod places shows the
     // seat from outside, with the player's character drawn in it. Halo 3 for now, and only with
     // vehicle_first_person on.
-    bool vehicle_cameras = false;
+    bool vehicle_cameras = true;
     // A short note when the vehicle camera, its tethering mode or the seat's controls change, and on getting in:
     // "Warthog - Third Person, Tethered - Motion". 0 = none; 1 = in the game's own HUD messages, in the HUD's font
     // (Halo 3; the mod's panel when the game's HUD cannot take it, and in a shared co-op simulation);

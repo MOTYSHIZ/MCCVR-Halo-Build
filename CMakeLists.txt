@@ -415,7 +415,7 @@ if(MSVC)
     target_link_options(halo3xr_launcher PRIVATE "/MANIFESTUAC:level='asInvoker' uiAccess='false'")
 endif()
 
-# THE PROJECT RECLAIMER RELAY (experimental; not packaged: package-candidate.ps1 copies named files only).
+# THE PROJECT RECLAIMER RELAY (experimental; packaged beside HaloMCCVR.dll by the dist install below).
 # Project Reclaimer runs MCC's halo3.dll in a worker process two generations below the one a launcher can start,
 # so HaloMCCVRReclaimerRelay.dll rides its process starts and loads HaloMCCVR.dll into the engine worker before
 # that worker runs (src/relay/reclaimer_relay.cpp). The launcher uses it when it sits beside a Project Reclaimer
@@ -1665,6 +1665,11 @@ install(TARGETS halo3xr
 install(TARGETS halo3xr_launcher
     RUNTIME DESTINATION .
     COMPONENT launcher)
+# The Project Reclaimer relay rides beside HaloMCCVR.dll, so the launcher's Project Reclaimer section can start it
+# from an installed Halo_MCC_VR folder.
+install(TARGETS halomccvr_reclaimer_relay
+    RUNTIME DESTINATION .
+    COMPONENT dist)
 install(FILES
     LICENSE
     installer/MANUAL-README.txt
