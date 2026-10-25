@@ -5766,6 +5766,51 @@ float4 ps_main(VSOut i) : SV_Target
         }
     }
 
+    // Which module answers the D3D11 calls the mod makes on the headset's images. Another program in the process
+    // (a runtime, an overlay, a capture tool) may have replaced a slot of the device's or context's function table
+    // with its own code; a fault inside that code is then a fault on our call. Logged when the set changes, at
+    // the session and at each set of images the runtime makes. Cheap: a few lookups, never per frame.
+    void LogD3DEntryOwners(const char* when)
+    {
+        if (!g_device || !g_context)
+            return;
+        struct Slot
+        {
+            const char* name;
+            bool device;
+            int index;
+        };
+        static constexpr Slot kSlots[] = {
+            {"CreateTexture2D", true, 5},       {"CreateShaderResourceView", true, 7},
+            {"CreateRenderTargetView", true, 9}, {"Draw", false, 13},
+            {"OMSetRenderTargets", false, 33},   {"CopySubresourceRegion", false, 46},
+            {"CopyResource", false, 47},
+        };
+        std::string text;
+        for (const Slot& slot : kSlots)
+        {
+            void* const* table = *reinterpret_cast<void* const* const*>(slot.device ? static_cast<void*>(g_device)
+                                                                                    : static_cast<void*>(g_context));
+            HMODULE owner = nullptr;
+            wchar_t path[MAX_PATH]{};
+            const wchar_t* leaf = L"(no module)";
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   static_cast<LPCWSTR>(table[slot.index]), &owner) &&
+                GetModuleFileNameW(owner, path, MAX_PATH))
+            {
+                leaf = wcsrchr(path, L'\\') ? wcsrchr(path, L'\\') + 1 : path;
+            }
+            char narrow[MAX_PATH]{};
+            WideCharToMultiByte(CP_UTF8, 0, leaf, -1, narrow, static_cast<int>(sizeof(narrow)), nullptr, nullptr);
+            text += std::string(text.empty() ? "" : ", ") + slot.name + " " + narrow;
+        }
+        static std::string last;
+        if (text == last)
+            return;
+        last = text;
+        LOG("D3D11 entry owners (%s): %s", when, text.c_str());
+    }
+
     bool CreateChain(uint32_t w, uint32_t h, XrSwapchain& chain,
                      std::vector<ID3D11Texture2D*>& images, std::vector<ID3D11RenderTargetView*>& rtvs,
                      const char* what)
@@ -5808,6 +5853,7 @@ float4 ps_main(VSOut i) : SV_Target
         for (auto& img : xrImages)
             images.push_back(img.texture);
         LOG("XR swapchain '%s' created: %ux%u, %u images", what, w, h, count);
+        LogD3DEntryOwners(what);
         return true;
     }
 
@@ -15666,6 +15712,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         strcpy_s(g_status.sessionState, "starting");
         LogHeadsetPanelRate();
         LOG("OpenXR session created");
+        LogD3DEntryOwners("session created");
         return true;
     }
 
