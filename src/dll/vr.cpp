@@ -19592,9 +19592,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     reticleQuad.next = &reticleTint;
                                 }
                             }
-                            layers.push_back(
-                                reinterpret_cast<XrCompositionLayerBaseHeader*>(&reticleQuad));
-                            if(dualReticles) {
+                            // AIM FRAME ZOOM: the game's own crosshair is in the frame's picture.
+                            if (!aimFrameQueued)
+                                layers.push_back(
+                                    reinterpret_cast<XrCompositionLayerBaseHeader*>(&reticleQuad));
+                            if(dualReticles && !aimFrameQueued) {
                                 g_secondaryReticlePose=g_secondaryReticlePoseValid&&smoothing>0
                                     ?SmoothTrackedPose(secondaryAim,g_secondaryReticlePose,smoothing):secondaryAim;
                                 g_secondaryReticlePoseValid=true;

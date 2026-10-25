@@ -657,6 +657,11 @@ namespace
     // Halo3IndependentQueryDetour on the simulation thread. It is the game's own state: it follows toggles,
     // cancels on a weapon switch and re-arms as the game decides, which the button cannot tell.
     std::atomic<int> g_halo3GameZoomLevel{-1};
+    // The frame is up (the HUD layout goes back to the flat game's while it is: HudLayoutWanted), and the eye
+    // renderer is inside the frame's pass (the game draws its own crosshair and zoom art into it, as on a flat
+    // screen, and the HUD height is left as the game places it).
+    std::atomic<bool> g_halo3AimFrameUp{false};
+    std::atomic<bool> g_halo3AimFramePass{false};
     std::atomic<uint64_t> g_halo3GameZoomMs{0};
     std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
     void Halo3NoteGameZoomLevel(int16_t level, uint32_t generation)
@@ -3116,7 +3121,8 @@ namespace
             result = g_realHudAnchorBasis(
                 userIndex, drawWidgetData, anchorType, basis);
             if (outermost && result && basis && !g_authoredReticleCaptureStarted &&
-                g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled())
+                g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled() &&
+                !g_halo3AimFramePass.load(std::memory_order_acquire))
             {
                 const float height = g_config.hud_vertical_offset;
                 if (isfinite(height) && height >= kHudHeightMin && height <= kHudHeightMax)
@@ -3203,6 +3209,10 @@ namespace
             if (!g_config.crosshair)
                 return false;
             if (!g_config.kill_reticle)
+                return true;
+            // AIM FRAME ZOOM: the frame is the flat game's picture, so the game draws its own crosshair and zoom
+            // reticle into it where it always does, at the centre; the lifted crosshair is not shown meanwhile.
+            if (g_halo3AimFramePass.load(std::memory_order_acquire))
                 return true;
 
             const int eye = g_stereoEye.load(std::memory_order_relaxed);
@@ -4510,6 +4520,27 @@ namespace
         vertical = fmaxf(0.15f, fminf(vertical, 1.0f));
     }
 
+    // The layout the HUD should have now: the player's (hud_size, hud_aspect, hud_curvature, with the headset's
+    // correction), or, while Halo 3's aim frame is up, the flat game's own -- stock size, square aspect, the
+    // authored curvature and no headset correction, because the frame's picture has the game's own proportions.
+    static void HudLayoutWanted(HudLayoutProfile profile, float& size, float& aspect, float& curvature,
+                                float& horizontal, float& vertical)
+    {
+        if (profile == HudLayoutProfile::Halo3 && g_halo3AimFrameUp.load(std::memory_order_acquire))
+        {
+            size = 0.87f;
+            aspect = 1.0f;
+            curvature = 0.5f;
+            horizontal = vertical = size;
+            return;
+        }
+        size = g_config.hud_size;
+        aspect = g_config.hud_aspect;
+        curvature = g_config.hud_curvature;
+        horizontal = vertical = size;
+        ComputeHudSafeFramePair(size, aspect, horizontal, vertical);
+    }
+
     static uintptr_t EncodeHudLayoutScanToken(
         HudLayoutProfile profile, uint32_t generation)
     {
@@ -4847,19 +4878,15 @@ namespace
         if (n <= 0)
             return;
 
-        const float wantSize = g_config.hud_size;
-        const float wantAspect = g_config.hud_aspect;
-        const float wantCurvature = g_config.hud_curvature;
+        float wantSize = 0.0f, wantAspect = 0.0f, wantCurvature = 0.0f;
+        float wantH = 0.0f, wantV = 0.0f;
+        HudLayoutWanted(profile, wantSize, wantAspect, wantCurvature, wantH, wantV);
         if (!(wantSize >= 0.30f && wantSize <= 1.00f) ||
             !(wantAspect >= kHudAspectMin &&
               wantAspect <= kHudAspectMax) ||
             !(wantCurvature >= kHudCurvatureMin &&
               wantCurvature <= kHudCurvatureMax))
             return;
-
-        float wantH = wantSize, wantV = wantSize;
-        ComputeHudSafeFramePair(
-            wantSize, wantAspect, wantH, wantV);
         uint32_t wantBits = 0, wantAspectBits = 0;
         uint32_t wantCurvatureBits = 0;
         uint32_t wantHBits = 0, wantVBits = 0;
@@ -5062,9 +5089,9 @@ namespace
         if (!adapter || !generation)
             return;
 
-        const float wantSize = g_config.hud_size;
-        const float wantAspect = g_config.hud_aspect;
-        const float wantCurvature = g_config.hud_curvature;
+        float wantSize = 0.0f, wantAspect = 0.0f, wantCurvature = 0.0f;
+        float wantH = 0.0f, wantV = 0.0f;
+        HudLayoutWanted(profile, wantSize, wantAspect, wantCurvature, wantH, wantV);
         uint32_t wantBits = 0, wantAspectBits = 0;
         uint32_t wantCurvatureBits = 0;
         memcpy(&wantBits, &wantSize, sizeof(wantBits));
@@ -13263,6 +13290,7 @@ namespace
                 }
             }
         }
+        g_halo3AimFrameUp.store(ok, std::memory_order_release);
         const int on = ok ? 1 : 0;
         if (on != s.loggedOn)
         {
@@ -13644,9 +13672,11 @@ namespace
             // The draw routine consumes camera state uploaded to engine globals
             // by this per-view preparation stage, not the view structure
             // directly. Re-run it after each eye matrix rebuild.
+            g_halo3AimFramePass.store(aimFrameFrame, std::memory_order_release);
             if (g_prepareView)
                 g_prepareView(view, 0);
             g_origRenderView(view);
+            g_halo3AimFramePass.store(false, std::memory_order_release);
             g_eyeFpView.store(nullptr, std::memory_order_release);
             monoCaptured = VR_CaptureRenderedEye(eye);
             VR_EndRasterEye();
@@ -13663,6 +13693,7 @@ namespace
         else if (!monoFrame)
             VR_NoteStereoFrameRendered(GameTitle::Halo3);
         } __finally {
+            g_halo3AimFramePass.store(false, std::memory_order_release);
             EndHalo3AvatarPair();
             g_fpStereoSolveScope.armed = false;
         }
