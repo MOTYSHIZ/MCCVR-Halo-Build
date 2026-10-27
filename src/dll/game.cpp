@@ -661,6 +661,9 @@ namespace
     // renderer is inside the frame's pass (the game draws its own crosshair and zoom art into it, as on a flat
     // screen, and the HUD height is left as the game places it).
     std::atomic<bool> g_halo3AimFrameUp{false};
+    // The frame's shape: the flat game's 16:9, whatever the render surface's (the camera's own tangents are
+    // nearly square on this engine, measured 88.8 x 89.0 deg).
+    constexpr float kHalo3AimFrameAspect = 16.0f / 9.0f;
     std::atomic<bool> g_halo3AimFramePass{false};
     std::atomic<uint64_t> g_halo3GameZoomMs{0};
     std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
@@ -2706,6 +2709,7 @@ namespace
     void EndHalo3AvatarPair();
     void ObserveHalo3AvatarFp(uint16_t tag,const BoneMatrix* destination);
     bool InstallHalo3DualAim(uintptr_t base, size_t size, uint32_t generation);
+    bool InstallHalo3ZoomReader(uintptr_t base, size_t size, uint32_t generation);
     void BindHalo3ChaseCamera(uintptr_t base, size_t size, uint32_t generation);
     bool RemoveHalo3DualAim();
     void PublishHalo3DualAim();
@@ -4532,6 +4536,20 @@ namespace
             aspect = 1.0f;
             curvature = 0.5f;
             horizontal = vertical = size;
+            // The HUD is built for the game's render surface; the frame shows that surface at 16:9. The same
+            // correction as the headset's (ComputeHudSafeFramePair), against the frame's shape.
+            float gameAspect = 0.0f;
+            if (VR_GetGameRenderAspect(gameAspect) && isfinite(gameAspect) && gameAspect > 0.1f)
+            {
+                const float correction = gameAspect / kHalo3AimFrameAspect;
+                if (correction >= 0.25f && correction <= 4.0f)
+                {
+                    if (correction > 1.0f)
+                        vertical = size / correction;
+                    else
+                        horizontal = size * correction;
+                }
+            }
             return;
         }
         size = g_config.hud_size;
@@ -5146,7 +5164,14 @@ namespace
             // and no title reload): a once-per-second reassert loses that race
             // for most of every second. Reasserting every Present call is the
             // only way ours is reliably the last write before the next draw.
-            if (adapter->forceWriteEveryPass ||
+            // Halo 3's aim frame coming up or down changes the layout at once, even where the player's settings
+            // read the same as the frame's (HudLayoutWanted).
+            static bool appliedForAimFrame = false;
+            const bool aimFrameUp = profile == HudLayoutProfile::Halo3 &&
+                g_halo3AimFrameUp.load(std::memory_order_acquire);
+            const bool aimFrameChanged = aimFrameUp != appliedForAimFrame;
+            appliedForAimFrame = aimFrameUp;
+            if (adapter->forceWriteEveryPass || aimFrameChanged ||
                 g_hudAppliedBits.load(
                     std::memory_order_relaxed) != wantBits ||
                 g_hudAppliedAspectBits.load(
@@ -13307,7 +13332,7 @@ namespace
             return false;
         const float strength = g_config.aim_frame_strength[s.level];
         out.tanX = nativeX / strength;
-        out.tanY = nativeY / strength;
+        out.tanY = out.tanX / kHalo3AimFrameAspect;
         memcpy(out.forward, forward, sizeof(forward));
         memcpy(out.up, up, sizeof(up));
         out.level = s.level;
@@ -13408,13 +13433,24 @@ namespace
         // first eye like a mono frame; it wins over mono rendering.
         Halo3AimFrame aimFrame{};
         const bool aimFrameFrame = !cutsceneTheater && Halo3AimFrameThisFrame(camera, saved, aimFrame);
+        // 3D in the frame: both eye passes along the aim, each from its own eye (the eyes' offsets laid along the
+        // aim's basis, no cant: the frame is a flat screen with one frustum for both).
+        const bool aimFrameStereo = aimFrameFrame && g_config.aim_frame_stereo;
+        float aimRight[3]{};
+        if (aimFrameFrame)
+        {
+            aimRight[0] = aimFrame.forward[1] * aimFrame.up[2] - aimFrame.forward[2] * aimFrame.up[1];
+            aimRight[1] = aimFrame.forward[2] * aimFrame.up[0] - aimFrame.forward[0] * aimFrame.up[2];
+            aimRight[2] = aimFrame.forward[0] * aimFrame.up[1] - aimFrame.forward[1] * aimFrame.up[0];
+        }
+        bool aimFrameCapturedAll = true;
         float monoFov[4]{};
         const bool monoFrame = !aimFrameFrame && VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) &&
             !cutsceneTheater;
         bool monoCaptured = false;
         __try {
         const int firstEye = g_config.right_eye_first ? 1 : 0;
-        for (int pass = 0; pass < (monoFrame || aimFrameFrame ? 1 : 2); ++pass)
+        for (int pass = 0; pass < (monoFrame || (aimFrameFrame && !aimFrameStereo) ? 1 : 2); ++pass)
         {
             const int eye = pass == 0 ? firstEye : 1 - firstEye;
             g_stereoEye = eye;
@@ -13432,12 +13468,17 @@ namespace
             float eyeOrientation[4]{};
             bool haveEyeView =
                 VR_GetEyeViewOffset(eye,eyePosition,eyeOrientation);
-            if (monoFrame || aimFrameFrame)
+            if (monoFrame || (aimFrameFrame && !aimFrameStereo))
             {
                 // The midpoint of the eyes, looking the way the head looks (mono) or along the aim (the frame).
                 eyePosition[0] = eyePosition[1] = eyePosition[2] = 0.0f;
                 haveEyeView = false;
             }
+            else if (aimFrameStereo)
+                haveEyeView = false;
+            const float* offsetRight = aimFrameFrame ? aimRight : right;
+            const float* offsetUp = aimFrameFrame ? aimFrame.up : up;
+            const float* offsetForward = aimFrameFrame ? aimFrame.forward : fwd;
             if (aimFrameFrame)
             {
                 memcpy(camera + 0x0C, aimFrame.forward, sizeof(aimFrame.forward));
@@ -13449,9 +13490,9 @@ namespace
                 eyePosition, eyeOrientation);
             const float eyeScale=g_worldScale.load();
             for(int axis=0;axis<3;++axis)
-                pos[axis] += (right[axis]*eyePosition[0] +
-                              up[axis]*eyePosition[1] -
-                              fwd[axis]*eyePosition[2]) * eyeScale;
+                pos[axis] += (offsetRight[axis]*eyePosition[0] +
+                              offsetUp[axis]*eyePosition[1] -
+                              offsetForward[axis]*eyePosition[2]) * eyeScale;
 
             // Cant: PSVR2 mounts each display angled outward a few degrees,
             // and the per-eye FOV OpenXR reports is measured around that
@@ -13679,14 +13720,15 @@ namespace
             g_halo3AimFramePass.store(false, std::memory_order_release);
             g_eyeFpView.store(nullptr, std::memory_order_release);
             monoCaptured = VR_CaptureRenderedEye(eye);
+            aimFrameCapturedAll = aimFrameCapturedAll && monoCaptured;
             VR_EndRasterEye();
         }
         // A capture that missed keeps the last picture, mono or a pair, as it was.
         if (aimFrameFrame)
         {
-            if (monoCaptured)
-                VR_NoteAimFrameRendered(GameTitle::Halo3, firstEye, aimFrame.tanX, aimFrame.tanY,
-                                        aimFrame.widthDeg);
+            if (aimFrameCapturedAll)
+                VR_NoteAimFrameRendered(GameTitle::Halo3, aimFrameStereo ? -1 : firstEye, aimFrame.tanX,
+                                        aimFrame.tanY, aimFrame.widthDeg);
         }
         else if (monoFrame && monoCaptured)
             VR_NoteMonoFrameRendered(GameTitle::Halo3, firstEye);
@@ -19232,7 +19274,8 @@ namespace
         // The rejected early-helper-only detours remain inert. The new optional
         // path owns acquisition and downstream assist together, with its own
         // default-off setting and feature-only failure isolation.
-        (void)InstallHalo3DualAim(base,size,runtimeGeneration);
+        if(!InstallHalo3DualAim(base,size,runtimeGeneration))
+            (void)InstallHalo3ZoomReader(base,size,runtimeGeneration);
         // The evaluator's chase path, the start of a stock seat's crosshair line (seat_upstream_logic.h 4b): no hook,
         // so it is bound whether or not the lane above installed.
         BindHalo3ChaseCamera(base,size,runtimeGeneration);

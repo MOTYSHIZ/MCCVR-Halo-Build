@@ -1411,6 +1411,9 @@ struct Config
     // narrows the game's zoomed view further (1 = the game's own). The move time eases the frame in from, and back
     // out to, the game's own angles (0 = at once). game.cpp: Halo3AimFrameThisFrame; vr.cpp: the aim frame quad.
     bool aim_frame_zoom = false;
+    // 3D inside the frame: the two eye passes are drawn along the aim and each eye sees its own picture in the
+    // frame (the cost of the ordinary 3D view). 0 = one flat picture for both eyes.
+    bool aim_frame_stereo = true;
     float aim_frame_size_deg[2]{50.0f, 50.0f};
     float aim_frame_strength[2]{1.0f, 1.0f};
     float aim_frame_move_s = 0.12f;

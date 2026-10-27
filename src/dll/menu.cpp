@@ -2094,6 +2094,9 @@ namespace
         if (g_config.aim_frame_zoom)
         {
             ImGui::Indent();
+            changed |= ImGui::Checkbox("3D in the frame##aimframe", &g_config.aim_frame_stereo);
+            ImGui::TextDisabled("ON (default): each eye sees its own picture of the zoomed view. OFF: one flat\n"
+                                "picture for both eyes, drawn once.");
             changed |= vr_menu::SliderFloat("Frame size, first zoom (deg)##aimframe",
                                           &g_config.aim_frame_size_deg[0], 10.0f, 120.0f, "%.0f");
             changed |= vr_menu::SliderFloat("Frame size, second zoom (deg)##aimframe",

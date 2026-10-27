@@ -1395,6 +1395,7 @@ void ConfigLoad(const wchar_t* path)
         // player build and then called unknown at its next start (tests/config_player_roundtrip_tests.cpp).
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_zoom")) { g_config.aim_frame_zoom = atoi(val) != 0; continue; }
+        if (!strcmp(key, "aim_frame_stereo")) { g_config.aim_frame_stereo = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_size_deg_1")) { g_config.aim_frame_size_deg[0] = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_size_deg_2")) { g_config.aim_frame_size_deg[1] = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_strength_1")) { g_config.aim_frame_strength[0] = (float)atof(val); continue; }
@@ -3157,6 +3158,9 @@ void ConfigSave()
     fprintf(f, "# immersive view. The zoom button then reaches the game, so the lens above is not offered in\n");
     fprintf(f, "# Halo 3 while this is on. 1 = on. (default %d)\n", d.aim_frame_zoom ? 1 : 0);
     fprintf(f, "aim_frame_zoom = %d\n\n", g_config.aim_frame_zoom ? 1 : 0);
+    fprintf(f, "# The frame in 3D: each eye sees its own picture of the zoomed view. 0 = one flat picture.\n");
+    fprintf(f, "# (default %d)\n", d.aim_frame_stereo ? 1 : 0);
+    fprintf(f, "aim_frame_stereo = %d\n\n", g_config.aim_frame_stereo ? 1 : 0);
     fprintf(f, "# The frame's width in degrees at the first zoom level (_1) and the second and higher (_2).\n");
     fprintf(f, "# (default %.0f / %.0f, range 10 to 120)\n", d.aim_frame_size_deg[0], d.aim_frame_size_deg[1]);
     fprintf(f, "aim_frame_size_deg_1 = %.1f\n", g_config.aim_frame_size_deg[0]);
