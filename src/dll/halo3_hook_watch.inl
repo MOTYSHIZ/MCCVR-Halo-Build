@@ -190,17 +190,55 @@ bool Halo3HookWatchInPlay(uint64_t nowMs, bool& seated)
 }
 } // namespace
 
-// Cold worker, every loop.
+// Cold worker, every loop, until the install's watches have all settled. A watch that has seen its hook called (or
+// has fired) is done for the install: its flag is no longer cleared, so its detour goes back to one relaxed load,
+// and once none is still waiting and the summary is said, the loop does nothing until the next install.
 void Halo3HookWatchReport(uint64_t nowMs)
 {
     const uint32_t install = g_halo3InstallReady.load(std::memory_order_acquire) ? g_halo3HookWatchInstall : 0;
+    static bool s_summarised = false;   // the cold worker
+    const bool newInstall = install != g_halo3HookWatchSeen;
+    if (!newInstall && install && s_summarised)
+    {
+        bool waiting = false;
+        for (size_t i = 0; i < kHalo3HookWatchCount && !waiting; ++i)
+            waiting = g_halo3HookBoard.VerdictOf(i) == drive_cascade::HookWatchBoard::Verdict::Waiting;
+        if (!waiting)
+            return;
+    }
+    // The hooks whose flag is still read: a watch still waiting on its own hook, and the first-person driver and
+    // the HUD widget draw while a watch still waiting rests on them.
+    bool read[kHalo3HookCount]{};
+    if (newInstall)
+    {
+        for (bool& flag : read)
+            flag = true;
+    }
+    else
+    {
+        for (size_t i = 0; i < kHalo3HookWatchCount; ++i)
+        {
+            const auto verdict = g_halo3HookBoard.VerdictOf(i);
+            if (verdict == drive_cascade::HookWatchBoard::Verdict::Called ||
+                verdict == drive_cascade::HookWatchBoard::Verdict::NeverCalled)
+                continue;
+            const Halo3HookWatchSpec& spec = kHalo3HookWatches[i];
+            read[static_cast<size_t>(spec.hook)] = true;
+            if (spec.when == Halo3HookWhen::FirstPersonDrawn)
+                read[static_cast<size_t>(Halo3Hook::FpDriver)] = true;
+            if (spec.when == Halo3HookWhen::HudDrawn)
+                read[static_cast<size_t>(Halo3Hook::HudDrawWidget)] = true;
+        }
+    }
     bool called[kHalo3HookCount]{};
     for (size_t i = 0; i < kHalo3HookCount; ++i)
-        called[i] = g_halo3HookCalled[i].exchange(0, std::memory_order_relaxed) != 0;
+        if (read[i])
+            called[i] = g_halo3HookCalled[i].exchange(0, std::memory_order_relaxed) != 0;
     // A call counted before this install was made by the hooks before it.
-    if (install != g_halo3HookWatchSeen)
+    if (newInstall)
     {
         g_halo3HookWatchSeen = install;
+        s_summarised = false;
         for (bool& flag : called)
             flag = false;
     }
@@ -237,6 +275,7 @@ void Halo3HookWatchReport(uint64_t nowMs)
     }
     if (g_halo3HookBoard.SummaryDue(inPlay, nowMs))
     {
+        s_summarised = true;
         const char* names[kHalo3HookWatchCount];
         for (size_t i = 0; i < kHalo3HookWatchCount; ++i)
             names[i] = kHalo3HookWatches[i].name;
