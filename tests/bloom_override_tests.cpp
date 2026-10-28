@@ -15,6 +15,8 @@ static bool eyeActive=true;
 static unsigned checks{},sets{};
 GameTitle TitleAdapter_GetActiveTitle(){return title;}
 bool VR_IsEyeRasterActive(ID3D11DeviceContext* context) noexcept {return eyeActive&&context==eyeContext;}
+static bool stereoOn=true;
+bool VR_IsStereoEnabled(){return stereoOn;}
 void Logf(const char*,...){}
 static void Check(bool ok,const char* why){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 static void STDMETHODCALLTYPE Set(ID3D11DeviceContext* context,UINT start,UINT count,ID3D11ShaderResourceView* const* views)
@@ -131,7 +133,13 @@ int main()
     Bloom_ObserveShader(context.Get(),shader,0);
     eyeActive=false;
     Check(PostEffects_ShouldSkipDraw(context.Get()),"Reach suppression works outside the eye scope with no SRV dimension requirement");
-    g_config.bloom_enabled[2]=true;Check(!PostEffects_ShouldSkipDraw(context.Get()),"Reach bloom toggle restores native pass immediately");
+    g_config.bloom_chosen[2]=true;g_config.bloom_enabled[2]=true;
+    Check(!PostEffects_ShouldSkipDraw(context.Get()),"a chosen Reach bloom restores the native pass immediately");
+    g_config.bloom_chosen[2]=false;
+    Check(PostEffects_ShouldSkipDraw(context.Get()),"until chosen, Reach plays without bloom in VR whatever the saved value");
+    stereoOn=false;
+    Check(!PostEffects_ShouldSkipDraw(context.Get()),"outside VR the native pass always draws");
+    stereoOn=true;
     g_config.bloom_enabled[2]=false;
     Bloom_Invalidate(context.Get(),false);
     Check(PostEffects_ShouldSkipDraw(context.Get()),"render-target change does not erase the still-bound pixel shader");

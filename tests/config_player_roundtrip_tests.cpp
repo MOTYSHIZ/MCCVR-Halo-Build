@@ -5,9 +5,11 @@
 // then called unknown at the next start: the setting works for the session it is changed in and is forgotten.
 // This target is compiled as a player build (no HALOMCCVR_DEV_DIAGNOSTICS), so that part is not in it.
 #include <windows.h>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <vector>
 #include "../src/common/config.h"
@@ -90,7 +92,8 @@ int main()
     Check(g_config.gun_forward_m==-.22f && g_config.gun_right_m==.08f && g_config.gun_up_m==-.09f,
         "right offsets remain independent after save/reload");
 
-    // Upgrade once, including explicit title overrides; later edits survive reload.
+    // A pre-version-1 file keeps each saved adjustment relative to the old -0.063 m default,
+    // including explicit title overrides; nothing is written on load; later edits survive.
     FILE* legacy=nullptr;
     _wfopen_s(&legacy,path,L"wt");
     Check(legacy!=nullptr,"legacy fixture opens");
@@ -98,9 +101,19 @@ int main()
         std::fputs("left_hand_forward_m = 0.12\nhalo3_left_hand_forward_m = 0.2\n",legacy);
         std::fclose(legacy);
         ConfigLoad(path);
-        Check(g_config.left_hand_forward_m==0,"legacy shared offset resets");
-        for (const auto& profile:g_config.title_profiles)
-            Check(profile.left_hand_forward_m==0,"legacy title offset resets");
+        const auto closeTo=[](float a,float b){return std::fabs(a-b)<.0001f;};
+        Check(closeTo(g_config.left_hand_forward_m,.12f+.063f),"legacy shared offset keeps its adjustment");
+        int titleOverride=0,seeded=0;
+        for (const auto& profile:g_config.title_profiles) {
+            if (closeTo(profile.left_hand_forward_m,.2f+.063f)) ++titleOverride;
+            else if (closeTo(profile.left_hand_forward_m,.12f+.063f)) ++seeded;
+        }
+        Check(titleOverride==1&&seeded==int(std::size(g_config.title_profiles))-1,
+            "the explicit Halo 3 override keeps its adjustment; other games follow the shared value");
+        FILE* unchanged=nullptr;_wfopen_s(&unchanged,path,L"rt");char text[128]{};
+        if (unchanged) {std::fread(text,1,sizeof(text)-1,unchanged);std::fclose(unchanged);}
+        Check(!std::strcmp(text,"left_hand_forward_m = 0.12\nhalo3_left_hand_forward_m = 0.2\n"),
+            "loading a legacy file does not rewrite it");
         g_config.left_hand_forward_m=0.075f;
         ConfigSave();
         ConfigLoad(path);
@@ -108,10 +121,10 @@ int main()
         DeleteFileW(path);
     }
 
-    // Retired shared and per-title offsets are cleared and remain inert on reload.
+    // Visible hand offsets (shared and per title) survive load, a title switch and reload.
     FILE* retired=nullptr;
     _wfopen_s(&retired,path,L"wt");
-    Check(retired!=nullptr,"retired hand fixture opens");
+    Check(retired!=nullptr,"visible hand fixture opens");
     if (retired) {
         std::fputs("left_hand_forward_reset_version = 1\nleft_hand_mesh_x_m = .1\n"
             "right_hand_mesh_z_m = -.1\nhalo4_left_hand_mesh_y_m = .15\n"
@@ -120,16 +133,11 @@ int main()
         for (int pass=0;pass<2;++pass) {
             ConfigLoad(path);
             Config_ApplyTitleProfile(3);
-            Check(g_config.left_hand_mesh_x_m==0 && g_config.left_hand_mesh_y_m==0 &&
-                g_config.left_hand_mesh_z_m==0 && g_config.right_hand_mesh_x_m==0 &&
-                g_config.right_hand_mesh_y_m==0 && g_config.right_hand_mesh_z_m==0,
-                "retired visual hand offsets stay zero after title switch and reload");
-            Check(g_config.left_gun_right_m==.07f,"independent gun offset survives retired-hand cleanup");
-            for (const auto& profile:g_config.title_profiles)
-                Check(profile.left_hand_mesh_x_m==0 && profile.left_hand_mesh_y_m==0 &&
-                    profile.left_hand_mesh_z_m==0 && profile.right_hand_mesh_x_m==0 &&
-                    profile.right_hand_mesh_y_m==0 && profile.right_hand_mesh_z_m==0,
-                    "all title profiles discard retired hand offsets");
+            Check(g_config.left_hand_mesh_x_m==.1f && g_config.left_hand_mesh_y_m==.15f &&
+                g_config.left_hand_mesh_z_m==0 && g_config.right_hand_mesh_x_m==-.12f &&
+                g_config.right_hand_mesh_y_m==0 && g_config.right_hand_mesh_z_m==-.1f,
+                "visible hand offsets survive a title switch and reload");
+            Check(g_config.left_gun_right_m==.07f,"independent gun offset sits beside the visible hand offsets");
             Config_ApplyTitleProfile(-1);
         }
         DeleteFileW(path);

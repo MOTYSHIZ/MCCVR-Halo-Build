@@ -1395,7 +1395,11 @@ struct Config
     // suppression by default; other titles need their own proven hide paths.
     bool hide_muzzle_flash[6]{false,false,false,true,false,true};
     // Per-game stock bloom. Verified optional suppression: H3, ODST, Reach.
-    bool bloom_enabled[6]{true,false,false,true,true,true};
+    bool bloom_enabled[6]{true,true,true,true,true,true};
+    // Set once the player picks bloom for that game in the menu. Until then ODST and Reach draw
+    // without bloom while VR is on, and bloom_enabled above keeps whatever the file held: nothing
+    // is rewritten, so outside VR (or without the mod) the player's own setting stands.
+    bool bloom_chosen[6]{};
     bool disable_autoexposure_odst = false;
 
     // Experimental gun-mounted VR zoom screen. R3 is isolated from Halo's
@@ -2017,6 +2021,15 @@ extern Config g_config;
 // Gesture-only weapon input is in force: chosen, and something it applies to is on.
 inline bool Config_GestureOnlyWeaponInput() noexcept
 { return g_config.gesture_only_weapon_input && (g_config.manual_reload || g_config.weapon_holsters); }
+
+// Bloom wanted in VR for a game (weapon_interaction title index: 0 H3, 1 ODST, 2 Reach): the player's
+// own choice once made; until then ODST and Reach default to no bloom, every other game to its value.
+inline bool Config_BloomWanted(unsigned title) noexcept
+{
+    if (title >= 6) return true;
+    if (g_config.bloom_chosen[title]) return g_config.bloom_enabled[title];
+    return (title == 1 || title == 2) ? false : g_config.bloom_enabled[title];
+}
 
 // True when the HOST decides the size the game is drawn at and the mod cannot move it. False in MCC, where
 // the game draws at its swapchain's size and the mod sets that from resolution_scale. Project Reclaimer draws

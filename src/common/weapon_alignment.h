@@ -35,6 +35,10 @@ inline float Up(float value,bool left=false,int profile=-1) noexcept
 }
 inline constexpr float kH2ClassicVisualPitch=-9.5f;
 inline constexpr float kH2ClassicVisualYaw=-1.f;
+// The retired Classic sliders' defaults. A saved halo2_classic_* value keeps its difference from
+// these on top of the fixed correction above (forward/right/up/roll defaulted to 0).
+inline constexpr float kH2ClassicLegacyPitch=-9.5f;
+inline constexpr float kH2ClassicLegacyYaw=1.f;
 inline float H3SecondaryYaw(unsigned slot,unsigned checksum) noexcept
 { return slot==1 && (checksum==0x171C0B10u || checksum==0x16120C11u) ? 30.f : 0.f; }
 inline bool RotateYaw(const float frame[9],const float pivot[3],float degrees,

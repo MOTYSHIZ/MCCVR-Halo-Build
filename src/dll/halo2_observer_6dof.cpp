@@ -3162,15 +3162,23 @@ namespace
                     candidate.muzzleNeutralCarrier[0]=rightCarrier;
                     candidate.muzzleNeutralCarrier[1]=leftCarrier;
                     {
+                        // Classic: the fixed correction plus any saved halo2_classic_* adjustment.
                         const float pitch=g_config.barrel_pitch_deg+
-                            (classicConsumer?weapon_alignment::kH2ClassicVisualPitch:0.0f);
+                            (classicConsumer?weapon_alignment::kH2ClassicVisualPitch+
+                                (g_config.halo2_classic_gun_pitch_deg-weapon_alignment::kH2ClassicLegacyPitch):0.0f);
                         Halo2CameraBasis trimmedRight{},trimmedLeft{};
                         const float yaw=g_config.barrel_yaw_deg+
-                            (classicConsumer?weapon_alignment::kH2ClassicVisualYaw:0.0f);
+                            (classicConsumer?weapon_alignment::kH2ClassicVisualYaw+
+                                (g_config.halo2_classic_gun_yaw_deg-weapon_alignment::kH2ClassicLegacyYaw):0.0f);
+                        const float classicRoll=g_config.barrel_roll_deg+
+                            (classicConsumer?g_config.halo2_classic_gun_roll_deg:0.0f);
+                        const float classicForward=classicConsumer?g_config.halo2_classic_gun_forward_m:0.0f;
+                        const float classicRight=classicConsumer?g_config.halo2_classic_gun_right_m:0.0f;
+                        const float classicUp=classicConsumer?g_config.halo2_classic_gun_up_m:0.0f;
                         if (Halo2ApplyCarrierTrim(rightCarrier,pitch,yaw,
-                                g_config.barrel_roll_deg,0,0,0,Game_GetWorldScale(),trimmedRight) &&
+                                classicRoll,classicForward,classicRight,classicUp,Game_GetWorldScale(),trimmedRight) &&
                             Halo2ApplyCarrierTrim(leftCarrier,pitch,yaw,
-                                g_config.barrel_roll_deg,0,0,0,Game_GetWorldScale(),trimmedLeft)) {
+                                classicRoll,classicForward,classicRight,classicUp,Game_GetWorldScale(),trimmedLeft)) {
                             rightCarrier=trimmedRight;leftCarrier=trimmedLeft;
                             g_classicTrimApplied.fetch_add(1,std::memory_order_relaxed);
                         } else g_classicTrimRefused.fetch_add(1,std::memory_order_relaxed);

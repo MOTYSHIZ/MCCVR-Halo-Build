@@ -318,14 +318,14 @@ try {
     $cmakeSource = [IO.File]::ReadAllText(
         (Join-Path $repoRoot 'CMakeLists.txt'))
     if ($alignmentSource -notmatch 'kH2ClassicVisualPitch\s*=\s*-9\.5f' -or
-        $halo2ObserverSource -notmatch 'classicConsumer\?weapon_alignment::kH2ClassicVisualPitch:0\.0f' -or
+        $halo2ObserverSource -notmatch 'classicConsumer\?weapon_alignment::kH2ClassicVisualPitch\+' -or
         $halo2ObserverSource -notmatch 'Halo2RemoveVisualFrame' -or
         $halo2ObserverSource -notmatch 'candidate\.muzzleNeutralCarrier\[0\]=rightCarrier' -or
         $menuSource -match 'SliderFloat\(\s*"H2 Classic gun (yaw|pitch)' -or
         $menuSource -notmatch 'Reset visual rotation' -or
         $alignmentTestsSource -notmatch 'Halo2RemoveVisualFrame' -or
         $cmakeSource -notmatch 'add_test\(NAME halomccvr_weapon_alignment_tests') {
-        throw 'Weapon alignment gate failed: fixed Classic -11.5 visual pitch, independent barrel frame, retired sliders, or registered tests are missing.'
+        throw 'Weapon alignment gate failed: fixed Classic -9.5 visual pitch, independent barrel frame, retired sliders, or registered tests are missing.'
     }
     $halo2StereoSource = [IO.File]::ReadAllText(
         (Join-Path $repoRoot 'src\dll\halo2_stereo_core.cpp'))

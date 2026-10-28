@@ -2001,6 +2001,26 @@ namespace
         ImGui::Spacing();
         ImGui::Separator();
         }
+        if (ImGui::CollapsingHeader("Visible hand positioning##section", ImGuiTreeNodeFlags_None))
+        {
+        ImGui::TextDisabled("Offsets follow each hand's local axes. Guns and interactions keep their positions.");
+        changed |= vr_menu::SliderFloat("Left hand X (m)", &g_config.left_hand_mesh_x_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Left hand Y (m)", &g_config.left_hand_mesh_y_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Left hand Z (m)", &g_config.left_hand_mesh_z_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Right hand X (m)", &g_config.right_hand_mesh_x_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Right hand Y (m)", &g_config.right_hand_mesh_y_m, -.20f, .20f, "%.3f");
+        changed |= vr_menu::SliderFloat("Right hand Z (m)", &g_config.right_hand_mesh_z_m, -.20f, .20f, "%.3f");
+        if (ImGui::SmallButton("Reset visible hand positions"))
+        {
+            g_config.left_hand_mesh_x_m=0.0f;
+            g_config.left_hand_mesh_y_m=0.0f;
+            g_config.left_hand_mesh_z_m=0.0f;
+            g_config.right_hand_mesh_x_m=0.0f;
+            g_config.right_hand_mesh_y_m=0.0f;
+            g_config.right_hand_mesh_z_m=0.0f;
+            changed=true;
+        }
+        }
         }
 
         if (CategorySection section{Cat_Crosshair}; section.visible)
@@ -2532,13 +2552,19 @@ namespace
             pictureTitle==GameTitle::Halo3ODST?1:pictureTitle==GameTitle::HaloReach?2:-1;
         if(bloomTitle>=0)
         {
+            const bool bloomWanted=Config_BloomWanted(unsigned(bloomTitle));
             if(pictureTitle==GameTitle::Halo3) {
-                changed|=ImGui::Checkbox("Bloom in this game",&g_config.bloom_enabled[bloomTitle]);
-            } else {
-                bool disabled=!g_config.bloom_enabled[bloomTitle];
-                if(ImGui::Checkbox("Disable bloom",&disabled)) {
-                    g_config.bloom_enabled[bloomTitle]=!disabled;changed=true;
+                bool on=bloomWanted;
+                if(ImGui::Checkbox("Bloom in this game",&on)) {
+                    g_config.bloom_enabled[bloomTitle]=on;g_config.bloom_chosen[bloomTitle]=true;changed=true;
                 }
+            } else {
+                bool disabled=!bloomWanted;
+                if(ImGui::Checkbox("Disable bloom",&disabled)) {
+                    g_config.bloom_enabled[bloomTitle]=!disabled;g_config.bloom_chosen[bloomTitle]=true;changed=true;
+                }
+                if(!g_config.bloom_chosen[bloomTitle])
+                    ImGui::TextWrapped("Off in VR until you choose. Your saved bloom setting is kept as it was.");
             }
             if(pictureTitle!=GameTitle::Halo3)
                 ImGui::TextWrapped("Restart the game for bloom to be properly disabled.");

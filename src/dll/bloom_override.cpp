@@ -105,7 +105,7 @@ const CachedView* Find(ID3D11ShaderResourceView* source) noexcept
 bool DisabledForTitle(GameTitle title) noexcept
 {
     const int index=title==GameTitle::Halo3?0:title==GameTitle::Halo3ODST?1:title==GameTitle::HaloReach?2:-1;
-    return index>=0&&!g_config.bloom_enabled[index];
+    return index>=0&&!Config_BloomWanted(unsigned(index));
 }
 }
 
@@ -131,9 +131,12 @@ bool PostEffects_ShouldSkipDraw(ID3D11DeviceContext* context) noexcept
 {
     if(!context||!postAvailable.load(std::memory_order_acquire)||
        context!=postContext.load(std::memory_order_acquire))return false;
+    // Only while VR is on: the flat game keeps its own post effects. (Not the eye scope: Reach's
+    // bloom pass runs outside it.)
+    if(!VR_IsStereoEnabled())return false;
     const auto title=TitleAdapter_GetActiveTitle();
-    const bool disableBloom=(title==GameTitle::HaloReach&&!g_config.bloom_enabled[2])||
-        (title==GameTitle::Halo3ODST&&!g_config.bloom_enabled[1]);
+    const bool disableBloom=(title==GameTitle::HaloReach&&!Config_BloomWanted(2))||
+        (title==GameTitle::Halo3ODST&&!Config_BloomWanted(1));
     const auto pass=DisabledPass(title,postShader.load(std::memory_order_acquire),
         disableBloom,g_config.disable_autoexposure_odst);
     if(pass==TogglePass::None)return false;
