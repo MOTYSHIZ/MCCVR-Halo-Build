@@ -90,13 +90,33 @@ Logs can contain your Windows user name and folder paths: look them over before 
 
 ## Credits
 
-Original project and DLSS foundation: **Pancreations**. Maintained and extended by **moistman42069**, whose
-project these builds are based on. Adapted virtual stock, two-hand, support, coherent aim and telemetry:
-**Gab_dC / gabrieldch** ([upstream PR #16](https://github.com/moistman42069/MCCVR-Halo-Build/pull/16)).
-Subtitle/UI/bloom and Reach DLSS leads: **martysl1**. Testing and calibration reports: **Godoy**.
-Performance/HUD proposals reviewed: **UnsealedWings**. Ownership/restoration design leads: **LivingFray / Maso**.
-Earlier per-gun calibration: **marcusau2**. Provolver proposal: **PurplePeanut**. The first roomscale setup, for Halo Campaign Evolved UEVR, that was ported here:
-**blindcowboy24**. Vehicle cameras ported from Halo Campaign Evolved UEVR.
+### The project
+
+| Who | What |
+|---|---|
+| **Pancreations** | The original [Halo-MCC-VR](https://github.com/pancreations/Halo-MCC-VR), and its DLSS foundation |
+| **moistman42069** | Maintains and extends [Halo MCC VR](https://github.com/moistman42069/MCCVR-Halo-Build), the project these builds are based on |
+| **NitsuJack** | This fork's builds: aim, multiplayer and roomscale work, Project Reclaimer support, and the vehicle cameras ported from Halo Campaign Evolved UEVR |
+
+### Contributions
+
+| Who | What |
+|---|---|
+| **Gab_dC / gabrieldch** | Virtual stock, two-hand and support handling, coherent aim and telemetry ([upstream PR #16](https://github.com/moistman42069/MCCVR-Halo-Build/pull/16)) |
+| **martysl1** | Subtitle, UI and bloom work, and the Reach DLSS leads |
+| **LivingFray / Maso** | Ownership and restoration design leads |
+| **marcusau2** | The earlier per-gun calibration |
+| **blindcowboy24** | The first roomscale setup, written for Halo Campaign Evolved UEVR and ported here |
+
+### Testing and proposals
+
+| Who | What |
+|---|---|
+| **Godoy** | Testing and calibration reports |
+| **UnsealedWings** | Performance and HUD proposals |
+| **PurplePeanut** | The Provolver proposal |
+
+Proposals are credited as reviewed: not every suggestion has been implemented.
 
 If you'd like to support NitsuJack's mod contributions: https://ko-fi.com/nitsujack
 
