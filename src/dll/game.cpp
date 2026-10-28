@@ -664,6 +664,15 @@ namespace
     // The frame's shape: the flat game's 16:9, whatever the render surface's (the camera's own tangents are
     // nearly square on this engine, measured 88.8 x 89.0 deg).
     constexpr float kHalo3AimFrameAspect = 16.0f / 9.0f;
+    // Whether the Halo 3 HUD layout last written in full was the frame's (1) or the player's (0); -1 none yet.
+    // The layout follows the frame one present behind it (HudLayoutAutoTick), and the crosshair is taken from
+    // the HUD as drawn: Halo3CrosshairReadyForCapture holds the capture until the two agree.
+    std::atomic<int> g_halo3LayoutAppliedForFrame{-1};
+    // When the frame last came down (GetTickCount64). The game's crosshair takes a moment to leave its zoomed
+    // look; the art held from before the zoom is this weapon's and stays up until then.
+    std::atomic<uint64_t> g_halo3AimFrameDownMs{0};
+    constexpr uint64_t kHalo3AimFrameCrosshairHoldMs = 400;
+    bool Halo3CrosshairReadyForCapture();
     std::atomic<bool> g_halo3AimFramePass{false};
     std::atomic<uint64_t> g_halo3GameZoomMs{0};
     std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
@@ -3218,6 +3227,11 @@ namespace
             // reticle into it where it always does, at the centre; the lifted crosshair is not shown meanwhile.
             if (g_halo3AimFramePass.load(std::memory_order_acquire))
                 return true;
+            // Just out of the frame the HUD is still at the frame's layout for a present, and the crosshair is
+            // still leaving its zoomed look: a picture taken now would be of either. The quad keeps the art it
+            // holds meanwhile, the one from before the zoom.
+            if (TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && !Halo3CrosshairReadyForCapture())
+                return false;
 
             const int eye = g_stereoEye.load(std::memory_order_relaxed);
             const int captureEye = g_config.right_eye_first ? 1 : 0;
@@ -4527,10 +4541,14 @@ namespace
     // The layout the HUD should have now: the player's (hud_size, hud_aspect, hud_curvature, with the headset's
     // correction), or, while Halo 3's aim frame is up, the flat game's own -- stock size, square aspect, the
     // authored curvature and no headset correction, because the frame's picture has the game's own proportions.
+    // `aimFrameUsed`: whether this is Halo 3's aim frame layout (the frame read once, here).
     static void HudLayoutWanted(HudLayoutProfile profile, float& size, float& aspect, float& curvature,
-                                float& horizontal, float& vertical)
+                                float& horizontal, float& vertical, bool* aimFrameUsed = nullptr)
     {
-        if (profile == HudLayoutProfile::Halo3 && g_halo3AimFrameUp.load(std::memory_order_acquire))
+        const bool aimFrame = profile == HudLayoutProfile::Halo3 && g_halo3AimFrameUp.load(std::memory_order_acquire);
+        if (aimFrameUsed)
+            *aimFrameUsed = aimFrame;
+        if (aimFrame)
         {
             size = 0.87f;
             aspect = 1.0f;
@@ -4898,7 +4916,8 @@ namespace
 
         float wantSize = 0.0f, wantAspect = 0.0f, wantCurvature = 0.0f;
         float wantH = 0.0f, wantV = 0.0f;
-        HudLayoutWanted(profile, wantSize, wantAspect, wantCurvature, wantH, wantV);
+        bool wantForAimFrame = false;
+        HudLayoutWanted(profile, wantSize, wantAspect, wantCurvature, wantH, wantV, &wantForAimFrame);
         if (!(wantSize >= 0.30f && wantSize <= 1.00f) ||
             !(wantAspect >= kHudAspectMin &&
               wantAspect <= kHudAspectMax) ||
@@ -5004,6 +5023,8 @@ namespace
 
         if (live == n)
         {
+            if (profile == HudLayoutProfile::Halo3)
+                g_halo3LayoutAppliedForFrame.store(wantForAimFrame ? 1 : 0, std::memory_order_release);
             g_hudAppliedBits.store(
                 wantBits, std::memory_order_relaxed);
             g_hudAppliedAspectBits.store(
@@ -5024,6 +5045,7 @@ namespace
                 0, std::memory_order_relaxed);
             g_hudAppliedSafeFrameHBits.store(0, std::memory_order_relaxed);
             g_hudAppliedSafeFrameVBits.store(0, std::memory_order_relaxed);
+            g_halo3LayoutAppliedForFrame.store(-1, std::memory_order_release);
             g_safeFramePublishedOwner.store(
                 HudLayoutProfile::None, std::memory_order_relaxed);
             g_safeFramePublishedGeneration.store(
@@ -5098,6 +5120,18 @@ namespace
         LOG("SAFEFRAME [%s]: reacquired %d title-owned layout block(s); "
             "scan skipped", adapter->name, accepted);
         return true;
+    }
+
+    bool Halo3CrosshairReadyForCapture()
+    {
+        const uint64_t down = g_halo3AimFrameDownMs.load(std::memory_order_acquire);
+        if (down && GetTickCount64() - down < kHalo3AimFrameCrosshairHoldMs)
+            return false;
+        // No layout of ours in the game: the HUD draws at the game's own, which is what the capture expects then.
+        if (g_safeFrameHitCount.load(std::memory_order_acquire) <= 0)
+            return true;
+        return g_halo3LayoutAppliedForFrame.load(std::memory_order_acquire) ==
+            (g_halo3AimFrameUp.load(std::memory_order_acquire) ? 1 : 0);
     }
 
     void HudLayoutAutoTick(HudLayoutProfile profile)
@@ -13289,7 +13323,9 @@ namespace
                 forward[2] = g_aimFwdZ.load();
             }
             const float fl = sqrtf(forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]);
-            float worldUp[3]{g_worldUp[0].load(), g_worldUp[1].load(), g_worldUp[2].load()};
+            // Level with the world: Halo 3's world up is +Z. The learned estimate (g_worldUp) is trained on the
+            // camera's up, which carries head roll, and would turn the frame after the head over a second or two.
+            const float worldUp[3]{0.0f, 0.0f, 1.0f};
             const float* savedUp = reinterpret_cast<const float*>(saved + 0x18);
             ok = std::isfinite(fl) && fl > 1.0e-4f;
             if (ok)
@@ -13319,6 +13355,8 @@ namespace
         const int on = ok ? 1 : 0;
         if (on != s.loggedOn)
         {
+            if (!on && s.loggedOn == 1)
+                g_halo3AimFrameDownMs.store(GetTickCount64(), std::memory_order_release);
             s.loggedOn = on;
             if (on)
                 LOG("Halo 3 Aim Frame Zoom: on (zoom level %d; the game's view %.1f x %.1f deg, the frame %.0f deg "
@@ -13444,6 +13482,22 @@ namespace
             aimRight[2] = aimFrame.forward[0] * aimFrame.up[1] - aimFrame.forward[1] * aimFrame.up[0];
         }
         bool aimFrameCapturedAll = true;
+        // The two eyes meet at the point the aim is on (the converged aim's smoothed range, from this same centre
+        // eye): it and the game's crosshair, drawn alike in both, sit at the frame's own depth. The frame is
+        // narrow, so turning each eye in has no keystone to speak of. No range: the eyes look parallel.
+        float aimFrameMeetWu = 0.0f;
+        const float aimFrameSpacing = aimFrameStereo ? g_config.aim_frame_3d_strength : 1.0f;
+        if (aimFrameStereo)
+        {
+            SightTrace trace{};
+            if (Sight_ReadTrace(GameTitle::Halo3, TitleAdapter_GetGeneration(GameTitle::Halo3), kSightFreshMs,
+                                trace))
+            {
+                const float range = trace.AimRangeWu();
+                if (std::isfinite(range) && range > 0.3f)
+                    aimFrameMeetWu = std::min(range, 2000.0f);
+            }
+        }
         float monoFov[4]{};
         const bool monoFrame = !aimFrameFrame && VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) &&
             !cutsceneTheater;
@@ -13492,7 +13546,33 @@ namespace
             for(int axis=0;axis<3;++axis)
                 pos[axis] += (offsetRight[axis]*eyePosition[0] +
                               offsetUp[axis]*eyePosition[1] -
-                              offsetForward[axis]*eyePosition[2]) * eyeScale;
+                              offsetForward[axis]*eyePosition[2]) * eyeScale * aimFrameSpacing;
+            if (aimFrameStereo && aimFrameMeetWu > 0.0f)
+            {
+                const float* centre = reinterpret_cast<const float*>(saved);
+                float toward[3]{};
+                for (int axis = 0; axis < 3; ++axis)
+                    toward[axis] = centre[axis] + aimFrame.forward[axis] * aimFrameMeetWu - pos[axis];
+                const float tl = sqrtf(toward[0] * toward[0] + toward[1] * toward[1] + toward[2] * toward[2]);
+                if (std::isfinite(tl) && tl > 1.0e-3f)
+                {
+                    for (float& v : toward)
+                        v /= tl;
+                    const float along = aimFrame.up[0] * toward[0] + aimFrame.up[1] * toward[1] +
+                        aimFrame.up[2] * toward[2];
+                    float eyeUp[3]{};
+                    for (int axis = 0; axis < 3; ++axis)
+                        eyeUp[axis] = aimFrame.up[axis] - along * toward[axis];
+                    const float ul = sqrtf(eyeUp[0] * eyeUp[0] + eyeUp[1] * eyeUp[1] + eyeUp[2] * eyeUp[2]);
+                    if (std::isfinite(ul) && ul > 0.05f)
+                    {
+                        for (float& v : eyeUp)
+                            v /= ul;
+                        memcpy(camera + 0x0C, toward, sizeof(toward));
+                        memcpy(camera + 0x18, eyeUp, sizeof(eyeUp));
+                    }
+                }
+            }
 
             // Cant: PSVR2 mounts each display angled outward a few degrees,
             // and the per-eye FOV OpenXR reports is measured around that
@@ -52381,6 +52461,24 @@ bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical, float* size
     vertical = readV;
     if (size)
         *size = readS;
+    return true;
+}
+
+bool Game_GetHalo3HudSafeFrameInEffect(float& horizontal, float& vertical, float* size)
+{
+    if (Game_GetAppliedHudSafeFrame(horizontal, vertical, size))
+        return true;
+    // Not written yet -- it is looked for seconds into each level -- so the game's own layout is what draws, at its
+    // stock 0.87 both ways. Only while the player's layout is a customised one: with a stock layout the title's
+    // own is the player's, and the capture stays as it was.
+    const bool stock = g_config.hud_size >= 0.8695f && g_config.hud_size <= 0.8705f &&
+        g_config.hud_aspect >= 0.9995f && g_config.hud_aspect <= 1.0005f &&
+        g_config.hud_curvature >= 0.4995f && g_config.hud_curvature <= 0.5005f;
+    if (stock || TitleAdapter_GetActiveTitle() != GameTitle::Halo3 || !(g_config.hud_size > 0.0f))
+        return false;
+    horizontal = vertical = 0.87f;
+    if (size)
+        *size = g_config.hud_size;
     return true;
 }
 

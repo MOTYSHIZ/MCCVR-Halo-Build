@@ -1414,6 +1414,10 @@ struct Config
     // 3D inside the frame: the two eye passes are drawn along the aim and each eye sees its own picture in the
     // frame (the cost of the ordinary 3D view). 0 = one flat picture for both eyes.
     bool aim_frame_stereo = true;
+    // How far apart the frame's two eyes are, as a multiple of your own eye spacing (binoculars set their lenses
+    // wider for the same reason): far targets show little depth at real spacing. The two pictures meet at the
+    // point you aim at, so it and the game's crosshair sit at the frame's own depth. 1 to 6.
+    float aim_frame_3d_strength = 2.0f;
     float aim_frame_size_deg[2]{50.0f, 50.0f};
     float aim_frame_strength[2]{1.0f, 1.0f};
     float aim_frame_move_s = 0.12f;

@@ -2097,6 +2097,13 @@ namespace
             changed |= ImGui::Checkbox("3D in the frame##aimframe", &g_config.aim_frame_stereo);
             ImGui::TextDisabled("ON (default): each eye sees its own picture of the zoomed view. OFF: one flat\n"
                                 "picture for both eyes, drawn once.");
+            if (g_config.aim_frame_stereo)
+            {
+                changed |= vr_menu::SliderFloat("3D strength##aimframe", &g_config.aim_frame_3d_strength,
+                                              1.0f, 6.0f, "%.1fx");
+                ImGui::TextDisabled("The frame's eye spacing as a multiple of yours. Far targets show little depth\n"
+                                    "at 1x; what you aim at stays at the frame's depth, with the crosshair.");
+            }
             changed |= vr_menu::SliderFloat("Frame size, first zoom (deg)##aimframe",
                                           &g_config.aim_frame_size_deg[0], 10.0f, 120.0f, "%.0f");
             changed |= vr_menu::SliderFloat("Frame size, second zoom (deg)##aimframe",

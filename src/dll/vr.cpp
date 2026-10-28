@@ -25245,8 +25245,12 @@ static bool BeginAuthoredReticleCaptureInternal(
     const bool halo3Capture = captureTitle == GameTitle::Halo3 || captureTitle == GameTitle::Halo3ODST;
     const bool reachCapture = captureTitle == GameTitle::HaloReach;
     float safeHorizontal = 1.0f, safeVertical = 1.0f, hudSize = 0.0f;
+    // Halo 3: the layout as it draws now. Before the player's layout is written (it is looked for seconds into
+    // each level) the HUD draws at the game's stock layout, and the art is sized against that, not the setting.
     const bool modLayoutApplied =
-        (halo3Capture || reachCapture) && Game_GetAppliedHudSafeFrame(safeHorizontal, safeVertical, &hudSize);
+        captureTitle == GameTitle::Halo3
+            ? Game_GetHalo3HudSafeFrameInEffect(safeHorizontal, safeVertical, &hudSize)
+            : (halo3Capture || reachCapture) && Game_GetAppliedHudSafeFrame(safeHorizontal, safeVertical, &hudSize);
     const float authoredCaptureScale =
         halo3Capture ? Halo3ReticleCaptureScale(4.0f, modLayoutApplied, captureViewport.Height, safeVertical,
                                                 hudSize) :

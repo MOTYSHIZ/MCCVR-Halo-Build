@@ -688,6 +688,8 @@ static void Clamp()
         const float strength = g_config.aim_frame_strength[level];
         g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.0f;
     }
+    g_config.aim_frame_3d_strength = std::isfinite(g_config.aim_frame_3d_strength)
+        ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 6.0f) : 2.0f;
     g_config.aim_frame_move_s = std::isfinite(g_config.aim_frame_move_s)
         ? std::clamp(g_config.aim_frame_move_s, 0.0f, 1.0f) : 0.12f;
     g_config.scope_screen_width_m = std::clamp(g_config.scope_screen_width_m, 0.04f, 0.25f);
@@ -1396,6 +1398,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_zoom")) { g_config.aim_frame_zoom = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_stereo")) { g_config.aim_frame_stereo = atoi(val) != 0; continue; }
+        if (!strcmp(key, "aim_frame_3d_strength")) { g_config.aim_frame_3d_strength = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_size_deg_1")) { g_config.aim_frame_size_deg[0] = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_size_deg_2")) { g_config.aim_frame_size_deg[1] = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_strength_1")) { g_config.aim_frame_strength[0] = (float)atof(val); continue; }
@@ -3161,6 +3164,9 @@ void ConfigSave()
     fprintf(f, "# The frame in 3D: each eye sees its own picture of the zoomed view. 0 = one flat picture.\n");
     fprintf(f, "# (default %d)\n", d.aim_frame_stereo ? 1 : 0);
     fprintf(f, "aim_frame_stereo = %d\n\n", g_config.aim_frame_stereo ? 1 : 0);
+    fprintf(f, "# The frame's 3D strength: its eye spacing as a multiple of yours. (default %.1f, range 1 to 6)\n",
+            d.aim_frame_3d_strength);
+    fprintf(f, "aim_frame_3d_strength = %.2f\n\n", g_config.aim_frame_3d_strength);
     fprintf(f, "# The frame's width in degrees at the first zoom level (_1) and the second and higher (_2).\n");
     fprintf(f, "# (default %.0f / %.0f, range 10 to 120)\n", d.aim_frame_size_deg[0], d.aim_frame_size_deg[1]);
     fprintf(f, "aim_frame_size_deg_1 = %.1f\n", g_config.aim_frame_size_deg[0]);
