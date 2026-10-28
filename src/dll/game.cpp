@@ -4573,6 +4573,9 @@ namespace
                         horizontal = size * correction;
                 }
             }
+            const float width = g_config.aim_frame_hud_width;
+            if (isfinite(width) && width >= 0.8f && width <= 1.25f)
+                horizontal *= width;
             return;
         }
         size = g_config.hud_size;

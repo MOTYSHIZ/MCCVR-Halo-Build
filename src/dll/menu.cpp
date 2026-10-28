@@ -2117,6 +2117,10 @@ namespace
             changed |= vr_menu::SliderFloat("Move time (s)##aimframe", &g_config.aim_frame_move_s,
                                           0.0f, 1.0f, "%.2f");
             ImGui::TextDisabled("How long the frame takes to grow out of the view and back. 0 = at once.");
+            changed |= vr_menu::SliderFloat("HUD width in the frame##aimframe", &g_config.aim_frame_hud_width,
+                                          0.8f, 1.25f, "%.3fx");
+            ImGui::TextDisabled("Widens (above 1) or narrows the game's HUD and zoom art inside the frame, if it\n"
+                                "looks squeezed. 1 is right in MCC.");
             ImGui::Unindent();
         }
         ImGui::Spacing();

@@ -1421,6 +1421,9 @@ struct Config
     float aim_frame_size_deg[2]{50.0f, 50.0f};
     float aim_frame_strength[2]{1.0f, 1.0f};
     float aim_frame_move_s = 0.12f;
+    // The width of the game's HUD and zoom art inside the frame, as a multiple of the shape that is right in
+    // MCC. A host whose HUD comes out narrower or wider there is trimmed with it. 0.8 to 1.25.
+    float aim_frame_hud_width = 1.0f;
     float scope_screen_width_m = 0.159f;
     float scope_screen_right_m = -0.058f;
     float scope_screen_up_m = 0.216f;
