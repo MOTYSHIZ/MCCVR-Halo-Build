@@ -10767,11 +10767,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     dual_wield_shake::State g_dualReloadShake;
     dual_wield_shake::Channel g_dualReloadChannel;
     struct DualReloadInputStats {
-        std::atomic<uint64_t> samples{0},ready{0},gestures{0},queued{0},coarseRepeats{0};
+        std::atomic<uint64_t> samples{0},ready{0},gestures{0},pressed{0},secondaryUnbound{0},coarseRepeats{0};
         std::atomic<uint64_t> trackingBlocked{0},ownerBlocked{0},actionsBlocked{0},busyHands{0};
         uint64_t lastWallMs=0; // XR input thread only; never read by the worker.
     };
     DualReloadInputStats g_dualReloadInputStats[2];
+    // The reload button(s) a shake is pressing, and until when (XR input thread only).
+    uint32_t g_dualReloadPulse=0;
+    uint64_t g_dualReloadPulseUntil=0;
     // Setting the holster spot with a hand. The machine belongs to the input poll; the menu only asks
     // (request: 1 arm, 2 cancel) and reads the two counters and the armed flag.
     weapon_interaction::HolsterCapture g_holsterCapture;
@@ -14577,7 +14580,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         exclusive_input::active.store(false,std::memory_order_release);
         g_weaponAccessory={};
         g_weaponInteraction.Cancel();
-        g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();
+        g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
         g_weaponGestureReadyMs.store(0,std::memory_order_release);
         EnterCriticalSection(&g_headCs);
         g_padState.weaponSampleMs=0;
@@ -15224,18 +15227,28 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             if(haveDualOwner){dual.weapons=dualOwner.weapons;dual.unit=dualOwner.unit;}
             dual.busy={pad.trigR>0.15f,pad.trigL>0.15f};
             const unsigned reloadSlots=g_dualReloadShake.Update(dual);
-            bool reloadQueued=false;
-            if(!dual.enabled||!dual.ready)g_dualReloadChannel.Cancel();
-            else {
-                g_dualReloadChannel.CancelSlots((dual.busy[0]?1u:0u)|(dual.busy[1]?2u:0u));
-                if(reloadSlots)reloadQueued=g_dualReloadChannel.Request(dualOwner,inputNow,reloadSlots);
+            // A shake presses that hand's reload exactly as the game binds it: the same shared input a
+            // flat player's button makes, never a call into the simulation (co-op is one simulation).
+            // Slot 0 is the primary weapon (the game's Reload); slot 1 the secondary, Halo 3's own
+            // left-weapon reload binding. Halo 2's is not established, so its left shake does nothing.
+            uint32_t dualPress=0;bool secondaryUnbound=false;
+            if(dual.enabled&&dual.ready&&reloadSlots) {
+                if(reloadSlots&1u) dualPress|=WeaponGestureBinding(sample.title,vr_mapping::Reload,inputNow);
+                if(reloadSlots&2u) {
+                    const uint32_t secondary=Game_SecondaryReloadTransport(sample.title,inputNow);
+                    if(secondary) dualPress|=secondary; else secondaryUnbound=true;
+                }
             }
+            if(!dual.enabled||!dual.ready) g_dualReloadPulse=0;
+            if(dualPress) {g_dualReloadPulse=dualPress;g_dualReloadPulseUntil=inputNow+120;}
+            if(inputNow>=g_dualReloadPulseUntil) g_dualReloadPulse=0;
             if(dual.enabled&&(dual.title==GameTitle::Halo2||dual.title==GameTitle::Halo3)) {
                 auto& stats=g_dualReloadInputStats[dual.title==GameTitle::Halo2?0:1];
                 ++stats.samples;
                 if(dual.ready)++stats.ready;
                 if(reloadSlots)++stats.gestures;
-                if(reloadQueued)++stats.queued;
+                if(dualPress)++stats.pressed;
+                if(secondaryUnbound)++stats.secondaryUnbound;
                 if(inputNow==stats.lastWallMs)++stats.coarseRepeats;
                 stats.lastWallMs=inputNow;
                 if(!sample.ready)++stats.trackingBlocked;
@@ -15269,11 +15282,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 {supportQ.x,supportQ.y,supportQ.z,supportQ.w});
             pad.weaponButtons=weaponGesture.buttons;
             pad.weaponSampleMs=inputNow;pad.weaponPulseUntilMs=weaponGesture.pulseUntil;
+            pad.weaponDualReloadPulse=g_dualReloadPulse&&inputNow<g_dualReloadPulseUntil;
+            if(pad.weaponDualReloadPulse) {
+                pad.weaponButtons|=g_dualReloadPulse;
+                pad.weaponPulseUntilMs=std::max<uint64_t>(pad.weaponPulseUntilMs,g_dualReloadPulseUntil);
+            }
             pad.weaponTitle=sample.title;pad.weaponGeneration=sample.generation;
             pad.weaponSpace=sample.space;
             pad.weaponGraph=sample.weaponGraph;
             pad.weaponOptions=(settings.reload?1u:0u)|(settings.holsters?2u:0u)|(leftHanded?4u:0u)|
-                (!settings.holsterSlide?8u:0u)|(settings.holsterClick?16u:0u)|(settings.needleShake?32u:0u);
+                (!settings.holsterSlide?8u:0u)|(settings.holsterClick?16u:0u)|(settings.needleShake?32u:0u)|
+                (g_config.dual_wield_shake_reload?64u:0u);
             pad.weaponReloadBinding=settings.reloadButton;pad.weaponSwitchBinding=settings.swapButton;
             pad.weaponConsumePrimary=weaponGesture.consumePrimary;
             pad.weaponConsumeSupport=weaponGesture.consumeSupport;
@@ -15299,7 +15318,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         else
         {
             g_weaponInteraction.Reset();
-            g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();
+            g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
             g_weaponAccessory={};
             g_weaponGestureReadyMs.store(0,std::memory_order_release);
         }
@@ -24591,13 +24610,15 @@ void VR_GetPadState(VrPadState& out)
     const GameTitle weaponTitle=TitleAdapter_GetActiveTitle();
     const int weaponIndex=weapon_interaction::TitleIndex(weaponTitle);
     const unsigned weaponOptions=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u)|
-        (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u);
+        (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u)|
+        (g_config.dual_wield_shake_reload?64u:0u);
     if(out.weaponOptions!=weaponOptions||out.weaponSpace!=g_contactSpaceEpoch.load(std::memory_order_acquire)||
         weaponIndex<0||out.weaponReloadBinding!=WeaponGestureBinding(weaponTitle,vr_mapping::Reload,now)||
         out.weaponSwitchBinding!=WeaponGestureBinding(weaponTitle,vr_mapping::SwitchWeapon,now)||
         !weapon_interaction::Fresh(now,out.weaponSampleMs,weaponTitle,out.weaponTitle,
         TitleAdapter_GetGeneration(weaponTitle),out.weaponGeneration,
-        (g_config.manual_reload||g_config.weapon_holsters)&&Game_IsHeadTracking()&&VR_IsStereoEnabled()&&
+        (g_config.manual_reload||g_config.weapon_holsters||g_config.dual_wield_shake_reload)&&
+        Game_IsHeadTracking()&&VR_IsStereoEnabled()&&
         TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay&&
         g_sessionStateShared.load(std::memory_order_acquire)==XR_SESSION_STATE_FOCUSED&&
         !Menu_IsOpen()&&!VR_IsPausePresentation()&&!VR_IsPausePresentationTarget()&&!VR_IsCutsceneTheaterActive()))
@@ -24609,6 +24630,7 @@ void VR_GetPadState(VrPadState& out)
     if(g_config.manual_reload&&
         out.weaponGraph!=VR_GetWeaponModelIdentity(weaponTitle,out.weaponGeneration,out.weaponSpace,now))
         out.weaponButtons=0;
+    if(!out.weaponButtons) out.weaponDualReloadPulse=false;
     const uint64_t sampled = g_thumbrestDpadSampleMs.load(std::memory_order_acquire);
     if (!g_config.quest_thumbrest_dpad || !sampled || now < sampled || now-sampled > 250 ||
         g_sessionStateShared.load(std::memory_order_acquire) != XR_SESSION_STATE_FOCUSED || Menu_IsOpen())
@@ -24696,7 +24718,8 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
     const GameTitle title=TitleAdapter_GetActiveTitle();
     const int index=weapon_interaction::TitleIndex(title);
     const unsigned options=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u)|
-        (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u);
+        (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u)|
+        (g_config.dual_wield_shake_reload?64u:0u);
     const uint32_t reloadBinding=WeaponGestureBinding(title,vr_mapping::Reload,nowMs);
     const uint32_t switchBinding=WeaponGestureBinding(title,vr_mapping::SwitchWeapon,nowMs);
     const uint64_t bindings=uint64_t(reloadBinding)|(uint64_t(switchBinding)<<32);
@@ -26107,7 +26130,7 @@ void VR_GetCrouchContinuityStats(VrCrouchContinuityStats& out) noexcept
     LeaveCriticalSection(&g_headCs);
 }
 
-unsigned VR_DualWieldReloadTick(GameTitle title,uint32_t generation,uint32_t unit,
+void VR_DualWieldObserveOwner(GameTitle title,uint32_t generation,uint32_t unit,
     const uint32_t weapons[2]) noexcept
 {
     if(!g_config.dual_wield_shake_reload||!weapons||title!=TitleAdapter_GetActiveTitle()||
@@ -26115,19 +26138,25 @@ unsigned VR_DualWieldReloadTick(GameTitle title,uint32_t generation,uint32_t uni
         TitleAdapter_GetRuntimeMode()!=RuntimeMode::Gameplay||Menu_IsOpen()||
         VR_IsPausePresentation()||VR_IsPausePresentationTarget()||VR_IsCutsceneTheaterActive()||
         g_sessionStateShared.load(std::memory_order_acquire)!=XR_SESSION_STATE_FOCUSED)
-    {g_dualReloadChannel.Cancel();return 0;}
+    {g_dualReloadChannel.Cancel();return;}
     const dual_wield_shake::Owner owner{title,generation,unit,{weapons[0],weapons[1]},
         g_contactSpaceEpoch.load(std::memory_order_acquire),g_config.left_handed};
-    return g_dualReloadChannel.ObserveAndConsume(owner,GetTickCount64());
+    // Publishes the owner receipt only; no request ever travels back to the simulation.
+    (void)g_dualReloadChannel.ObserveAndConsume(owner,GetTickCount64());
 }
 
-// Called only by the cold native-policy worker, never from input/render hooks.
+// Called only by the cold worker's report pass, never from input/render hooks.
 void VR_ReportDualWieldReloadInput(GameTitle title)
 {
-    if(title!=GameTitle::Halo2&&title!=GameTitle::Halo3)return;
+    static uint64_t reportAt=0;
+    const uint64_t now=GetTickCount64();
+    if(!g_config.dual_wield_shake_reload||(title!=GameTitle::Halo2&&title!=GameTitle::Halo3)||now<reportAt)return;
+    reportAt=now+5000;
     const auto& s=g_dualReloadInputStats[title==GameTitle::Halo2?0:1];
-    LOG("Dual shake input game=%s samples=%llu ready=%llu gestures=%llu queued=%llu coarseClockRepeats=%llu "
-        "trackingBlocked=%llu ownerBlocked=%llu actionsBlocked=%llu busyHandSamples=%llu (gesture clock=OpenXR pose)",
-        title==GameTitle::Halo2?"Halo 2":"Halo 3",s.samples.load(),s.ready.load(),s.gestures.load(),s.queued.load(),s.coarseRepeats.load(),
-        s.trackingBlocked.load(),s.ownerBlocked.load(),s.actionsBlocked.load(),s.busyHands.load());
+    LOG("Dual shake reload game=%s samples=%llu ready=%llu gestures=%llu buttonPresses=%llu leftReloadUnbound=%llu "
+        "coarseClockRepeats=%llu trackingBlocked=%llu ownerBlocked=%llu actionsBlocked=%llu busyHandSamples=%llu "
+        "(presses the game's own reload binding per hand; gesture clock=OpenXR pose)",
+        title==GameTitle::Halo2?"Halo 2":"Halo 3",s.samples.load(),s.ready.load(),s.gestures.load(),s.pressed.load(),
+        s.secondaryUnbound.load(),s.coarseRepeats.load(),s.trackingBlocked.load(),s.ownerBlocked.load(),
+        s.actionsBlocked.load(),s.busyHands.load());
 }

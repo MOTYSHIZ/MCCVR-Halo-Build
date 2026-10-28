@@ -31,8 +31,6 @@ struct Runtime {
     std::atomic<bool> faulted{};
     std::atomic<uint32_t> callbacks{};
     std::atomic<uint64_t> suppressed{},shortened{},animations{},faults{},stockOwner{};
-    std::atomic<bool> shakeFaulted{};
-    std::atomic<uint64_t> shakeTicks{},shakeRequests{},shakeAccepted{};
     void* target[RoleCount]{}; void* original[RoleCount]{};
     bool enabled[RoleCount]{},autoReady{},skipReady{},attempted{};
     uint64_t reportAt{};
@@ -60,7 +58,6 @@ bool Current(unsigned i,unsigned option)
     return (r.options.load(std::memory_order_acquire)&option)!=0 &&
         (option!=2 || !r.faulted.load(std::memory_order_acquire)) &&
         (option!=4 || !r.tailFaulted.load(std::memory_order_acquire)) &&
-        (option!=8 || !r.shakeFaulted.load(std::memory_order_acquire)) &&
         TitleAdapter_GetActiveTitle()==kBindings[i].title &&
         TitleAdapter_GetGeneration(kBindings[i].title)==r.generation;
 }
@@ -244,13 +241,12 @@ bool Retire(unsigned i)
         if (status!=MH_OK && status!=MH_ERROR_DISABLED) return false;
         r.enabled[j]=false;
     }
-    const void* functions[RoleCount+4]{},*trampolines[RoleCount+4]{};
+    const void* functions[RoleCount+3]{},*trampolines[RoleCount+3]{};
     for (unsigned j=0;j<RoleCount;++j) { functions[j]=hooks[i][j];trampolines[j]=r.original[j]; }
     functions[RoleCount]=reinterpret_cast<const void*>(&Current);
     functions[RoleCount+1]=reinterpret_cast<const void*>(&Owned);
     functions[RoleCount+2]=reinterpret_cast<const void*>(&Shorten);
-    functions[RoleCount+3]=reinterpret_cast<const void*>(&NativeReloadPolicy_DualShakeTick);
-    if (!WaitForNativeDetourQuiescence(functions,trampolines,RoleCount+4,r.callbacks)) return false;
+    if (!WaitForNativeDetourQuiescence(functions,trampolines,RoleCount+3,r.callbacks)) return false;
     for (unsigned j=0;j<RoleCount;++j) if (r.target[j]) {
         if (MH_RemoveHook(r.target[j])!=MH_OK) return false;
         r.target[j]=r.original[j]=nullptr;
@@ -258,7 +254,6 @@ bool Retire(unsigned i)
     if (r.module) FreeLibrary(r.module);
     r.module=nullptr;r.base=0;r.generation=0;r.attempted=false;r.autoReady=r.skipReady=false;r.faulted=false;
     r.tailReady=false;r.tailFaulted=false;r.tailUsers=nullptr;r.tlsIndex=nullptr;
-    r.shakeFaulted=false;
     for(auto& function:r.tailFunctions) function=nullptr;
     return true;
 }
@@ -276,8 +271,7 @@ void NativeReloadPolicy_Poll()
         }
         if (active!=title || !generation) continue;
         const unsigned requested=native_reload::Options(g_config.manual_reload,g_config.manual_reload_disable_auto,
-            g_config.manual_reload_skip_animations,g_config.manual_reload_shortened_animation) |
-            ((g_config.dual_wield_shake_reload&&(title==GameTitle::Halo2||title==GameTitle::Halo3))?8u:0u);
+            g_config.manual_reload_skip_animations,g_config.manual_reload_shortened_animation);
         if (!r.attempted && requested) {
             const auto* descriptor=TitleRegistry_Find(title);
             if (!descriptor || !GetModuleHandleExW(0,descriptor->moduleName,&r.module)) continue;
@@ -297,52 +291,15 @@ void NativeReloadPolicy_Poll()
                 descriptor->displayName,r.autoReady?"installed":"STOCK FALLBACK (binding/hook)",r.skipReady?"installed":"STOCK FALLBACK (binding/hook)",
                 r.tailReady?"installed":"STOCK FALLBACK (binding/hook)");
         }
-        r.options.store(requested & ((r.autoReady?9u:0u)|(r.skipReady?2u:0u)|(r.tailReady?4u:0u)),std::memory_order_release);
+        r.options.store(requested & ((r.autoReady?1u:0u)|(r.skipReady?2u:0u)|(r.tailReady?4u:0u)),std::memory_order_release);
         if (r.module && now>=r.reportAt) {
             r.reportAt=now+5000;
             LOG("Native reload policy title=%u options=%u autoBlocked=%llu timersShortened=%llu animationsSkipped=%llu faults=%llu stockOwnerGuard=%llu%s",
                 i,r.options.load(),r.suppressed.load(),r.shortened.load(),r.animations.load(),r.faults.load(),
                 r.stockOwner.load(),
                 r.faulted.load()?" SKIP STOCK FALLBACK (guarded access fault)":"");
-            if(requested&8u)
-                LOG("Dual wield shake reload title=%u bindingReady=%u nativeTicks=%llu requests=%llu accepted=%llu fault=%u",
-                    i,(r.options.load()&8u)&&!r.shakeFaulted.load()?1u:0u,
-                    r.shakeTicks.load(),r.shakeRequests.load(),r.shakeAccepted.load(),r.shakeFaulted.load()?1u:0u);
-            if(requested&8u)VR_ReportDualWieldReloadInput(title);
             LOG("Native reload tail title=%u retained=%llu stockFallback=%llu rejectedMask=0x%x (1=receipt 2=owner 4=channel 8=timing 16=tag 32=seek)%s",i,r.tails.load(),r.tailFallback.load(),r.tailFallbackMask.load(),
                 r.tailFaulted.load()?" SHORTENED STOCK FALLBACK (guarded access fault)":"");
         }
     }
-}
-
-void NativeReloadPolicy_DualShakeTick(GameTitle title,uint32_t generation,
-    uint32_t unit,const uint32_t weapons[2]) noexcept
-{
-    if(!g_config.dual_wield_shake_reload||!weapons||unit==UINT32_MAX||
-        (title!=GameTitle::Halo2&&title!=GameTitle::Halo3))return;
-    const unsigned index=title==GameTitle::Halo2?native_reload::H2:native_reload::H3;
-    auto& r=runtime[index];
-    r.callbacks.fetch_add(1,std::memory_order_acq_rel);
-    __try {
-        __try {
-            if(!Current(index,8)||generation!=r.generation||weapons[0]==weapons[1]||
-                !Game_ReloadPolicyWeapon(title,weapons[0])||!Game_ReloadPolicyWeapon(title,weapons[1]))__leave;
-            ++r.shakeTicks;
-            const unsigned requests=VR_DualWieldReloadTick(title,generation,unit,weapons);
-            for(unsigned slot=0;slot<2;++slot) if(requests&(1u<<slot)) {
-                if(!Current(index,8)||!Game_ReloadPolicyWeapon(title,weapons[slot]))break;
-                ++r.shakeRequests;
-                // The verified native request chooses the primary/secondary
-                // unit action from THIS weapon datum. Magazine 0 is not a hand
-                // index. Enter the hooked request so existing reload policies
-                // remain in force; this is not the empty-trigger caller.
-                uint8_t accepted=0;
-                if(title==GameTitle::Halo2)
-                    accepted=reinterpret_cast<uint8_t(__fastcall*)(uint32_t,int16_t)>(r.target[Auto])(weapons[slot],0);
-                else
-                    accepted=reinterpret_cast<uint8_t(__fastcall*)(uint32_t,int16_t,uint8_t)>(r.target[Auto])(weapons[slot],0,0);
-                if(accepted)++r.shakeAccepted;
-            }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {r.shakeFaulted=true;}
-    } __finally {r.callbacks.fetch_sub(1,std::memory_order_release);}
 }

@@ -27,7 +27,8 @@ struct Sample {
 class State {
 public:
     void Reset() noexcept { *this=State{}; }
-    // One-shot request bits, never native buttons or direct ammo mutations.
+    // One-shot slot bits. The input thread turns each into a press of that slot's reload
+    // binding (shared input); never a simulation call or an ammo write.
     unsigned Update(const Sample& s) noexcept {
         const bool supported=s.title==GameTitle::Halo2||s.title==GameTitle::Halo3;
         if(!s.enabled||!s.ready||!s.dualWield||!supported||!s.generation||!s.space||!s.now||

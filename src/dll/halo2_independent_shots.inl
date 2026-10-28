@@ -126,7 +126,7 @@ void Halo2DualShakeTick(uint32_t unit) noexcept
     __try {
         uint32_t weapons[2]{};
         if(Halo2IndependentTargetStorage(unit)&&Halo2ReadIndependentPair(unit,weapons))
-            NativeReloadPolicy_DualShakeTick(GameTitle::Halo2,g_generation.load(),unit,weapons);
+            VR_DualWieldObserveOwner(GameTitle::Halo2,g_generation.load(),unit,weapons);
     } __except(EXCEPTION_EXECUTE_HANDLER) { /* Unknown ownership leaves native controls untouched. */ }
 }
 

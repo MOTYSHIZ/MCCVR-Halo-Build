@@ -27,7 +27,7 @@ static struct {bool independent_dual_aim=true;float crosshair_distance_m=10;bool
 // behavior is covered by native_reload_policy_tests; this fixture only needs the
 // new hook dependency to compile without linking the production worker.
 static unsigned nativeDualShakeCalls{};
-void NativeReloadPolicy_DualShakeTick(GameTitle,uint32_t,uint32_t,const uint32_t[2]) noexcept
+void VR_DualWieldObserveOwner(GameTitle,uint32_t,uint32_t,const uint32_t[2]) noexcept
 {++nativeDualShakeCalls;}
 // The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
 [[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}

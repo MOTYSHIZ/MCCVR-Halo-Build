@@ -505,6 +505,9 @@ bool Game_HasAuthoritativePauseState();
 // left/right render camera for the next game frame.
 void Game_SetStereoEye(int eye);
 float Game_GetWorldScale();
+// The gamepad transport the player's layout binds to Halo 3's left-weapon (secondary) reload,
+// controller 0; 0 when unknown, unbound, stale or another title (gesture_melee_bindings.inl).
+uint32_t Game_SecondaryReloadTransport(GameTitle title, uint64_t now);
 void Game_SetWorldScale(float value);
 // The F6 positional (leaning) toggle, shared by every title's camera core.
 bool Game_IsPositionalTracking();

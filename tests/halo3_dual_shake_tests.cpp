@@ -26,12 +26,12 @@ static bool Halo3ReadOwnedDualWeapons(uint32_t unit,uint32_t out[2])
 {if(!dual||unit!=local)return false;out[0]=held[0];out[1]=held[1];return true;}
 static dual_wield_shake::Channel channel;
 static uint64_t now=1000;
-static unsigned callbacks=0,requests=0;
-static void NativeReloadPolicy_DualShakeTick(GameTitle title,uint32_t generation,
+static unsigned callbacks=0;
+static void VR_DualWieldObserveOwner(GameTitle title,uint32_t generation,
     uint32_t unit,const uint32_t weapons[2]) noexcept
 {
     ++callbacks;
-    requests|=channel.ObserveAndConsume({title,generation,unit,{weapons[0],weapons[1]},1,false},now);
+    (void)channel.ObserveAndConsume({title,generation,unit,{weapons[0],weapons[1]},1,false},now);
 }
 #include "../src/dll/halo3_dual_shake_reload.inl"
 static unsigned checks=0;
@@ -41,15 +41,14 @@ int main()
 {
     dual_wield_shake::Owner owner;
     // No trigger or haptic callback occurs: idle native unit ticks alone must
-    // keep the owner receipt alive and consume an independently queued gesture.
+    // keep the owner receipt alive. The tick only observes; a shake is a button press.
     for(unsigned i=0;i<120;++i) {
         Halo3DualShakeUnitTick(local);
         Check(channel.Read(now,owner),"idle owner remains fresh beyond the 150ms expiry");
         now+=17;
     }
-    Check(channel.Request(owner,now,2),"secondary gesture queues while idle");
-    Halo3DualShakeUnitTick(local);
-    Check(requests==2,"idle unit update consumes the correct weapon request");
+    Check(owner.unit==local&&owner.weapons[0]==held[0]&&owner.weapons[1]==held[1],
+        "the owner receipt names the local unit and both held weapons in slot order");
     const auto before=callbacks;
     Halo3DualShakeUnitTick(local+1);
     seated=true;Halo3DualShakeUnitTick(local);seated=false;
@@ -61,7 +60,9 @@ int main()
     Check(callbacks==before,"foreign, seated, single-weapon, disabled and unbound updates stay stock");
     held[1]+=0x10000;
     Halo3DualShakeUnitTick(local);
-    Check(!channel.Request(owner,now,2),"old salted pair cannot queue after weapon replacement");
+    dual_wield_shake::Owner replaced;
+    Check(channel.Read(now,replaced)&&replaced.weapons[1]==held[1]&&!(replaced==owner),
+        "a replaced weapon publishes a new owner pair");
     now+=151;
     Check(!channel.Read(now,owner),"stopped native updates still expire");
     std::printf("Halo 3 dual shake idle routing: %u checks passed\n",checks);

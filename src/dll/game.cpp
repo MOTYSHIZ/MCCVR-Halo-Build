@@ -50046,6 +50046,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
             GunAimReport();   // DRIVE Halo 3 gun-slaved seat (the gun camera's offset), SEAT LIMIT Halo 3 gun band
             Halo3HeadRelativeReport();   // TRACKER HEAD Halo 3: the switch, by the head / the game's own
             ReportH3DualAnimation();
+            VR_ReportDualWieldReloadInput(TitleAdapter_GetActiveTitle());   // DUAL SHAKE RELOAD: presses per hand
             Halo3TrackerHudHeightReport();   // TRACKER HUD HEIGHT Halo 3: the blips moved with the HUD height / not
             HostUnloadGate_Report();   // UNLOAD GATE <title>: MCC's reload of a game DLL waited for our teardown / not
             VR_ReportStandingFollow();   // VIEW HEIGHT title=N: the neutral height began to follow the standing height

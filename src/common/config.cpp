@@ -3392,7 +3392,7 @@ void ConfigSave()
         g_config.weapon_holster_radius_m,g_config.weapon_insert_radius_m,g_config.weapon_holster_draw_m);
     fprintf(f, "weapon_holster_slide = %d\nweapon_holster_click = %d\n",
         g_config.weapon_holster_slide?1:0,g_config.weapon_holster_click?1:0);
-    fprintf(f, "# Shake each held controller to reload its weapon in Halo 2/3 dual wield. Independent of manual_reload.\n");
+    fprintf(f, "# Dual wield: a shake presses that hand's reload button (Halo 3 both hands, Halo 2 right). Independent of manual_reload.\n");
     fprintf(f, "dual_wield_shake_reload = %d\n", g_config.dual_wield_shake_reload?1:0);
     fprintf(f, "# Recognized Needlers across all titles and Reach Needle Rifle; requires manual_reload.\n");
     fprintf(f, "# One rapid gun-hand out-and-back shake in any direction; no grip; settle to rearm.\n");

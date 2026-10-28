@@ -661,7 +661,10 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         const uint32_t gestureMelee=weaponGesture?0:Game_GestureMeleeInput(inputNow);
         const uint32_t blockedWeaponActions=manual_weapon_input::Blocked(
             gameplayMode&&inputMode==RuntimeMode::Gameplay&&g_config.gesture_only_weapon_input,
-            g_config.manual_reload,g_config.weapon_holsters);
+            g_config.manual_reload,g_config.weapon_holsters)&
+            // A dual-wield shake is pressing a reload binding: let Reload through for its 120 ms
+            // (Halo 3's left-reload edge is otherwise cleared under a blocked Reload).
+            ~(pad.weaponDualReloadPulse?(1u<<vr_mapping::Reload):0u);
         const uint32_t gestureActions=((crouchButtons|gestureMelee)>>18)|
             manual_weapon_input::Gestures(pad.weaponButtons,pad.weaponReloadBinding,pad.weaponSwitchBinding);
         if(semanticMode||blockedWeaponActions) NativeVrActions_Publish(state,currentTitle,inputNow,

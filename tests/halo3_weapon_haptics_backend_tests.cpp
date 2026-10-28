@@ -23,7 +23,7 @@ uint8_t* Halo3LoadedTagDefinition(uint32_t);
 bool Halo3ReadOwnedWeapons(uint32_t, uint32_t[2], bool);
 bool Halo3ReadOwnedDualWeapons(uint32_t unit,uint32_t weapons[2]) {return Halo3ReadOwnedWeapons(unit,weapons,true);}
 bool (__fastcall* g_halo3UnitInVehicle)(int32_t) = nullptr;
-void NativeReloadPolicy_DualShakeTick(GameTitle,uint32_t,uint32_t,const uint32_t[2]) noexcept {}
+void VR_DualWieldObserveOwner(GameTitle,uint32_t,uint32_t,const uint32_t[2]) noexcept {}
 int ResolveEquippedWeaponSlot(uint32_t, uint32_t, uint32_t, bool, bool);
 uint64_t VR_WeaponHapticToken(GameTitle, uint32_t, bool) noexcept;
 bool VR_PulseWeaponHaptics(GameTitle, uint32_t, bool, bool, float, uint64_t) noexcept;

@@ -171,7 +171,7 @@ void Halo3DualShakeTick(uint32_t weapon) noexcept
         uint32_t weapons[2]{};
         if(unit!=UINT32_MAX&&!g_halo3UnitInVehicle(int32_t(unit))&&
             Halo3ReadOwnedDualWeapons(unit,weapons)&&weapon==weapons[0])
-            NativeReloadPolicy_DualShakeTick(GameTitle::Halo3,g_halo3RuntimeGeneration.load(),unit,weapons);
+            VR_DualWieldObserveOwner(GameTitle::Halo3,g_halo3RuntimeGeneration.load(),unit,weapons);
     } __except(EXCEPTION_EXECUTE_HANDLER) { /* Unknown ownership leaves native controls untouched. */ }
 }
 

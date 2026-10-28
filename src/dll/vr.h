@@ -1110,6 +1110,9 @@ struct VrPadState
     uint32_t weaponReloadBinding = 0, weaponSwitchBinding = 0;
     GameTitle weaponTitle{};
     bool weaponConsumePrimary = false, weaponConsumeSupport = false;
+    // A dual-wield shake's own reload press is in weaponButtons (input.cpp lets it through
+    // gesture-only suppression for its 120 ms).
+    bool weaponDualReloadPulse = false;
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // SEATEXIT witness only: capacitive touch, bit 0 left thumb rest, 1 right thumb rest, 2 left
     // thumbstick, 3 right thumbstick. Read for the log; nothing acts on it.
@@ -1357,9 +1360,11 @@ bool VR_GetDlssRenderPlan(VrDlssRenderPlan& out);
 
 void VR_ObserveReachAlternateDepthBind(ID3D11DeviceContext* context, UINT renderTargetCount, ID3D11DepthStencilView* depth);
 
-// Native simulation-thread receipt and one-shot requests for the exact held pair.
-unsigned VR_DualWieldReloadTick(GameTitle title,uint32_t generation,uint32_t unit,
+// Native simulation thread, read only: the local player's current dual pair, so the input thread
+// knows which hand holds what. A shake then presses that hand's reload button (shared input);
+// nothing is requested of the simulation.
+void VR_DualWieldObserveOwner(GameTitle title,uint32_t generation,uint32_t unit,
     const uint32_t weapons[2]) noexcept;
 
-// Cold-worker input admission and clock diagnostics.
+// Cold-worker input admission and clock diagnostics (self-throttled to every 5 s).
 void VR_ReportDualWieldReloadInput(GameTitle title);
