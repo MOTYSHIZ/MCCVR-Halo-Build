@@ -7,6 +7,11 @@
 // frame — our hook is where all VR work happens.
 
 bool InstallD3D11Hooks();
+// A lost GPU device, logged: `result` is what a call returned; nothing is logged unless it says the device was
+// removed, reset or hung. The device's own reason (GetDeviceRemovedReason) is read and logged with it. Once per
+// device and at most a few lines in a session: every later call on a lost device fails the same way.
+struct ID3D11Device;
+void D3D_NoteDeviceLoss(const char* where, long result, ID3D11Device* device);
 // The game's Draw / DrawIndexed calls since this was last asked (once a present), and in `smallDraws` those of at
 // most 96 elements: text, HUD widgets and other quads. 0 where the draw hooks are not installed.
 uint32_t D3D_TakeFrameDrawCalls(uint32_t& smallDraws);

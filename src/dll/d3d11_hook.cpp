@@ -42,6 +42,7 @@
 #include "../common/reclaimer_host_logic.h"
 #include "../common/host_ui_layer_blend.h"
 #include "../common/hook_cost_scope.h"
+#include "../common/present_owner_logic.h"
 
 // THE MOD'S OWN COST IN THE CALLS IT HOOKS (hook_cost_logic.h; hook_cost_frames in the settings file). One frame
 // in N, every context hook below reads the processor's cycle counter around itself and around the game's real
@@ -1730,7 +1731,153 @@ static BOOL WINAPI GetMonitorInfoWHook(HMONITOR mon, LPMONITORINFO mi)
     return ok;
 }
 
-static HRESULT STDMETHODCALLTYPE CreateSwapChainForHwndHook(IDXGIFactory2* self, IUnknown* device,
+// WHICH PRESENTS CARRY THE GAME'S PICTURE (present_owner_logic.h says why). A present or a resize of any other
+// swapchain passes straight through to DXGI: no headset frame, no host screen tracking, none of the mod's views
+// released. The verdict is kept per thread for the swapchain last asked about, and read again when a swapchain is
+// created or resized (a destroyed swapchain's address can be given to a new one, and a resize changes its size)
+// or when the headset session's device appears.
+static std::atomic<uint32_t> g_swapchainEpoch{1};
+static void SwapchainsChanged()
+{
+    g_swapchainEpoch.fetch_add(1, std::memory_order_acq_rel);
+}
+
+static bool IsGameSwapchain(IDXGISwapChain* sc)
+{
+    if (!sc)
+        return false;
+    struct Cached
+    {
+        IDXGISwapChain* sc = nullptr;
+        uint32_t epoch = 0;
+        ID3D11Device* session = nullptr;
+        bool game = false;
+    };
+    static thread_local Cached cached;
+    const uint32_t epoch = g_swapchainEpoch.load(std::memory_order_acquire);
+    ID3D11Device* const session = VR_SessionDevice();
+    if (cached.sc == sc && cached.epoch == epoch && cached.session == session)
+        return cached.game;
+
+    ID3D11Device* device = nullptr;
+    const bool d3d11 = SUCCEEDED(sc->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&device))) &&
+        device;
+    DXGI_SWAP_CHAIN_DESC desc{};
+    const bool described = SUCCEEDED(sc->GetDesc(&desc));
+    const present_owner::Verdict verdict = present_owner::Classify(
+        d3d11, g_hostOwnsRenderSize, described, desc.BufferDesc.Width, desc.BufferDesc.Height,
+        reinterpret_cast<uintptr_t>(device), reinterpret_cast<uintptr_t>(session));
+    if (device)
+        device->Release();
+    cached = {sc, epoch, session, verdict == present_owner::Verdict::Game};
+    if (!cached.game)
+    {
+        static std::atomic<uint32_t> logged{0};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 12)
+            LOG("present: a %ux%u swapchain presented on thread %lu is %s; the mod leaves its presents and resizes "
+                "to DXGI (no headset frame from it)",
+                desc.BufferDesc.Width, desc.BufferDesc.Height, GetCurrentThreadId(),
+                present_owner::Describe(verdict));
+    }
+    return cached.game;
+}
+
+// In a host that draws at its own size, a swapchain created this small is a token surface: it is never taken as
+// the game's window or size. A size of 0 is the window's own.
+static bool HostTokenSwapchain(UINT width, UINT height, HWND window)
+{
+    RECT client{};
+    if ((!width || !height) && window && GetClientRect(window, &client))
+    {
+        if (!width)
+            width = static_cast<UINT>(client.right - client.left);
+        if (!height)
+            height = static_cast<UINT>(client.bottom - client.top);
+    }
+    const bool token = present_owner::IsTokenSurface(width, height);
+    if (token)
+    {
+        static std::atomic<uint32_t> logged{0};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 4)
+            LOG("swapchain: the host made a %ux%u swapchain (window %p): too small to be the game's picture, so "
+                "not taken as the game's window or size", width, height, static_cast<void*>(window));
+    }
+    return token;
+}
+
+// A LOST DEVICE, logged (d3d11_hook.h). After a device is removed every call on it fails, and the host usually
+// closes itself moments later with nothing in this log to say why.
+static const char* DeviceLossName(HRESULT hr)
+{
+    switch (hr)
+    {
+    case S_OK: return "not lost";
+    case DXGI_ERROR_DEVICE_REMOVED: return "removed";
+    case DXGI_ERROR_DEVICE_HUNG: return "hung: the GPU stopped answering the commands it was given";
+    case DXGI_ERROR_DEVICE_RESET: return "reset: a badly formed command";
+    case DXGI_ERROR_DRIVER_INTERNAL_ERROR: return "the driver's internal error";
+    case DXGI_ERROR_INVALID_CALL: return "an invalid call";
+    default: return "other";
+    }
+}
+void D3D_NoteDeviceLoss(const char* where, long result, ID3D11Device* device)
+{
+    const HRESULT hr = static_cast<HRESULT>(result);
+    if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_HUNG && hr != DXGI_ERROR_DEVICE_RESET &&
+        hr != DXGI_ERROR_DRIVER_INTERNAL_ERROR)
+        return;
+    // Once per device (a few devices at most), and a few lines in all.
+    static std::atomic<ID3D11Device*> noted[4]{};
+    static std::atomic<uint32_t> lines{0};
+    for (auto& slot : noted)
+    {
+        ID3D11Device* expected = nullptr;
+        if (slot.compare_exchange_strong(expected, device, std::memory_order_acq_rel))
+            break;
+        if (expected == device)
+            return;
+    }
+    if (lines.fetch_add(1, std::memory_order_relaxed) >= 6)
+        return;
+    const HRESULT reason = device ? device->GetDeviceRemovedReason() : hr;
+    LOG("GPU DEVICE LOST: %s returned 0x%08X (%s); the device's own reason is 0x%08X (%s); thread %lu, %s device, "
+        "the host %s over the frame. Everything the mod logs after this line is the aftermath",
+        where ? where : "a call", static_cast<unsigned>(hr), DeviceLossName(hr), static_cast<unsigned>(reason),
+        DeviceLossName(reason), GetCurrentThreadId(),
+        device && device == VR_SessionDevice() ? "the headset session's" : "another",
+        D3D_HostDrawsOverFrame() ? "was drawing" : "was not drawing");
+}
+
+// The headset session's device, asked about its health four times a second at the game's presents: a removal
+// is then logged even when no call of the mod's happens to fail before the host closes.
+static void CheckSessionDeviceHealth()
+{
+    static std::atomic<ULONGLONG> nextMs{0};
+    const ULONGLONG now = GetTickCount64();
+    if (now < nextMs.load(std::memory_order_relaxed))
+        return;
+    nextMs.store(now + 250, std::memory_order_relaxed);
+    ID3D11Device* const device = VR_SessionDevice();
+    if (!device)
+        return;
+    const HRESULT reason = device->GetDeviceRemovedReason();
+    if (FAILED(reason))
+        D3D_NoteDeviceLoss("the headset session's device, asked at a present,", reason, device);
+}
+
+static void NotePresentResult(IDXGISwapChain* sc, HRESULT hr, bool game)
+{
+    if (!FAILED(hr) || !sc)
+        return;
+    ID3D11Device* device = nullptr;
+    if (FAILED(sc->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&device))))
+        device = nullptr;
+    D3D_NoteDeviceLoss(game ? "Present of the game's swapchain" : "Present of another swapchain", hr, device);
+    if (device)
+        device->Release();
+}
+
+static HRESULT CreateSwapChainForHwndBody(IDXGIFactory2* self, IUnknown* device,
     HWND hwnd, const DXGI_SWAP_CHAIN_DESC1* pDesc,
     const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* pFullscreen, IDXGIOutput* restrictOut,
     IDXGISwapChain1** ppSwapChain)
@@ -1756,7 +1903,8 @@ static HRESULT STDMETHODCALLTYPE CreateSwapChainForHwndHook(IDXGIFactory2* self,
     }
     if (g_hostOwnsRenderSize)
         ForgetHostBackbuffer();
-    if (pDesc && g_hostOwnsRenderSize && !g_forcedMainSwapchain)
+    if (pDesc && g_hostOwnsRenderSize && !g_forcedMainSwapchain &&
+        !HostTokenSwapchain(pDesc->Width, pDesc->Height, hwnd))
     {
         g_forcedMainSwapchain = true;
         g_gameHwnd = hwnd;
@@ -1766,7 +1914,18 @@ static HRESULT STDMETHODCALLTYPE CreateSwapChainForHwndHook(IDXGIFactory2* self,
                                         restrictOut, ppSwapChain);
 }
 
-static HRESULT STDMETHODCALLTYPE CreateSwapChainHook(IDXGIFactory* self, IUnknown* device,
+static HRESULT STDMETHODCALLTYPE CreateSwapChainForHwndHook(IDXGIFactory2* self, IUnknown* device,
+    HWND hwnd, const DXGI_SWAP_CHAIN_DESC1* pDesc,
+    const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* pFullscreen, IDXGIOutput* restrictOut,
+    IDXGISwapChain1** ppSwapChain)
+{
+    SwapchainsChanged();
+    const HRESULT hr = CreateSwapChainForHwndBody(self, device, hwnd, pDesc, pFullscreen, restrictOut, ppSwapChain);
+    SwapchainsChanged();
+    return hr;
+}
+
+static HRESULT CreateSwapChainBody(IDXGIFactory* self, IUnknown* device,
     DXGI_SWAP_CHAIN_DESC* pDesc, IDXGISwapChain** ppSwapChain)
 {
     if (pDesc && g_forcedRenderW && g_forcedRenderH && !g_forcedMainSwapchain)
@@ -1787,13 +1946,23 @@ static HRESULT STDMETHODCALLTYPE CreateSwapChainHook(IDXGIFactory* self, IUnknow
     }
     if (g_hostOwnsRenderSize)
         ForgetHostBackbuffer();
-    if (pDesc && g_hostOwnsRenderSize && !g_forcedMainSwapchain)
+    if (pDesc && g_hostOwnsRenderSize && !g_forcedMainSwapchain &&
+        !HostTokenSwapchain(pDesc->BufferDesc.Width, pDesc->BufferDesc.Height, pDesc->OutputWindow))
     {
         g_forcedMainSwapchain = true;
         g_gameHwnd = pDesc->OutputWindow;
         AdoptHostRenderSize(pDesc->BufferDesc.Width, pDesc->BufferDesc.Height, "its swapchain as created");
     }
     return g_origCreateSwapChain(self, device, pDesc, ppSwapChain);
+}
+
+static HRESULT STDMETHODCALLTYPE CreateSwapChainHook(IDXGIFactory* self, IUnknown* device,
+    DXGI_SWAP_CHAIN_DESC* pDesc, IDXGISwapChain** ppSwapChain)
+{
+    SwapchainsChanged();
+    const HRESULT hr = CreateSwapChainBody(self, device, pDesc, ppSwapChain);
+    SwapchainsChanged();
+    return hr;
 }
 
 // Broad probe paths deliberately NOT installed here; each was retired after
@@ -3104,10 +3273,14 @@ static UINT PacedSyncInterval(UINT requested)
 static HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* sc, UINT syncInterval, UINT flags)
 {
     const bool topLevel = (g_presentDepth++ == 0);
-    const bool runVrFrame = topLevel && !(flags & DXGI_PRESENT_TEST);
+    // Only the game's own swapchain makes a headset frame (IsGameSwapchain): a host's other swapchain, presented
+    // from another thread, passes straight through.
+    const bool gamePresent = topLevel && IsGameSwapchain(sc);
+    const bool runVrFrame = gamePresent && !(flags & DXGI_PRESENT_TEST);
     LARGE_INTEGER hookStart{};
     if (runVrFrame)
     {
+        CheckSessionDeviceHealth();
         HookCostFrame();
         TitleReentryProbe_PublishPresentCaller(_ReturnAddress(), GetTickCount64());
         if constexpr (kEnableCoopPresentProbe)
@@ -3123,6 +3296,8 @@ static HRESULT STDMETHODCALLTYPE PresentHook(IDXGISwapChain* sc, UINT syncInterv
     if (runVrFrame)
         QueryPerformanceCounter(&presentStart);
     HRESULT hr = g_origPresent(sc, pacedSyncInterval, flags);
+    if (topLevel)
+        NotePresentResult(sc, hr, gamePresent);
     if (runVrFrame)
     {
         QueryPerformanceCounter(&presentEnd);
@@ -3139,10 +3314,14 @@ static HRESULT STDMETHODCALLTYPE Present1Hook(IDXGISwapChain1* sc, UINT syncInte
                                               const DXGI_PRESENT_PARAMETERS* params)
 {
     const bool topLevel = (g_presentDepth++ == 0);
-    const bool runVrFrame = topLevel && !(flags & DXGI_PRESENT_TEST);
+    // Only the game's own swapchain makes a headset frame (IsGameSwapchain): a host's other swapchain, presented
+    // from another thread, passes straight through.
+    const bool gamePresent = topLevel && IsGameSwapchain(sc);
+    const bool runVrFrame = gamePresent && !(flags & DXGI_PRESENT_TEST);
     LARGE_INTEGER hookStart{};
     if (runVrFrame)
     {
+        CheckSessionDeviceHealth();
         HookCostFrame();
         TitleReentryProbe_PublishPresentCaller(_ReturnAddress(), GetTickCount64());
         if constexpr (kEnableCoopPresentProbe)
@@ -3158,6 +3337,8 @@ static HRESULT STDMETHODCALLTYPE Present1Hook(IDXGISwapChain1* sc, UINT syncInte
     if (runVrFrame)
         QueryPerformanceCounter(&presentStart);
     HRESULT hr = g_origPresent1(sc, pacedSyncInterval, flags, params);
+    if (topLevel)
+        NotePresentResult(sc, hr, gamePresent);
     if (runVrFrame)
     {
         QueryPerformanceCounter(&presentEnd);
@@ -3170,8 +3351,8 @@ static HRESULT STDMETHODCALLTYPE Present1Hook(IDXGISwapChain1* sc, UINT syncInte
     return hr;
 }
 
-static HRESULT STDMETHODCALLTYPE ResizeBuffersHook(IDXGISwapChain* sc, UINT bufferCount, UINT width,
-                                                   UINT height, DXGI_FORMAT format, UINT flags)
+static HRESULT ResizeBuffersBody(IDXGISwapChain* sc, UINT bufferCount, UINT width,
+                                 UINT height, DXGI_FORMAT format, UINT flags)
 {
     Bloom_BeforeResize();
     // With the fit on, keep the backbuffer pinned to the full launched render
@@ -3221,6 +3402,17 @@ static HRESULT STDMETHODCALLTYPE ResizeBuffersHook(IDXGISwapChain* sc, UINT buff
             AdoptHostRenderSize(actual.BufferDesc.Width, actual.BufferDesc.Height, "its swapchain as resized");
     }
     VR_AfterResizeBuffers(sc);
+    return result;
+}
+
+static HRESULT STDMETHODCALLTYPE ResizeBuffersHook(IDXGISwapChain* sc, UINT bufferCount, UINT width,
+                                                   UINT height, DXGI_FORMAT format, UINT flags)
+{
+    // Another swapchain's resize is its own: none of the mod's views refer to its buffers (IsGameSwapchain).
+    const HRESULT result = IsGameSwapchain(sc)
+        ? ResizeBuffersBody(sc, bufferCount, width, height, format, flags)
+        : g_origResizeBuffers(sc, bufferCount, width, height, format, flags);
+    SwapchainsChanged();
     return result;
 }
 
