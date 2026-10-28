@@ -1075,7 +1075,7 @@ void ConfigLoad(const wchar_t* path)
         }
         if(vehicleGameKey)continue;
         if (!strcmp(key,"world_scale")) {ParseFloatSetting(key,val,g_config.world_scale);continue;}
-        // Written by PR #1 builds, which forced Reach/ODST bloom off in the file; nothing reads it now.
+        // Legacy key, no longer read: bloom_chosen_<game> records the player's own bloom choice.
         if (!strcmp(key,"bloom_defaults_version")) continue;
         if (!strcmp(key,"left_hand_forward_reset_version")) {leftHandForwardResetV1=atoi(val)>=1;continue;}
         if (!strcmp(key,"left_hand_forward_m")) loadedSharedLeftHandForward=true;
