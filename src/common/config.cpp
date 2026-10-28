@@ -1369,6 +1369,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "seat_fire_from_eye")) { g_config.seat_fire_from_eye = atoi(val) != 0; continue; }
         if (!strcmp(key, "halo4_seat_converge")) { g_config.halo4_seat_converge = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "install_search_memory")) { g_config.install_search_memory = atoi(val) != 0 ? 1 : 0; continue; }
+        if (!strcmp(key, "install_hooks_together")) { g_config.install_hooks_together = atoi(val) != 0 ? 1 : 0; continue; }
         if (!strcmp(key, "aim_direct_drive"))
         { g_config.aim_direct_drive = atoi(val) != 0 ? 1 : 0; aimDirectDriveSeen = true; continue; }
         if (!strcmp(key, "drive_address_cache")) { g_config.drive_address_cache = atoi(val) != 0 ? 1 : 0; continue; }
@@ -3638,6 +3639,10 @@ void ConfigSave()
     fprintf(f, "# what an earlier one found in the same load of the game's DLL and searches it only for what is new.\n");
     fprintf(f, "# 0 = every install searches all of it again. (default %d)\n", d.install_search_memory);
     fprintf(f, "install_search_memory = %d\n", g_config.install_search_memory);
+    fprintf(f, "# Halo 3: 1 = the hooks of the optional features go live together with the core's, in one pass\n");
+    fprintf(f, "# that pauses the game's threads once. 0 = each feature pauses them again for its own. (default %d)\n",
+            d.install_hooks_together);
+    fprintf(f, "install_hooks_together = %d\n", g_config.install_hooks_together);
     fprintf(f, "# --- Per-title weapon/hand/HUD/crosshair profiles (C-TITLE-1) ---\n");
     fprintf(f, "# Every supported game - and Halo 2 Anniversary vs Classic\n");
     fprintf(f, "# separately - keeps its OWN copy of the tunables below.\n");

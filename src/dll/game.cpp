@@ -18051,6 +18051,103 @@ namespace
         sig::ImageMemoScope scope_;
     };
 
+    // WHERE ONE INSTALL'S TIME GOES. Each Mark closes the step that began at the previous Mark (or when this was
+    // made) and names it; Write puts every step in one line. Worker thread only, one install at a time; a Mark with
+    // no install open does nothing. A QueryPerformanceCounter per step, once per install.
+    class InstallSteps
+    {
+    public:
+        InstallSteps()
+        {
+            QueryPerformanceFrequency(&frequency_);
+            QueryPerformanceCounter(&last_);
+            s_open = this;
+        }
+        ~InstallSteps() { s_open = nullptr; }
+        InstallSteps(const InstallSteps&) = delete;
+        InstallSteps& operator=(const InstallSteps&) = delete;
+
+        static void Mark(const char* step)
+        {
+            if (s_open)
+                s_open->Close(step);
+        }
+
+        void Write(const char* title) const
+        {
+            if (!count_)
+                return;
+            char line[1536];
+            int at = snprintf(line, sizeof(line), "%s install steps (ms):", title);
+            for (uint32_t i = 0; i < count_ && at > 0 && static_cast<size_t>(at) < sizeof(line); ++i)
+                at += snprintf(line + at, sizeof(line) - static_cast<size_t>(at), "%s %s %.0f", i ? "," : "",
+                               names_[i], ms_[i]);
+            LOG("%s", line);
+        }
+
+    private:
+        void Close(const char* step)
+        {
+            LARGE_INTEGER now{};
+            QueryPerformanceCounter(&now);
+            if (count_ < kSteps && frequency_.QuadPart > 0)
+            {
+                names_[count_] = step;
+                ms_[count_] = static_cast<double>(now.QuadPart - last_.QuadPart) * 1000.0 /
+                              static_cast<double>(frequency_.QuadPart);
+                ++count_;
+            }
+            last_ = now;
+        }
+
+        static constexpr uint32_t kSteps = 40;
+        static inline InstallSteps* s_open = nullptr;
+        LARGE_INTEGER frequency_{};
+        LARGE_INTEGER last_{};
+        const char* names_[kSteps]{};
+        double ms_[kSteps]{};
+        uint32_t count_ = 0;
+    };
+
+    // THE INSTALL'S OPTIONAL HOOKS GO LIVE WITH THE CORE'S (minhook_lifecycle.h, MCCVR_EnableHook). The core queues
+    // its hooks and the worker enables them all with one MH_ApplyQueued, one freeze of the game's threads. The
+    // optional features (world contact, direct drive, haptics, the head-relative tracker and listener, ...) each
+    // enabled theirs on the spot, one freeze per hook: about twenty at a level's start, measured 0.3-2 s apiece in
+    // the logs, while every install step without a hook took milliseconds. While this is open they queue instead,
+    // and the worker's MH_ApplyQueued takes them in the same freeze. Every proof each feature makes is unchanged and
+    // made before its hook is queued; only the moment the bytes are written moves, to the end of this install,
+    // before the worker reports the title installed. `install_hooks_together = 0` leaves it closed.
+    class InstallHookDeferral
+    {
+    public:
+        InstallHookDeferral()
+            : open_(g_config.install_hooks_together != 0 && MCCVR_BeginHookEnableDeferral() != FALSE) {}
+        ~InstallHookDeferral() { End(false); }
+        InstallHookDeferral(const InstallHookDeferral&) = delete;
+        InstallHookDeferral& operator=(const InstallHookDeferral&) = delete;
+        // `applyFollows`: the caller's MH_ApplyQueued comes next. Otherwise every hook still queued here is enabled
+        // now, one at a time, as the features asked.
+        void End(bool applyFollows)
+        {
+            if (!open_)
+                return;
+            open_ = false;
+            UINT immediate = 0;
+            deferred_ = MCCVR_EndHookEnableDeferral(applyFollows ? TRUE : FALSE, &immediate);
+            immediate_ = immediate;
+        }
+        uint32_t Deferred() const { return deferred_; }
+        uint32_t Immediate() const { return immediate_; }
+
+    private:
+        bool open_;
+        uint32_t deferred_ = 0;
+        uint32_t immediate_ = 0;
+    };
+    // The last install's count, for the worker's line after its MH_ApplyQueued (the same thread).
+    uint32_t g_halo3InstallDeferredHooks = 0;
+    uint32_t g_halo3InstallImmediateHooks = 0;
+
     bool InstallHookBody(uintptr_t base, size_t size, uint32_t runtimeGeneration);
 
     // Halo 3's hooks are retired when the game stops copying its camera for two seconds (a level ending, a
@@ -18060,7 +18157,17 @@ namespace
     {
         static sig::ImageMemo s_searches;
         InstallSearches searches("Halo 3", s_searches, base, size, runtimeGeneration);
+        InstallSteps steps;
+        InstallHookDeferral deferral;
         const bool prepared = InstallHookBody(base, size, runtimeGeneration);
+        InstallSteps::Mark("stereo render");
+        // Prepared: the worker's MH_ApplyQueued follows at once (and a failed one rolls every hook back, the
+        // queued ones with the rest). Not prepared: nothing applies the queue, so each feature's hook is enabled
+        // on its own here, as before.
+        deferral.End(prepared);
+        g_halo3InstallDeferredHooks = deferral.Deferred();
+        g_halo3InstallImmediateHooks = deferral.Immediate();
+        steps.Write("Halo 3");
         if (prepared)
             searches.Finished();
         return prepared;
@@ -18984,6 +19091,7 @@ namespace
             LOG("M2: gun-camera signature missing/ambiguous; weapon/HUD will stay oversized in stereo");
         }
 
+        InstallSteps::Mark("core hooks");
         if (InstallLegacyWorldCollision(
                 g_halo3WorldCollision, GameTitle::Halo3, base, size,
                 runtimeGeneration,
@@ -18991,16 +19099,24 @@ namespace
                 0x001FFD18,nullptr,false,0x001FD748,
                 kHalo3CollisionVectorSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
+        InstallSteps::Mark("world collision");
         (void)InstallHalo3ContactMelee(base,size,runtimeGeneration);
+        InstallSteps::Mark("contact melee and sight");
         (void)LegacyDriveInstall(GameTitle::Halo3,base,size);
+        InstallSteps::Mark("direct drive");
         (void)SeatAimFrameInstall(GameTitle::Halo3,base,size,runtimeGeneration);
+        InstallSteps::Mark("seat aim frame");
         (void)Halo3SeatViewInstall(base,size,runtimeGeneration);
+        InstallSteps::Mark("seat view");
         (void)InstallHalo3WeaponHaptics(base,size,runtimeGeneration);
+        InstallSteps::Mark("weapon haptics");
         (void)InstallHalo3Avatar(base,size,runtimeGeneration);
+        InstallSteps::Mark("avatar");
         // The rejected early-helper-only detours remain inert. The new optional
         // path owns acquisition and downstream assist together, with its own
         // default-off setting and feature-only failure isolation.
         (void)InstallHalo3DualAim(base,size,runtimeGeneration);
+        InstallSteps::Mark("dual aim");
         // The evaluator's chase path, the start of a stock seat's crosshair line (seat_upstream_logic.h 4b): no hook,
         // so it is bound whether or not the lane above installed.
         BindHalo3ChaseCamera(base,size,runtimeGeneration);
@@ -19009,10 +19125,13 @@ namespace
         // Roomscale's Forge Monitor check (roomscale_admission_logic.h): two sites, two reader calls, no hook.
         (void)BindHalo3SandboxEditor(base,size,runtimeGeneration,g_engineTlsIndex,
             reinterpret_cast<uintptr_t>(g_halo3PlayerUnitGetter));
+        InstallSteps::Mark("chase camera, eye and Forge binds");
         // A look-steered driver's gun band (halo3_vehicle_gun_band.inl): anchors only, no hook; fails closed alone.
         (void)InstallHalo3GunBand(base,size,runtimeGeneration);
+        InstallSteps::Mark("gun band");
         // The motion tracker by the head's heading (halo3_head_relative.inl): its own transaction, fails closed alone.
         (void)InstallHalo3HeadRelative(base,size,runtimeGeneration);
+        InstallSteps::Mark("head-relative tracker and listener");
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
@@ -19027,11 +19146,14 @@ namespace
         // The third-person boom's game side (halo3_vehicle_boom.inl): anchors and tag reads only, no hook; each part
         // unbound alone leaves the boom on its own fallback.
         BindHalo3VehicleBoom(base,size,runtimeGeneration);
+        InstallSteps::Mark("HUD note, tag names, string ids, part draw, boom");
         // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): its own transaction too.
         (void)InstallHalo3TrackerHudHeight(base,size,runtimeGeneration);
+        InstallSteps::Mark("tracker HUD height");
 #if HALOMCCVR_DEV_DIAGNOSTICS
         InstallHalo3AssistWitness(base,size);   // SHOT Halo 3 assist (dev): the turn, cap hits, residual
         InstallHalo3ImpactWitness(base,size);   // SHOT IMPACT / SHOT RETICLE Halo 3 (dev): where rounds really go
+        InstallSteps::Mark("dev witnesses");
 #endif
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
@@ -27746,7 +27868,7 @@ namespace
         feature.resolver=schedulerRva
             ? reinterpret_cast<void*>(hit):trampoline;
         feature.originalIsVectorTest=schedulerRva!=0;
-        if(MH_EnableHook(target)!=MH_OK)
+        if(MCCVR_EnableHook(target)!=MH_OK)
         {
             MH_RemoveHook(target);
             feature.target=nullptr;
@@ -50700,7 +50822,18 @@ namespace
                     const bool prepared = InstallHook(base, size, generation);
                     // Staging every core hook first keeps native callbacks out
                     // of partial install rollback and stale dependency slots.
+                    // The optional features' hooks were queued with them
+                    // (InstallHookDeferral): this one pass enables them all.
+                    const uint64_t applyBeganMs = GetTickCount64();
                     const MH_STATUS activated = prepared ? MH_ApplyQueued() : MH_UNKNOWN;
+                    if (prepared)
+                        LOG("Halo 3 install: the core's hooks and %u of the optional features' hooks went live in "
+                            "one pass in %llu ms (%u optional hooks were enabled on their own instead; "
+                            "install_hooks_together = %d); MinHook status %d",
+                            g_halo3InstallDeferredHooks,
+                            static_cast<unsigned long long>(GetTickCount64() - applyBeganMs),
+                            g_halo3InstallImmediateHooks, g_config.install_hooks_together,
+                            static_cast<int>(activated));
                     if (prepared && activated == MH_OK)
                     {
                         g_halo3InstallReady.store(true, std::memory_order_release);

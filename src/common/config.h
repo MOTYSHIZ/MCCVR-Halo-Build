@@ -1806,6 +1806,12 @@ struct Config
     // Dev builds: every remembered answer is searched for as well, and the install's line counts the ones the
     // search did not confirm. The proof of the memory against a running game; it costs every search. (default 0)
     int dev_install_search_check = 0;
+    // INSTALL HOOKS TOGETHER (minhook_lifecycle.h, MCCVR_EnableHook; Halo 3): 1 = the optional features' hooks an
+    // install enables go live together with the core's, in the one pass the core already makes. Each separate enable
+    // suspends every thread of the game in turn; one install made about twenty of them, each 0.3-1 s at a level's
+    // start, which was most of the wait for VR. 0 = each feature enables its hooks on its own, as before. Read when
+    // an install begins. (default 1)
+    int install_hooks_together = 1;
 
     // C-TITLE-1: per-title weapon/hand/HUD/crosshair profiles. Every supported
     // game - and Halo 2's Anniversary and Classic renderers separately - keeps

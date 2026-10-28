@@ -167,8 +167,8 @@ bool InstallHalo3DualAim(uintptr_t base, size_t size, uint32_t generation)
         {LOG("Halo 3 dual aim StockFallback: native query/camera hook creation failed");(void)RemoveHalo3DualAim();return false;}
         *hook.target=target;
     }
-    if (MH_EnableHook(feature.cameraTarget)!=MH_OK || MH_EnableHook(feature.queryTarget)!=MH_OK ||
-        MH_EnableHook(feature.aimTarget) != MH_OK || MH_EnableHook(feature.fireTarget) != MH_OK)
+    if (MCCVR_EnableHook(feature.cameraTarget)!=MH_OK || MCCVR_EnableHook(feature.queryTarget)!=MH_OK ||
+        MCCVR_EnableHook(feature.aimTarget) != MH_OK || MCCVR_EnableHook(feature.fireTarget) != MH_OK)
     {
         LOG("Halo 3 dual aim StockFallback: hook enable failed");
         (void)RemoveHalo3DualAim();

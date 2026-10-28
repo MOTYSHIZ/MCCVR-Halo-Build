@@ -43,6 +43,7 @@ static bool MuzzleQuiescence(const void* const* functions,const void* const* ori
 #define WaitForNativeDetourQuiescence MuzzleQuiescence
 #define MH_CreateHook MuzzleCreate
 #define MH_EnableHook MuzzleEnable
+#define MCCVR_EnableHook MuzzleEnable
 #define MH_RemoveHook MuzzleRemove
 #define InstallHalo3Muzzle FixtureInstallMuzzle
 #define RemoveHalo3Muzzle FixtureRemoveMuzzle
@@ -53,6 +54,7 @@ static bool MuzzleQuiescence(const void* const* functions,const void* const* ori
 #undef WaitForNativeDetourQuiescence
 #undef MH_CreateHook
 #undef MH_EnableHook
+#undef MCCVR_EnableHook
 #undef MH_RemoveHook
 #undef InstallHalo3Muzzle
 #undef RemoveHalo3Muzzle

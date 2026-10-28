@@ -32,6 +32,7 @@ int MCCVR_DisableHookForRetirement(void*) { return disableHookFails ? 99 : MH_OK
 int MH_RemoveHook(void*) { return MH_OK; }
 int MH_CreateHook(void*, void*, void**) { return MH_OK; }
 int MH_EnableHook(void*) { return MH_OK; }
+int MCCVR_EnableHook(void*) { return MH_OK; }
 bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t,std::atomic<uint32_t>&){return true;}
 #define LOG(...) ((void)0)
 namespace sig { uintptr_t Find(uintptr_t,size_t,const char*) { return 0; } }

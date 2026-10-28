@@ -42,7 +42,7 @@ bool InstallHalo3Muzzle(uintptr_t base,size_t size)
         reinterpret_cast<void**>(&feature.original))!=MH_OK)
     {LOG("Halo 3 muzzle StockFallback: marker hook creation failed");return false;}
     feature.target=target;
-    if(MH_EnableHook(target)!=MH_OK)
+    if(MCCVR_EnableHook(target)!=MH_OK)
     {LOG("Halo 3 muzzle StockFallback: marker hook enable failed");(void)RemoveHalo3Muzzle();return false;}
     feature.enabled.store(true,std::memory_order_release);
     g_halo3MuzzleBindingsReady.store(true,std::memory_order_release);
