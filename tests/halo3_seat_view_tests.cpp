@@ -55,11 +55,12 @@ struct ReachFrozenThread
     bool suspended = false;
 };
 static bool g_freezeFails = false;
+static unsigned g_freezes = 0;   // successful captures: one is one whole-process freeze
 static std::vector<ReachFrozenThread> g_fakeThreads;
 class ReachThreadFreeze
 {
 public:
-    bool Capture() { return !g_freezeFails; }
+    bool Capture() { if (g_freezeFails) return false; ++g_freezes; return true; }
     bool Release() { return true; }
     const std::vector<ReachFrozenThread>& Threads() const { return g_fakeThreads; }
 };
@@ -198,8 +199,10 @@ static void TestInstallRedirectRestore()
     Module m;
     m.Build();
     Check(m.AnswersStock(), "the fixture's own sites call the third-person test");
+    g_freezes = 0;
     Check(Halo3SeatViewInstall(m.Base(), kModuleSize, 7) && Halo3SeatViewAvailable() && m.NoneStock(),
           "install redirects the three sites");
+    Check(g_freezes == 1, "...under one freeze of the other threads, not one a site");
     Check(Logged("answered first person"), "...and says so");
     Check(m.AnswersStock(), "nobody armed: the game's own answer through the relay");
     Halo3SeatViewArm(kUnit);
