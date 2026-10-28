@@ -41,7 +41,7 @@ struct ThreadState {
 } thread_local local;
 bool Current() noexcept {
     return runtime.admitted.load(std::memory_order_acquire) && !runtime.faulted.load(std::memory_order_relaxed) &&
-        (g_config.vr_action_mapping||g_config.manual_reload||g_config.weapon_holsters) && TitleAdapter_GetActiveTitle()==title &&
+        (g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()) && TitleAdapter_GetActiveTitle()==title &&
         TitleAdapter_GetGeneration(title)==runtime.generation;
 }
 __declspec(noinline) bool ReadElapsed(unsigned& value) noexcept {
@@ -167,7 +167,7 @@ void Poll() {
     }
     if(runtime.module && (active!=title || generation!=runtime.generation))
         if(!Retire()) return;
-    if(active!=title || !generation || generation==blockedGeneration || !(g_config.vr_action_mapping||g_config.manual_reload||g_config.weapon_holsters)) return;
+    if(active!=title || !generation || generation==blockedGeneration || !(g_config.vr_action_mapping||Config_GestureOnlyWeaponInput())) return;
     if(!runtime.attempted) {
         // The preexisting read-only transport resolver must verify the reader
         // before MinHook changes its prologue. Retain that cache so optional

@@ -303,7 +303,7 @@ static void TestH3(){
     Check(H3Read(vr_mapping::Reload)==&h3Physical&&NativeVrActions_CanRoute(testTitle,clockNow),"H3 warmup retains native state before direct routing");
     // Suppression is semantic, leaves Use alone, and admits gesture pulses.
     h3Physical.state.frames=9;
-    g_config.vr_action_mapping=false;g_config.manual_reload=true;
+    g_config.vr_action_mapping=false;g_config.manual_reload=true;g_config.gesture_only_weapon_input=true;
     H3Poll(0,false,1u<<vr_mapping::Reload);
     Check(H3Read(vr_mapping::Reload)->state.frames==0&&h3Physical.state.frames==9,"manual reload suppresses only the consumed record");
     Check(H3Read(vr_mapping::Interact)==&h3Physical,"manual reload preserves context interaction");
@@ -332,7 +332,7 @@ static void TestH3(){
     native_h3::runtime.secondaryEdgesReady=true;
     H3Poll(1u<<vr_mapping::Reload,false,1u<<vr_mapping::Reload);
     Check(H3Read(vr_mapping::Reload)->state.frames==1,"manual gesture reload works with mapper disabled");
-    g_config.manual_reload=false;g_config.vr_action_mapping=true;
+    g_config.manual_reload=false;g_config.gesture_only_weapon_input=false;g_config.vr_action_mapping=true;
     H3Poll(0,false);
     Check(H3Read(vr_mapping::Reload)==&h3Physical,"disabling manual reload restores native buttons");
     edgeFlags=0xFFFFFFFF;edgeCall(0xABCD0002,0xE4CE4);
@@ -394,13 +394,13 @@ static void TestOdst(){
     Check(OdstRead(vr_mapping::Reload)==&odstPhysical&&NativeVrActions_CanRoute(testTitle,clockNow),"ODST warmup retains native state before direct routing");
     // Suppression is semantic, leaves Use alone, and admits gesture pulses.
     odstPhysical.state.frames=9;
-    g_config.vr_action_mapping=false;g_config.manual_reload=true;
+    g_config.vr_action_mapping=false;g_config.manual_reload=true;g_config.gesture_only_weapon_input=true;
     OdstPoll(0,false,1u<<vr_mapping::Reload);
     Check(OdstRead(vr_mapping::Reload)->state.frames==0&&odstPhysical.state.frames==9,"manual reload suppresses only the consumed record");
     Check(OdstRead(vr_mapping::Interact)==&odstPhysical,"manual reload preserves context interaction");
     OdstPoll(1u<<vr_mapping::Reload,false,1u<<vr_mapping::Reload);
     Check(OdstRead(vr_mapping::Reload)->state.frames==1,"manual gesture reload works with mapper disabled");
-    g_config.manual_reload=false;g_config.vr_action_mapping=true;
+    g_config.manual_reload=false;g_config.gesture_only_weapon_input=false;g_config.vr_action_mapping=true;
     OdstPoll(0,false);
     Check(OdstRead(vr_mapping::Reload)==&odstPhysical,"disabling manual reload restores native buttons");
     odstPhysical.state={};
@@ -457,13 +457,13 @@ static void TestH4(){
     Check(H4Read(vr_mapping::Reload)==&h4Physical&&NativeVrActions_CanRoute(testTitle,clockNow),"H4 warmup retains native state before direct routing");
     // Suppression is semantic, leaves Use alone, and admits gesture pulses.
     h4Physical.state.frames=9;
-    g_config.vr_action_mapping=false;g_config.manual_reload=true;
+    g_config.vr_action_mapping=false;g_config.manual_reload=true;g_config.gesture_only_weapon_input=true;
     H4Poll(0,false,1u<<vr_mapping::Reload);
     Check(H4Read(vr_mapping::Reload)->state.frames==0&&h4Physical.state.frames==9,"manual reload suppresses only the consumed record");
     Check(H4Read(vr_mapping::Interact)==&h4Physical,"manual reload preserves context interaction");
     H4Poll(1u<<vr_mapping::Reload,false,1u<<vr_mapping::Reload);
     Check(H4Read(vr_mapping::Reload)->state.frames==1,"manual gesture reload works with mapper disabled");
-    g_config.manual_reload=false;g_config.vr_action_mapping=true;
+    g_config.manual_reload=false;g_config.gesture_only_weapon_input=false;g_config.vr_action_mapping=true;
     H4Poll(0,false);
     Check(H4Read(vr_mapping::Reload)==&h4Physical,"disabling manual reload restores native buttons");
     h4Physical.state={};

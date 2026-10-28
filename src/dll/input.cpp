@@ -660,7 +660,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         const bool weaponGesture=pad.weaponConsumeSupport||pad.weaponConsumePrimary||pad.weaponButtons;
         const uint32_t gestureMelee=weaponGesture?0:Game_GestureMeleeInput(inputNow);
         const uint32_t blockedWeaponActions=manual_weapon_input::Blocked(
-            gameplayMode&&inputMode==RuntimeMode::Gameplay,g_config.manual_reload,g_config.weapon_holsters);
+            gameplayMode&&inputMode==RuntimeMode::Gameplay&&g_config.gesture_only_weapon_input,
+            g_config.manual_reload,g_config.weapon_holsters);
         const uint32_t gestureActions=((crouchButtons|gestureMelee)>>18)|
             manual_weapon_input::Gestures(pad.weaponButtons,pad.weaponReloadBinding,pad.weaponSwitchBinding);
         if(semanticMode||blockedWeaponActions) NativeVrActions_Publish(state,currentTitle,inputNow,

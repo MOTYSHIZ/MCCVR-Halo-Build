@@ -38,7 +38,7 @@ struct Local {
 } thread_local local;
 bool Current() noexcept {
     return runtime.admitted.load(std::memory_order_acquire) &&
-        !runtime.faulted.load(std::memory_order_relaxed) && (g_config.vr_action_mapping||g_config.manual_reload||g_config.weapon_holsters) &&
+        !runtime.faulted.load(std::memory_order_relaxed) && (g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()) &&
         TitleAdapter_GetActiveTitle()==title &&
         TitleAdapter_GetGeneration(title)==runtime.generation.load(std::memory_order_acquire);
 }
@@ -201,7 +201,7 @@ void Poll() {
     }
     if(runtime.module&&(active!=title||generation!=runtime.generation.load(std::memory_order_acquire)))
         if(!Retire())return;
-    if(active!=title||!generation||generation==blockedGeneration||!(g_config.vr_action_mapping||g_config.manual_reload||g_config.weapon_holsters))return;
+    if(active!=title||!generation||generation==blockedGeneration||!(g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()))return;
     if(!runtime.module) {
         vr_mapping::Transports fallback{};
         if(!Game_ReadVrActionBindings(fallback,GetTickCount64()))return;

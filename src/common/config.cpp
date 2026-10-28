@@ -1295,6 +1295,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
+        if (!strcmp(key,"gesture_only_weapon_input")) { g_config.gesture_only_weapon_input=atoi(val)!=0;continue; }
         if (!strcmp(key,"dual_wield_shake_reload")) { g_config.dual_wield_shake_reload=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_needler_shake")) { g_config.weapon_needler_shake=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_unknown_reload_visual")) { g_config.weapon_unknown_reload_visual=atoi(val)!=0;continue; }
@@ -3358,6 +3359,8 @@ void ConfigSave()
     fprintf(f, "# Optional pouch-to-gun reload (off by default) and the holster's reserve-weapon draw (on by\n");
     fprintf(f, "# default); native ammo, reload animation and inventory rules remain.\n");
     fprintf(f, "manual_reload = %d\nweapon_holsters = %d\n",g_config.manual_reload?1:0,g_config.weapon_holsters?1:0);
+    fprintf(f, "# 1 = while manual reload or holsters are on, the game's reload and weapon-switch buttons do nothing; gestures only.\n");
+    fprintf(f, "gesture_only_weapon_input = %d\n", g_config.gesture_only_weapon_input?1:0);
     fprintf(f, "manual_reload_disable_auto = %d\nmanual_reload_skip_animations = %d\n",
         g_config.manual_reload_disable_auto?1:0,g_config.manual_reload_skip_animations?1:0);
     fprintf(f, "# Shortened reload retains the native chambering tail; full animation skip takes precedence.\n");

@@ -1560,6 +1560,10 @@ struct Config
 
     // Optional body gestures; each title keeps its own MCC controller layout.
     bool manual_reload = false;
+    // Opt-in: while manual_reload or weapon_holsters is on, withhold the game's own reload and
+    // weapon-switch bindings (buttons and keyboard) so only the gestures do them. Off keeps
+    // every native binding working beside the gestures. Needs the native VR action bridge.
+    bool gesture_only_weapon_input = false;
     bool manual_reload_disable_auto = false;
     bool manual_reload_skip_animations = false;
     bool manual_reload_shortened_animation = false;
@@ -2009,6 +2013,10 @@ inline VirtualStockAimSettings VirtualStockAimSettingsFromConfig(
 }
 
 extern Config g_config;
+
+// Gesture-only weapon input is in force: chosen, and something it applies to is on.
+inline bool Config_GestureOnlyWeaponInput() noexcept
+{ return g_config.gesture_only_weapon_input && (g_config.manual_reload || g_config.weapon_holsters); }
 
 // True when the HOST decides the size the game is drawn at and the mod cannot move it. False in MCC, where
 // the game draws at its swapchain's size and the mod sets that from resolution_scale. Project Reclaimer draws

@@ -372,12 +372,17 @@ int main()
         g_padState.weaponSwitchBinding=NativeVrActions_GestureBit(vr_mapping::SwitchWeapon);
         gestureRead(true);
         fixtureNativeRouting=false;gestureRead(false);
-        // Gesture-only modes use verified native routing even with mapping off.
-        g_config.vr_action_mapping=false;
+        // Gesture-only mode (opt-in) uses verified native routing even with mapping off.
+        g_config.vr_action_mapping=false;g_config.gesture_only_weapon_input=true;
         fixtureNativeCanRoute=true;gestureRead(true);
         g_padState.weaponReloadBinding=savedReload;gestureRead(false);
         g_padState.weaponReloadBinding=NativeVrActions_GestureBit(vr_mapping::Reload);
         fixtureNativeCanRoute=false;gestureRead(false);
+        // Without the opt-in a routable bridge changes nothing: the plain button route stays.
+        g_config.gesture_only_weapon_input=false;fixtureNativeCanRoute=true;
+        g_padState.weaponReloadBinding=savedReload;g_padState.weaponSwitchBinding=savedSwitch;
+        gestureRead(true);
+        fixtureNativeCanRoute=false;
         g_padState.weaponReloadBinding=savedReload;
         g_padState.weaponSwitchBinding=savedSwitch;
         g_config.vr_action_mapping=false;gestureRead(true);
