@@ -112,3 +112,119 @@ UINT WINAPI MCCVR_CopyEnabledHookPatches(LPCVOID base, SIZE_T size, MCCVR_HOOK_P
     LeaveSpinLock();
     return count;
 }
+
+// ENABLES DEFERRED TO ONE FREEZE (minhook_lifecycle.h). The calling thread's own state: only the thread that opened
+// the deferral defers, every other thread's MCCVR_EnableHook is MH_EnableHook as before.
+#define MCCVR_DEFERRAL_CAPACITY 64
+static __declspec(thread) BOOL t_mccvrDeferring = FALSE;
+static __declspec(thread) UINT t_mccvrDeferredCount = 0;
+static __declspec(thread) UINT t_mccvrImmediateCount = 0;
+static __declspec(thread) LPVOID t_mccvrDeferred[MCCVR_DEFERRAL_CAPACITY];
+
+// The bytes a hook's jump rewrites: five at the target, or five above it and two at it.
+static VOID MccvrPatchRange(const HOOK_ENTRY* hook, ULONG_PTR* lo, ULONG_PTR* hi)
+{
+    *lo = (ULONG_PTR)hook->pTarget;
+    *hi = *lo + sizeof(JMP_REL);
+    if (hook->patchAbove)
+    {
+        *lo -= sizeof(JMP_REL);
+        *hi = (ULONG_PTR)hook->pTarget + sizeof(JMP_REL_SHORT);
+    }
+}
+
+// Under the lock. Whether the hook at `pos` rewrites a byte that another hook already rewrites, or is queued to.
+static BOOL MccvrPatchOverlapsAnother(UINT pos)
+{
+    ULONG_PTR lo, hi;
+    UINT i;
+    MccvrPatchRange(&g_hooks.pItems[pos], &lo, &hi);
+    for (i = 0; i < g_hooks.size; ++i)
+    {
+        ULONG_PTR otherLo, otherHi;
+        const HOOK_ENTRY* other = &g_hooks.pItems[i];
+        if (i == pos || (!other->isEnabled && !other->queueEnable))
+            continue;
+        MccvrPatchRange(other, &otherLo, &otherHi);
+        if (otherLo < hi && lo < otherHi)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+BOOL WINAPI MCCVR_BeginHookEnableDeferral(VOID)
+{
+    if (t_mccvrDeferring)
+        return FALSE;
+    t_mccvrDeferring = TRUE;
+    t_mccvrDeferredCount = 0;
+    t_mccvrImmediateCount = 0;
+    return TRUE;
+}
+
+MH_STATUS WINAPI MCCVR_EnableHook(LPVOID target)
+{
+    if (t_mccvrDeferring && target != MH_ALL_HOOKS)
+    {
+        MH_STATUS status = MH_ERROR_NOT_INITIALIZED;
+        BOOL answered = TRUE;
+        EnterSpinLock();
+        if (g_hHeap != NULL)
+        {
+            const UINT pos = FindHookEntry(target);
+            if (pos == INVALID_HOOK_POS)
+                status = MH_ERROR_NOT_CREATED;
+            else if (g_hooks.pItems[pos].isEnabled)
+                status = MH_ERROR_ENABLED;
+            else if (t_mccvrDeferredCount < MCCVR_DEFERRAL_CAPACITY && !MccvrPatchOverlapsAnother(pos))
+            {
+                g_hooks.pItems[pos].queueEnable = TRUE;
+                t_mccvrDeferred[t_mccvrDeferredCount++] = target;
+                status = MH_OK;
+            }
+            else
+                answered = FALSE;
+        }
+        LeaveSpinLock();
+        if (answered)
+            return status;
+        // No room, or its bytes meet another hook's: enabled now, exactly as without a deferral.
+        ++t_mccvrImmediateCount;
+    }
+    return MH_EnableHook(target);
+}
+
+UINT WINAPI MCCVR_EndHookEnableDeferral(BOOL applyFollows, UINT* immediate)
+{
+    UINT i;
+    const UINT count = t_mccvrDeferredCount;
+    if (immediate)
+        *immediate = t_mccvrImmediateCount;
+    // Closed first: the enables below are the ordinary ones.
+    t_mccvrDeferring = FALSE;
+    t_mccvrDeferredCount = 0;
+    t_mccvrImmediateCount = 0;
+    if (applyFollows)
+        return count;
+    for (i = 0; i < count; ++i)
+    {
+        const LPVOID target = t_mccvrDeferred[i];
+        BOOL stillQueued = FALSE;
+        EnterSpinLock();
+        if (g_hHeap != NULL)
+        {
+            const UINT pos = FindHookEntry(target);
+            if (pos != INVALID_HOOK_POS && !g_hooks.pItems[pos].isEnabled && g_hooks.pItems[pos].queueEnable)
+            {
+                // Taken off the queue so a later MH_ApplyQueued (another install's) does not enable it as a side
+                // effect, then enabled on its own, as the feature asked.
+                g_hooks.pItems[pos].queueEnable = FALSE;
+                stillQueued = TRUE;
+            }
+        }
+        LeaveSpinLock();
+        if (stillQueued)
+            (void)MH_EnableHook(target);
+    }
+    return count;
+}

@@ -10,6 +10,93 @@ static void Check(bool condition, const char* description)
     if (!condition) { std::fprintf(stderr, "FAIL: %s\n", description); ++failures; }
 }
 __declspec(noinline) static int Detour() { return 42; }
+__declspec(noinline) static int OtherDetour() { return 43; }
+
+// MCCVR_EnableHook inside and outside a deferral (minhook_lifecycle.h), on two synthetic functions in `page`.
+static void DeferralTests(unsigned char* page)
+{
+    using Function = int(*)();
+    const unsigned char seven[]{0xB8, 7, 0, 0, 0, 0xC3};  // mov eax,7; ret
+    const unsigned char nine[]{0xB8, 9, 0, 0, 0, 0xC3};   // mov eax,9; ret
+    unsigned char* const a = page;
+    unsigned char* const b = page + 0x200;
+    const auto fa = reinterpret_cast<Function>(a);
+    const auto fb = reinterpret_cast<Function>(b);
+    const auto reset = [&] {
+        std::memset(page, 0x90, 4096);
+        std::memcpy(a, seven, sizeof(seven));
+        std::memcpy(b, nine, sizeof(nine));
+    };
+    const auto create = [&] {
+        Function oa = nullptr, ob = nullptr;
+        return MH_CreateHook(a, reinterpret_cast<void*>(&Detour), reinterpret_cast<void**>(&oa)) == MH_OK &&
+               MH_CreateHook(b, reinterpret_cast<void*>(&OtherDetour), reinterpret_cast<void**>(&ob)) == MH_OK;
+    };
+    const auto remove = [&] {
+        (void)MCCVR_DisableHookForRetirement(a);
+        (void)MCCVR_DisableHookForRetirement(b);
+        return MH_RemoveHook(a) == MH_OK && MH_RemoveHook(b) == MH_OK;
+    };
+    UINT immediate = 99;
+
+    // Outside a deferral it is MH_EnableHook.
+    reset();
+    Check(create(), "deferral: create two hooks");
+    Check(MCCVR_EnableHook(a) == MH_OK && fa() == 42, "no deferral: enabled at once");
+    Check(MCCVR_EnableHook(a) == MH_ERROR_ENABLED, "no deferral: an enabled hook is refused as MinHook refuses it");
+    Check(remove(), "deferral: remove");
+
+    // Deferred, then the caller's MH_ApplyQueued takes them in one pass.
+    reset();
+    Check(create(), "deferral: create two hooks again");
+    Check(MCCVR_BeginHookEnableDeferral() == TRUE, "deferral opens");
+    Check(MCCVR_BeginHookEnableDeferral() == FALSE, "a second open on the same thread changes nothing");
+    Check(MCCVR_EnableHook(a) == MH_OK && MCCVR_EnableHook(b) == MH_OK, "deferred enables report MH_OK");
+    Check(fa() == 7 && fb() == 9 && a[0] == 0xB8 && b[0] == 0xB8, "deferred: the bytes are still the game's");
+    Check(MCCVR_EnableHook(page + 0x400) == MH_ERROR_NOT_CREATED, "deferred: no hook there is refused");
+    Check(MCCVR_EndHookEnableDeferral(TRUE, &immediate) == 2 && immediate == 0, "two deferred, none at once");
+    Check(fa() == 7 && fb() == 9, "still not live before the apply");
+    Check(MH_ApplyQueued() == MH_OK && fa() == 42 && fb() == 43, "one MH_ApplyQueued enables both");
+    Check(MCCVR_EnableHook(a) == MH_ERROR_ENABLED, "closed: the ordinary path again");
+    Check(remove() && fa() == 7 && fb() == 9, "retired: the game's own bytes");
+
+    // Closed with nothing to apply: each is enabled on its own, and nothing stays queued.
+    reset();
+    Check(create(), "deferral: create for the no-apply close");
+    Check(MCCVR_BeginHookEnableDeferral() == TRUE, "deferral opens again");
+    Check(MCCVR_EnableHook(a) == MH_OK && MCCVR_EnableHook(b) == MH_OK, "deferred again");
+    Check(MCCVR_EndHookEnableDeferral(FALSE, &immediate) == 2 && fa() == 42 && fb() == 43,
+          "a close with no apply to follow enables each now");
+    Check(MH_ApplyQueued() == MH_OK && fa() == 42 && fb() == 43, "and leaves nothing queued to flip");
+    Check(remove(), "deferral: remove after the no-apply close");
+
+    // A deferred hook a feature retires before the apply stays the game's.
+    reset();
+    Check(create(), "deferral: create for the retire-before-apply case");
+    Check(MCCVR_BeginHookEnableDeferral() == TRUE, "deferral opens a third time");
+    Check(MCCVR_EnableHook(a) == MH_OK && MCCVR_EnableHook(b) == MH_OK, "deferred a third time");
+    Check(MCCVR_DisableHookForRetirement(a) == MH_ERROR_DISABLED, "a retired deferred hook was never live");
+    Check(MCCVR_EndHookEnableDeferral(TRUE, &immediate) == 2, "the deferral counted both");
+    Check(MH_ApplyQueued() == MH_OK && fa() == 7 && fb() == 43, "the apply skips the retired one");
+    Check(remove(), "deferral: remove after the retire case");
+
+    // Another thread's enable is never deferred by this thread's deferral.
+    reset();
+    Check(create(), "deferral: create for the other-thread case");
+    Check(MCCVR_BeginHookEnableDeferral() == TRUE, "deferral opens on this thread");
+    struct Arg { unsigned char* target; MH_STATUS status; } arg{b, MH_UNKNOWN};
+    HANDLE other = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
+        auto* x = static_cast<Arg*>(p);
+        x->status = MCCVR_EnableHook(x->target);
+        return 0;
+    }, &arg, 0, nullptr);
+    Check(other && WaitForSingleObject(other, 5000) == WAIT_OBJECT_0, "the other thread ran");
+    if (other)
+        CloseHandle(other);
+    Check(arg.status == MH_OK && fb() == 43, "another thread's enable is live at once");
+    Check(MCCVR_EndHookEnableDeferral(TRUE, &immediate) == 0, "and was not this deferral's");
+    Check(remove(), "deferral: remove after the other-thread case");
+}
 
 int main()
 {
@@ -67,6 +154,7 @@ int main()
             Check(VirtualAlloc(page, 4096, MEM_COMMIT, PAGE_EXECUTE_READWRITE) == page,
                 "reuse original address");
     }
+    DeferralTests(page);
     VirtualFree(page, 0, MEM_RELEASE);
     Check(MH_Uninitialize() == MH_OK, "shutdown");
     wchar_t eventName[96]{};
