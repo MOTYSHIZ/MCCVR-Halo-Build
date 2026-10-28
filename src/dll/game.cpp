@@ -119,6 +119,7 @@
 // Where the direct drives' code is in the loaded game DLL: the tables and their resolution, and the DLL's side.
 #include "../common/drive_sites.h"
 #include "drive_cascade.h"
+#include "install_search_cache.h"
 #include "drive_install.h"
 // THE FREE CAMERA WITH NO PLAYER UNIT (src/common/aim_no_unit_logic.h). Each servo title's own vehicle/seat
 // sampler already reads its local player's unit through the output-user getter on an engine thread; it also
@@ -17993,18 +17994,53 @@ namespace
     // what it found then: the first install pays for the searches and the later ones for a compare at each place.
     // install_search_memory = 0 makes every install search again.
     //
+    // ACROSS LAUNCHES (install_search_cache.h): with `saved`, the first install of each load of the DLL identifies
+    // the DLL's build and puts that build's answers saved by an earlier launch in the memo; the scanner checks each
+    // as it checks one it remembers (a match compared again in place, "no match" searched again). After the install
+    // has gone live the worker saves what this load's searches added or corrected (SaveInstallSearches).
+    // install_search_cache = 0 leaves the file alone.
+    //
     // One line per install says what it asked of the image and how long the install took, so a session's log holds
     // the first install and the later ones side by side. An install that neither searched nor finished writes
     // nothing: a title that is asked again until it is ready does not fill the log. `memo` is the title's own, one
     // for the life of the process. The worker thread's alone, as the installs are.
+    // The build of a title's DLL whose saved answers its memo holds, for the save after the install.
+    struct SavedInstallSearches
+    {
+        install_search_cache::Identity identity{};
+        bool identified = false;
+        uintptr_t base = 0;
+        uint32_t generation = 0;
+    };
+
     class InstallSearches
     {
     public:
-        InstallSearches(const char* title, sig::ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation)
+        InstallSearches(const char* title, sig::ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation,
+                        SavedInstallSearches* saved = nullptr)
             : title_(title), use_(g_config.install_search_memory != 0), check_(Checking()),
               scope_(memo, base, size, generation, use_, check_)
         {
             QueryPerformanceCounter(&begun_);
+            // Once per load of the DLL, before its first search: an emptied memo (a new load) has not looked yet.
+            if (saved && use_ && generation && g_config.install_search_cache != 0 && !memo.savedLoaded &&
+                memo.base == base && memo.generation == generation)
+            {
+                memo.savedLoaded = true;
+                looked_ = true;
+                const char* why = nullptr;
+                saved->identified = install_search_cache::Identify(title, base, size, saved->identity, why);
+                saved->base = base;
+                saved->generation = generation;
+                LARGE_INTEGER identified{};
+                QueryPerformanceCounter(&identified);
+                identifyMs_ = Ms(begun_, identified);
+                if (saved->identified)
+                    load_ = install_search_cache::Load(saved->identity, memo);
+                else
+                    notIdentified_ = why;
+                codeBytes_ = saved->identity.codeBytes;
+            }
         }
         InstallSearches(const InstallSearches&) = delete;
         InstallSearches& operator=(const InstallSearches&) = delete;
@@ -18027,11 +18063,24 @@ namespace
             if (check_)
                 snprintf(checked, sizeof(checked), "; CHECK: %u remembered answers were NOT confirmed by a search",
                          counts.disagreed);
-            LOG("%s install: %u searches of the game's DLL were made and %u were answered from this load's earlier "
-                "searches (%u remembered places no longer stood and were searched for again, %u could not be "
-                "kept); the install took %.1f ms%s; install_search_memory = %d%s",
-                title_, made, counts.remembered, counts.searchedAgain, counts.notHeld, elapsedMs,
-                finished_ ? "" : " and did not finish", use_ ? 1 : 0, checked);
+            char savedLine[384]{};
+            if (looked_ && notIdentified_)
+                snprintf(savedLine, sizeof(savedLine), "; saved searches not used: the DLL's build could not be "
+                         "identified (%s)", notIdentified_);
+            else if (looked_)
+                snprintf(savedLine, sizeof(savedLine), "; saved searches: %s, %u answers put in (the build "
+                         "identified in %.1f ms from %llu bytes of code, the file read in %.1f ms, it holds %u "
+                         "build%s)", install_search_cache::Describe(load_.result), load_.taken, identifyMs_,
+                         static_cast<unsigned long long>(codeBytes_), load_.ms, load_.builds,
+                         load_.builds == 1 ? "" : "s");
+            LOG("%s install: %u searches of the game's DLL were made, %u were answered from this load's earlier "
+                "searches and %u from the searches saved for this build by an earlier launch (%u remembered places "
+                "no longer stood and were searched for again, %u of them saved ones; %u could not be kept); "
+                "answering them took %.1f ms of the install's %.1f ms%s; install_search_memory = %d, "
+                "install_search_cache = %d%s%s",
+                title_, made, counts.remembered, counts.fromSaved, counts.searchedAgain, counts.savedStale,
+                counts.notHeld, counts.ms, elapsedMs, finished_ ? "" : " and did not finish", use_ ? 1 : 0,
+                g_config.install_search_cache, savedLine, checked);
         }
 
     private:
@@ -18043,13 +18092,46 @@ namespace
             return false;
 #endif
         }
+        static double Ms(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
+        {
+            LARGE_INTEGER frequency{};
+            QueryPerformanceFrequency(&frequency);
+            return frequency.QuadPart > 0
+                ? static_cast<double>(to.QuadPart - from.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart)
+                : 0.0;
+        }
         const char* title_;
         bool use_;
         bool check_;
         bool finished_ = false;
         LARGE_INTEGER begun_{};
         sig::ImageMemoScope scope_;
+        bool looked_ = false;
+        const char* notIdentified_ = nullptr;
+        double identifyMs_ = 0.0;
+        uint64_t codeBytes_ = 0;
+        install_search_cache::LoadReport load_{};
     };
+
+    // After an install has gone live (the worker, once per install): what this load's searches added to or
+    // corrected in the memo is saved for the DLL's build. Nothing to save, the setting off, or a memo that is no
+    // longer the identified load's: nothing is written. One line when something was written or could not be.
+    void SaveInstallSearches(const char* title, sig::ImageMemo& memo, const SavedInstallSearches& saved)
+    {
+        if (!g_config.install_search_memory || !g_config.install_search_cache || !saved.identified ||
+            !memo.changes || memo.base != saved.base || memo.generation != saved.generation)
+            return;
+        const uint32_t changes = memo.changes;
+        const char* why = nullptr;
+        double ms = 0.0;
+        if (install_search_cache::Save(saved.identity, memo, why, ms))
+            LOG("%s install searches: %u answers saved for this build of the DLL (%u new or corrected in this "
+                "load) in %.1f ms; the next launch checks them in place before using them "
+                "(HaloMCCVR-install-searches.bin)", title, memo.count, changes, ms);
+        else
+            LOG("%s install searches: not saved (%s); the next launch searches again", title,
+                why ? why : "unknown");
+    }
 
     // WHERE ONE INSTALL'S TIME GOES. Each Mark closes the step that began at the previous Mark (or when this was
     // made) and names it; Write puts every step in one line. Worker thread only, one install at a time; a Mark with
@@ -18164,14 +18246,17 @@ namespace
     uint32_t g_halo3InstallImmediateHooks = 0;
 
     bool InstallHookBody(uintptr_t base, size_t size, uint32_t runtimeGeneration);
+    // Halo 3's searches of halo3.dll, remembered for the load and saved per build (InstallSearches). The worker's.
+    sig::ImageMemo g_halo3InstallSearchMemo;
+    SavedInstallSearches g_halo3SavedInstallSearches;
 
     // Halo 3's hooks are retired when the game stops copying its camera for two seconds (a level ending, a
     // loading screen; the pause menu keeps the camera running) and installed again when the next level is live,
     // within one load of halo3.dll: a campaign session meets this at every new level.
     bool InstallHook(uintptr_t base, size_t size, uint32_t runtimeGeneration)
     {
-        static sig::ImageMemo s_searches;
-        InstallSearches searches("Halo 3", s_searches, base, size, runtimeGeneration);
+        InstallSearches searches("Halo 3", g_halo3InstallSearchMemo, base, size, runtimeGeneration,
+                                 &g_halo3SavedInstallSearches);
         InstallSteps steps;
         InstallHookDeferral deferral;
         const bool prepared = InstallHookBody(base, size, runtimeGeneration);
@@ -50943,6 +51028,8 @@ namespace
                         haloInstalledAtMs = GetTickCount64();
                         hookRefreshPending = false;
                         hookedBase = base;
+                        // After the hooks are live, never ahead of them: a few milliseconds of file I/O.
+                        SaveInstallSearches("Halo 3", g_halo3InstallSearchMemo, g_halo3SavedInstallSearches);
                     }
                     else if (g_installedGameHookCount)
                     {

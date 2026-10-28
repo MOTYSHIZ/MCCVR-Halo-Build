@@ -1806,6 +1806,13 @@ struct Config
     // Dev builds: every remembered answer is searched for as well, and the install's line counts the ones the
     // search did not confirm. The proof of the memory against a running game; it costs every search. (default 0)
     int dev_install_search_check = 0;
+    // INSTALL SEARCH CACHE (install_search_cache.h; Halo 3): 1 = what an install's searches found is also saved,
+    // per build of the game's DLL, to HaloMCCVR-install-searches.bin beside this file, and the first install of the
+    // next launch starts from it: every saved match is compared again in place before it is used, and searched for
+    // again where it no longer stands. A game patch, another store's DLL or Project Reclaimer's each get their own
+    // entry. 0 = nothing is read or saved; every launch's first install searches. Needs install_search_memory = 1.
+    // Read when an install begins. (default 1)
+    int install_search_cache = 1;
     // INSTALL HOOKS TOGETHER (minhook_lifecycle.h, MCCVR_EnableHook; Halo 3): 1 = the optional features' hooks an
     // install enables go live together with the core's, in the one pass the core already makes. Each separate enable
     // suspends every thread of the game in turn; one install made about twenty of them, each 0.3-1 s at a level's

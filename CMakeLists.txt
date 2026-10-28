@@ -338,6 +338,8 @@ target_sources(halo3xr PRIVATE src/dll/legacy_player_control_hook.asm)
 target_sources(halo3xr PRIVATE
     src/dll/drive_cascade.cpp
     src/common/addrcascade/AddressCascade.cpp)
+# A title install's searches, saved per build of the game DLL for the next launch (install_search_cache.h).
+target_sources(halo3xr PRIVATE src/dll/install_search_cache.cpp)
 # Halo 2 direct drive (halo2_direct_drive.inl): its control-update detour, with the observer it reads.
 if(HALOMCCVR_HALO2_OBSERVER_6DOF)
     target_sources(halo3xr PRIVATE src/dll/halo2_player_control_hook.asm)
@@ -567,6 +569,13 @@ if(BUILD_TESTING)
     add_executable(halomccvr_sigscan_memo_tests tests/sigscan_memo_tests.cpp src/dll/sigscan.cpp)
     target_compile_definitions(halomccvr_sigscan_memo_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_sigscan_memo_tests COMMAND halomccvr_sigscan_memo_tests)
+    # The install's searches saved for the next launch (install_search_cache.h): the file, the build identity, and
+    # every saved answer checked as the scanner checks one it remembers, on synthetic images and the test's own.
+    add_executable(halomccvr_install_search_cache_tests tests/install_search_cache_tests.cpp
+        src/dll/install_search_cache.cpp src/dll/sigscan.cpp)
+    target_compile_definitions(halomccvr_install_search_cache_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(halomccvr_install_search_cache_tests PRIVATE minhook)
+    add_test(NAME halomccvr_install_search_cache_tests COMMAND halomccvr_install_search_cache_tests)
     # A per-frame reader of a title's image stops at the title's unload (title_image_guard.h): a real DLL is
     # loaded and freed under a reader thread.
     add_executable(halomccvr_title_image_guard_tests tests/title_image_guard_tests.cpp src/dll/title_image_guard.cpp)
