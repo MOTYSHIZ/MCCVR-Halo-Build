@@ -10,15 +10,22 @@ builds, not official Halo MCC VR releases.
 [Discord](https://discord.com/channels/747967102895390741/1546190376405049415), not on the upstream project or
 to Project Reclaimer.** This fork is not made by or affiliated with the Project Reclaimer team.
 
+## Videos
+
 Special thanks to SilentVortigaunt for the trailer!
-https://www.youtube.com/watch?v=cD3kzor54ZA
+
+<a href="https://www.youtube.com/watch?v=cD3kzor54ZA"><img src="https://img.youtube.com/vi/cD3kzor54ZA/maxresdefault.jpg" alt="Trailer by SilentVortigaunt" width="640"></a>
 
 Project Reclaimer and Vehicles Footage:
-https://www.youtube.com/watch?v=0fwsnarAVTo
+
+<a href="https://www.youtube.com/watch?v=0fwsnarAVTo"><img src="https://img.youtube.com/vi/0fwsnarAVTo/maxresdefault.jpg" alt="Project Reclaimer and vehicles footage" width="640"></a>
 
 Some multiplayer footage (VR + NonVR players!)
-https://www.youtube.com/watch?v=75Bxgvhl_xY
-https://www.youtube.com/watch?v=L0wlvSYYtPA
+
+<a href="https://www.youtube.com/watch?v=75Bxgvhl_xY"><img src="https://img.youtube.com/vi/75Bxgvhl_xY/maxresdefault.jpg" alt="Multiplayer footage, part 1" width="400"></a>
+<a href="https://www.youtube.com/watch?v=L0wlvSYYtPA"><img src="https://img.youtube.com/vi/L0wlvSYYtPA/maxresdefault.jpg" alt="Multiplayer footage, part 2" width="400"></a>
+
+*Click a picture to watch the video on YouTube.*
 
 ## Download
 
