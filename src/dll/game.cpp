@@ -676,6 +676,8 @@ namespace
     // Halo 3's own HUD layout (the same both ways), as read from its slots before the first write of a level; 0
     // until read. It is not one number: MCC's reads 0.87, Project Reclaimer's 0.97.
     std::atomic<uint32_t> g_halo3TitleSafeFrameBits{0};
+    bool Halo3AimFrameAllowed();
+    bool Halo3GameZoomed(int& level);
     std::atomic<bool> g_halo3AimFramePass{false};
     std::atomic<uint64_t> g_halo3GameZoomMs{0};
     std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
@@ -4641,97 +4643,133 @@ namespace
                 kReachHudFastStart > addr && kReachHudFastStart < addrMax)
                 addr = kReachHudFastStart;
         }
-        MEMORY_BASIC_INFORMATION mbi{};
-        while (addr < addrMax && accepted < kMaxSafeFrameHits &&
-               VirtualQuery(
-                   reinterpret_cast<void*>(addr), &mbi, sizeof(mbi)) ==
-                   sizeof(mbi))
+        // HALO 3: THE TAG DATA FIRST. The layout records are tag data, and a tag address is a 32-bit offset in
+        // 4-byte units from the engine's tag base, so every one lies in the 16 GiB above it. Searching that span
+        // first takes a fraction of the whole-process search (14 to 26 s at each level start), which left the
+        // player's HUD layout, and the crosshair sized for it, unapplied all that time. A span that does not hold
+        // exactly the title's records falls back to the whole search, as before.
+        uintptr_t scanEnd = addrMax;
+        bool tagSpanPass = false;
+        if (profile == HudLayoutProfile::Halo3)
         {
-            if (!HudLayoutContextMatches(profile, generation))
+            constexpr uintptr_t kTagSpan = uintptr_t{1} << 34;
+            const uintptr_t tagBase = Halo3TagDataBaseValue();
+            if (tagBase > addrMin && tagBase < addrMax)
             {
-                cancelled = true;
-                break;
+                addr = tagBase;
+                scanEnd = addrMax - tagBase > kTagSpan ? tagBase + kTagSpan : addrMax;
+                tagSpanPass = true;
             }
-            const uintptr_t regionBase =
-                reinterpret_cast<uintptr_t>(mbi.BaseAddress);
-            const uintptr_t next = regionBase + mbi.RegionSize;
-            // Halo 3's tag data is private read-write, and that exact filter is
-            // headset-proven for Halo 3 and ODST. Reach's map data need not be:
-            // its adapter also inspects mapped and copy-on-write regions, so a
-            // record the engine actually reads cannot be missed just because it
-            // was not allocated the way Halo 3's was. Writing a copy-on-write
-            // page privatises it in this process only; no file is modified.
-            // Halo 3's tag data is private read-write and that exact filter is
-            // headset-proven for Halo 3 and ODST. Reach's is not: the curvature
-            // record is const to the engine, so the copy it actually renders
-            // from can be a read-only mapping. Reach therefore accepts any
-            // committed readable private or mapped region, and the writer makes
-            // the page writable copy-on-write for the store, which privatises
-            // it in this process only and never modifies a file on disk.
-            const bool readableProtect =
-                mbi.Protect == PAGE_READWRITE ||
-                (adapter->scanMappedRegions &&
-                 (mbi.Protect == PAGE_READONLY ||
-                  mbi.Protect == PAGE_WRITECOPY ||
-                  mbi.Protect == PAGE_EXECUTE_READ ||
-                  mbi.Protect == PAGE_EXECUTE_READWRITE ||
-                  mbi.Protect == PAGE_EXECUTE_WRITECOPY));
-            const bool writableProtect = readableProtect;
-            // The headset-proven Reach anchors are MEM_PRIVATE/PAGE_READWRITE,
-            // while other tag-backed copies can be mapped. Reach therefore
-            // accepts both storage classes; H3/ODST retain their established
-            // private-only rule. Stage 3O accidentally narrowed this to mapped
-            // only, which made every Reach scan return zero raw anchor hits.
-            const bool allowedType = adapter->scanMappedRegions
-                ? (mbi.Type == MEM_PRIVATE || mbi.Type == MEM_MAPPED)
-                : mbi.Type == MEM_PRIVATE;
-            const bool candidate =
-                mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) &&
-                writableProtect && allowedType;
-            const bool self = selfBase && regionBase >= selfBase &&
-                regionBase < selfBase + selfSize;
-            if (candidate && !self)
+        }
+        for (;;)
+        {
+            MEMORY_BASIC_INFORMATION mbi{};
+            while (addr < scanEnd && accepted < kMaxSafeFrameHits &&
+                   VirtualQuery(
+                       reinterpret_cast<void*>(addr), &mbi, sizeof(mbi)) ==
+                       sizeof(mbi))
             {
-                uintptr_t hits[kMaxSafeFrameHits]{};
-                const int n = SafeFrameScanRegion(
-                    regionBase, mbi.RegionSize, *adapter,
-                    hits, kMaxSafeFrameHits);
-                for (int k = 0; k < n; ++k)
+                if (!HudLayoutContextMatches(profile, generation))
                 {
-                    ++rawHits;
-                    uint32_t destinationZ = 0, h = 0, v = 0;
-                    if (!SafeFrameReadLayout(
-                            hits[k], *adapter, &destinationZ, &h, &v))
-                        continue;
-                    const bool payloadOk =
-                        SafeFramePairPlausible(h, v) &&
-                        HudDestinationPlausible(destinationZ);
-                    LOG("SAFEFRAME [%s]: anchor at %p (type 0x%X protect "
-                        "0x%X) destination-Z %08X, safe frame %08X/%08X -> %s",
-                        adapter->name, reinterpret_cast<void*>(hits[k]),
-                        static_cast<unsigned>(mbi.Type),
-                        static_cast<unsigned>(mbi.Protect),
-                        destinationZ, h, v,
-                        payloadOk ? "VERIFIED" :
-                            "payload implausible, REJECTED");
-                    if (payloadOk && accepted < kMaxSafeFrameHits)
+                    cancelled = true;
+                    break;
+                }
+                const uintptr_t regionBase =
+                    reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+                const uintptr_t next = regionBase + mbi.RegionSize;
+                // Halo 3's tag data is private read-write, and that exact filter is
+                // headset-proven for Halo 3 and ODST. Reach's map data need not be:
+                // its adapter also inspects mapped and copy-on-write regions, so a
+                // record the engine actually reads cannot be missed just because it
+                // was not allocated the way Halo 3's was. Writing a copy-on-write
+                // page privatises it in this process only; no file is modified.
+                // Halo 3's tag data is private read-write and that exact filter is
+                // headset-proven for Halo 3 and ODST. Reach's is not: the curvature
+                // record is const to the engine, so the copy it actually renders
+                // from can be a read-only mapping. Reach therefore accepts any
+                // committed readable private or mapped region, and the writer makes
+                // the page writable copy-on-write for the store, which privatises
+                // it in this process only and never modifies a file on disk.
+                const bool readableProtect =
+                    mbi.Protect == PAGE_READWRITE ||
+                    (adapter->scanMappedRegions &&
+                     (mbi.Protect == PAGE_READONLY ||
+                      mbi.Protect == PAGE_WRITECOPY ||
+                      mbi.Protect == PAGE_EXECUTE_READ ||
+                      mbi.Protect == PAGE_EXECUTE_READWRITE ||
+                      mbi.Protect == PAGE_EXECUTE_WRITECOPY));
+                const bool writableProtect = readableProtect;
+                // The headset-proven Reach anchors are MEM_PRIVATE/PAGE_READWRITE,
+                // while other tag-backed copies can be mapped. Reach therefore
+                // accepts both storage classes; H3/ODST retain their established
+                // private-only rule. Stage 3O accidentally narrowed this to mapped
+                // only, which made every Reach scan return zero raw anchor hits.
+                const bool allowedType = adapter->scanMappedRegions
+                    ? (mbi.Type == MEM_PRIVATE || mbi.Type == MEM_MAPPED)
+                    : mbi.Type == MEM_PRIVATE;
+                const bool candidate =
+                    mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) &&
+                    writableProtect && allowedType;
+                const bool self = selfBase && regionBase >= selfBase &&
+                    regionBase < selfBase + selfSize;
+                if (candidate && !self)
+                {
+                    uintptr_t hits[kMaxSafeFrameHits]{};
+                    const int n = SafeFrameScanRegion(
+                        regionBase, mbi.RegionSize, *adapter,
+                        hits, kMaxSafeFrameHits);
+                    for (int k = 0; k < n; ++k)
                     {
-                        acceptedSlots[accepted] = hits[k];
-                        acceptedBaselines[accepted] =
-                            RememberedHudCurvatureBaseline(profile, hits[k], destinationZ);
-                        ++accepted;
+                        ++rawHits;
+                        uint32_t destinationZ = 0, h = 0, v = 0;
+                        if (!SafeFrameReadLayout(
+                                hits[k], *adapter, &destinationZ, &h, &v))
+                            continue;
+                        const bool payloadOk =
+                            SafeFramePairPlausible(h, v) &&
+                            HudDestinationPlausible(destinationZ);
+                        LOG("SAFEFRAME [%s]: anchor at %p (type 0x%X protect "
+                            "0x%X) destination-Z %08X, safe frame %08X/%08X -> %s",
+                            adapter->name, reinterpret_cast<void*>(hits[k]),
+                            static_cast<unsigned>(mbi.Type),
+                            static_cast<unsigned>(mbi.Protect),
+                            destinationZ, h, v,
+                            payloadOk ? "VERIFIED" :
+                                "payload implausible, REJECTED");
+                        if (payloadOk && accepted < kMaxSafeFrameHits)
+                        {
+                            acceptedSlots[accepted] = hits[k];
+                            acceptedBaselines[accepted] =
+                                RememberedHudCurvatureBaseline(profile, hits[k], destinationZ);
+                            ++accepted;
+                        }
                     }
                 }
+                // The accepted Steam proof contains six Reach records clustered
+                // in the same high tag allocation. Once all six are collected, do
+                // not waste tens of seconds scanning unrelated resident modules.
+                // If a future build exposes only the adapter minimum (three), this
+                // condition never fires and the scan naturally retains the complete
+                // fallback behavior.
+                if (profile == HudLayoutProfile::HaloReach && accepted >= 6)
+                    break;
+                addr = next;
             }
-            // The accepted Steam proof contains six Reach records clustered
-            // in the same high tag allocation. Once all six are collected, do
-            // not waste tens of seconds scanning unrelated resident modules.
-            // If a future build exposes only the adapter minimum (three), this
-            // condition never fires and the scan naturally retains the complete
-            // fallback behavior.
-            if (profile == HudLayoutProfile::HaloReach && accepted >= 6)
+            if (cancelled || !tagSpanPass)
                 break;
-            addr = next;
+            if (HudLayoutAcceptedCountOk(*adapter, accepted))
+            {
+                LOG("SAFEFRAME [%s]: %d record(s) found in the engine's tag data in %llu ms", adapter->name,
+                    accepted, static_cast<unsigned long long>(GetTickCount64() - t0));
+                break;
+            }
+            LOG("SAFEFRAME [%s]: the engine's tag data held %d record(s), not the title's %d; searching all memory",
+                adapter->name, accepted, adapter->expectedBlocks);
+            tagSpanPass = false;
+            accepted = 0;
+            rawHits = 0;
+            addr = addrMin;
+            scanEnd = addrMax;
         }
 
         if (cancelled)
@@ -5141,6 +5179,13 @@ namespace
 
     bool Halo3CrosshairReadyForCapture()
     {
+        // Zoomed, the crosshair is the zoom's art, and the art held now is what shows once the frame is gone: keep
+        // the one from before the zoom. The frame's own passes draw the game's crosshair before this is asked.
+        if (g_halo3AimFrameUp.load(std::memory_order_acquire))
+            return false;
+        int zoomLevel = -1;
+        if (Halo3AimFrameAllowed() && Halo3GameZoomed(zoomLevel))
+            return false;
         const uint64_t down = g_halo3AimFrameDownMs.load(std::memory_order_acquire);
         if (down && GetTickCount64() - down < kHalo3AimFrameCrosshairHoldMs)
             return false;
@@ -13513,6 +13558,21 @@ namespace
                 const float range = trace.AimRangeWu();
                 if (std::isfinite(range) && range > 0.3f)
                     aimFrameMeetWu = std::min(range, 2000.0f);
+            }
+        }
+        {
+            static bool loggedAimFrame3d = false;   // the render thread
+            if (!aimFrameStereo)
+                loggedAimFrame3d = false;
+            else if (!loggedAimFrame3d)
+            {
+                loggedAimFrame3d = true;
+                if (aimFrameMeetWu > 0.0f)
+                    LOG("Halo 3 Aim Frame Zoom 3D: the eyes %.1fx your eye spacing apart, meeting at the aimed point "
+                        "%.1f wu (%.0f m) out", aimFrameSpacing, aimFrameMeetWu, aimFrameMeetWu * 3.048f);
+                else
+                    LOG("Halo 3 Aim Frame Zoom 3D: the eyes %.1fx your eye spacing apart, looking parallel (no aim "
+                        "range yet)", aimFrameSpacing);
             }
         }
         float monoFov[4]{};
