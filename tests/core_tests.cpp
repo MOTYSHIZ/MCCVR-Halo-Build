@@ -1821,6 +1821,25 @@ int main()
         Check(AuthoredReticleArtAspect(AuthoredReticleArtCentre{}) == 0.0f,
               "art shape: no measurement has no aspect");
         {
+            // Halo 3's magnification: the art keeps one size across rasters and safe frames for one HUD size.
+            const float mcc = Halo3ReticleCaptureScale(4.0f, true, 2100.0f, 0.2989f, 0.43f);
+            Check(std::fabs(mcc - 4.0f) < 1.0e-3f, "halo 3 magnification: the tuned raster keeps 4x");
+            const float reclaimer = Halo3ReticleCaptureScale(4.0f, true, 1440.0f, 0.2331f, 0.43f);
+            Check(std::fabs(reclaimer * 1440.0f * 0.2331f - mcc * 2100.0f * 0.2989f) < 1.0f,
+                  "halo 3 magnification: Project Reclaimer's smaller raster and safe frame show the art as large");
+            const float larger = Halo3ReticleCaptureScale(4.0f, true, 2100.0f, 0.2989f * 1.2f, 0.43f * 1.2f);
+            Check(std::fabs(larger - 4.0f) < 1.0e-3f,
+                  "halo 3 magnification: a larger HUD size still draws a larger crosshair");
+            Check(Halo3ReticleCaptureScale(4.0f, false, 1440.0f, 0.2331f, 0.43f) == 4.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 0.0f, 0.2331f, 0.43f) == 4.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 1440.0f, std::nanf(""), 0.43f) == 4.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 1440.0f, 0.2331f, 0.0f) == 4.0f,
+                  "halo 3 magnification: the title's own safe frame or an unusable input keeps 4x");
+            Check(Halo3ReticleCaptureScale(4.0f, true, 100.0f, 0.15f, 1.0f) == 16.0f &&
+                      Halo3ReticleCaptureScale(4.0f, true, 100000.0f, 1.0f, 0.15f) == 1.0f,
+                  "halo 3 magnification: kept within a quarter and four times the tuned 4x");
+        }
+        {
             // The HUD's own scale: the pair measured in a headset with the ring 1.36 times as wide as tall.
             const float raster = 2912.0f / 2100.0f;
             const float measured = AuthoredReticleCanvasStretch(0.5246f, 0.2989f, raster, kHalo3HudCanvasAspect);
@@ -7772,6 +7791,11 @@ int main()
                   !VrHalo4ReticleRtvNeedsTypedFallback(true, true, false),
             "Stage 3BQ retries a typed RTV only for a failed Halo 4 authored-"
             "reticle view creation");
+        Check(VrImageFormatIsTypeless(DXGI_FORMAT_R8G8B8A8_TYPELESS) &&
+                  VrImageFormatIsTypeless(DXGI_FORMAT_B8G8R8A8_TYPELESS) &&
+                  !VrImageFormatIsTypeless(DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) &&
+                  !VrImageFormatIsTypeless(DXGI_FORMAT_B8G8R8A8_UNORM),
+            "a typeless XR image (SteamVR's) is named as one; a typed one keeps its default view");
         bool writebackTruthTable = true;
         for (uint32_t bits = 0; bits < 16; ++bits)
         {
@@ -15494,10 +15518,10 @@ int main()
         const float reachSeed = sizeSeed(kTitleProfileReach);
         const float reachOpacitySeed = opacitySeed(kTitleProfileReach);
         Check(reachSeed == 10.3f && reachOpacitySeed == 0.69f && sizeSeed(4) == 8.0f && sizeSeed(5) == 8.0f &&
-                  sizeSeed(6) == 7.2f && sizeSeed(0) == 5.0f && sizeSeed(1) == 5.0f && sizeSeed(3) == 5.0f &&
+                  sizeSeed(6) == 7.2f && sizeSeed(0) == 6.0f && sizeSeed(1) == 6.0f && sizeSeed(3) == 5.0f &&
                   opacitySeed(0) == 0.8f && opacitySeed(4) == 0.8f,
-              "crosshair per game: the games' starts are Reach 10.3 at 0.69, Halo 2 8, Halo: Combat Evolved 7.2 "
-              "and the rest the shared 4 at 1.25");
+              "crosshair per game: the games' starts are Halo 3 and ODST 6, Reach 10.3 at 0.69, Halo 2 8, Halo: "
+              "Combat Evolved 7.2 and Halo 4 the shared 4 at 1.25");
         bool seeded = g_config.base_tunables.crosshair_size_deg == 5.0f &&
             g_config.base_tunables.crosshair_opacity == 0.8f;
         for (int i = 0; i < kTitleProfileCount; ++i)
@@ -15531,7 +15555,7 @@ int main()
                   g_config.base_tunables.crosshair_brightness == 1.5f,
               "crosshair per game: an edit lands in the running game's profile only");
         Config_ApplyTitleProfile(1);
-        Check(g_config.crosshair_size_deg == 5.0f && g_config.crosshair_opacity == 0.4f,
+        Check(g_config.crosshair_size_deg == 6.0f && g_config.crosshair_opacity == 0.4f,
               "crosshair per game: the next game brings its own");
         Config_ApplyTitleProfile(-1);
         Check(std::fabs(g_config.crosshair_size_deg - reachSeed) < 1.0e-4f &&
@@ -15576,8 +15600,8 @@ int main()
         }
         ConfigLoad(crosshairPath.c_str());
         Check(g_config.base_tunables.crosshair_size_deg == 10.1f &&
-                  g_config.title_profiles[0].crosshair_size_deg == 10.1f &&
-                  g_config.title_profiles[1].crosshair_size_deg == 10.1f &&
+                  g_config.title_profiles[0].crosshair_size_deg == 6.0f &&
+                  g_config.title_profiles[1].crosshair_size_deg == 6.0f &&
                   g_config.title_profiles[3].crosshair_size_deg == 10.1f &&
                   g_config.title_profiles[kTitleProfileReach].crosshair_size_deg == 10.3f &&
                   g_config.title_profiles[kTitleProfileReach].crosshair_opacity == 0.69f &&
@@ -15585,7 +15609,7 @@ int main()
                   g_config.title_profiles[5].crosshair_size_deg == 8.0f &&
                   g_config.title_profiles[6].crosshair_size_deg == 7.2f &&
                   g_config.title_profiles[0].crosshair_opacity == 1.25f,
-              "crosshair per game: an older config's one size stays Halo 3's, ODST's and Halo 4's, and Reach, "
+              "crosshair per game: an older config's one size stays Halo 4's, and Halo 3, ODST, Reach, "
               "Halo 2 and Halo: Combat Evolved start at their own");
         const Config untouched;
         bool defaults = untouched.crosshair_size_deg == 4.0f && untouched.crosshair_opacity == 1.25f &&
@@ -15599,7 +15623,7 @@ int main()
                   untouched.title_profiles[4].crosshair_size_deg == 8.0f &&
                   untouched.title_profiles[5].crosshair_size_deg == 8.0f &&
                   untouched.title_profiles[6].crosshair_size_deg == 7.2f &&
-                  untouched.title_profiles[0].crosshair_size_deg == 4.0f,
+                  untouched.title_profiles[0].crosshair_size_deg == 6.0f,
               "crosshair per game: a fresh configuration has every game's own starting size and opacity, and the "
               "crosshair shrinks away within 0.7 m");
         // The HUD layout's four values follow the same rule: Reach's with no game running, never the shared
@@ -15643,7 +15667,7 @@ int main()
                   CountText(firstRun, "\nhalo2a_crosshair_size_deg = 8.0000") == 1 &&
                   CountText(firstRun, "\nhalo2c_crosshair_size_deg = 8.0000") == 1 &&
                   CountText(firstRun, "\nhalo1_crosshair_size_deg = 7.2000") == 1 &&
-                  CountText(firstRun, "\nhalo3_crosshair_size_deg = 4.0000") == 1 &&
+                  CountText(firstRun, "\nhalo3_crosshair_size_deg = 6.0000") == 1 &&
                   CountText(firstRun, "\nhalo3_crosshair_opacity = 1.2500") == 1 &&
                   CountText(firstRun, "\nreticle_min_scale_dist_m = 0.70") == 1 &&
                   g_config.crosshair_size_deg == 10.3f && g_config.crosshair_opacity == 0.69f &&
@@ -15717,7 +15741,9 @@ int main()
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
         "vehicle_cam_right_m",
         "vehicle_view_follow", "vehicle_cam_smoothing",
-        "vehicle_motion", "vehicle_vr_controls", "vehicle_wheel_max_deg",
+        "vehicle_motion", "vehicle_vr_controls", "vehicle_cameras", "vehicle_camera_note", "vehicle_camera_autoadd", "vehicle_aim_marker", "vehicle_control",
+        "vehicle_aim_reject_metres", "vehicle_aim_reject_dot", "vehicle_boom_rate_deg_s", "vehicle_boom_invert",
+        "vehicle_wheel_max_deg",
         "vehicle_wheel_deadzone_deg",
         "halo4_helmet", "crosshair", "crosshair_distance_m", "crosshair_size_deg",
         "reticle_r", "reticle_g", "reticle_b", "kill_reticle",
@@ -17940,6 +17966,108 @@ int main()
                   lookupOk,
                 "Vehicle identity separates same-type cousins and an "
                 "unidentified vehicle resolves to no point at all");
+
+            // A vehicle the mod cannot name is still aimed like the stock vehicle it is DRIVEN like: its physics
+            // gives the class, its seat's driver flag the role. (HugeGrass's Sparrowhawk was left on the stick
+            // servo in every seat because it had no identity.)
+            Halo3DefinitionFields planeDef;   planeDef.physicsType = 2;   // the Pelican, the Phantom
+            Halo3DefinitionFields fighterDef; fighterDef.physicsType = 4; // the Seraph, the Longsword
+            Halo3DefinitionFields vtolDef;    vtolDef.physicsType = 7;    // the Sparrowhawk
+            Halo3DefinitionFields mantisDef;  mantisDef.physicsType = 6;
+            Halo3DefinitionFields blindScout; blindScout.physicsType = 3;
+            Check(Halo3ControlClass(tankDef) == Halo3VehicleId::Scorpion &&
+                  Halo3ControlClass(oddJeep) == Halo3VehicleId::Warthog &&
+                  Halo3ControlClass(planeDef) == Halo3VehicleId::Hornet &&
+                  Halo3ControlClass(ghostDef) == Halo3VehicleId::Ghost &&
+                  Halo3ControlClass(scoutOdd) == Halo3VehicleId::Ghost &&
+                  Halo3ControlClass(wraithDef) == Halo3VehicleId::Wraith &&
+                  Halo3ControlClass(blindScout) == Halo3VehicleId::Unknown &&
+                  Halo3ControlClass(fighterDef) == Halo3VehicleId::Banshee &&
+                  Halo3ControlClass(turretDef) == Halo3VehicleId::StationaryTurret &&
+                  Halo3ControlClass(vtolDef) == Halo3VehicleId::Hornet &&
+                  Halo3ControlClass(choppDef) == Halo3VehicleId::Chopper &&
+                  Halo3ControlClass(mantisDef) == Halo3VehicleId::Unknown &&
+                  Halo3ControlClass(Halo3DefinitionFields{}) == Halo3VehicleId::Unknown,
+                "Every Halo 3 physics class names the stock vehicle it is driven like");
+
+            const Halo3SeatRole sparrowhawkPilot =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Hornet, 0, false, 0x4000801Cu);
+            const Halo3SeatRole seraphPilot =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Banshee, 0, false, 0x4080801Du);
+            const Halo3SeatRole modTankDriver =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Scorpion, 0, false, 0x0010801Cu);
+            const Halo3SeatRole modGunner =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Hornet, 0, true, 0x0010801Cu);
+            const Halo3SeatRole modPassenger =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Hornet, 2, false, 0x00001070u);
+            const Halo3SeatRole giantSeat =
+                Halo3SeatRoleOf(Halo3VehicleId::Unknown, Halo3VehicleId::Unknown, 0, false, 0x0000801Cu);
+            const Halo3SeatRole stockHog =
+                Halo3SeatRoleOf(Halo3VehicleId::Warthog, Halo3VehicleId::Warthog, 0, false, 0u);
+            Check(sparrowhawkPilot.driver && sparrowhawkPilot.lookSteered && sparrowhawkPilot.aircraft &&
+                  seraphPilot.driver && seraphPilot.lookSteered && seraphPilot.aircraft &&
+                  modTankDriver.driver && !modTankDriver.lookSteered && !modTankDriver.aircraft &&
+                  !modGunner.driver && !modPassenger.driver && modPassenger.aircraft &&
+                  giantSeat.driver && !giantSeat.lookSteered && !giantSeat.aircraft &&
+                  stockHog.driver && stockHog.lookSteered && !stockHog.aircraft,
+                "A seat of a vehicle the mod cannot name takes its role from its own driver flag and its class; "
+                "a named vehicle's seat is as before");
+            Check(Halo3IsSeatParentKind(0) && Halo3IsSeatParentKind(kHalo3ObjectKindVehicle) &&
+                  Halo3IsSeatParentKind(kHalo3ObjectKindGiant) && !Halo3IsSeatParentKind(2) &&
+                  !Halo3IsSeatParentKind(11) && !Halo3IsSeatParentKind(13) && !Halo3IsSeatParentKind(200),
+                "A unit is seated on a biped, a vehicle or a giant (the Scarab), the kinds Halo 3's own seat code takes");
+
+            // A tank's bounding radius tells the Scorpion from the Elephant,
+            // once the definition's radius is proven by the live sphere.
+            Check(Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 1.0f) &&
+                  Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 0.8f) &&
+                  !Halo3DefinitionRadiusUsable(0, 1.0f) &&
+                  !Halo3DefinitionRadiusUsable(-1, 1.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 0.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle, 500.0f) &&
+                  !Halo3DefinitionRadiusUsable(kHalo3ObjectKindVehicle,
+                                               std::nanf("")),
+                "A definition's radius is used only from a definition that "
+                "reads as a vehicle's, at a size a vehicle can have");
+            Check(Halo3ResolveTank(2.200f) == Halo3VehicleId::Scorpion &&
+                  Halo3ResolveTank(2.25f) == Halo3VehicleId::Scorpion &&
+                  Halo3ResolveTank(5.129f) == Halo3VehicleId::Elephant &&
+                  Halo3ResolveTank(3.5f) == Halo3VehicleId::Unknown &&
+                  Halo3ResolveTank(-1.0f) == Halo3VehicleId::Scorpion,
+                "A tank is the Scorpion at the Scorpion's radius (2.2 wu), "
+                "the Elephant at the Elephant's (5.129), another vehicle at "
+                "any other, and the Scorpion when its radius is unknown");
+            Check(Halo3StockRadiusFits(1.4f, 1.4f) &&
+                  !Halo3StockRadiusFits(2.6f, 1.4f) &&
+                  Halo3StockRadiusFits(-1.0f, 1.4f) &&
+                  Halo3StockRadiusFits(2.6f, 0.0f),
+                "A vehicle is the stock one its physics reads as at that "
+                "one's radius, and whenever either radius is unknown");
+            Halo3DefinitionFields modFlyer;
+            modFlyer.physicsType = 4;
+            modFlyer.boundingRadius = 2.6f;
+            Halo3DefinitionFields stockBanshee = modFlyer;
+            stockBanshee.boundingRadius = 1.4f;
+            Halo3DefinitionFields elephantDef;
+            elephantDef.physicsType = 0;
+            elephantDef.boundingRadius = 5.129f;
+            Check(Halo3ResolveVehicleId(stockBanshee) == Halo3VehicleId::Banshee &&
+                      Halo3ResolveVehicleId(modFlyer) == Halo3VehicleId::Unknown &&
+                      Halo3ResolveVehicleId(elephantDef) == Halo3VehicleId::Elephant &&
+                      Halo3FindSeatPoint(Halo3VehicleId::Elephant, 0, false) == nullptr &&
+                      Halo3FindSeatPoint(Halo3VehicleId::Elephant, 0, true) == nullptr &&
+                      !Halo3VehicleIsLookSteered(Halo3VehicleId::Elephant),
+                "A mod's flyer with another radius is not a Banshee; the "
+                "Elephant is known, has no tuned eye point and is not "
+                "look-steered");
+            Halo3DefinitionFields unprovenTank;
+            unprovenTank.physicsType = 0;
+            unprovenTank.boundingRadius = -1.0f;
+            Check(Halo3ResolveVehicleId(unprovenTank) ==
+                      Halo3VehicleId::Scorpion,
+                "A tank whose radius is not proven still reads as the "
+                "Scorpion");
+
         }
 
         // O1: ODST's own identity rules. ODST ships the same authored vehicles
@@ -18286,6 +18414,39 @@ int main()
                   !Halo3AnchorWithinBounds(skyPos, boundsCenter, 1e9f, 2.0f),
                 "Frame composition carries mounted turrets and the sanity "
                 "gate rejects wrong-frame anchors");
+            {
+                // The drawn root node may stand further off the simulation's origin at speed.
+                Check(Halo3RootNodeReachWu(0.0f) == 1.0f && std::fabs(Halo3RootNodeReachWu(60.0f) - 7.0f) < 1.0e-4f &&
+                          Halo3RootNodeReachWu(1.0e6f) == 1.0f + kHalo3RootNodeMaxSpeedWu * kHalo3RootNodeLagSeconds &&
+                          Halo3RootNodeReachWu(std::nanf("")) == 1.0f,
+                      "root node reach: a world unit at rest, more at speed, capped, and a bad speed is rest");
+                Halo3StepSpeed track;
+                const float p0[3] = {0.0f, 0.0f, 0.0f}, p1[3] = {2.0f, 0.0f, 0.0f}, p2[3] = {4.0f, 0.0f, 0.0f};
+                const bool first = Halo3StepSpeedUpdate(track, p0, 10.0) == 0.0f;
+                const bool held = Halo3StepSpeedUpdate(track, p0, 10.01) == 0.0f;   // no step yet
+                const float stepped = Halo3StepSpeedUpdate(track, p1, 10.0333);     // 2 wu in a 30 Hz tick
+                const float between = Halo3StepSpeedUpdate(track, p1, 10.05);       // a frame inside the tick
+                const float next = Halo3StepSpeedUpdate(track, p2, 10.0667);
+                const float still = Halo3StepSpeedUpdate(track, p2, 10.7);          // stopped
+                const float jump = Halo3StepSpeedUpdate(track, p0, 12.0);           // a step after a long gap
+                Check(first && held && std::fabs(stepped - 60.0f) < 0.5f && std::fabs(between - 60.0f) < 0.5f &&
+                          std::fabs(next - 60.0f) < 0.5f && still == 0.0f && jump == 0.0f,
+                      "step speed: each tick's step over the time since the last, held between ticks, 0 once still");
+                Halo3StepSpeed moving;
+                (void)Halo3StepSpeedUpdate(moving, p0, 20.0);
+                (void)Halo3StepSpeedUpdate(moving, p1, 20.0333);                  // 60 wu/s along +x: reach 7 wu
+                const float behind[3] = {-5.0f, 0.3f, 0.0f}, aside[3] = {0.0f, 4.0f, 0.0f}, tooFar[3] = {-9.0f, 0.0f, 0.0f};
+                Halo3StepSpeed resting;
+                Check(Halo3RootNodeWithinReach(behind, moving) && !Halo3RootNodeWithinReach(aside, moving) &&
+                          !Halo3RootNodeWithinReach(tooFar, moving) && !Halo3RootNodeWithinReach(behind, resting),
+                      "root node reach: along the motion it grows with speed, off it a world unit, at rest a world unit");
+            }
+            // A giant: HugeGrass's Lich has a live sphere of 112.25 wu, and its seat's frame stands inside it.
+            const float lichCenter[3] = {40.0f, -12.0f, 30.0f};
+            const float lichOrigin[3] = {10.0f, 5.0f, 2.0f};
+            Check(Halo3AnchorWithinBounds(lichOrigin, lichCenter, 112.25f, 2.0f) &&
+                      !Halo3AnchorWithinBounds(skyPos, boundsCenter, kHalo3MaxBoundsRadiusWu + 1.0f, 2.0f),
+                  "A giant vehicle's bounding sphere is a real one; past the limit is still a bad read");
         }
 
         // C17 native parenting: calibration must preserve the exact Blender

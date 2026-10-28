@@ -9,9 +9,13 @@
 #include <algorithm>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include "installer.h"
 #include "../common/manual_vr_recovery.h"
+#include "../common/reclaimer_host_logic.h"
+#include "reclaimer_menu.h"
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "version.lib")
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='amd64' publicKeyToken='6595b64144ccf1df' language='*'\"")
 // Constants only (native raster size and the resolution_scale limits) so the
 // launcher and the DLL's config clamp can never disagree. The launcher does
@@ -849,6 +853,546 @@ static int LaunchInstalledMod(const std::wstring& dir)
     return kExitOk;
 }
 
+// ---------------------------------------------------------------------------------------------------------
+// PROJECT RECLAIMER (experimental). Project Reclaimer is a standalone client that runs MCC's own
+// halo3.dll without MCC. A folder holding this launcher, HaloMCCVR.dll AND HaloMCCVRReclaimerRelay.dll, with a
+// Project Reclaimer client beside it and no MCC install around it, is a Project Reclaimer deployment: the
+// launcher starts that client and the relay carries the mod to its engine worker
+// (src/common/reclaimer_host_logic.h, src/relay/reclaimer_relay.cpp). The relay DLL is the switch: it is not
+// in a player package, so no MCC player's launcher ever takes this route.
+// ---------------------------------------------------------------------------------------------------------
+static const wchar_t* kReclaimerRelayName = L"HaloMCCVRReclaimerRelay.dll";
+#ifndef HALOMCCVR_RECLAIMER_LAUNCHER
+#define HALOMCCVR_RECLAIMER_LAUNCHER 0
+#endif
+
+static bool MccInstallNear(std::wstring probe)
+{
+    for (int i = 0; i < 6 && !probe.empty(); i++)
+    {
+        const std::wstring binDir = probe + L"\\MCC\\Binaries\\Win64";
+        if (FileExists(binDir + L"\\" + kStoreExeName) || FileExists(binDir + L"\\" + kSteamExeName))
+            return true;
+        const size_t slash = probe.find_last_of(L'\\');
+        if (slash == std::wstring::npos)
+            break;
+        probe.resize(slash);
+    }
+    return false;
+}
+
+// The Project Reclaimer client this folder is deployed for; `exe` is empty when this is not such a folder.
+// Looked for in: the path named in reclaimer_client.txt (one line: an install somewhere else, or the player's
+// choice among several), this folder, its parent, and the parent's other folders
+// (..\0.9.8\project-reclaimer-v0.9.8.exe). Of several, reclaimer_host::ChooseClient decides: a version the mod
+// has been run with before any other, then the highest version, then the newest file.
+struct ReclaimerClient
+{
+    std::wstring exe;
+    reclaimer_host::Version version;
+    bool versionFromName = false;   // the file carries no version of its own: taken from its name
+    bool named = false;          // from reclaimer_client.txt
+    std::wstring passedOver;     // a newer client found beside the chosen one and not started
+};
+static std::string ReclaimerVersionText(const reclaimer_host::Version& version)
+{
+    if (!version.known)
+        return "no version in the file or its name";
+    char text[48]{};
+    sprintf_s(text, "%d.%d.%d", version.part[0], version.part[1], version.part[2]);
+    return text;
+}
+// A client's version. The client updates itself in place and keeps its file name, so the name says which version
+// was first installed, not which one runs: the file's own version resource is read, and the name is the fallback
+// for a file without one. `fromName` (optional) says which it was.
+static reclaimer_host::Version ReclaimerVersionOfFile(const std::wstring& path, bool* fromName = nullptr)
+{
+    reclaimer_host::Version version;
+    if (fromName)
+        *fromName = false;
+    DWORD ignored = 0;
+    const DWORD size = GetFileVersionInfoSizeW(path.c_str(), &ignored);
+    if (size)
+    {
+        std::vector<BYTE> block(size);
+        VS_FIXEDFILEINFO* fixed = nullptr;
+        UINT fixedSize = 0;
+        if (GetFileVersionInfoW(path.c_str(), 0, size, block.data()) &&
+            VerQueryValueW(block.data(), L"\\", reinterpret_cast<void**>(&fixed), &fixedSize) && fixed &&
+            fixedSize >= sizeof(VS_FIXEDFILEINFO) && fixed->dwSignature == VS_FFI_SIGNATURE &&
+            (fixed->dwFileVersionMS || fixed->dwFileVersionLS))
+        {
+            version.part[0] = HIWORD(fixed->dwFileVersionMS);
+            version.part[1] = LOWORD(fixed->dwFileVersionMS);
+            version.part[2] = HIWORD(fixed->dwFileVersionLS);
+            version.known = true;
+            return version;
+        }
+    }
+    version = reclaimer_host::VersionOf(reclaimer_host::Leaf(path));
+    if (fromName)
+        *fromName = version.known;
+    return version;
+}
+static std::string ReclaimerProvenText()
+{
+    std::string text;
+    for (const reclaimer_host::Version& version : reclaimer_host::kProvenVersions)
+        text += (text.empty() ? "" : ", ") + ReclaimerVersionText(version);
+    return text;
+}
+// The one line of reclaimer_client.txt in `dir`, tidied. Empty when there is no such file or line.
+static std::wstring ReclaimerNamedPath(const std::filesystem::path& dir)
+{
+    FILE* f = nullptr;
+    _wfopen_s(&f, (dir / L"reclaimer_client.txt").c_str(), L"rt, ccs=UTF-8");
+    if (!f)
+        return {};
+    wchar_t line[2048]{};
+    const bool read = fgetws(line, static_cast<int>(std::size(line)), f) != nullptr;
+    fclose(f);
+    return read ? reclaimer_host::TidyPath(line) : std::wstring();
+}
+static bool ReclaimerIsClientFile(const std::wstring& path)
+{
+    return !path.empty() && FileExists(path) && reclaimer_host::IsClientExeName(reclaimer_host::Leaf(path));
+}
+static ReclaimerClient ReclaimerScanAround(const std::filesystem::path& dir);
+
+static ReclaimerClient FindReclaimerClient(const std::filesystem::path& dir)
+{
+    ReclaimerClient client;
+    if (!FileExists((dir / kReclaimerRelayName).wstring()) || MccInstallNear(dir.wstring()))
+        return client;
+    const std::wstring named = ReclaimerNamedPath(dir);
+    if (ReclaimerIsClientFile(named))
+    {
+        client.exe = named;
+        client.version = ReclaimerVersionOfFile(named, &client.versionFromName);
+        client.named = true;
+        return client;
+    }
+    return ReclaimerScanAround(dir);
+}
+
+// The client among the game programs in `dir`, its parent and the parent's other folders.
+static ReclaimerClient ReclaimerScanAround(const std::filesystem::path& dir)
+{
+    namespace fs = std::filesystem;
+    ReclaimerClient client;
+    std::vector<reclaimer_host::ClientCandidate> candidates;
+    const auto consider = [&](const fs::path& folder)
+    {
+        std::error_code ec;
+        for (fs::directory_iterator it(folder, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec))
+        {
+            std::error_code entryError;
+            if (!it->is_regular_file(entryError) || entryError)
+                continue;
+            const std::wstring leaf = it->path().filename().wstring();
+            if (!reclaimer_host::IsClientExeName(leaf))
+                continue;
+            const fs::file_time_type time = it->last_write_time(entryError);
+            candidates.push_back({it->path().wstring(), ReclaimerVersionOfFile(it->path().wstring()),
+                                  static_cast<int64_t>(time.time_since_epoch().count())});
+        }
+    };
+    consider(dir);
+    const fs::path parent = dir.parent_path();
+    if (!parent.empty() && parent != dir)
+    {
+        consider(parent);
+        std::error_code ec;
+        for (fs::directory_iterator it(parent, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end; it.increment(ec))
+        {
+            std::error_code entryError;
+            if (it->is_directory(entryError) && !entryError && it->path() != dir)
+                consider(it->path());
+        }
+    }
+    const reclaimer_host::ClientChoice choice = reclaimer_host::ChooseClient(candidates);
+    if (choice.chosen >= 0)
+    {
+        client.exe = candidates[static_cast<size_t>(choice.chosen)].path;
+        client.version = ReclaimerVersionOfFile(client.exe, &client.versionFromName);
+        if (choice.passedOver >= 0)
+            client.passedOver = candidates[static_cast<size_t>(choice.passedOver)].path;
+    }
+    return client;
+}
+
+// The pid of a running Project Reclaimer client process; with `withModule`, only one that has that module.
+static DWORD FindReclaimerProcess(const wchar_t* withModule)
+{
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return 0;
+    PROCESSENTRY32W pe{sizeof(pe)};
+    DWORD pid = 0;
+    if (Process32FirstW(snap, &pe))
+    {
+        do
+        {
+            if (reclaimer_host::IsClientExeName(pe.szExeFile) &&
+                (!withModule || ModuleLoadedIn(pe.th32ProcessID, withModule)))
+            {
+                pid = pe.th32ProcessID;
+                break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    return pid;
+}
+
+// ---- the menu's Project Reclaimer section (reclaimer_menu.h) ----------------------------------------------------
+static std::wstring WideOf(const std::string& text)
+{
+    return std::wstring(text.begin(), text.end());
+}
+// The program the `reclaimer:` link is registered to open, for this user or the machine.
+static std::wstring ReclaimerLinkProgram()
+{
+    for (const HKEY hive : {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE})
+    {
+        wchar_t command[2048]{};
+        DWORD bytes = sizeof(command) - sizeof(wchar_t);
+        if (RegGetValueW(hive, L"Software\\Classes\\reclaimer\\shell\\open\\command", nullptr, RRF_RT_REG_SZ,
+                         nullptr, command, &bytes) != ERROR_SUCCESS)
+            continue;
+        const std::wstring program = reclaimer_host::ClientOfOpenCommand(command);
+        if (ReclaimerIsClientFile(program))
+            return program;
+    }
+    return {};
+}
+static std::wstring ReclaimerRunningProgram()
+{
+    const DWORD pid = FindReclaimerProcess(nullptr);
+    if (!pid)
+        return {};
+    std::wstring program;
+    if (HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid))
+    {
+        wchar_t path[2048]{};
+        DWORD size = static_cast<DWORD>(std::size(path));
+        if (QueryFullProcessImageNameW(process, 0, path, &size))
+            program.assign(path, size);
+        CloseHandle(process);
+    }
+    return ReclaimerIsClientFile(program) ? program : std::wstring();
+}
+
+namespace reclaimer_launch
+{
+std::filesystem::path ModDir(const std::filesystem::path& launcherDir)
+{
+    if (!FileExists((launcherDir / L"HaloMCCVR.dll").wstring()) &&
+        FileExists((launcherDir / L"ModFiles" / L"HaloMCCVR.dll").wstring()))
+        return launcherDir / L"ModFiles";
+    return launcherDir;
+}
+
+std::wstring SavedClient(const std::filesystem::path& launcherDir)
+{
+    return ReclaimerNamedPath(launcherDir);
+}
+
+bool SaveClient(const std::filesystem::path& launcherDir, const std::wstring& exe)
+{
+    const std::filesystem::path file = launcherDir / L"reclaimer_client.txt";
+    if (exe.empty())
+    {
+        std::error_code ec;
+        std::filesystem::remove(file, ec);
+        return !ec;
+    }
+    if (!ReclaimerIsClientFile(exe))
+        return true;
+    if (ReclaimerNamedPath(launcherDir) == exe)
+        return true;
+    FILE* f = nullptr;
+    _wfopen_s(&f, file.c_str(), L"wt, ccs=UTF-8");
+    if (!f)
+        return false;
+    const bool written = fputws(exe.c_str(), f) >= 0 && fputws(L"\n", f) >= 0;
+    return fclose(f) == 0 && written;
+}
+
+std::wstring DetectClient(const std::filesystem::path& launcherDir, std::wstring& how)
+{
+    std::wstring program = ReclaimerLinkProgram();
+    if (!program.empty())
+    {
+        how = L"Found the Project Reclaimer that Windows has on record for this PC.";
+        return program;
+    }
+    program = ReclaimerRunningProgram();
+    if (!program.empty())
+    {
+        how = L"Found the Project Reclaimer that is running now.";
+        return program;
+    }
+    program = ReclaimerScanAround(launcherDir).exe;
+    if (!program.empty())
+        how = L"Found Project Reclaimer in a folder beside this launcher.";
+    return program;
+}
+
+ClientInfo Describe(const std::filesystem::path& launcherDir, const std::wstring& exe)
+{
+    ClientInfo info;
+    if (exe.empty())
+    {
+        info.text = L"Not set. Choose Detect, or Browse and pick the game program (project-reclaimer-client-v*.exe).";
+        return info;
+    }
+    if (!FileExists(exe))
+    {
+        info.text = L"There is no file at this path.";
+        return info;
+    }
+    if (!reclaimer_host::IsClientExeName(reclaimer_host::Leaf(exe)))
+    {
+        info.text = L"This is not the Project Reclaimer game program. Its name is "
+                    L"project-reclaimer-client-v<version>.exe (project-reclaimer-v<version>.exe before 0.9.23; not "
+                    L"the dedicated server or the remote console).";
+        return info;
+    }
+    const reclaimer_host::Version version = ReclaimerVersionOfFile(exe);
+    info.text = L"Project Reclaimer " + WideOf(ReclaimerVersionText(version)) +
+        (reclaimer_host::Proven(version)
+             ? L": the VR mod has been run with this version."
+             : L": the VR mod has NOT been run with this version (it has with " + WideOf(ReclaimerProvenText()) +
+                   L").");
+    const std::filesystem::path modDir = ModDir(launcherDir);
+    for (const wchar_t* needed : {L"HaloMCCVR.dll", kReclaimerRelayName})
+    {
+        if (FileExists((modDir / needed).wstring()))
+            continue;
+        info.text += std::wstring(L"\n") + needed + L" is not in " + modDir.wstring() +
+            L", so this launcher cannot start it.";
+        return info;
+    }
+    info.text += L"\nVR files and settings: " + modDir.wstring();
+    info.startable = true;
+    return info;
+}
+} // namespace reclaimer_launch
+
+// Turn on the client's Centered crosshair (reclaimer_host::WithCenteredCrosshair) in its settings.json, under
+// Documents\My Games\Project Reclaimer, before it starts and reads it. Written through a temporary file, so the
+// player's settings are never left half written.
+static void ReclaimerEnsureCenteredCrosshair()
+{
+    PWSTR documents = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents)) || !documents)
+    {
+        LauncherLog("Project Reclaimer's centered crosshair: the Documents folder is unknown; left as it is");
+        return;
+    }
+    const std::filesystem::path folder = std::filesystem::path(documents) / L"My Games" / L"Project Reclaimer";
+    CoTaskMemFree(documents);
+    const std::filesystem::path file = folder / L"settings.json";
+    std::string text;
+    {
+        FILE* f = nullptr;
+        if (_wfopen_s(&f, file.c_str(), L"rb") == 0 && f)
+        {
+            char buffer[4096];
+            size_t n = 0;
+            while ((n = fread(buffer, 1, sizeof(buffer), f)) > 0)
+                text.append(buffer, n);
+            fclose(f);
+        }
+    }
+    std::string out;
+    const reclaimer_host::CenteredCrosshairEdit edit = reclaimer_host::WithCenteredCrosshair(text, out);
+    if (edit == reclaimer_host::CenteredCrosshairEdit::AlreadyOn)
+    {
+        LauncherLog("Project Reclaimer's centered crosshair: already on");
+        return;
+    }
+    if (edit == reclaimer_host::CenteredCrosshairEdit::Unreadable)
+    {
+        LauncherLog("Project Reclaimer's centered crosshair: %ls could not be read as its settings; left as it is. "
+                    "Turn on Settings > HUD > Centered crosshair in the game, or the hand will not take over its aim",
+                    file.c_str());
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    const std::filesystem::path temp = folder / L"settings.json.vr-launcher-tmp";
+    FILE* f = nullptr;
+    bool written = false;
+    if (_wfopen_s(&f, temp.c_str(), L"wb") == 0 && f)
+    {
+        written = fwrite(out.data(), 1, out.size(), f) == out.size();
+        written = (fclose(f) == 0) && written;
+    }
+    if (!written || !MoveFileExW(temp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        DeleteFileW(temp.c_str());
+        LauncherLog("Project Reclaimer's centered crosshair: could not write %ls; left as it is", file.c_str());
+        return;
+    }
+    LauncherLog("Project Reclaimer's centered crosshair: turned on in %ls (%s)", file.c_str(),
+                edit == reclaimer_host::CenteredCrosshairEdit::Created ? "a new settings file"
+                                                                       : "nothing else in it changed");
+}
+
+static int LaunchReclaimer(const std::wstring& dir, const ReclaimerClient& client)
+{
+    const std::wstring& clientExe = client.exe;
+    g_logPath = dir + L"\\HaloMCCVRLauncher.log";
+    {
+        FILE* f = nullptr;
+        _wfopen_s(&f, g_logPath.c_str(), L"wt");
+        if (f) fclose(f);
+    }
+    LauncherLog("launcher started; self dir = %ls", dir.c_str());
+    LauncherLog("PROJECT RECLAIMER deployment (experimental): client = %ls (%s%s%s)", clientExe.c_str(),
+                ReclaimerVersionText(client.version).c_str(),
+                client.versionFromName ? ", from its file name: the file carries no version of its own" : "",
+                client.named ? ", named in reclaimer_client.txt" : "");
+    {
+        // The client updates itself in place: its name then still says the version first installed.
+        const reclaimer_host::Version inName = reclaimer_host::VersionOf(reclaimer_host::Leaf(clientExe));
+        if (client.version.known && !client.versionFromName && inName.known &&
+            (inName.part[0] != client.version.part[0] || inName.part[1] != client.version.part[1] ||
+             inName.part[2] != client.version.part[2]))
+            LauncherLog("the client's file is named for %s and is %s: it has updated itself in place",
+                        ReclaimerVersionText(inName).c_str(), ReclaimerVersionText(client.version).c_str());
+    }
+    if (!reclaimer_host::Proven(client.version))
+        LauncherLog("WARNING: the VR mod has not been run with this Project Reclaimer version (it has with: %s). "
+                    "What it reads of the client may not hold there; if the game misbehaves, that is the first "
+                    "thing to rule out", ReclaimerProvenText().c_str());
+    if (!client.passedOver.empty())
+        LauncherLog("a newer Project Reclaimer is here too and was NOT started: %ls. The VR mod has not been run "
+                    "with it. To start it all the same, put its full path as the one line of reclaimer_client.txt "
+                    "beside this launcher", client.passedOver.c_str());
+    // A game started by an elevated launcher is elevated, and the OpenXR loader ignores XR_RUNTIME_JSON in an
+    // elevated process: a player who picks their headset's runtime with that variable gets the machine's
+    // registered runtime instead (the mod's log then names that runtime and waits for a headset while the
+    // player's own runtime is running). HaloMCCVRReclaimerLauncher.exe is this launcher built without the
+    // administrator manifest; it is the one a Project Reclaimer folder gets.
+    {
+        HANDLE token = nullptr;
+        TOKEN_ELEVATION elevation{};
+        DWORD size = 0;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        {
+            if (GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size) &&
+                elevation.TokenIsElevated)
+                LauncherLog("WARNING: this launcher is running as administrator, so Project Reclaimer will too and "
+                            "OpenXR will ignore XR_RUNTIME_JSON there (the machine's registered runtime is used)");
+            CloseHandle(token);
+        }
+    }
+
+    const std::wstring dllPath = dir + L"\\HaloMCCVR.dll";
+    const std::wstring relayPath = dir + L"\\" + kReclaimerRelayName;
+    if (!FileExists(dllPath))
+    {
+        ErrorBox(L"HaloMCCVR.dll is missing from:\n" + dir +
+                 L"\n\nIt belongs in this folder, next to HaloMCCVRLauncher.exe.");
+        return kExitFailed;
+    }
+    if (const DWORD running = FindReclaimerProcess(nullptr))
+    {
+        ErrorBox(L"Project Reclaimer is already running (pid " + std::to_wstring(running) +
+                 L").\n\nClose it, then run this launcher again: the VR mod has to be there before the game "
+                 L"starts.");
+        return kExitFailed;
+    }
+    ReclaimerEnsureCenteredCrosshair();
+    // The relay's log is this launch's: several processes append to it.
+    {
+        FILE* f = nullptr;
+        _wfopen_s(&f, (dir + L"\\HaloMCCVRReclaimerRelay.log").c_str(), L"wt");
+        if (f) fclose(f);
+    }
+    if (g_headless)
+    {
+        wchar_t layer[64]{};
+        const DWORD n = GetEnvironmentVariableW(L"__COMPAT_LAYER", layer, static_cast<DWORD>(std::size(layer)));
+        if (n && n < std::size(layer) && !_wcsicmp(layer, L"RunAsInvoker"))
+        {
+            SetEnvironmentVariableW(L"__COMPAT_LAYER", nullptr);
+            LauncherLog("unattended launch: dropped __COMPAT_LAYER=RunAsInvoker before starting the game");
+        }
+    }
+
+    // Started as a double-click starts it: no arguments (its "game-client"), in its own folder.
+    const std::wstring clientDir = std::filesystem::path(clientExe).parent_path().wstring();
+    std::wstring cmdline = L"\"" + clientExe + L"\"";
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(clientExe.c_str(), cmdline.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr,
+                        clientDir.c_str(), &si, &pi))
+    {
+        const DWORD e = GetLastError();
+        LauncherLog("CreateProcessW failed: %lu", e);
+        ErrorBox(L"Could not start Project Reclaimer:\n" + WinErr(e));
+        return kExitFailed;
+    }
+    LauncherLog("Project Reclaimer created (suspended), pid %lu", pi.dwProcessId);
+    std::wstring failWhy;
+    if (!InjectDll(pi.hProcess, relayPath, failWhy))
+    {
+        LauncherLog("the relay was NOT loaded: %ls", failWhy.c_str());
+        TerminateProcess(pi.hProcess, 1);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        ErrorBox(L"Could not load the VR relay into Project Reclaimer, so it was closed.\n\nReason: " + failWhy);
+        return kExitFailed;
+    }
+    LauncherLog("relay loaded; resuming Project Reclaimer");
+    ResumeThread(pi.hThread);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+
+    // The process just started is not the game: it starts a supervisor, which starts the engine worker. Success
+    // is an engine worker that has the mod and is still there twelve seconds later.
+    DWORD worker = 0;
+    for (const ULONGLONG deadline = GetTickCount64() + 45000; !worker && GetTickCount64() < deadline;)
+    {
+        worker = FindReclaimerProcess(L"HaloMCCVR.dll");
+        if (!worker)
+            Sleep(100);
+    }
+    if (!worker)
+    {
+        LauncherLog("no Project Reclaimer process holds HaloMCCVR.dll after 45 s (see HaloMCCVRReclaimerRelay.log)");
+        ErrorBox(L"Project Reclaimer started, but the VR mod did not reach its game process.\n\n"
+                 L"The game, if it is open, is running without VR.\n"
+                 L"Details are in HaloMCCVRReclaimerRelay.log and HaloMCCVRLauncher.log.");
+        return kExitFailed;
+    }
+    LauncherLog("engine worker pid %lu holds HaloMCCVR.dll", worker);
+    HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, worker);
+    if (process)
+    {
+        const DWORD waited = WaitForSingleObject(process, 12000);
+        DWORD code = 0;
+        if (waited == WAIT_OBJECT_0)
+            GetExitCodeProcess(process, &code);
+        CloseHandle(process);
+        if (waited == WAIT_OBJECT_0)
+        {
+            LauncherLog("the engine worker EXITED within 12 s, exit code %lu (0x%08X)", code, code);
+            ErrorBox(L"Project Reclaimer's game process closed right after starting with the VR mod (exit code " +
+                     std::to_wstring(code) + L").\n\nDetails are in HaloMCCVR.log and HaloMCCVRLauncher.log.");
+            return kExitFailed;
+        }
+    }
+    LauncherLog("engine worker still running after 12 s - launch looks good");
+    return kExitOk;
+}
+
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand)
 {
     wchar_t self[32768]{};
@@ -918,9 +1462,27 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand)
     if (args) LocalFree(args);
     try
     {
+        // The one-click route: HaloMCCVRReclaimerLauncher.exe (and an unattended launch) in a Project Reclaimer
+        // deployment starts the client it finds, with no menu. HaloMCCVRLauncher.exe opens its menu, whose last
+        // section starts Project Reclaimer from the path kept there.
+        if (!flatProbe && (HALOMCCVR_RECLAIMER_LAUNCHER || headless))
+        {
+            const ReclaimerClient reclaimerClient = FindReclaimerClient(launcherDir);
+            if (!reclaimerClient.exe.empty())
+                return LaunchReclaimer(launcherDir.wstring(), reclaimerClient);
+        }
         if (headless || flatProbe)
             return LaunchInstalledMod(launcherDir.wstring());
-        const auto selected = mcc_installer::ShowLauncherMenu(instance, launcherDir, showCommand);
+        std::wstring reclaimerExe;
+        const auto selected = mcc_installer::ShowLauncherMenu(instance, launcherDir, showCommand, &reclaimerExe);
+        if (!reclaimerExe.empty())
+        {
+            ReclaimerClient chosen;
+            chosen.exe = reclaimerExe;
+            chosen.version = ReclaimerVersionOfFile(reclaimerExe, &chosen.versionFromName);
+            chosen.named = true;
+            return LaunchReclaimer(reclaimer_launch::ModDir(launcherDir).wstring(), chosen);
+        }
         return selected.empty() ? 0 : LaunchInstalledMod(selected);
     }
     catch (const std::exception& error)

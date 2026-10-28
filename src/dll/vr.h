@@ -118,13 +118,23 @@ constexpr bool VrBlitNeedsReachReticleStraightAlpha(
 }
 
 // Stage 3BQ's explicit typed RTV retry is also selected by CE's verified RGB
-// authored upload. Other swapchain consumers retain their established default-
-// descriptor behavior even if their first view creation fails.
+// authored upload. Every other swapchain consumer keeps the default descriptor
+// for a typed image; a TYPELESS image (VrImageFormatIsTypeless) is given the
+// negotiated XR format from the start, since a default view of it is invalid.
 constexpr bool VrHalo4ReticleRtvNeedsTypedFallback(
     bool halo4ReticleUpload, bool defaultCreationFailed,
     bool viewStillMissing) noexcept
 {
     return halo4ReticleUpload && defaultCreationFailed && viewStillMissing;
+}
+
+// The colour formats a runtime may hand out as an XR image with no type of its
+// own (SteamVR does): such an image has no default render target view.
+constexpr bool VrImageFormatIsTypeless(DXGI_FORMAT format) noexcept
+{
+    return format == DXGI_FORMAT_R8G8B8A8_TYPELESS || format == DXGI_FORMAT_B8G8R8A8_TYPELESS ||
+           format == DXGI_FORMAT_B8G8R8X8_TYPELESS || format == DXGI_FORMAT_R10G10B10A2_TYPELESS ||
+           format == DXGI_FORMAT_R16G16B16A16_TYPELESS;
 }
 
 // Stage 3BL keeps the accepted alpha-only metric for every other title. Halo
@@ -1202,6 +1212,10 @@ void VR_RequestScopeToggle();
 // Receives Halo's blended XInput rumble level (0..1). The render thread maps
 // it to portable OpenXR feedback on both hands and owns all stop conditions.
 void VR_SetGameHaptics(float amplitude);
+// One blip of the mod's own on both hands (a camera switched, the wheel taken), felt for a fixed short time and
+// then gone. It never touches the held level VR_SetGameHaptics sets for the game: a host that sends no vibration
+// of its own until something changes (Project Reclaimer) would otherwise keep that level.
+void VR_PulseGameHaptics(float amplitude);
 // Adds a lock-free, one-shot collision pulse for one OpenXR hand. It is merged
 // with (and never replaces) the title's ordinary XInput rumble.
 void VR_PulseContactHaptics(bool left, float amplitude);

@@ -67,7 +67,10 @@
 #include "../common/haloce_reticle_logic.h"
 #include "../common/vr_blit_shader.h"
 #include "../common/reticle_tint_shader.h"
+#include "../common/host_ui_panel_shader.h"
 #include "../common/mono_view_logic.h"
+#include "../common/reclaimer_host_logic.h"
+#include "../common/vehicle_aim_marker_logic.h"
 #include "haloce_controls.h"
 #include "haloce_first_person.h"
 #include "haloce_hud.h"
@@ -221,6 +224,11 @@ namespace
     // since the last applied VR frame, so a short gunfire pulse that arrives and
     // clears between two frame samples is not aliased to zero. See SampleHapticPeak.
     std::atomic<float> g_peakHaptics{0.0f};
+    // The mod's own blip (VR_PulseGameHaptics): its amplitude and until when it is felt (GetTickCount64 ms). Held
+    // that long, not one frame: with nothing else asking, the next frame would otherwise stop the controller.
+    std::atomic<float> g_pulseHaptics{0.0f};
+    std::atomic<uint64_t> g_pulseHapticsUntilMs{0};
+    constexpr uint64_t kPulseHapticsMs = 80;
     // Optional world-contact feedback is hand-specific. These are one-shot
     // peak latches raised by a title's cold collision worker and consumed by
     // the existing OpenXR frame path; no engine thread calls OpenXR directly.
@@ -258,6 +266,13 @@ namespace
     uint32_t g_nativeSubtitleAcquiredIndex = 0;
     bool g_nativeSubtitleAcquired = false, g_nativeSubtitleFailed = false;
     bool g_nativeTheatreCaptionReady = false;
+    // The notice's panel (NativeNotice_Read): a swapchain of its own, so it never waits on or replaces a caption.
+    XrSwapchain g_noticeChain = XR_NULL_HANDLE;
+    std::vector<ID3D11Texture2D*> g_noticeImages;
+    std::vector<ID3D11RenderTargetView*> g_noticeRtvs;
+    uint64_t g_noticeUploaded = 0, g_noticeRetryMs = 0;
+    uint32_t g_noticeAcquiredIndex = 0;
+    bool g_noticeAcquired = false, g_noticeFailed = false;
     XrSwapchain g_dualReticleChain = XR_NULL_HANDLE;
     std::vector<ID3D11Texture2D*> g_dualReticleImages;
     std::vector<ID3D11RenderTargetView*> g_dualReticleRtvs;
@@ -271,6 +286,14 @@ namespace
     uint32_t g_secondaryReticleGeneration=0;
     GameTitle g_secondaryReticleTitle=GameTitle::None;
     halo_ce::Snapshot<dual_reticle::ProjectedRay> g_weaponReticleRays[7][2];
+    // THE VEHICLE AIM RING (vehicle_aim_marker_logic.h): its own small swapchain, painted once with Halo Campaign
+    // Evolved's purple ring, so neither crosshair's chain is ever touched.
+    XrSwapchain g_vehicleRingChain = XR_NULL_HANDLE;
+    std::vector<ID3D11Texture2D*> g_vehicleRingImages;
+    std::vector<ID3D11RenderTargetView*> g_vehicleRingRtvs;
+    bool g_vehicleRingAcquired = false, g_vehicleRingReady = false, g_vehicleRingFailed = false;
+    uint32_t g_vehicleRingIndex = 0;
+    uint64_t g_vehicleRingRetryMs = 0;
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
     // DEV ASSESSMENT MARKER (honest_reticle_assess): its own small swapchain, painted once with the magenta ring
@@ -426,6 +449,8 @@ namespace
     // What the last capture was narrowed by, across and down, to give HUD art its authored shape back
     // (AuthoredReticleFitForCapture); 1 / 1 for a title whose capture is not fitted. For the art-centre log line.
     std::atomic<float> g_authoredReticleFitAcross{1.0f}, g_authoredReticleFitDown{1.0f};
+    // The last capture's magnification of the raster (Halo3ReticleCaptureScale for Halo 3 and ODST).
+    std::atomic<float> g_authoredReticleCaptureScale{1.0f};
     constexpr float kHalo2ReticleFollowEngage = 32.0f;     // texels: nearer the middle than this is centred art
     constexpr float kHalo2ReticleFollowDeadband = 6.0f;    // texels: a moved window holds the art this close
     constexpr float kHalo2ReticleFollowLimit = 768.0f;     // view pixels: no reticle is drawn farther out
@@ -1305,6 +1330,8 @@ namespace
     TimingRing<512> g_waitDurationsMs;
     TimingRing<512> g_endFrameDurationsMs;
     TimingRing<512> g_renderWindowMs;
+    // The game's draw calls a frame, and the small ones among them (d3d11_hook.cpp, NoteFrameDraw).
+    TimingRing<512> g_frameDrawCalls, g_frameSmallDrawCalls;
     TimingRing<512> g_predictionErrorMs;
     LARGE_INTEGER g_qpcFrequency{};
     LARGE_INTEGER g_lastBeforePresentQpc{};
@@ -5743,6 +5770,51 @@ float4 ps_main(VSOut i) : SV_Target
         }
     }
 
+    // Which module answers the D3D11 calls the mod makes on the headset's images. Another program in the process
+    // (a runtime, an overlay, a capture tool) may have replaced a slot of the device's or context's function table
+    // with its own code; a fault inside that code is then a fault on our call. Logged when the set changes, at
+    // the session and at each set of images the runtime makes. Cheap: a few lookups, never per frame.
+    void LogD3DEntryOwners(const char* when)
+    {
+        if (!g_device || !g_context)
+            return;
+        struct Slot
+        {
+            const char* name;
+            bool device;
+            int index;
+        };
+        static constexpr Slot kSlots[] = {
+            {"CreateTexture2D", true, 5},       {"CreateShaderResourceView", true, 7},
+            {"CreateRenderTargetView", true, 9}, {"Draw", false, 13},
+            {"OMSetRenderTargets", false, 33},   {"CopySubresourceRegion", false, 46},
+            {"CopyResource", false, 47},
+        };
+        std::string text;
+        for (const Slot& slot : kSlots)
+        {
+            void* const* table = *reinterpret_cast<void* const* const*>(slot.device ? static_cast<void*>(g_device)
+                                                                                    : static_cast<void*>(g_context));
+            HMODULE owner = nullptr;
+            wchar_t path[MAX_PATH]{};
+            const wchar_t* leaf = L"(no module)";
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   static_cast<LPCWSTR>(table[slot.index]), &owner) &&
+                GetModuleFileNameW(owner, path, MAX_PATH))
+            {
+                leaf = wcsrchr(path, L'\\') ? wcsrchr(path, L'\\') + 1 : path;
+            }
+            char narrow[MAX_PATH]{};
+            WideCharToMultiByte(CP_UTF8, 0, leaf, -1, narrow, static_cast<int>(sizeof(narrow)), nullptr, nullptr);
+            text += std::string(text.empty() ? "" : ", ") + slot.name + " " + narrow;
+        }
+        static std::string last;
+        if (text == last)
+            return;
+        last = text;
+        LOG("D3D11 entry owners (%s): %s", when, text.c_str());
+    }
+
     bool CreateChain(uint32_t w, uint32_t h, XrSwapchain& chain,
                      std::vector<ID3D11Texture2D*>& images, std::vector<ID3D11RenderTargetView*>& rtvs,
                      const char* what)
@@ -5785,6 +5857,7 @@ float4 ps_main(VSOut i) : SV_Target
         for (auto& img : xrImages)
             images.push_back(img.texture);
         LOG("XR swapchain '%s' created: %ux%u, %u images", what, w, h, count);
+        LogD3DEntryOwners(what);
         return true;
     }
 
@@ -9007,6 +9080,76 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    // The vehicle aim ring's image (vehicle_aim_marker_logic.h): created lazily, painted once, never repainted (the
+    // compositor keeps showing the last released image). Non-blocking, like the dual reticles: a busy image is retried
+    // next frame, and any failure leaves the ring off for the session -- the crosshair is unaffected either way.
+    bool PrepareVehicleRingImage()
+    {
+        if (g_vehicleRingFailed)
+            return false;
+        if (g_vehicleRingReady && !g_vehicleRingAcquired)
+            return true;
+        const bool rgba = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM || g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        const bool bgra = g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM || g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        if (!rgba && !bgra)
+            return false;
+        const bool srgb = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        constexpr uint32_t size = static_cast<uint32_t>(vehicle_aim_marker::kTextureSize);
+        if (g_vehicleRingChain == XR_NULL_HANDLE)
+        {
+            const uint64_t now = GetTickCount64();
+            if (now < g_vehicleRingRetryMs)
+                return false;
+            g_vehicleRingRetryMs = now + 5000;
+            if (!CreateChain(size, size, g_vehicleRingChain, g_vehicleRingImages, g_vehicleRingRtvs,
+                             "vehicle aim ring"))
+                return false;
+        }
+        XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+        XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+        XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        wait.timeout = 0;
+        if (!g_vehicleRingAcquired)
+        {
+            if (xrAcquireSwapchainImage(g_vehicleRingChain, &acquire, &g_vehicleRingIndex) != XR_SUCCESS)
+                return false;
+            g_vehicleRingAcquired = true;
+        }
+        const XrResult ready = xrWaitSwapchainImage(g_vehicleRingChain, &wait);
+        if (ready == XR_TIMEOUT_EXPIRED)
+            return false;
+        if (ready != XR_SUCCESS)
+        {
+            g_vehicleRingFailed = true;
+            LOG("Vehicle aim ring: image wait failed (%d); the ring stays off, the crosshair is unaffected", ready);
+            return false;
+        }
+        const bool valid = g_vehicleRingIndex < g_vehicleRingImages.size();
+        if (valid)
+        {
+            std::vector<uint32_t> pixels(size * size);
+            for (uint32_t y = 0; y < size; ++y)
+                for (uint32_t x = 0; x < size; ++x)
+                    pixels[y * size + x] = vehicle_aim_marker::Pixel(static_cast<int>(x), static_cast<int>(y),
+                                                                     static_cast<int>(size), bgra, srgb);
+            g_context->UpdateSubresource(g_vehicleRingImages[g_vehicleRingIndex], 0, nullptr, pixels.data(),
+                                         size * 4, 0);
+        }
+        const XrResult released = xrReleaseSwapchainImage(g_vehicleRingChain, &release);
+        g_vehicleRingAcquired = false;
+        if (!valid || released != XR_SUCCESS)
+        {
+            g_vehicleRingFailed = true;
+            LOG("Vehicle aim ring: image release failed (%d); the ring stays off, the crosshair is unaffected",
+                released);
+            return false;
+        }
+        g_vehicleRingReady = true;
+        LOG("Vehicle aim ring: a %ux%u purple ring image is ready (%s swapchain)", size, size,
+            srgb ? "sRGB" : "linear");
+        return true;
+    }
+
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // [assess-only begin]
     // The dev assessment marker's image: created lazily, painted once, never repainted (its colour is fixed so it
@@ -9914,6 +10057,60 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         quad=MakeQuad(g_nativeSubtitleChain,image->width,image->height,1.5f*scale,
             distance,-0.55f+y,XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,head,x);
         g_nativeTheatreCaptionReady=image->theatre;
+        return true;
+    }
+
+    #include "vr_host_ui_panel.inl"
+
+    // The notice's panel, head-locked a little above the line of sight: 1.6 m wide at 2 m. As the captions' panel:
+    // its upload never waits (a busy image is retried next frame) and a failure only turns the notice off.
+    bool PrepareNotice(XrCompositionLayerQuad& quad)
+    {
+        const auto image = NativeNotice_Read();
+        const uint64_t now = GetTickCount64();
+        if (g_noticeFailed || !image || now >= image->expiresAtMs) return false;
+        const bool format = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM ||
+            g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+            g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM ||
+            g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        if (!format || !image->rgba || image->rgba->size() != image->width * image->height * 4) return false;
+        if (g_noticeChain == XR_NULL_HANDLE) {
+            if (now < g_noticeRetryMs) return false;
+            g_noticeRetryMs = now + 5000;
+            if (!CreateChain(image->width,image->height,g_noticeChain,g_noticeImages,g_noticeRtvs,"notice"))
+                return false;
+        }
+        if (g_noticeUploaded != image->revision || g_noticeAcquired) {
+            XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            wait.timeout = 0;
+            if (!g_noticeAcquired) {
+                if (xrAcquireSwapchainImage(g_noticeChain,&acquire,&g_noticeAcquiredIndex) != XR_SUCCESS) return false;
+                g_noticeAcquired = true;
+            }
+            const XrResult ready = xrWaitSwapchainImage(g_noticeChain,&wait);
+            if (ready == XR_TIMEOUT_EXPIRED) return false;
+            if (ready != XR_SUCCESS) {
+                g_noticeFailed = true;
+                LOG("Notice panel: swapchain wait failed (%d); notices are off for this session",ready);
+                return false;
+            }
+            const bool valid = g_noticeAcquiredIndex < g_noticeImages.size();
+            if (valid) g_context->UpdateSubresource(g_noticeImages[g_noticeAcquiredIndex],
+                0,nullptr,image->rgba->data(),image->width*4,0);
+            const XrResult released = xrReleaseSwapchainImage(g_noticeChain,&release);
+            g_noticeAcquired = false;
+            if (!valid || released != XR_SUCCESS) {
+                g_noticeFailed = true;
+                LOG("Notice panel: swapchain release failed (%d, image=%d); notices are off for this session",
+                    released,valid?1:0);
+                return false;
+            }
+            g_noticeUploaded = image->revision;
+        }
+        quad = MakeQuad(g_noticeChain,image->width,image->height,1.6f,2.0f,0.35f,
+            XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,true,0.0f);
         return true;
     }
 
@@ -14251,9 +14448,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // Peak-hold: peek (without consuming) the max amplitude requested since
         // the last applied frame so a short gunfire pulse (SetState(high) then
         // SetState(0) between two frame samples) cannot be aliased to zero.
+        const float pulse = GetTickCount64() < g_pulseHapticsUntilMs.load(std::memory_order_acquire)
+            ? g_pulseHaptics.load(std::memory_order_relaxed) : 0.0f;
         const float latest = capabilityAllows
             ? std::clamp(
-                g_requestedHaptics.load(std::memory_order_acquire),
+                (std::max)(g_requestedHaptics.load(std::memory_order_acquire), pulse),
                 0.0f, 1.0f)
             : 0.0f;
         const float peekPeak = capabilityAllows
@@ -15205,15 +15404,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         g_nativePointerFrame = {hit.hit, pressed, hit.u, hit.v};
     }
 
-    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad)
+    // `hostPanelScreen`: the quad is the host's UI panel carrying one of the host's screens (vr_host_ui_panel.inl):
+    // a menu during play, with no menu mode of the game's own to go by.
+    void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad, bool hostPanelScreen = false)
     {
         static bool pressed = false;
         const bool headLocked = quad.space == g_viewSpace;
         if (!g_config.game_menu_pointer || Menu_IsOpen() || g_padState.thumbrestDpad) {
             NativeMenuPointer_FrameStatus("disabled-F1-or-Dpad"); pressed=false; return;
         }
-        if (!game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
-                VR_IsPausePresentation() && VR_IsPausePresentationTarget()) ||
+        if ((!hostPanelScreen && !game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+                VR_IsPausePresentation() && VR_IsPausePresentationTarget())) ||
             VR_IsCutsceneTheaterActive()) {
             NativeMenuPointer_FrameStatus("non-menu-mode"); pressed=false; return;
         }
@@ -15556,6 +15757,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         strcpy_s(g_status.sessionState, "starting");
         LogHeadsetPanelRate();
         LOG("OpenXR session created");
+        LogD3DEntryOwners("session created");
         return true;
     }
 
@@ -17194,7 +17396,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             }
         }
 
-        XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, secondaryReticleQuad, scopeQuad, fadeQuad, nativeCursorQuad, nativeSubtitleQuad;
+        XrCompositionLayerQuad screenQuad, menuQuad, reticleQuad, secondaryReticleQuad, scopeQuad, fadeQuad, nativeCursorQuad, nativeSubtitleQuad, noticeQuad;
+        // A host's own UI of this frame, shown over the stereo picture (vr_host_ui_panel.inl).
+        XrCompositionLayerQuad hostUiQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        bool hostUiPanelQueued = false;
+        // The vehicle aim ring's quad, queued under the crosshair (Game_GetVehicleAimMarker).
+        XrCompositionLayerQuad vehicleRingQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
         // The crosshair layer's colour scale (crosshair_opacity / crosshair_brightness). It lives as long as the
         // quads above: the layer points at it until xrEndFrame has returned.
         XrCompositionLayerColorScaleBiasKHR reticleTint{XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR};
@@ -17228,6 +17435,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         g_nativeTheatreCaptionReady=false;
         const bool nativeSubtitleReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
             !Menu_IsOpen() && PrepareNativeSubtitle(nativeSubtitleQuad);
+        const bool noticeReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
+            !Menu_IsOpen() && PrepareNotice(noticeQuad);
 #if HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO || \
     HALOMCCVR_HALO2_STEREO6DOF
         bool halo2ProjectionQueued = false;
@@ -18536,7 +18745,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         "for a %.2f deg crosshair (ink %llu); the quad is centred on the "
                                         "texture, not on the art; the latest capture's art is %.2f times as "
                                         "wide as it is tall (ink %llu, spread %.3f across, %.3f down); capture "
-                                        "fitted x%.3f across, x%.3f down for the HUD's own scale",
+                                        "fitted x%.3f across, x%.3f down for the HUD's own scale, magnified x%.2f",
                                         static_cast<int>(reticleTitle),
                                         g_authoredReticlePublishedCentre.u - 0.5f,
                                         g_authoredReticlePublishedCentre.v - 0.5f,
@@ -18552,7 +18761,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         g_authoredReticleLatestMeasured.spreadU,
                                         g_authoredReticleLatestMeasured.spreadV,
                                         g_authoredReticleFitAcross.load(std::memory_order_relaxed),
-                                        g_authoredReticleFitDown.load(std::memory_order_relaxed));
+                                        g_authoredReticleFitDown.load(std::memory_order_relaxed),
+                                        g_authoredReticleCaptureScale.load(std::memory_order_relaxed));
                                 else
                                     LOG("RETICLE art centre (title %d): not measured (%s)",
                                         static_cast<int>(reticleTitle),
@@ -18816,6 +19026,80 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             }
                         }
 #endif
+                        // THE VEHICLE AIM RING (Halo Campaign Evolved's "aimMarker"; vehicle_cameras.inl): where the
+                        // VEHICLE aims, beside the crosshair, while a Halo 3 chase camera asks for it. The camera
+                        // pass publishes the direction from the eye and the distance; it is drawn here from this
+                        // frame's stereo centre, parked at the crosshair's cap as the crosshair is, as wide as the
+                        // crosshair at that distance, and queued BEFORE the crosshair so the crosshair draws over
+                        // it. Not with the HUD hidden, in a cutscene theatre or over Halo's pause presentation.
+                        {
+                            float ringDir[3]{};
+                            float ringDistanceM = 0.0f;
+                            bool ringShown = false;
+                            ReachStereoCenterPose ringCenter{};
+                            if (reticleOwnerAdmitted && reticleTitle == GameTitle::Halo3 && !VR_HudHidden() &&
+                                !theaterPresentation && !VR_IsPausePresentation() && projection.viewCount == 2 &&
+                                projectionViews.size() == 2 && Game_GetVehicleAimMarker(ringDir, ringDistanceM))
+                            {
+                                const XrPosef& left = projectionViews[0].pose;
+                                const XrPosef& right = projectionViews[1].pose;
+                                const float leftQuaternion[4] = {left.orientation.x, left.orientation.y,
+                                                                 left.orientation.z, left.orientation.w};
+                                const float rightQuaternion[4] = {right.orientation.x, right.orientation.y,
+                                                                  right.orientation.z, right.orientation.w};
+                                const float leftPosition[3] = {left.position.x, left.position.y, left.position.z};
+                                const float rightPosition[3] = {right.position.x, right.position.y,
+                                                                right.position.z};
+                                ringDistanceM =
+                                    vehicle_aim_marker::DrawDistance(ringDistanceM, g_config.reticle_max_dist_m);
+                                const float ringWidth =
+                                    vehicle_aim_marker::WidthAt(ringDistanceM);
+                                if (ringWidth > 0.0f &&
+                                    ReachBuildStereoCenterPose(leftQuaternion, leftPosition, rightQuaternion,
+                                                               rightPosition, ringCenter) &&
+                                    PrepareVehicleRingImage())
+                                {
+                                    // Facing back along its own ray, never rolled: the crosshair's orientation.
+                                    const float ringYaw = atan2f(ringDir[0], -ringDir[2]);
+                                    const float ringPitch = asinf(fminf(fmaxf(ringDir[1], -1.0f), 1.0f));
+                                    const XrQuaternionf ry{0, sinf(-ringYaw * 0.5f), 0, cosf(-ringYaw * 0.5f)};
+                                    const XrQuaternionf rp{sinf(ringPitch * 0.5f), 0, 0, cosf(ringPitch * 0.5f)};
+                                    vehicleRingQuad = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+                                    vehicleRingQuad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
+                                                                 XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+                                    vehicleRingQuad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                                    vehicleRingQuad.space = g_localSpace;
+                                    vehicleRingQuad.subImage.swapchain = g_vehicleRingChain;
+                                    vehicleRingQuad.subImage.imageRect = {
+                                        {0, 0},
+                                        {static_cast<int32_t>(vehicle_aim_marker::kTextureSize),
+                                         static_cast<int32_t>(vehicle_aim_marker::kTextureSize)}};
+                                    vehicleRingQuad.subImage.imageArrayIndex = 0;
+                                    vehicleRingQuad.pose.orientation = {
+                                        ry.w * rp.x + ry.x * rp.w + ry.y * rp.z - ry.z * rp.y,
+                                        ry.w * rp.y - ry.x * rp.z + ry.y * rp.w + ry.z * rp.x,
+                                        ry.w * rp.z + ry.x * rp.y - ry.y * rp.x + ry.z * rp.w,
+                                        ry.w * rp.w - ry.x * rp.x - ry.y * rp.y - ry.z * rp.z};
+                                    vehicleRingQuad.pose.position = {
+                                        ringCenter.position[0] + ringDir[0] * ringDistanceM,
+                                        ringCenter.position[1] + ringDir[1] * ringDistanceM,
+                                        ringCenter.position[2] + ringDir[2] * ringDistanceM};
+                                    vehicleRingQuad.size = {ringWidth, ringWidth};
+                                    layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&vehicleRingQuad));
+                                    ringShown = true;
+                                }
+                            }
+                            static bool loggedRing = false;
+                            if (ringShown != loggedRing)
+                            {
+                                loggedRing = ringShown;
+                                if (ringShown)
+                                    LOG("Vehicle aim ring: shown, %.1f m away (where the vehicle aims)",
+                                        ringDistanceM);
+                                else
+                                    LOG("Vehicle aim ring: hidden");
+                            }
+                        }
                         if (reticleQuadSubmitted)
                         {
                             XrPosef rawAim{{aimQ[0],aimQ[1],aimQ[2],aimQ[3]},
@@ -19672,6 +19956,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     return;
                 }
 
+                // A host's own UI of this frame, over the stereo picture and under the mod's own menu, which is
+                // queued next.
+                if (stereoWorldFrame && PrepareHostUiPanel(hostUiQuad))
+                {
+                    layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&hostUiQuad));
+                    hostUiPanelQueued = true;
+                }
+
                 // One-shot welcome page for this launch. The latch is a
                 // process-lifetime static that is never cleared, so quitting a
                 // level or returning to MCC's menu can never bring the page
@@ -19776,18 +20068,21 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
         if (nativeSubtitleReady && !layers.empty())
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeSubtitleQuad));
+        if (noticeReady && !layers.empty())
+            layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&noticeQuad));
         // Evaluate against this frame's actual native quad before composition.
         // The cursor follows the last successfully delivered smoothed mouse UV.
         // MONO: nothing in the one picture has disparity, so a layer left at its true distance would be the only
-        // thing that has, and would double over what it marks. The crosshairs and the scope's pane slide out along
-        // their own rays from the midpoint of the eyes (mono_view::FlattenQuad). The panels keep their depth.
+        // thing that has, and would double over what it marks. The crosshairs, the vehicle aim ring and the scope's
+        // pane slide out along their own rays from the midpoint of the eyes (mono_view::FlattenQuad). The panels keep
+        // their depth.
         if (monoFrame && projection.viewCount == 2 && projectionViews.size() == 2)
         {
             const XrVector3f& leftEye = projectionViews[0].pose.position;
             const XrVector3f& rightEye = projectionViews[1].pose.position;
             const float centre[3]{(leftEye.x + rightEye.x) * 0.5f, (leftEye.y + rightEye.y) * 0.5f,
                                   (leftEye.z + rightEye.z) * 0.5f};
-            for (XrCompositionLayerQuad* quad : {&reticleQuad, &secondaryReticleQuad, &scopeQuad})
+            for (XrCompositionLayerQuad* quad : {&reticleQuad, &secondaryReticleQuad, &scopeQuad, &vehicleRingQuad})
             {
                 // Only a quad queued this frame has been filled in.
                 if (std::find(layers.begin(), layers.end(),
@@ -19803,14 +20098,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 }
             }
         }
-        if (comfortFadeAlpha <= 0.01f &&
-            std::find(layers.begin(),layers.end(),
-                reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end()) {
-            UpdateNativeMenuPointer(screenQuad);
+        // The pointer works on the flat screen, and on the host's UI panel while that carries a screen: the panel
+        // has the frame's layout, so a point on it is the same point of the window.
+        const bool screenQueued = std::find(layers.begin(),layers.end(),
+            reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad)) != layers.end();
+        const bool hostPanelScreen = !screenQueued && hostUiPanelQueued && D3D_HostUiPanelIsScreen();
+        if (comfortFadeAlpha <= 0.01f && (screenQueued || hostPanelScreen)) {
+            const XrCompositionLayerQuad& pointedAt = screenQueued ? screenQuad : hostUiQuad;
+            UpdateNativeMenuPointer(pointedAt, hostPanelScreen);
             float u=0,v=0;bool pressed=false;
             if(g_nativePointerFrame.active && g_nativeCursorReady &&
                 NativeMenuPointer_ReadVisual(u,v,pressed)) {
-                nativeCursorQuad=game_menu_pointer::CursorQuad(screenQuad,g_nativeCursorChain,u,v,pressed);
+                nativeCursorQuad=game_menu_pointer::CursorQuad(pointedAt,g_nativeCursorChain,u,v,pressed);
                 layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeCursorQuad));
             }
         }
@@ -21479,11 +21778,22 @@ void VR_BeforePresent(IDXGISwapChain* sc)
         }
     }
 
+    {
+        uint32_t smallDraws = 0;
+        const uint32_t draws = D3D_TakeFrameDrawCalls(smallDraws);
+        g_frameDrawCalls.Add(static_cast<double>(draws));
+        g_frameSmallDrawCalls.Add(static_cast<double>(smallDraws));
+    }
     const uint64_t timingNowMs = GetTickCount64();
     if (!g_timingLogStartMs)
         g_timingLogStartMs = timingNowMs;
     else if (timingNowMs - g_timingLogStartMs >= 10000)
     {
+        // What the frames were made of, beside how long they took: both eyes' draws, the HUD's and the mod's own.
+        LOG("timing: draw calls a frame p50 %.0f p95 %.0f; of them with 96 elements or fewer (text, HUD and "
+            "other quads) p50 %.0f p95 %.0f",
+            TimingPercentile(g_frameDrawCalls, 0.50), TimingPercentile(g_frameDrawCalls, 0.95),
+            TimingPercentile(g_frameSmallDrawCalls, 0.50), TimingPercentile(g_frameSmallDrawCalls, 0.95));
         // Backward-compatible rolling summaries. These are the latest 512
         // samples (not a fixed 10-second window) and are intentionally not used
         // to attribute a transition; the PACING capture correlates exact rows.
@@ -24465,6 +24775,18 @@ void VR_SetGameHaptics(float amplitude)
     }
 }
 
+void VR_PulseGameHaptics(float amplitude)
+{
+    const float v = std::isfinite(amplitude) ? std::clamp(amplitude, 0.0f, 1.0f) : 0.0f;
+    g_pulseHaptics.store(v, std::memory_order_relaxed);
+    g_pulseHapticsUntilMs.store(GetTickCount64() + kPulseHapticsMs, std::memory_order_release);
+    float cur = g_peakHaptics.load(std::memory_order_relaxed);
+    while (v > cur && !g_peakHaptics.compare_exchange_weak(cur, v,
+        std::memory_order_release, std::memory_order_relaxed))
+    {
+    }
+}
+
 void VR_PulseContactHaptics(bool left, float amplitude)
 {
     const float v = std::isfinite(amplitude) ? std::clamp(amplitude, 0.0f, 1.0f) : 0.0f;
@@ -24817,11 +25139,18 @@ static bool BeginAuthoredReticleCaptureInternal(
     // produced a totally blank result - consistent with a thin/hollow
     // reticle outline falling below rasterizer coverage at that extreme a
     // minification. Scope zoom remains separate.
+    // Halo 3's 4x was tuned on one raster and safe frame; it is scaled to keep the art that size on any other
+    // (Project Reclaimer runs a smaller raster and a smaller safe frame for the same settings).
+    const bool halo3Capture = captureTitle == GameTitle::Halo3 || captureTitle == GameTitle::Halo3ODST;
+    const bool reachCapture = captureTitle == GameTitle::HaloReach;
+    float safeHorizontal = 1.0f, safeVertical = 1.0f, hudSize = 0.0f;
+    const bool modLayoutApplied =
+        (halo3Capture || reachCapture) && Game_GetAppliedHudSafeFrame(safeHorizontal, safeVertical, &hudSize);
     const float authoredCaptureScale =
-        captureTitle == GameTitle::Halo3 ||
-        captureTitle == GameTitle::Halo3ODST ? 4.0f :
-        captureTitle == GameTitle::HaloReach ? 2.0f :
-        captureTitle == GameTitle::Halo4 ? 1.0f : 1.0f;
+        halo3Capture ? Halo3ReticleCaptureScale(4.0f, modLayoutApplied, captureViewport.Height, safeVertical,
+                                                hudSize) :
+        reachCapture ? 2.0f : 1.0f;
+    g_authoredReticleCaptureScale.store(authoredCaptureScale, std::memory_order_relaxed);
     captureViewport.Width *= authoredCaptureScale;
     captureViewport.Height *= authoredCaptureScale;
     // Halo 3 and ODST stretch their HUD's 16:9 canvas over the raster and scale it by the safe frame, across and
@@ -24829,12 +25158,9 @@ static bool BeginAuthoredReticleCaptureInternal(
     // shows it is square: narrow the wider axis here, by the HUD's own scale (authored_reticle_logic.h). Reach's
     // HUD is given the same safe-frame pair but is laid out for the raster itself, so only the pair stretches its
     // art; under its own safe frame it arrives as authored.
-    const bool reachCapture = captureTitle == GameTitle::HaloReach;
     AuthoredReticleCaptureFit captureFit{};
-    if (captureTitle == GameTitle::Halo3 || captureTitle == GameTitle::Halo3ODST || reachCapture)
+    if (halo3Capture || reachCapture)
     {
-        float safeHorizontal = 1.0f, safeVertical = 1.0f;
-        const bool modLayoutApplied = Game_GetAppliedHudSafeFrame(safeHorizontal, safeVertical);
         const float rasterAspect = captureViewport.Height > 0.0f
             ? captureViewport.Width / captureViewport.Height : 0.0f;
         captureFit = AuthoredReticleFitForCapture(modLayoutApplied, safeHorizontal, safeVertical, rasterAspect,

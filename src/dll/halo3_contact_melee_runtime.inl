@@ -333,6 +333,22 @@ bool Halo3ContactVerifyCall(uintptr_t base,uintptr_t caller,uintptr_t target)
         *reinterpret_cast<const int32_t*>(instruction+1)==base+target;
 }
 
+// A HOST THAT HOOKS A ROUTINE ITSELF. True when the code at `rva` begins with a jump this mod did not place
+// (sig::Find reads the mod's own hooks as the bytes they replaced, so a head that does not match is someone
+// else's) and the pattern from its seventeenth byte on reads there and nowhere else: the routine is the one
+// expected, with its first instructions replaced. Sixteen bytes cover a five-byte and a fourteen-byte jump at
+// the instruction boundaries of the head this is used on.
+bool Halo3ContactHostDetourAt(uintptr_t base,size_t size,uintptr_t rva,const char* pattern)
+{
+    constexpr size_t kHead=16;
+    if(strlen(pattern)<kHead*3+2 || rva+kHead>=size) return false;
+    const auto* code=reinterpret_cast<const uint8_t*>(base+rva);
+    if(code[0]!=0xE9 && !(code[0]==0xFF && code[1]==0x25)) return false;
+    const char* const tail=pattern+kHead*3;
+    const uintptr_t hit=sig::Find(base,size,tail);
+    return hit==base+rva+kHead && !sig::Find(hit+1,base+size-hit-1,tail);
+}
+
 bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
 {
     struct Binding { uintptr_t rva; const char* pattern; };
@@ -345,11 +361,19 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
     g_halo3Contact.enabled.store(false,std::memory_order_release);
     LegacySight(GameTitle::Halo3).flags.store(0,std::memory_order_release);
     if(!g_halo3WorldCollision.original || g_halo3Contact.updateTarget || g_halo3Contact.damageTarget) return false;
+    // A HOST THAT DETOURS THE DAMAGE ROUTINE +0x36FE00 ITSELF (Project Reclaimer does): the exact head does not
+    // read there. That must not stop the whole install: the aim trace rides this lane's simulation hook, and
+    // without it every poll reads "SIGHT Halo 3 converge-off ... NoTraceFlags". The mod does not stack a damage
+    // hook on a host's: contact melee stays off in such a host, and the simulation hook and the aim trace
+    // install as they do everywhere.
+    bool hostHooksDamage=false;
     for(const auto& binding:bindings)
     {
         const uintptr_t hit=sig::Find(base,size,binding.pattern);
-        if(hit!=base+binding.rva || sig::Find(hit+1,base+size-hit-1,binding.pattern))
-        { LOG("Halo 3 contact melee unavailable: native binding +0x%llX missing/ambiguous",static_cast<unsigned long long>(binding.rva)); return false; }
+        if(hit==base+binding.rva && !sig::Find(hit+1,base+size-hit-1,binding.pattern)) continue;
+        if(binding.rva==0x36FE00 && !hit && Halo3ContactHostDetourAt(base,size,binding.rva,binding.pattern))
+        { hostHooksDamage=true; continue; }
+        LOG("Halo 3 contact melee unavailable: native binding +0x%llX missing/ambiguous",static_cast<unsigned long long>(binding.rva)); return false;
     }
     if(!Halo3ContactVerifyCall(base,0x39A5AD,0x379B30) ||
         !Halo3ContactVerifyCall(base,0x35B292,0x1FD748) ||
@@ -368,6 +392,8 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
     g_halo3Contact.secondaryAtMs.store(0);
     for(int hand=0;hand<2;++hand)
     { g_halo3Contact.queue[hand].Reset(); g_halo3Contact.hands[hand].Reset(); }
+    if(!hostHooksDamage)
+    {
     void* const damageTarget=reinterpret_cast<void*>(base+0x36FE00);
     if(MH_CreateHook(damageTarget,reinterpret_cast<void*>(&Halo3ContactDamageDetour),
             reinterpret_cast<void**>(&g_halo3Contact.damageOriginal))!=MH_OK)
@@ -375,6 +401,7 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
     g_halo3Contact.damageTarget=damageTarget;
     if(MH_EnableHook(damageTarget)!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: damage hook enable failed; retained for cleanup"); return false; }
+    }
     void* const updateTarget=reinterpret_cast<void*>(base+0x379B30);
     if(MH_CreateHook(updateTarget,reinterpret_cast<void*>(&Halo3ContactUpdateDetour),
             reinterpret_cast<void**>(&g_halo3Contact.updateOriginal))!=MH_OK)
@@ -382,9 +409,18 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
     g_halo3Contact.updateTarget=updateTarget;
     if(MH_EnableHook(updateTarget)!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: simulation hook enable failed; retained for cleanup"); return false; }
-    g_halo3Contact.enabled.store(true,std::memory_order_release);
+    // In a host that hooks the damage routine the lane stays disabled (Halo3ContactTick does nothing then);
+    // the simulation hook is in for the aim trace alone.
+    g_halo3Contact.enabled.store(!hostHooksDamage,std::memory_order_release);
     // The aim trace runs inside this lane's simulation hook, with the flags global pinned above.
     LegacyResolveSightFlags(GameTitle::Halo3,base,size,g_halo3WorldCollision,g_halo3Contact.flags);
+    if(hostHooksDamage)
+    {
+        LOG("Halo 3 contact melee OFF in this host: the host hooks the damage routine +0x36FE00 itself and the mod "
+            "does not stack on it (melee by gesture and by button are unchanged). The simulation hook is in for "
+            "the aim trace");
+        return true;
+    }
     (void)InstallHalo3MeleeSelection(base,size);
     LOG("Halo 3 contact melee installed: physical hand/weapon contact, native exact-target damage; headset verification pending");
     return true;

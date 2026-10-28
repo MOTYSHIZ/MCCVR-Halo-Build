@@ -54,6 +54,7 @@ static MH_STATUS Create(void* target,void* detour,void** original)
 }
 #define MH_CreateHook Create
 #define LOG(...) (++logged)
+#include "../src/common/hook_cost_scope.h"
 #include "../src/dll/hud_extra_draws.inl"
 #undef LOG
 #undef MH_CreateHook

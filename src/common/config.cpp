@@ -21,6 +21,8 @@
 #include "log.h"
 
 Config g_config;
+bool g_hostOwnsRenderSize = false;
+bool g_hostIsProjectReclaimer = false;
 
 // Shipped per-seat placements become built-in defaults, so a config file that
 // predates a key is still placed rather than bare. Halo 3/ODST rows are
@@ -337,6 +339,8 @@ static void Clamp()
     g_config.hand_smoothing_speed_cutoff_hz = std::clamp(g_config.hand_smoothing_speed_cutoff_hz, 0.1f, 100.0f);
     g_config.screen_width_m = std::clamp(g_config.screen_width_m, 0.5f, 20.0f);
     g_config.screen_distance_m = std::clamp(g_config.screen_distance_m, 0.3f, 20.0f);
+    g_config.host_ui_panel_width_m = std::clamp(g_config.host_ui_panel_width_m, 0.5f, 20.0f);
+    g_config.host_ui_panel_distance_m = std::clamp(g_config.host_ui_panel_distance_m, 0.3f, 20.0f);
     g_config.cutscene_theater_depth = std::clamp(
         g_config.cutscene_theater_depth, 0.0f, 2.0f);
     g_config.cutscene_theater_width_m = std::clamp(
@@ -448,6 +452,16 @@ static void Clamp()
         std::clamp(g_config.vehicle_wheel_max_deg, 30.0f, 180.0f);
     g_config.vehicle_wheel_deadzone_deg =
         std::clamp(g_config.vehicle_wheel_deadzone_deg, 0.0f, 30.0f);
+    // vehicle_aim_reject_logic.h holds the same bounds (kMaxMetres) for a value set between loads.
+    g_config.vehicle_aim_reject_metres = std::isfinite(g_config.vehicle_aim_reject_metres)
+        ? std::clamp(g_config.vehicle_aim_reject_metres, 0.0f, 20.0f) : Config{}.vehicle_aim_reject_metres;
+    g_config.vehicle_aim_reject_dot = std::isfinite(g_config.vehicle_aim_reject_dot)
+        ? std::clamp(g_config.vehicle_aim_reject_dot, -1.0f, 1.0f) : Config{}.vehicle_aim_reject_dot;
+    // vehicle_boom_logic.h holds the same bounds (kMinRateDegPerSecond, kMaxRateDegPerSecond) for a value set
+    // between loads.
+    g_config.vehicle_boom_rate_deg_s = std::isfinite(g_config.vehicle_boom_rate_deg_s)
+        ? std::clamp(g_config.vehicle_boom_rate_deg_s, 5.0f, 360.0f) : Config{}.vehicle_boom_rate_deg_s;
+    g_config.vehicle_boom_invert = std::clamp(g_config.vehicle_boom_invert, -1, 1);
     // Hand trims are deliberately small: they nudge an authored placement, not
     // relocate the weapon across the room. A wild value here would put the gun
     // outside the first-person node envelope the engine validates against.
@@ -1396,6 +1410,16 @@ void ConfigLoad(const wchar_t* path)
         // A player's setting stands ABOVE the development-only part below: a key read only in there is saved by a
         // player build and then called unknown at its next start (tests/config_player_roundtrip_tests.cpp).
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
+        if (!strcmp(key, "hook_cost_frames"))
+        {
+            const int frames = atoi(val);
+            g_config.hook_cost_frames = frames <= 0 ? 0 : (frames < 8 ? 8 : (frames > 100000 ? 100000 : frames));
+            continue;
+        }
+        if (!strcmp(key, "host_ui_panel")) { g_config.host_ui_panel = atoi(val) != 0; continue; }
+        if (!strcmp(key, "host_ui_panel_width_m")) { g_config.host_ui_panel_width_m = (float)atof(val); continue; }
+        if (!strcmp(key, "host_ui_panel_distance_m")) { g_config.host_ui_panel_distance_m = (float)atof(val); continue; }
+        if (!strcmp(key, "reclaimer_flight_buttons")) { g_config.reclaimer_flight_buttons = atoi(val) != 0; continue; }
 #if HALOMCCVR_DEV_DIAGNOSTICS   // research tools and dev overrides: a player build never reads them
         if (!strcmp(key, "reach_aim_probe")) { g_config.reach_aim_probe=atoi(val); continue; }
         if (!strcmp(key, "dev_install_search_check")) { g_config.dev_install_search_check = atoi(val) != 0 ? 1 : 0; continue; }
@@ -1427,6 +1451,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "seat_aim_world_frame")) { g_config.seat_aim_world_frame=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "seat_view_tag_write")) { g_config.seat_view_tag_write=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_synthetic_pad")) { g_config.dev_synthetic_pad=atoi(val)!=0?1:0; continue; }
+        if (!strcmp(key, "dev_vehicle_unnamed")) { g_config.dev_vehicle_unnamed=atoi(val)!=0?1:0; continue; }
+        if (!strcmp(key, "dev_seat_body_probe")) { g_config.dev_seat_body_probe=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_sim_trace")) { g_config.dev_sim_trace=atoi(val)!=0?1:0; continue; }
         if (!strcmp(key, "dev_sim_probe")) { g_config.dev_sim_probe=(int)strtol(val,nullptr,0)&0xFF; continue; }
         if (!strcmp(key, "dev_sim_minimal")) { g_config.dev_sim_minimal=atoi(val)!=0?1:0; continue; }
@@ -1571,6 +1597,54 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "vehicle_vr_controls"))
         {
             g_config.vehicle_vr_controls = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_cameras"))
+        {
+            g_config.vehicle_cameras = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_camera_autoadd"))
+        {
+            g_config.vehicle_camera_autoadd = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_camera_note"))
+        {
+            const int note = atoi(val);
+            g_config.vehicle_camera_note = note < 0 || note > 2 ? 1 : note;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_aim_marker"))
+        {
+            g_config.vehicle_aim_marker = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_control"))
+        {
+            const int mode = atoi(val);
+            g_config.vehicle_control = mode >= 0 && mode <= 3 ? mode : 0;
+            continue;
+        }
+        if (!strcmp(key, "vehicle_aim_reject_metres"))
+        {
+            g_config.vehicle_aim_reject_metres = static_cast<float>(atof(val));
+            continue;
+        }
+        if (!strcmp(key, "vehicle_aim_reject_dot"))
+        {
+            g_config.vehicle_aim_reject_dot = static_cast<float>(atof(val));
+            continue;
+        }
+        if (!strcmp(key, "vehicle_boom_rate_deg_s"))
+        {
+            g_config.vehicle_boom_rate_deg_s = static_cast<float>(atof(val));
+            continue;
+        }
+        if (!strcmp(key, "vehicle_boom_invert"))
+        {
+            const int invert = atoi(val);
+            g_config.vehicle_boom_invert = invert < -1 || invert > 1 ? -1 : invert;
             continue;
         }
         // C-H2-85: handled by table, not by the else-if chain below - that
@@ -2186,6 +2260,25 @@ void ConfigSave()
     fprintf(f, "# with DLSS. (default %d)\n",
             d.mono_rendering ? 1 : 0);
     fprintf(f, "mono_rendering = %d\n\n", g_config.mono_rendering ? 1 : 0);
+    fprintf(f, "# For performance reports. N = the mod times its own work in one frame out of every N and writes\n");
+    fprintf(f, "# it to the log every 10 seconds (lines starting 'timing: the mod's own work'). The timed frame is\n");
+    fprintf(f, "# a little slower, so leave this at 0 for normal play. Try 251. (default %d, 0 = off, least 8)\n",
+            d.hook_cost_frames);
+    fprintf(f, "hook_cost_frames = %d\n\n", g_config.hook_cost_frames);
+    fprintf(f, "# Project Reclaimer only. Its menus, scoreboard, chat and other on-screen items are drawn over the\n");
+    fprintf(f, "# game's picture after the headset's pictures are taken. 1 = they are shown as a panel in front of\n");
+    fprintf(f, "# the 3D picture, which stays 3D. 0 = the picture goes flat while a menu is up. (default %d)\n",
+            d.host_ui_panel ? 1 : 0);
+    fprintf(f, "host_ui_panel = %d\n", g_config.host_ui_panel ? 1 : 0);
+    fprintf(f, "# That panel's width and its distance from your head, in meters.\n");
+    fprintf(f, "# (defaults %.2f and %.2f, ranges 0.5 to 20 and 0.3 to 20)\n", d.host_ui_panel_width_m,
+            d.host_ui_panel_distance_m);
+    fprintf(f, "host_ui_panel_width_m = %.2f\n", g_config.host_ui_panel_width_m);
+    fprintf(f, "host_ui_panel_distance_m = %.2f\n\n", g_config.host_ui_panel_distance_m);
+    fprintf(f, "# Project Reclaimer only. How its Hornet-class flyers climb and dive. 1 = with the buttons, as in\n");
+    fprintf(f, "# MCC (right A climbs, the left grip dives). 0 = Project Reclaimer's classic Halo 3 controls: aim\n");
+    fprintf(f, "# up or down to climb or dive. (default %d)\n", d.reclaimer_flight_buttons ? 1 : 0);
+    fprintf(f, "reclaimer_flight_buttons = %d\n\n", g_config.reclaimer_flight_buttons ? 1 : 0);
     fprintf(f, "# Stereo 3D theatre for engine-confirmed cutscenes where the game\n");
     fprintf(f, "# has taken camera control away from the player. Shared by every\n");
     fprintf(f, "# supported title, including future title adapters. (default %d)\n",
@@ -2683,9 +2776,11 @@ void ConfigSave()
     fprintf(f, "# about the distance from your view to the barrel. Needs seat_direct_drive and converged_aim.\n");
     fprintf(f, "# Live. (default %d)\n", d.seat_aim_through_barrel ? 1 : 0);
     fprintf(f, "seat_aim_through_barrel = %d\n\n", g_config.seat_aim_through_barrel ? 1 : 0);
-    fprintf(f, "# Halo 2. 1 = when you fire a vehicle's gun the game checks what is under the crosshair along YOUR\n");
-    fprintf(f, "# line of sight. 0 = along the line from the seat's own camera, as the game does: a shot aimed over\n");
-    fprintf(f, "# something low and near can then be pulled down onto it. Needs converged_aim. Live.\n");
+    fprintf(f, "# Halo 2 and Halo 3. 1 = when you fire a vehicle's gun the game checks what is under the crosshair\n");
+    fprintf(f, "# along YOUR line of sight. 0 = along the line from the seat's own camera, as the game does: a shot\n");
+    fprintf(f, "# aimed over something low and near can then be pulled down onto it, and in Halo 3 something behind\n");
+    fprintf(f, "# your vehicle (that camera stands behind it) can take the shot. Not in co-op. Needs converged_aim.\n");
+    fprintf(f, "# Live.\n");
     fprintf(f, "# (default %d)\n", d.seat_fire_from_eye ? 1 : 0);
     fprintf(f, "seat_fire_from_eye = %d\n\n", g_config.seat_fire_from_eye ? 1 : 0);
     fprintf(f, "# Halo 4. 1 = CONVERGED AIM IN HALO 4 SEATS: the game traces the ray from your eye\n");
@@ -2983,6 +3078,95 @@ void ConfigSave()
     fprintf(f, "# affected.\n");
     fprintf(f, "# (default %d)\n", d.vehicle_vr_controls ? 1 : 0);
     fprintf(f, "vehicle_vr_controls = %d\n\n", g_config.vehicle_vr_controls ? 1 : 0);
+    fprintf(f, "# Vehicle cameras (Halo 3 for now; needs vehicle_first_person). In a\n");
+    fprintf(f, "# vehicle seat, step through the cameras listed for that seat in\n");
+    fprintf(f, "# halomccvr_vehicle_cameras.json, in this folder. The file is written\n");
+    fprintf(f, "# the first time this is on; it is yours to edit and is read again\n");
+    fprintf(f, "# when you save it. Its first camera is the seat view you already\n");
+    fprintf(f, "# have; a vehicle the mod does not know starts where the game's own\n");
+    fprintf(f, "# third-person camera sits. In a seat: left Y = next camera, left X =\n");
+    fprintf(f, "# next tethering mode, either held a second = re-centre the view, left\n");
+    fprintf(f, "# stick click = next way to control the seat (vehicle_control). Right B\n");
+    fprintf(f, "# then uses, gets out and reloads, and a passenger's support trigger\n");
+    fprintf(f, "# switches weapon. Each seat's last camera, mode and controls are kept\n");
+    fprintf(f, "# in halomccvr_vehicle_cameras_last.txt (delete it to start afresh).\n");
+    fprintf(f, "# A camera placed outside the vehicle shows your character in the seat.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_cameras ? 1 : 0);
+    fprintf(f, "vehicle_cameras = %d\n\n", g_config.vehicle_cameras ? 1 : 0);
+    fprintf(f, "# With vehicle cameras on: a short note when you get in and when the\n");
+    fprintf(f, "# camera, its tethering mode or the seat's controls change.\n");
+    fprintf(f, "# 0 = no note; 1 = in the game's own HUD messages; 2 = on the mod's\n");
+    fprintf(f, "# own panel in the headset. 1 uses the panel when the game's HUD\n");
+    fprintf(f, "# cannot take the note, and in co-op.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_camera_note);
+    fprintf(f, "vehicle_camera_note = %d\n\n", g_config.vehicle_camera_note);
+    fprintf(f, "# With vehicle cameras on: the first time you sit in a vehicle the\n");
+    fprintf(f, "# camera file has no entry of its own for, entries for it are added\n");
+    fprintf(f, "# to halomccvr_vehicle_cameras.json (the built-in ones where there are\n");
+    fprintf(f, "# any, else one by the vehicle's name with the default cameras), so\n");
+    fprintf(f, "# every vehicle you have ridden is there to edit. Only added to; the\n");
+    fprintf(f, "# file as it was is kept once as ...json.before-autoadd.\n");
+    fprintf(f, "# 0 = the file is never written to. (default %d)\n", d.vehicle_camera_autoadd ? 1 : 0);
+    fprintf(f, "vehicle_camera_autoadd = %d\n\n", g_config.vehicle_camera_autoadd ? 1 : 0);
+    fprintf(f, "# With vehicle cameras on: a purple ring where the VEHICLE is aiming,\n");
+    fprintf(f, "# beside the crosshair that shows where your hand points. In a mode\n");
+    fprintf(f, "# where your view turns with the vehicle it is where the view comes to\n");
+    fprintf(f, "# rest: aim at it to keep going straight without turning. Each seat,\n");
+    fprintf(f, "# camera and tethering mode can turn it on or off with \"aimMarker\" in\n");
+    fprintf(f, "# halomccvr_vehicle_cameras.json (the built-in cameras show it only in\n");
+    fprintf(f, "# their Tethered modes). 0 = never shown, whatever the file says.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_aim_marker ? 1 : 0);
+    fprintf(f, "vehicle_aim_marker = %d\n\n", g_config.vehicle_aim_marker ? 1 : 0);
+    fprintf(f, "# How you control a vehicle seat (Halo 3 for now). This is apart from\n");
+    fprintf(f, "# how your view turns: each works with a view the world holds still\n");
+    fprintf(f, "# and with one that turns with the vehicle.\n");
+    fprintf(f, "#   1 = Motion: your hand aims in every seat, and a Warthog, Mongoose,\n");
+    fprintf(f, "#       Ghost, Prowler, Chopper, Banshee or Hornet turns toward it.\n");
+    fprintf(f, "#       With a view that turns with the vehicle, pointing aside keeps\n");
+    fprintf(f, "#       it turning until your hand points ahead again.\n");
+    fprintf(f, "#   2 = Stick: the right stick aims and steers in every seat, as on a\n");
+    fprintf(f, "#       flat screen. Your hand aims nothing, and the crosshair is\n");
+    fprintf(f, "#       where the game's own is. The stick no longer turns your view\n");
+    fprintf(f, "#       in a seat.\n");
+    fprintf(f, "#   3 = Wheel: in those ground vehicles the invisible steering wheel\n");
+    fprintf(f, "#       is in your hands from the moment you sit; double-click both\n");
+    fprintf(f, "#       grips to let go (the stick then steers) and to take it again.\n");
+    fprintf(f, "#       Aircraft take the stick. Every other seat is your hand's.\n");
+    fprintf(f, "#   0 = as before: your hand aims every seat, except that the stick or\n");
+    fprintf(f, "#       wheel steers those vehicles while the view turns with them.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_control);
+    fprintf(f, "vehicle_control = %d\n\n", g_config.vehicle_control);
+    fprintf(f, "# While your hand steers one of those vehicles (Halo 3 for now), a\n");
+    fprintf(f, "# point you aim at that is BEHIND the vehicle and this close to it\n");
+    fprintf(f, "# does not turn it: the vehicle keeps its forward. With a camera\n");
+    fprintf(f, "# outside the vehicle your hand easily lands on the ground just\n");
+    fprintf(f, "# behind it, which would swing the vehicle round. Measured along the\n");
+    fprintf(f, "# vehicle's own floor, in metres; 0 = off (at most 20). Every camera,\n");
+    fprintf(f, "# the seat view too.\n");
+    fprintf(f, "# (default %.1f)\n", d.vehicle_aim_reject_metres);
+    fprintf(f, "vehicle_aim_reject_metres = %.2f\n", g_config.vehicle_aim_reject_metres);
+    fprintf(f, "# How far round counts as behind: the point's direction from the\n");
+    fprintf(f, "# vehicle against its forward, as a dot product from -1 to 1. Below\n");
+    fprintf(f, "# this is behind: -0.5 = more than 120 degrees off the nose, 0 = more\n");
+    fprintf(f, "# than 90, -1 = nothing.\n");
+    fprintf(f, "# (default %.2f)\n", d.vehicle_aim_reject_dot);
+    fprintf(f, "vehicle_aim_reject_dot = %.2f\n\n", g_config.vehicle_aim_reject_dot);
+    fprintf(f, "# Vehicle cameras (Halo 3 for now): a camera that stands where the\n");
+    fprintf(f, "# game's own third-person camera does is raised and lowered by the\n");
+    fprintf(f, "# right stick pushed up or down, in a seat where the stick does not\n");
+    fprintf(f, "# aim (your hand or the wheel does). It moves the way the game's own\n");
+    fprintf(f, "# stick moves its camera -- push up to look up and the camera drops --\n");
+    fprintf(f, "# within the range the game gives your look there, and it never\n");
+    fprintf(f, "# follows your aim. Each seat and camera keeps its angle; holding left\n");
+    fprintf(f, "# X or Y puts it back. Speed in degrees of look a second at full push\n");
+    fprintf(f, "# (5-360).\n");
+    fprintf(f, "# (default %.0f)\n", d.vehicle_boom_rate_deg_s);
+    fprintf(f, "vehicle_boom_rate_deg_s = %.1f\n", g_config.vehicle_boom_rate_deg_s);
+    fprintf(f, "# Its up and down: -1 = as the game's own look inversion (its flight\n");
+    fprintf(f, "# inversion when you pilot an aircraft; not inverted if the game's\n");
+    fprintf(f, "# setting cannot be read), 0 = not inverted, 1 = inverted.\n");
+    fprintf(f, "# (default %d)\n", d.vehicle_boom_invert);
+    fprintf(f, "vehicle_boom_invert = %d\n\n", g_config.vehicle_boom_invert);
     fprintf(f, "# Motion steering (Halo 3, ODST and Reach). In a Warthog,\n");
     fprintf(f, "# Mongoose, Ghost, Prowler or Chopper, DOUBLE-CLICK both grips to\n");
     fprintf(f, "# take hold of an invisible steering wheel: hold your hands as if\n");

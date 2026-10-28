@@ -381,8 +381,8 @@ struct CrosshairStart
     float opacity;
 };
 inline constexpr CrosshairStart kCrosshairStarts[kTitleProfileCount] = {
-    {4.00f, 1.25f},  // Halo 3
-    {4.00f, 1.25f},  // Halo 3: ODST
+    {6.00f, 1.25f},  // Halo 3
+    {6.00f, 1.25f},  // Halo 3: ODST
     {10.30f, 0.69f}, // Halo: Reach
     {4.00f, 1.25f},  // Halo 4
     {8.00f, 1.25f},  // Halo 2 Anniversary
@@ -486,6 +486,25 @@ struct Config
     // waits until it has learned where the game leaves each eye's picture, which compares two eyes. Followed live.
     // (default 0)
     bool mono_rendering = false;
+    // HOOK COST (hook_cost_logic.h). N = one presented frame in N is timed: every Direct3D call the mod hooks
+    // reads the cycle counter around the mod's own work and around the game's real call, and every ten seconds a
+    // `timing:` line gives the mod's own work a frame, by call. The timed frame itself is slower by the timer's
+    // readings (milliseconds in a scene with much in it). 0 = off; then a hook pays one flag test. Least 8.
+    // Followed live. (default 0)
+    int hook_cost_frames = 0;
+
+    // A host that draws its own UI over the game's frame (Project Reclaimer; reclaimer_host_logic.h, "the host's UI
+    // as a panel"): 1 = that UI is shown as a panel in front of the stereo picture, where the flat screen would
+    // be; 0 = the picture goes flat while one of the host's screens is up, and its overlays during play are not
+    // seen. Nothing in MCC. Followed live.
+    bool host_ui_panel = true;
+    float host_ui_panel_width_m = 2.8f;    // the panel's width, in meters (16:9 at 2.4 m: about 60 degrees across)
+    float host_ui_panel_distance_m = 2.4f; // how far in front of the eyes it floats, in meters
+    // Project Reclaimer only: how its Hornet-class flyers (a Sparrowhawk, Falcon or Vulture on a mod map too)
+    // change height. Halo 3 reads that from a player preference MCC fills in and Reclaimer leaves at Halo 3's
+    // default, classic (aim up or down to climb or dive; the buttons do nothing). 1 = MCC's Ascend and Descend
+    // buttons (right A and the left grip); 0 = classic. Nothing in MCC. Followed live. (reclaimer_flight.inl)
+    bool reclaimer_flight_buttons = true;
 
     // Universal cutscene-only stereo theatre. A title enters it only after its
     // adapter proves the engine owns an authored camera and player camera
@@ -665,7 +684,10 @@ struct Config
     // Match each campaign's MCC layout; same title order as gesture buttons.
     int flashlight_button[6]{15,15,15,15,15,15}; // legacy migration / unverified-title fallback
     vr_mapping::Overrides vr_bindings[6]{};
-    bool vr_action_mapping = true;
+    // Automatic VR action routing (F1 > Controls): a VR button reaches the game as the action bound to it. Off by
+    // default for now -- the plain route, each VR button as the gamepad button it stands for, is the one that works;
+    // the automatic one has known faults.
+    bool vr_action_mapping = false;
     bool flashlight_suppress_on_two_hand = true;
     // Optional temporal upscaler; ordinary eye resolve remains the default.
     int upscaler = 0;
@@ -780,6 +802,56 @@ struct Config
     // 0 = both games' seats keep the plain right stick, as on a flat screen.
     // The other games' seats are not affected (their aim settings govern them).
     bool vehicle_vr_controls = true;
+    // Vehicle cameras: in a vehicle seat, step through the cameras listed for that seat in
+    // halomccvr_vehicle_cameras.json (the mod's folder: written on first use, the player's to edit, read
+    // again when it changes). The built-in list starts with the seat view itself, so switching this on
+    // changes nothing until another camera is chosen (F1 > Vehicles). A camera the mod places shows the
+    // seat from outside, with the player's character drawn in it. Halo 3 for now, and only with
+    // vehicle_first_person on.
+    bool vehicle_cameras = true;
+    // A short note when the vehicle camera, its tethering mode or the seat's controls change, and on getting in:
+    // "Warthog - Third Person, Tethered - Motion". 0 = none; 1 = in the game's own HUD messages, in the HUD's font
+    // (Halo 3; the mod's panel when the game's HUD cannot take it, and in a shared co-op simulation);
+    // 2 = on the mod's own panel in the headset.
+    int vehicle_camera_note = 1;
+    // With vehicle cameras on: the first time you sit in a vehicle the camera file has no entry of its own for (it
+    // rides on "default" -- a mod map's own vehicle, or a stock one the file is older than), entries for it are
+    // added to the file: the built-in ones where there are any, else one by the vehicle's name with the default
+    // entry's cameras, so nothing changes until you edit it. Only added to, never rewritten; the file as it was is
+    // kept once as halomccvr_vehicle_cameras.json.before-autoadd. false = the file is never written to.
+    bool vehicle_camera_autoadd = true;
+    // With vehicle cameras on, in a chase camera whose "aimMarker" in the camera file asks for it (the built-in
+    // cameras: their Tethered modes; a file that never says: the modes whose view turns with the vehicle): a purple
+    // ring where the VEHICLE is aiming, beside the crosshair that shows where the hand points -- Halo Campaign
+    // Evolved's vehicle aim marker. In a mode that turns the view with the vehicle it is where the view comes to
+    // rest: aim at it to keep going straight. 0 = never shown, whatever the file says.
+    bool vehicle_aim_marker = true;
+    // How a vehicle seat is controlled, apart from how the view turns (vehicle_control_logic.h):
+    // 1 = Motion, the hand aims every seat, and a look-steered vehicle (Warthog, Mongoose, Ghost, Prowler,
+    // Chopper, Banshee, Hornet) turns toward it; 2 = Stick, the right stick aims and steers in every seat, as
+    // on a flat screen, and the hand aims nothing; 3 = Wheel, the invisible wheel is in your hands from the
+    // moment you sit in a look-steered ground vehicle (an aircraft takes the stick for its heading), and every
+    // other seat is the hand's. 0 = as before this choice existed: the hand aims every seat, except that the
+    // stick or wheel steers a look-steered driver whose view turns with the vehicle. Halo 3 for now; in the
+    // other games the stick or wheel still steers only a view that follows the vehicle.
+    int vehicle_control = 1;
+    // Where the hand steers a look-steered driver's heading (Motion, or 0 with a view the world holds still), a
+    // point the aim resolves to that is BEHIND the vehicle and NEAR it turns nothing: the vehicle keeps its forward,
+    // and the aim's pitch is left as it is (vehicle_aim_reject_logic.h). Measured in the vehicle's own ground plane:
+    // near = no further from its origin than vehicle_aim_reject_metres (0 = off, at most 20), behind = the 2D dot of
+    // the point's direction with the vehicle's forward below vehicle_aim_reject_dot (-0.5: more than 120 deg off the
+    // nose; -1 refuses nothing). For a camera placed outside the vehicle, whose hand ray easily lands on the ground
+    // just behind it. Every camera, the seat view included. Halo 3 for now. Live.
+    float vehicle_aim_reject_metres = 20.0f;
+    float vehicle_aim_reject_dot = -0.5f;
+    // THE THIRD-PERSON BOOM (vehicle_boom_logic.h): a vehicle camera that stands where the game's own third-person
+    // camera does ("origin": "thirdperson") is raised and lowered by the right stick's Y in a seat where that axis
+    // aims nothing (Motion, the wheel), the way the flat game's stick moves its camera, inside the range the game
+    // gives the look. vehicle_boom_rate_deg_s: degrees of look a second at full push (5 to 360). vehicle_boom_invert:
+    // -1 = as the game's own look inversion (its flight inversion for an aircraft's pilot; not inverted where it
+    // cannot be read), 0 = not inverted, 1 = inverted. Halo 3 for now. Live.
+    float vehicle_boom_rate_deg_s = 60.0f;
+    int vehicle_boom_invert = -1;
     float vehicle_wheel_max_deg = 75.0f;      // wheel angle at full lock
     float vehicle_wheel_deadzone_deg = 6.0f;  // slack around centre
 
@@ -1087,6 +1159,15 @@ struct Config
     // mod folder press its buttons (tools/Send-MccPad.ps1; the language is src/common/dev_pad_script.h).
     // Read once at startup. Leave at 0 to play.
     int dev_synthetic_pad = 0;
+    // DEV BUILD ONLY (not parsed otherwise), for automated tests: 1 = every Halo 3 vehicle is taken as one the mod
+    // cannot name -- no identity, so no tuned eye point and no built-in camera preset -- the way a mod map's own
+    // vehicles are, so that path can be run on a stock map. Its control class (Halo3ControlClass) is kept. Takes
+    // effect for each vehicle the first time it is resolved on a map. Not written to the file.
+    int dev_vehicle_unnamed = 0;
+    // DEV BUILD ONLY (not parsed otherwise): 1 = in a seat whose camera shows the headless body, a model whose head the
+    // mod does not know has its regions hidden one at a time, about 6 s each, each logged ("DEV seat body probe"), so
+    // a picture taken in each window shows which region is the head. Not written to the file.
+    int dev_seat_body_probe = 0;
     // DEV BUILD ONLY (not parsed and compiled out otherwise), Halo: Reach (src/dll/reach_sim_trace.inl).
     // dev_sim_trace: 1 = every object's state at each simulation tick goes to HaloMCCVR-simtrace-<stamp>.bin beside
     // the log (about 35 MB a minute), to compare two replays of one saved film, or a game with its own film.
@@ -1154,12 +1235,15 @@ struct Config
     // known beforehand). 0 = the camera's line always. Only the written aim changes (what the title replicates).
     // Needs seat_direct_drive and converged_aim. Read live.
     bool seat_aim_through_barrel = true;
-    // A SEATED FIRE'S CROSSHAIR TEST RUNS ALONG THE PLAYER'S LINE (Halo 2; halo2_seat_fire.inl). The engine traces
+    // A SEATED FIRE'S CROSSHAIR TEST RUNS ALONG THE PLAYER'S LINE (Halo 2, halo2_seat_fire.inl; Halo 3, the stock
+    // seat's crosshair query, legacy_sight_trace.inl LegacySightSeatLineFromEye: its camera is the seat's third-person
+    // camera metres behind the vehicle, so anything behind the player could take his shot). The engine traces
     // the crosshair from the seat's own camera, which is not where a player's eye is (a head anywhere in the room
     // but at the seat's camera): aiming over a low obstacle, the seat camera's line can hit the obstacle, and the
     // engine then turns the shot at it. 1 = at a local seated fire that test starts at the rendered eye the
     // crosshair's point was traced from and runs through that point. 0 = from the seat's camera through the
-    // point. Local to the fire (as the re-aim it replaces is). Needs converged_aim. Read live.
+    // point. Local to the fire (as the re-aim it replaces is), and only where fire-time changes are allowed (never
+    // in co-op). Needs converged_aim. Read live.
     bool seat_fire_from_eye = true;
 
     // rendering. The game's own HUD reticle sits at head-center and is wrong
@@ -1925,6 +2009,18 @@ inline VirtualStockAimSettings VirtualStockAimSettingsFromConfig(
 }
 
 extern Config g_config;
+
+// True when the HOST decides the size the game is drawn at and the mod cannot move it. False in MCC, where
+// the game draws at its swapchain's size and the mod sets that from resolution_scale. Project Reclaimer draws
+// the game through a viewport of its own "render resolution" setting whatever the swapchain's size: a larger
+// swapchain shows the game in its top-left corner, and a smaller one shows only the top-left part of the game's
+// frame, stretched over each eye like a wrong field of view (the dev SCENEPROBE line then reads a render target
+// smaller than its viewport, "RT 2970x2142 ... viewport 3840x2160"). So there the mod forces nothing and takes
+// the game's own swapchain as the VR raster; resolution_scale does nothing.
+// Set once at start (dllmain.cpp), before the D3D11 hooks are installed.
+extern bool g_hostOwnsRenderSize;
+// The game runs in Project Reclaimer (dllmain.cpp): what is Reclaimer's alone keys on this, not on the render size.
+extern bool g_hostIsProjectReclaimer;
 
 // C-TITLE-1 profile control. `profile` is 0..5 (Halo 3, ODST, Reach,
 // Halo 4, Halo 2 Anniversary, Halo 2 Classic) or -1 for the shared

@@ -2,6 +2,7 @@
 #include "../common/game_menu_pointer.h"
 #include "../common/config.h"
 #include "../common/log.h"
+#include "d3d11_hook.h"
 #include "menu.h"
 #include "title_adapter.h"
 #include "vr.h"
@@ -26,9 +27,10 @@ bool faultLogged = false;
 
 bool Allowed()
 {
+    // A host's screen shown as a panel over the stereo picture is a menu with no menu mode of the game's own.
     return g_config.game_menu_pointer && !Menu_IsOpen() &&
-        game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
-            VR_IsPausePresentation() && VR_IsPausePresentationTarget()) &&
+        (game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+            VR_IsPausePresentation() && VR_IsPausePresentationTarget()) || D3D_HostUiPanelIsScreen()) &&
         !VR_IsCutsceneTheaterActive() && window &&
         GetForegroundWindow() == window && !IsIconic(window);
 }
