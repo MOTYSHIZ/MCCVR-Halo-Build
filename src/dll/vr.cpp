@@ -242,6 +242,8 @@ namespace
 
     // D3D11 (the game's device — we never create our own for rendering)
     ID3D11Device* g_device = nullptr;
+    // g_device as an identity for other threads (VR_SessionDevice): set once, when the session is made on it.
+    std::atomic<ID3D11Device*> g_sessionDevice{nullptr};
     IDXGIAdapter3* g_memoryAdapter = nullptr;
     ID3D11DeviceContext* g_context = nullptr;
 
@@ -4622,9 +4624,21 @@ float4 ps_dlss_resolve_rcas(VSOut i) : SV_Target
         bool planDlss = false, runtimePresent = false;
         D3D_GetRenderPlan(planRenderW, planRenderH, planOutW, planOutH,
                           planDlss, runtimePresent);
+        // A host that draws the game at its own size (Project Reclaimer) is never upscaled by the mod, so NGX is not
+        // set up there at all: its first setup takes seconds, on this thread, inside a headset frame.
+        if (g_hostOwnsRenderSize && runtimePresent)
+        {
+            static bool loggedHostSkip = false;
+            if (!loggedHostSkip)
+            {
+                loggedHostSkip = true;
+                LOG("DLSS: not set up: the host draws the game at its own size, so the mod cannot upscale it "
+                    "(nvngx_dlss.dll beside the mod is left unloaded)");
+            }
+        }
         const dlss::RenderPlan world = dlss::PlanRender(
             nativeW, nativeH, g_config.resolution_scale, g_config.upscaler,
-            g_config.dlss_mode, runtimePresent && !g_dlssBatchSuppressed &&
+            g_config.dlss_mode, runtimePresent && !g_hostOwnsRenderSize && !g_dlssBatchSuppressed &&
             dlss::TitleHasCameraContract(TitleAdapter_GetActiveTitle()) &&
             Dlss_EnsureInitialized(g_device));
         const RuntimeMode presentation = DlssPresentationMode();
@@ -5857,7 +5871,11 @@ float4 ps_main(VSOut i) : SV_Target
         return true;
     }
 
+    // A headset image's view that failed because the device is gone says so (d3d11_hook.cpp, D3D_NoteDeviceLoss).
+    #define VR_AFTER_IMAGE_VIEW(image, result, typeless) \
+        D3D_NoteDeviceLoss("a headset image's render-target view", (result), g_device)
     #include "vr_swapchain_rtv.inl"
+    #undef VR_AFTER_IMAGE_VIEW
 
     void ReleaseScopeCache()
     {
@@ -15548,6 +15566,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             Fail("Could not get the game's D3D11 device");
             return false;
         }
+        g_sessionDevice.store(g_device, std::memory_order_release);
         g_device->GetImmediateContext(&g_context);
         IDXGIDevice* memoryDevice = nullptr;
         IDXGIAdapter* memoryAdapter = nullptr;
@@ -22183,6 +22202,11 @@ bool VR_OnResizeBuffers(IDXGISwapChain* sc)
 #endif
 }
 
+ID3D11Device* VR_SessionDevice()
+{
+    return g_sessionDevice.load(std::memory_order_acquire);
+}
+
 void VR_AfterResizeBuffers(IDXGISwapChain*)
 {
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
@@ -22480,7 +22504,8 @@ void VR_PublishEyeCamera(int eye, const VrEyeCameraSample& sample)
 
 bool VR_DlssWantsEyeCamera()
 {
-    if (g_config.upscaler != dlss::kUpscalerDlss ||
+    // A host that draws the game at its own size is never upscaled (TickRenderPlan).
+    if (g_config.upscaler != dlss::kUpscalerDlss || g_hostOwnsRenderSize ||
         !dlss::TitleHasCameraContract(TitleAdapter_GetActiveTitle()))
         return false;
     unsigned rw = 0, rh = 0, ow = 0, oh = 0;
