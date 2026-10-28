@@ -7395,7 +7395,7 @@ int main()
         const HudLayoutAdapter* odstHud =
             HudLayoutAdapterFor(HudLayoutProfile::Halo3ODST);
         Check(halo3Hud && halo3Hud->expectedBlocks == 3,
-            "Halo 3 HUD layout retains its three proven skin blocks");
+            "Halo 3 HUD layout restores the accepted three stock skin records");
         Check(odstHud && odstHud->expectedBlocks == 1,
             "ODST HUD layout accepts only its uniquely proven globals block");
         const HudLayoutAdapter* reachHud =
@@ -7468,7 +7468,7 @@ int main()
         Check(HudLayoutAcceptedCountOk(*halo3Hud, 3) &&
                   !HudLayoutAcceptedCountOk(*halo3Hud, 2) &&
                   !HudLayoutAcceptedCountOk(*halo3Hud, 4),
-            "Halo 3 still accepts exactly three layout blocks");
+            "Halo 3 rejects the failed two-record alternate layout candidate");
         Check(HudLayoutAcceptedCountOk(*odstHud, 1) &&
                   !HudLayoutAcceptedCountOk(*odstHud, 0) &&
                   !HudLayoutAcceptedCountOk(*odstHud, 2),

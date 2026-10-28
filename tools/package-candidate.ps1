@@ -215,14 +215,12 @@ try {
             'Halo2ShouldSuppressClassicFirstPersonParticle' -or
         $halo2LogicSource -notmatch
             'currentUserFirstPerson\s*!=\s*0\s*&&\s*\r?\n\s*Halo2ClassicRenderTreeRuns' -or
-        $menuSource -notmatch 'H2 Classic gun yaw \(deg\)' -or
-        $menuSource -notmatch 'H2 Classic gun pitch \(deg\)' -or
         $configHeaderSource -notmatch
             'bool fit_desktop_window\s*=\s*true' -or
         $configHeaderSource -notmatch 'float hud_size\s*=\s*0\.43f' -or
         $configHeaderSource -notmatch 'bool show_welcome\s*=\s*true' -or
         $vrSource -notmatch 'Halo 2 Stage 3AM performance gate') {
-        throw 'C-H2-88 gate failed: Classic muzzle isolation, the two alignment controls, V5 defaults, welcome, or bounded Stage 3AM diagnostics are missing.'
+        throw 'C-H2-88 gate failed: Classic muzzle isolation, V5 defaults, welcome, or bounded Stage 3AM diagnostics are missing.'
     }
     $halo4RestoreLogicSource = [IO.File]::ReadAllText(
         (Join-Path $repoRoot 'src\common\halo4_restoration_logic.h'))
@@ -310,15 +308,24 @@ try {
             'scoped aim-assist view helper accepts the normalized') {
         throw 'C-H2-92 gate failed: the rejected debug global is not dormant or controller-scoped native target selection, accepted camera suppression, fail-open isolation, telemetry, or unit coverage is missing.'
     }
-    if ($configHeaderSource -notmatch
-            'halo2_classic_gun_pitch_deg\s*=\s*-9\.5f' -or
-        $configHeaderSource -notmatch
-            'halo2_classic_gun_yaw_deg\s*=\s*1\.0f' -or
-        $coreTestsSource -notmatch
-            'fresh\.halo2_classic_gun_yaw_deg\s*==\s*1\.0f' -or
-        $coreTestsSource -notmatch
-            'fresh\.halo2_classic_gun_pitch_deg\s*==\s*-9\.5f') {
-        throw 'Halo 2 Classic default-alignment gate failed: yaw +1.0 / pitch -9.5 or unit coverage is missing.'
+    # The old Classic sliders were retired by the weapons-alignment request.
+    # Validate the active fixed correction and independent barrel publication,
+    # not legacy serialized configuration defaults that no longer drive it.
+    $alignmentSource = [IO.File]::ReadAllText(
+        (Join-Path $repoRoot 'src\common\weapon_alignment.h'))
+    $alignmentTestsSource = [IO.File]::ReadAllText(
+        (Join-Path $repoRoot 'tests\weapon_alignment_tests.cpp'))
+    $cmakeSource = [IO.File]::ReadAllText(
+        (Join-Path $repoRoot 'CMakeLists.txt'))
+    if ($alignmentSource -notmatch 'kH2ClassicVisualPitch\s*=\s*-9\.5f' -or
+        $halo2ObserverSource -notmatch 'classicConsumer\?weapon_alignment::kH2ClassicVisualPitch:0\.0f' -or
+        $halo2ObserverSource -notmatch 'Halo2RemoveVisualFrame' -or
+        $halo2ObserverSource -notmatch 'candidate\.muzzleNeutralCarrier\[0\]=rightCarrier' -or
+        $menuSource -match 'SliderFloat\(\s*"H2 Classic gun (yaw|pitch)' -or
+        $menuSource -notmatch 'Reset visual rotation' -or
+        $alignmentTestsSource -notmatch 'Halo2RemoveVisualFrame' -or
+        $cmakeSource -notmatch 'add_test\(NAME halomccvr_weapon_alignment_tests') {
+        throw 'Weapon alignment gate failed: fixed Classic -11.5 visual pitch, independent barrel frame, retired sliders, or registered tests are missing.'
     }
     $halo2StereoSource = [IO.File]::ReadAllText(
         (Join-Path $repoRoot 'src\dll\halo2_stereo_core.cpp'))

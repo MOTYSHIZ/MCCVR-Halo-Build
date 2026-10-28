@@ -333,7 +333,8 @@ static bool CheckContactPaletteCommit()
         contactRejectOwnership=failure==1;contactRejectCopy=failure==2;
         const unsigned commits=contactCommits,stages=contactStages;
         const Scope owner{testContext,contactNativePalette,true};
-        const bool accepted=ApplyPalette(25,contactNativePalette,owner);
+        // This contact transaction fixture has no native animation owner/root.
+        const bool accepted=ApplyPalette(25,contactNativePalette,owner,nullptr);
         if (contactRejectCopy) VirtualProtect(contactNativePalette,4096,PAGE_READWRITE,&protection);
         contextValid=true;
         checks&=accepted==(failure==0)&&contactStages==stages+1&&contactCommits==commits+(failure==0);

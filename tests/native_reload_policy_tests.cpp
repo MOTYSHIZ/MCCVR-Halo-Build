@@ -12,7 +12,10 @@ static uintptr_t testCaller;
 
 static GameTitle activeTitle=GameTitle::None;
 static uint32_t activeGeneration=3;
-static bool own=true,advanceGeneration=false;
+static bool own=true,advanceGeneration=false,ownSecondary=false;
+static unsigned shakeMask=0;
+void VR_ReportDualWieldReloadInput(GameTitle) {}
+unsigned VR_DualWieldReloadTick(GameTitle,uint32_t,uint32_t,const uint32_t[2]) noexcept {return shakeMask;}
 static uint8_t object[0x700];
 static int stockCalls,initializations,played,checks;
 static unsigned selected;
@@ -25,7 +28,7 @@ GameTitle TitleAdapter_GetActiveTitle() {return activeTitle;}
 uint32_t TitleAdapter_GetGeneration(GameTitle) {return activeGeneration;}
 const TitleDescriptor* TitleRegistry_Find(GameTitle) {return nullptr;}
 void* Game_ReloadPolicyWeapon(GameTitle title,uint32_t weapon)
-{return own && title==activeTitle && weapon==localWeapon ? object : nullptr;}
+{return own && title==activeTitle && (weapon==localWeapon || (ownSecondary&&weapon==otherWeapon)) ? object : nullptr;}
 namespace sig { uintptr_t Find(uintptr_t,size_t,const char*) {return 0;} }
 bool WaitForNativeDetourQuiescence(const void* const*,const void* const*,size_t,const std::atomic<uint32_t>& callbacks)
 {return callbacks.load()==0;}
@@ -230,6 +233,42 @@ template<unsigned I> static void Run()
     activeTitle=GameTitle::None;Check(!Current(I,1)&&!Current(I,2),"title exit gates both optional features");
     r.options=0;Check(Retire(I),"idle detours retire independently");
 }
+static std::vector<uint32_t> reloadWeapons;
+static uint8_t __fastcall ShakeNative2(uint32_t weapon,int16_t magazine)
+{
+    Check(magazine==0,"magazine is zero for either weapon slot");
+    reloadWeapons.push_back(weapon);return 1;
+}
+static uint8_t __fastcall ShakeNative3(uint32_t weapon,int16_t magazine,uint8_t continuation)
+{Check(continuation==0,"normal native request preserves prediction eligibility");return ShakeNative2(weapon,magazine);}
+static void ShakeRun()
+{
+    for(unsigned i:{unsigned(native_reload::H2),unsigned(native_reload::H3)}) {
+        auto& r=runtime[i];activeTitle=kBindings[i].title;activeGeneration=r.generation=3;
+        own=ownSecondary=true;g_config.dual_wield_shake_reload=true;r.options=8;r.shakeFaulted=false;
+        r.target[Auto]=i==native_reload::H2?reinterpret_cast<void*>(&ShakeNative2):reinterpret_cast<void*>(&ShakeNative3);
+        const uint32_t weapons[]{localWeapon,otherWeapon};
+        for(unsigned mask:{1u,2u,3u}) {
+            reloadWeapons.clear();shakeMask=mask;
+            NativeReloadPolicy_DualShakeTick(activeTitle,3,42,weapons);
+            Check(reloadWeapons.size()==(mask==3?2u:1u),"one native request per selected slot");
+            Check(reloadWeapons.front()==((mask&1)?localWeapon:otherWeapon),"selected controller targets its own weapon");
+            if(mask==3)Check(reloadWeapons.back()==otherWeapon,"both weapons receive independent requests");
+            Check(r.callbacks==0,"simulation callback drains");
+        }
+        for(unsigned guard=0;guard<6;++guard) {
+            reloadWeapons.clear();shakeMask=3;
+            uint32_t generation=3;const uint32_t* pair=weapons;
+            switch(guard){case 0:ownSecondary=false;break;case 1:g_config.dual_wield_shake_reload=false;break;
+                case 2:generation=4;break;case 3:r.shakeFaulted=true;break;case 4:r.options=0;break;case 5:pair=nullptr;break;}
+            NativeReloadPolicy_DualShakeTick(activeTitle,generation,42,pair);
+            Check(reloadWeapons.empty()&&r.callbacks==0,"invalid admission never calls native reload");
+            ownSecondary=true;g_config.dual_wield_shake_reload=true;r.shakeFaulted=false;r.options=8;
+        }
+        r.target[Auto]=nullptr;r.options=0;
+    }
+    ownSecondary=false;shakeMask=0;g_config.dual_wield_shake_reload=false;
+}
 int main()
 {
     Check(!g_config.manual_reload_disable_auto&&!g_config.manual_reload_skip_animations&&!g_config.manual_reload_shortened_animation,"options default off");
@@ -248,9 +287,13 @@ int main()
         Check(native_reload::Options(true,bits&1,bits&2,bits&4)==((bits&2)?(bits&3):bits),"full skip has deterministic precedence");
         Check(native_reload::Options(false,bits&1,bits&2,bits&4)==0,"manual mode gates all reload options");
     }
+    g_config.dual_wield_shake_reload=true;ConfigSave();g_config.dual_wield_shake_reload=false;ConfigLoad(path);
+    Check(g_config.dual_wield_shake_reload,"dual shake option persists independently");
+    g_config.dual_wield_shake_reload=false;
     DeleteFileW(path);
     Run<0>();Run<1>();Run<2>();Run<3>();Run<4>();Run<5>();
     TailRun<0>();TailRun<1>();TailRun<2>();TailRun<3>();TailRun<4>();TailRun<5>();
+    ShakeRun();
     Check(!native_reload::ShortenMagazine(6,object,0),"unsupported title rejected");
     std::printf("%d native reload policy checks passed\n",checks);
 }

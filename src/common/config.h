@@ -392,6 +392,7 @@ inline constexpr CrosshairStart kCrosshairStarts[kTitleProfileCount] = {
 
 struct TitleTunables
 {
+    float world_scale = .33f;
     float gun_scale = 0.96f;
     float left_hand_scale = 0.96f;
     // Visible hand meshes only, in each hand's local frame (metres).
@@ -408,7 +409,10 @@ struct TitleTunables
     float gun_forward_m = -0.14f;
     float gun_right_m = 0.0f;
     float gun_up_m = 0.0f;
-    float left_hand_forward_m = -0.063f;
+    float left_gun_forward_m = -0.16f;
+    float left_gun_right_m = 0.04f;
+    float left_gun_up_m = -0.06f;
+    float left_hand_forward_m = 0.0f;
     // The HUD layout. With no game running these four follow and edit Reach's profile rather than the shared
     // defaults (kTitleProfileReach), like the crosshair's below.
     float hud_size = 0.43f;
@@ -431,6 +435,7 @@ struct TitleTunables
 
 struct Config
 {
+    float world_scale = .33f;
     // Stamps the Halo 3, ODST and Reach shipped seat tables into their
     // independent per-seat arrays. Every other member keeps its default member
     // initializer, so Config{} remains the one description of a fresh
@@ -1267,6 +1272,9 @@ struct Config
     // controller ray. 0 = previous placement.
     float gun_right_m = 0.0f;
     float gun_up_m = 0.0f;
+    float left_gun_forward_m = -0.16f;
+    float left_gun_right_m = 0.04f;
+    float left_gun_up_m = -0.06f;
 
     // Halo 2 CLASSIC ONLY: extra rotation and offset applied to the visible
     // gun AND hands together, so Classic can be lined up with what
@@ -1303,7 +1311,8 @@ struct Config
     // suppression by default; other titles need their own proven hide paths.
     bool hide_muzzle_flash[6]{false,false,false,true,false,true};
     // Per-game stock bloom. Verified optional suppression: H3, ODST, Reach.
-    bool bloom_enabled[6]{true,true,true,true,true,true};
+    bool bloom_enabled[6]{true,false,false,true,true,true};
+    bool disable_autoexposure_odst = false;
 
     // Experimental gun-mounted VR zoom screen. R3 is isolated from Halo's
     // native zoom so the full VR gun/body remain visible; scope_zoom is the
@@ -1483,6 +1492,7 @@ struct Config
     bool weapon_holster_slide = true;
     bool weapon_holster_click = true;
     bool weapon_needler_shake = false;
+    bool dual_wield_shake_reload = false;
     bool weapon_unknown_reload_visual = true;
     float weapon_shake_travel_m = 0.10f;
     // 0 shoulder, 1 hip, 2 over the shoulder (Campaign Evolved's spot), 3 custom (the three values below).
@@ -1600,7 +1610,7 @@ struct Config
     // (IK/hand placement). Excluded from the two-hand aim line, which uses
     // raw tracked controller points. Negative seats the hand back toward the
     // wrist; -0.063 is the headset-tuned release default.
-    float left_hand_forward_m = -0.063f;
+    float left_hand_forward_m = 0.0f;
     // Sideways nudge of the two-hand grab zone along the right controller's +X
     // (positive = toward the player's right) so the grab line sits on the
     // visible barrel. Headset request 2026-07-19: the AR's barrel sat right of

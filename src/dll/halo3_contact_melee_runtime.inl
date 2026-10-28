@@ -300,6 +300,8 @@ void Halo3ContactTick(uint32_t unit)
     g_halo3Contact.processing.store(false,std::memory_order_release);
 }
 
+void Halo3DualShakeUnitTick(uint32_t unit) noexcept;
+
 __declspec(noinline) uint8_t __fastcall Halo3ContactUpdateDetour(uint32_t unit)
 {
     g_halo3Contact.callbacks.fetch_add(1,std::memory_order_acq_rel);
@@ -308,6 +310,8 @@ __declspec(noinline) uint8_t __fastcall Halo3ContactUpdateDetour(uint32_t unit)
     {
         if(g_halo3Contact.updateOriginal) result=g_halo3Contact.updateOriginal(unit);
         Halo3ContactTick(unit);
+        // The unit action update runs while idle as well as while firing.
+        Halo3DualShakeUnitTick(unit);
         // Trace-and-reaim (legacy_sight_trace.inl): the local on-foot unit's intent ray.
         if(LegacySight(GameTitle::Halo3).flags.load(std::memory_order_acquire) && g_halo3PlayerUnitGetter)
         {

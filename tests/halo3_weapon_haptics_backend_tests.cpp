@@ -10,7 +10,7 @@
 #include <cstdlib>
 
 enum class GameTitle { Halo3 };
-struct TestConfig { bool persistent_support_grip{}; };
+struct TestConfig { bool persistent_support_grip{}, dual_wield_shake_reload{}; };
 TestConfig g_config{};
 struct SupportGripRelationshipSnapshot { bool engaged{}; GameTitle title{}; uint32_t generation{}, unit{}, weapon{}; };
 std::atomic<bool> g_vrAim{true};
@@ -21,6 +21,9 @@ void* tagDataBase = nullptr; void** g_halo3TagDataBase = &tagDataBase;
 void* g_halo3TagInstanceTable = nullptr;
 uint8_t* Halo3LoadedTagDefinition(uint32_t);
 bool Halo3ReadOwnedWeapons(uint32_t, uint32_t[2], bool);
+bool Halo3ReadOwnedDualWeapons(uint32_t unit,uint32_t weapons[2]) {return Halo3ReadOwnedWeapons(unit,weapons,true);}
+bool (__fastcall* g_halo3UnitInVehicle)(int32_t) = nullptr;
+void NativeReloadPolicy_DualShakeTick(GameTitle,uint32_t,uint32_t,const uint32_t[2]) noexcept {}
 int ResolveEquippedWeaponSlot(uint32_t, uint32_t, uint32_t, bool, bool);
 uint64_t VR_WeaponHapticToken(GameTitle, uint32_t, bool) noexcept;
 bool VR_PulseWeaponHaptics(GameTitle, uint32_t, bool, bool, float, uint64_t) noexcept;

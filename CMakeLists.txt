@@ -449,6 +449,10 @@ set_target_properties(reach_runtime_observer PROPERTIES
     OUTPUT_NAME "reach-runtime-observer")
 
 if(BUILD_TESTING)
+    add_executable(halo3_live_hud_tests tests/halo3_live_hud_tests.cpp)
+    add_test(NAME halo3_live_hud_tests COMMAND halo3_live_hud_tests)
+    add_executable(halomccvr_post_effect_policy_tests tests/post_effect_policy_tests.cpp)
+    add_test(NAME halomccvr_post_effect_policy_tests COMMAND halomccvr_post_effect_policy_tests)
     add_executable(halomccvr_bloom_override_tests tests/bloom_override_tests.cpp src/dll/bloom_override.cpp src/common/config.cpp)
     target_compile_definitions(halomccvr_bloom_override_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_link_libraries(halomccvr_bloom_override_tests PRIVATE d3d11)
@@ -1252,6 +1256,13 @@ if(BUILD_TESTING)
     add_executable(halomccvr_ce_classic_view_pair_tests tests/haloce_classic_view_pair_tests.cpp)
     target_include_directories(halomccvr_ce_classic_view_pair_tests PRIVATE src/common)
     add_test(NAME halomccvr_ce_classic_view_pair_tests COMMAND halomccvr_ce_classic_view_pair_tests)
+    add_executable(halomccvr_weapon_animation_motion_tests tests/weapon_animation_motion_tests.cpp)
+    add_test(NAME halomccvr_weapon_animation_motion_tests COMMAND halomccvr_weapon_animation_motion_tests)
+    add_executable(halomccvr_halo3_secondary_motion_tests tests/halo3_secondary_motion_tests.cpp)
+    add_test(NAME halomccvr_halo3_secondary_motion_tests COMMAND halomccvr_halo3_secondary_motion_tests)
+    add_executable(halomccvr_weapon_alignment_tests tests/weapon_alignment_tests.cpp)
+    target_include_directories(halomccvr_weapon_alignment_tests PRIVATE src/common)
+    add_test(NAME halomccvr_weapon_alignment_tests COMMAND halomccvr_weapon_alignment_tests)
     add_executable(halomccvr_ce_first_person_tests tests/haloce_first_person_tests.cpp src/dll/ik.cpp)
     target_include_directories(halomccvr_ce_first_person_tests PRIVATE src/common)
     add_test(NAME halomccvr_ce_first_person_tests COMMAND halomccvr_ce_first_person_tests)
@@ -1455,6 +1466,52 @@ if(BUILD_TESTING)
     add_test(NAME halo4_weapon_haptics COMMAND halo4_weapon_haptics_tests)
     add_executable(reach_weapon_haptics_logic_tests tests/reach_weapon_haptics_logic_tests.cpp)
     add_test(NAME reach_weapon_haptics_logic COMMAND reach_weapon_haptics_logic_tests)
+    add_executable(dual_wield_shake_tests tests/dual_wield_shake_tests.cpp)
+    target_compile_features(dual_wield_shake_tests PRIVATE cxx_std_20)
+    add_test(NAME dual_wield_shake COMMAND dual_wield_shake_tests)
+    add_executable(odst_fp_map_probe_tests tests/odst_fp_map_probe_tests.cpp)
+    target_compile_features(odst_fp_map_probe_tests PRIVATE cxx_std_20)
+    add_test(NAME odst_fp_map_probe COMMAND odst_fp_map_probe_tests)
+    add_executable(halo3_dual_shake_tests tests/halo3_dual_shake_tests.cpp)
+    target_compile_features(halo3_dual_shake_tests PRIVATE cxx_std_20)
+    add_test(NAME halo3_dual_shake COMMAND halo3_dual_shake_tests)
+    set(HALOMCCVR_ODST_MODDED_ASSETS "${HALOMCCVR_GENERATED_DIR}/odst_modded_fp_assets.inl")
+    add_custom_command(OUTPUT "${HALOMCCVR_ODST_MODDED_ASSETS}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_odst_modded_fp_fixture.py"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${HALOMCCVR_ODST_MODDED_ASSETS}"
+        DEPENDS tools/generate_odst_modded_fp_fixture.py
+            docs/ODST-MODDED-WEAPONS-MAP-EVIDENCE.json
+            docs/ODST-MYTHIC-FP-MAP-EVIDENCE.json VERBATIM)
+    add_executable(odst_modded_fp_tests tests/odst_modded_fp_tests.cpp "${HALOMCCVR_ODST_MODDED_ASSETS}")
+    target_include_directories(odst_modded_fp_tests PRIVATE "${HALOMCCVR_GENERATED_DIR}")
+    target_compile_features(odst_modded_fp_tests PRIVATE cxx_std_20)
+    add_test(NAME odst_modded_fp COMMAND odst_modded_fp_tests)
+    set(HALOMCCVR_HALO3_MODDED_FIXTURE "${HALOMCCVR_GENERATED_DIR}/halo3_modded_fp_fixture.inl")
+    set(HALOMCCVR_HALO3_MODDED_ASSETS "${HALOMCCVR_GENERATED_DIR}/halo3_modded_fp_assets.inl")
+    add_custom_command(OUTPUT "${HALOMCCVR_HALO3_MODDED_FIXTURE}" "${HALOMCCVR_HALO3_MODDED_ASSETS}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_halo3_modded_fp_fixture.py"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${HALOMCCVR_HALO3_MODDED_FIXTURE}"
+        DEPENDS tools/generate_halo3_modded_fp_fixture.py tools/generate_haptics_runtime_fixture.py
+            src/dll/game.cpp src/dll/legacy_runtime_weapon_bounds.inl
+            docs/HALO3-MODDED-WEAPONS-MAP-EVIDENCE.json VERBATIM)
+    add_executable(halo3_modded_fp_tests tests/halo3_modded_fp_tests.cpp
+        "${HALOMCCVR_HALO3_MODDED_FIXTURE}" "${HALOMCCVR_HALO3_MODDED_ASSETS}")
+    target_include_directories(halo3_modded_fp_tests PRIVATE "${HALOMCCVR_GENERATED_DIR}")
+    target_compile_features(halo3_modded_fp_tests PRIVATE cxx_std_20)
+    add_test(NAME halo3_modded_fp COMMAND halo3_modded_fp_tests)
+    set(HALOMCCVR_REACH_MODDED_FIXTURE "${HALOMCCVR_GENERATED_DIR}/reach_modded_fp_fixture.inl")
+    set(HALOMCCVR_REACH_MODDED_ASSETS "${HALOMCCVR_GENERATED_DIR}/reach_modded_fp_assets.inl")
+    add_custom_command(OUTPUT "${HALOMCCVR_REACH_MODDED_FIXTURE}" "${HALOMCCVR_REACH_MODDED_ASSETS}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_reach_modded_fp_fixture.py"
+            --source-root "${CMAKE_CURRENT_SOURCE_DIR}" --output "${HALOMCCVR_REACH_MODDED_FIXTURE}"
+        DEPENDS tools/generate_reach_modded_fp_fixture.py tools/generate_haptics_runtime_fixture.py
+            src/dll/game.cpp src/dll/legacy_runtime_weapon_bounds.inl
+            docs/REACH-MODDED-WEAPONS-M20-EVIDENCE.json VERBATIM)
+    add_executable(reach_modded_fp_layout_tests tests/reach_modded_fp_layout_tests.cpp
+        "${HALOMCCVR_REACH_MODDED_FIXTURE}" "${HALOMCCVR_REACH_MODDED_ASSETS}")
+    target_include_directories(reach_modded_fp_layout_tests PRIVATE "${HALOMCCVR_GENERATED_DIR}")
+    target_compile_features(reach_modded_fp_layout_tests PRIVATE cxx_std_20)
+    add_test(NAME reach_modded_fp_layout COMMAND reach_modded_fp_layout_tests)
     add_executable(halomccvr_reach_finger_pose_tests tests/reach_finger_pose_tests.cpp)
     target_compile_features(halomccvr_reach_finger_pose_tests PRIVATE cxx_std_20)
     add_test(NAME halomccvr_reach_finger_pose_tests COMMAND halomccvr_reach_finger_pose_tests)

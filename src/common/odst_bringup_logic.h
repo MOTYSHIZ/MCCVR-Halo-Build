@@ -40,6 +40,7 @@ inline bool OdstPlainPerspectiveScalars(uint32_t mode, float fov,
 
 struct OdstFpSkeletonLayout
 {
+    bool operator==(const OdstFpSkeletonLayout&) const = default;
     int rightShoulder = 2;
     int rightElbow = 4;
     int rightWrist = 6;

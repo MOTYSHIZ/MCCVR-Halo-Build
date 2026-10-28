@@ -1,3 +1,4 @@
+#include "weapon_alignment.h"
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
@@ -477,12 +478,12 @@ static void Clamp()
     g_config.reticle_b = std::clamp(g_config.reticle_b, 0.0f, 1.0f);
     g_config.gun_scale = std::clamp(g_config.gun_scale, 0.3f, 3.0f);
     g_config.left_hand_scale = std::clamp(g_config.left_hand_scale, 0.3f, 3.0f);
-    g_config.left_hand_mesh_x_m = std::isfinite(g_config.left_hand_mesh_x_m) ? std::clamp(g_config.left_hand_mesh_x_m, -.20f, .20f) : 0.0f;
-    g_config.left_hand_mesh_y_m = std::isfinite(g_config.left_hand_mesh_y_m) ? std::clamp(g_config.left_hand_mesh_y_m, -.20f, .20f) : 0.0f;
-    g_config.left_hand_mesh_z_m = std::isfinite(g_config.left_hand_mesh_z_m) ? std::clamp(g_config.left_hand_mesh_z_m, -.20f, .20f) : 0.0f;
-    g_config.right_hand_mesh_x_m = std::isfinite(g_config.right_hand_mesh_x_m) ? std::clamp(g_config.right_hand_mesh_x_m, -.20f, .20f) : 0.0f;
-    g_config.right_hand_mesh_y_m = std::isfinite(g_config.right_hand_mesh_y_m) ? std::clamp(g_config.right_hand_mesh_y_m, -.20f, .20f) : 0.0f;
-    g_config.right_hand_mesh_z_m = std::isfinite(g_config.right_hand_mesh_z_m) ? std::clamp(g_config.right_hand_mesh_z_m, -.20f, .20f) : 0.0f;
+    g_config.left_hand_mesh_x_m = 0.0f;
+    g_config.left_hand_mesh_y_m = 0.0f;
+    g_config.left_hand_mesh_z_m = 0.0f;
+    g_config.right_hand_mesh_x_m = 0.0f;
+    g_config.right_hand_mesh_y_m = 0.0f;
+    g_config.right_hand_mesh_z_m = 0.0f;
 
     g_config.game_brightness = std::clamp(g_config.game_brightness, 0.5f, 2.0f);
     // Free-form: a hand-typed 0.90 stays 0.90. (Until 2026-07-20 this snapped
@@ -737,12 +738,12 @@ struct TunableField
 };
 
 const TunableField kTunableFields[] = {
-    {"left_hand_mesh_x_m", &TitleTunables::left_hand_mesh_x_m, &Config::left_hand_mesh_x_m, -.20f, .20f},
-    {"left_hand_mesh_y_m", &TitleTunables::left_hand_mesh_y_m, &Config::left_hand_mesh_y_m, -.20f, .20f},
-    {"left_hand_mesh_z_m", &TitleTunables::left_hand_mesh_z_m, &Config::left_hand_mesh_z_m, -.20f, .20f},
-    {"right_hand_mesh_x_m", &TitleTunables::right_hand_mesh_x_m, &Config::right_hand_mesh_x_m, -.20f, .20f},
-    {"right_hand_mesh_y_m", &TitleTunables::right_hand_mesh_y_m, &Config::right_hand_mesh_y_m, -.20f, .20f},
-    {"right_hand_mesh_z_m", &TitleTunables::right_hand_mesh_z_m, &Config::right_hand_mesh_z_m, -.20f, .20f},
+    {"left_hand_mesh_x_m", &TitleTunables::left_hand_mesh_x_m, &Config::left_hand_mesh_x_m, 0.0f, 0.0f},
+    {"left_hand_mesh_y_m", &TitleTunables::left_hand_mesh_y_m, &Config::left_hand_mesh_y_m, 0.0f, 0.0f},
+    {"left_hand_mesh_z_m", &TitleTunables::left_hand_mesh_z_m, &Config::left_hand_mesh_z_m, 0.0f, 0.0f},
+    {"right_hand_mesh_x_m", &TitleTunables::right_hand_mesh_x_m, &Config::right_hand_mesh_x_m, 0.0f, 0.0f},
+    {"right_hand_mesh_y_m", &TitleTunables::right_hand_mesh_y_m, &Config::right_hand_mesh_y_m, 0.0f, 0.0f},
+    {"right_hand_mesh_z_m", &TitleTunables::right_hand_mesh_z_m, &Config::right_hand_mesh_z_m, 0.0f, 0.0f},
 
     {"gun_scale", &TitleTunables::gun_scale, &Config::gun_scale, 0.30f, 3.00f},
     {"left_hand_scale", &TitleTunables::left_hand_scale,
@@ -753,11 +754,15 @@ const TunableField kTunableFields[] = {
      -180.0f, 180.0f},
     {"gun_roll_deg", &TitleTunables::gun_roll_deg, &Config::gun_roll_deg,
      -180.0f, 180.0f},
+    {"world_scale", &TitleTunables::world_scale, &Config::world_scale, .165f, .495f},
     {"gun_forward_m", &TitleTunables::gun_forward_m, &Config::gun_forward_m,
      -0.30f, 0.50f},
     {"gun_right_m", &TitleTunables::gun_right_m, &Config::gun_right_m,
      -0.30f, 0.30f},
     {"gun_up_m", &TitleTunables::gun_up_m, &Config::gun_up_m, -0.30f, 0.30f},
+    {"left_gun_forward_m", &TitleTunables::left_gun_forward_m, &Config::left_gun_forward_m, -.3f, .5f},
+    {"left_gun_right_m", &TitleTunables::left_gun_right_m, &Config::left_gun_right_m, -.3f, .3f},
+    {"left_gun_up_m", &TitleTunables::left_gun_up_m, &Config::left_gun_up_m, -.3f, .3f},
     {"left_hand_forward_m", &TitleTunables::left_hand_forward_m,
      &Config::left_hand_forward_m, -0.15f, 0.30f},
     {"hud_size", &TitleTunables::hud_size, &Config::hud_size, 0.30f, 1.00f, kTitleProfileReach},
@@ -798,6 +803,14 @@ std::atomic<int> g_activeTitleProfile{-1};
 // key holds.
 float ProfileSeed(int profile, const TunableField& descriptor, float shared)
 {
+    const auto gun=weapon_alignment::Baseline(profile);
+    if (descriptor.member == &TitleTunables::gun_forward_m) return gun.forward;
+    if (descriptor.member == &TitleTunables::gun_right_m) return gun.right;
+    if (descriptor.member == &TitleTunables::gun_up_m) return gun.up;
+    const auto left=weapon_alignment::HasProfile(profile)?weapon_alignment::kLeftOffsets[profile]:weapon_alignment::Offsets{-.16f,.04f,-.06f};
+    if (descriptor.member == &TitleTunables::left_gun_forward_m) return left.forward;
+    if (descriptor.member == &TitleTunables::left_gun_right_m) return left.right;
+    if (descriptor.member == &TitleTunables::left_gun_up_m) return left.up;
     const TitleTunables defaults{};
     const CrosshairStart& own = kCrosshairStarts[profile];
     if (descriptor.member == &TitleTunables::crosshair_size_deg && own.size_deg != defaults.crosshair_size_deg)
@@ -1003,6 +1016,8 @@ void ConfigLoad(const wchar_t* path)
     bool loadedScopeZoom = false;
     bool loadedHolsterRadius = false;
     bool flashlightMappingV2 = false;
+    bool leftHandForwardResetV1 = false;
+    bool bloomDefaultsV1 = false;
     bool aimDirectDriveSeen = false;
     bool coopSafeShotsV2 = false;   // coop_safe_shots_version >= 2: a 1 in this file is a chosen "always"
     bool loadedLegacyVirtualStockStrength = false;
@@ -1042,6 +1057,9 @@ void ConfigLoad(const wchar_t* path)
             vehicleGameKey=true;break;
         }
         if(vehicleGameKey)continue;
+        if (!strcmp(key,"world_scale")) {ParseFloatSetting(key,val,g_config.world_scale);continue;}
+        if (!strcmp(key,"bloom_defaults_version")) {bloomDefaultsV1=atoi(val)>=1;continue;}
+        if (!strcmp(key,"left_hand_forward_reset_version")) {leftHandForwardResetV1=atoi(val)>=1;continue;}
         if (ParseWeaponAlignmentKey(key,val)||ParseTitleProfileKey(key, val))
             continue;
         bool vrBindingKey=false;
@@ -1094,6 +1112,12 @@ void ConfigLoad(const wchar_t* path)
             muzzleFlashKey=true;break;
         }
         if(muzzleFlashKey) continue;
+        if(!strcmp(key,"disable_autoexposure_odst")) {
+            char* end=nullptr;const long value=strtol(val,&end,10);
+            if(end!=val&&end&&*end==0&&(value==0||value==1))g_config.disable_autoexposure_odst=value!=0;
+            else LOG("config: invalid autoexposure setting '%s' ignored",key);
+            continue;
+        }
         bool bloomKey=false;
         for(unsigned title=0;title<weapon_interaction::kTitleCount;++title)
         {
@@ -1257,6 +1281,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
+        if (!strcmp(key,"dual_wield_shake_reload")) { g_config.dual_wield_shake_reload=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_needler_shake")) { g_config.weapon_needler_shake=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_unknown_reload_visual")) { g_config.weapon_unknown_reload_visual=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_shake_travel_m"))
@@ -1533,6 +1558,15 @@ void ConfigLoad(const wchar_t* path)
             g_config.left_handed = atoi(val) != 0;
             continue;
         }
+        // Keep the new independent left-hand offset keys outside the legacy
+        // else-if chain: those extra arms exceed MSVC's block-nesting limit (C1061).
+        if (!strcmp(key, "left_gun_forward_m"))
+        { g_config.left_gun_forward_m = (float)atof(val); continue; }
+        if (!strcmp(key, "left_gun_right_m"))
+        { g_config.left_gun_right_m = (float)atof(val); continue; }
+        if (!strcmp(key, "left_gun_up_m"))
+        { g_config.left_gun_up_m = (float)atof(val); continue; }
+
         // Here, not in the else-if chain below: that chain is at MSVC's block nesting limit (C1061).
         if (!strcmp(key, "vehicle_vr_controls"))
         {
@@ -2023,12 +2057,35 @@ void ConfigLoad(const wchar_t* path)
         LOG("config: co-op safe shots moved from on to automatic (on whenever anyone else is in your session); "
             "choose Always on the Advanced page to keep it on everywhere");
     }
+    // Retired visual hand sliders must not survive in shared or title profiles.
+    const auto staleHandOffsets=[](const auto& values) {
+        return values.left_hand_mesh_x_m!=0 || values.left_hand_mesh_y_m!=0 ||
+            values.left_hand_mesh_z_m!=0 || values.right_hand_mesh_x_m!=0 ||
+            values.right_hand_mesh_y_m!=0 || values.right_hand_mesh_z_m!=0;
+    };
+    bool retiredHandOffsets=staleHandOffsets(g_config);
+    for (const auto& profile:g_config.title_profiles)
+        retiredHandOffsets=retiredHandOffsets||staleHandOffsets(profile);
     Config_ApplyAimModes();
     Clamp();
     NormalizeVirtualStockProximityPair();
     NormalizeVirtualStockHybridSeatPair();
     NormalizeVirtualStockHybridHorizontalPair();
+    if (!bloomDefaultsV1) {
+        // Apply the new Reach/ODST default once, then preserve user choices.
+        g_config.bloom_enabled[1]=false;
+        g_config.bloom_enabled[2]=false;
+        LOG("config: enabled Disable bloom for ODST and Reach on first update load");
+    }
+    if (!leftHandForwardResetV1) {
+        // Shared bilateral offsets replace the old left-hand baseline once.
+        g_config.left_hand_forward_m=0.0f;
+        for (auto& profile:g_config.title_profiles) profile.left_hand_forward_m=0.0f;
+    }
     ResolveTitleProfiles();
+    if (retiredHandOffsets)
+        LOG("config: retired Visible hand positioning offsets cleared for both hands and all title profiles");
+    if (!leftHandForwardResetV1 || retiredHandOffsets || !bloomDefaultsV1) ConfigSave();
     LOG("config: loaded (screen %.2fm wide at %.2fm)", g_config.screen_width_m, g_config.screen_distance_m);
 }
 
@@ -2081,6 +2138,8 @@ void ConfigSave()
         LOG("config: FAILED to write %ls", g_path.c_str());
         return;
     }
+    fprintf(f, "left_hand_forward_reset_version = 1\n\n");
+    fprintf(f,"world_scale = %.4f\n",g_config.base_tunables.world_scale);
     const Config d{}; // struct defaults, printed beside each setting
 
     fprintf(f, "# ===================================================================\n");
@@ -3140,6 +3199,8 @@ void ConfigSave()
         g_config.weapon_holster_radius_m,g_config.weapon_insert_radius_m,g_config.weapon_holster_draw_m);
     fprintf(f, "weapon_holster_slide = %d\nweapon_holster_click = %d\n",
         g_config.weapon_holster_slide?1:0,g_config.weapon_holster_click?1:0);
+    fprintf(f, "# Shake each held controller to reload its weapon in Halo 2/3 dual wield. Independent of manual_reload.\n");
+    fprintf(f, "dual_wield_shake_reload = %d\n", g_config.dual_wield_shake_reload?1:0);
     fprintf(f, "# Recognized Needlers across all titles and Reach Needle Rifle; requires manual_reload.\n");
     fprintf(f, "# One rapid gun-hand out-and-back shake in any direction; no grip; settle to rearm.\n");
     fprintf(f, "weapon_needler_shake = %d\nweapon_shake_travel_m = %.3f\n",
@@ -3188,6 +3249,8 @@ void ConfigSave()
     fprintf(f,"# Per-game muzzle-flash hiding. Supported paths: H2 Original and H4.\n");
     for(unsigned title=0;title<weapon_interaction::kTitleCount;++title)
         fprintf(f,"hide_muzzle_flash_%s = %d\n",weapon_interaction::kTitleKeys[title],g_config.hide_muzzle_flash[title]?1:0);
+    fprintf(f,"bloom_defaults_version = 1\n");
+    fprintf(f,"disable_autoexposure_odst = %d\n",g_config.disable_autoexposure_odst?1:0);
     fprintf(f,"# Stock bloom per game. Optional suppression supports H3, ODST and Reach.\n");
     for(unsigned title=0;title<weapon_interaction::kTitleCount;++title)
         fprintf(f,"bloom_enabled_%s = %d\n",weapon_interaction::kTitleKeys[title],g_config.bloom_enabled[title]?1:0);
@@ -3370,6 +3433,9 @@ void ConfigSave()
     fprintf(f, "# Left controller wrist-to-palm correction for support-hand seating/IK, in meters.\n");
     fprintf(f, "# Excluded from the two-hand aim line, which uses raw tracked points.\n");
     fprintf(f, "# (default %.3f, range -0.15 to 0.30)\n", d.left_hand_forward_m);
+    fprintf(f, "left_gun_forward_m = %.3f\n", g_config.base_tunables.left_gun_forward_m);
+    fprintf(f, "left_gun_right_m = %.3f\n", g_config.base_tunables.left_gun_right_m);
+    fprintf(f, "left_gun_up_m = %.3f\n", g_config.base_tunables.left_gun_up_m);
     fprintf(f, "left_hand_forward_m = %.3f\n\n", g_config.base_tunables.left_hand_forward_m);
     fprintf(f, "# Sideways nudge of the two-hand grab zone (+ = player's right), so the\n");
     fprintf(f, "# grab line sits on the visible barrel, in meters.\n");

@@ -16,6 +16,9 @@
 #include <vector>
 
 static bool fixtureNativeRouting=false;
+static bool fixtureNativeCanRoute=false;
+bool NativeVrActions_CanRoute(GameTitle,uint64_t) noexcept
+{ return fixtureNativeCanRoute; }
 bool NativeVrActions_GestureRouting(GameTitle,uint64_t) noexcept
 { return fixtureNativeRouting; }
 
@@ -369,6 +372,12 @@ int main()
         g_padState.weaponSwitchBinding=NativeVrActions_GestureBit(vr_mapping::SwitchWeapon);
         gestureRead(true);
         fixtureNativeRouting=false;gestureRead(false);
+        // Gesture-only modes use verified native routing even with mapping off.
+        g_config.vr_action_mapping=false;
+        fixtureNativeCanRoute=true;gestureRead(true);
+        g_padState.weaponReloadBinding=savedReload;gestureRead(false);
+        g_padState.weaponReloadBinding=NativeVrActions_GestureBit(vr_mapping::Reload);
+        fixtureNativeCanRoute=false;gestureRead(false);
         g_padState.weaponReloadBinding=savedReload;
         g_padState.weaponSwitchBinding=savedSwitch;
         g_config.vr_action_mapping=false;gestureRead(true);

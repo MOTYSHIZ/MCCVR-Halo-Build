@@ -338,6 +338,7 @@ static void STDMETHODCALLTYPE Halo2DrawIndexedCensusHook(
     ID3D11DeviceContext* context, UINT indexCount, UINT startIndex,
     INT baseVertex)
 {
+    if(PostEffects_ShouldSkipDraw(context))return;
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
         VR_Halo2NoteDraw();
     if(hud_visibility::Hidden()) return;
@@ -357,6 +358,7 @@ static void STDMETHODCALLTYPE Halo2DrawIndexedCensusHook(
 static void STDMETHODCALLTYPE Halo2DrawCensusHook(
     ID3D11DeviceContext* context, UINT vertexCount, UINT startVertex)
 {
+    if(PostEffects_ShouldSkipDraw(context))return;
     if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2)
         VR_Halo2NoteDraw();
     if(hud_visibility::Hidden()) return;
@@ -518,6 +520,7 @@ static HRESULT STDMETHODCALLTYPE CreatePixelShaderHook(
         device, bytecode, bytecodeLength, linkage, shader);
     if (FAILED(result) || !shader || !*shader || !bytecode || !bytecodeLength)
         return result;
+    PostEffects_ObserveDevice(device);
     Bloom_ObserveShaderCreated(*shader,bytecode,bytecodeLength);
 
 #if HALOMCCVR_HALO2_STEREO6DOF
@@ -570,6 +573,7 @@ static void STDMETHODCALLTYPE Halo4DrawIndexedFramingHook(
     ID3D11DeviceContext* context, UINT indexCount, UINT startIndex,
     INT baseVertex)
 {
+    if(PostEffects_ShouldSkipDraw(context))return;
     VrHalo4ReticleDrawScope reticleDraw(context);
     BloomDrawScope bloom(context);
     g_origHalo4DrawIndexed(context, indexCount, startIndex, baseVertex);
@@ -578,6 +582,7 @@ static void STDMETHODCALLTYPE Halo4DrawIndexedFramingHook(
 static void STDMETHODCALLTYPE Halo4DrawFramingHook(
     ID3D11DeviceContext* context, UINT vertexCount, UINT startVertex)
 {
+    if(PostEffects_ShouldSkipDraw(context))return;
     VrHalo4ReticleDrawScope reticleDraw(context);
     BloomDrawScope bloom(context);
     g_origHalo4Draw(context, vertexCount, startVertex);
@@ -2553,6 +2558,11 @@ bool InstallD3D11Hooks()
         bloomShaderStateCreated&&ceCommands==MH_OK&&sharedClearState==MH_OK&&
         sharedOmRtUav==MH_OK&&ceContextStateObserved;
     Bloom_SetAvailable(bloomAvailable,g_origBloomSetResources);
+    const bool postEffectsAvailable=enabled&&bloomMainDrawsCreated&&bloomExtraDrawsCreated&&
+        bloomShaderStateCreated&&ceCommands==MH_OK&&sharedClearState==MH_OK&&ceContextStateObserved;
+    PostEffects_SetAvailable(postEffectsAvailable);
+    LOG("Native shader toggles %s: Reach/ODST bloom, ODST autoexposure; no ReShade required",
+        postEffectsAvailable?"available":"StockFallback (hook admission incomplete)");
     LOG("Bloom consumer path %s: optional exact Reach/H3/ODST shaders, 64 MiB source+zero cache; default native bloom",
         bloomAvailable?"available":"StockFallback (hook admission incomplete)");
     HaloCEHudLayout_SetObservationAvailable(enabled&&ceRasterObservationCreated);

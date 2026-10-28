@@ -150,11 +150,20 @@ static void CeTests()
 static void ConfigTests()
 {
     const auto path=std::filesystem::temp_directory_path()/(L"mccvr-hand-offset-fixture-"+std::to_wstring(GetCurrentProcessId())+L".cfg");
-    {std::ofstream f(path);f<<"left_hand_mesh_x_m = 0.04\nright_hand_mesh_z_m = -0.02\nhalo3_left_hand_mesh_x_m = 0.07\n";}
-    ConfigLoad(path.c_str());Config_ApplyTitleProfile(0);Check(Near(g_config.left_hand_mesh_x_m,.07f)&&Near(g_config.right_hand_mesh_z_m,-.02f),"per-title overrides and shared migration defaults load");
-    g_config.left_hand_mesh_y_m=.03f;g_config.right_hand_mesh_x_m=-.06f;ConfigSave();ConfigLoad(path.c_str());
-    Check(Near(g_config.left_hand_mesh_y_m,.03f)&&Near(g_config.right_hand_mesh_x_m,-.06f),"live hand sliders persist independently");
-    Config_ApplyTitleProfile(1);Check(Near(g_config.left_hand_mesh_x_m,.04f)&&g_config.left_hand_mesh_y_m==0,"title transition restores own hand offsets");
+    {std::ofstream f(path);f<<"left_hand_mesh_x_m = 0.04\nright_hand_mesh_z_m = -0.02\nhalo3_left_hand_mesh_x_m = 0.07\nleft_gun_forward_m = -0.12\nhalo3_left_gun_forward_m = 0.07\nodst_left_gun_forward_m = -0.12\n";}
+    ConfigLoad(path.c_str());Config_ApplyTitleProfile(0);
+    Check(Near(g_config.left_hand_mesh_x_m,0)&&Near(g_config.right_hand_mesh_z_m,0)&&
+        Near(g_config.title_profiles[0].left_hand_mesh_x_m,0)&&
+        Near(g_config.title_profiles[0].right_hand_mesh_z_m,0),
+        "retired shared and per-title visible hand mesh offsets are cleared");
+    Check(Near(g_config.left_gun_forward_m,.07f)&&Near(g_config.title_profiles[1].left_gun_forward_m,-.12f),
+        "per-title weapon offset overrides load independently");
+    g_config.left_gun_up_m=.03f;g_config.gun_up_m=-.06f;ConfigSave();ConfigLoad(path.c_str());
+    Check(Near(g_config.left_gun_up_m,.03f)&&Near(g_config.gun_up_m,-.06f),
+        "independent left/right weapon offsets persist separately");
+    Config_ApplyTitleProfile(1);
+    Check(Near(g_config.left_gun_forward_m,-.12f)&&Near(g_config.left_hand_mesh_x_m,0),
+        "title transition uses its own weapon offset and ignores retired visible offsets");
     Config_ApplyTitleProfile(-1);std::filesystem::remove(path);
 }
 int main(){CommonTests();LegacyTests();ReachTests();Halo4Tests();Halo2Tests();CeTests();ConfigTests();std::printf("PASS: %u visual-hand production/config checks\n",checks);}

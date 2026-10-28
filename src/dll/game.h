@@ -470,6 +470,7 @@ bool Game_HasAuthoritativePauseState();
 // left/right render camera for the next game frame.
 void Game_SetStereoEye(int eye);
 float Game_GetWorldScale();
+void Game_SetWorldScale(float value);
 // The F6 positional (leaning) toggle, shared by every title's camera core.
 bool Game_IsPositionalTracking();
 // >1 while the player is zoomed (weapon scope); 1.0 at hip. Drives the scope.

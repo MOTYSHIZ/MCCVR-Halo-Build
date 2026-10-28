@@ -1,3 +1,4 @@
+#include "../common/manual_weapon_input.h"
 #include <windows.h>
 #include <Xinput.h>
 #include <cmath>
@@ -574,8 +575,13 @@ namespace
 #endif
         const bool weaponGesture=pad.weaponConsumeSupport||pad.weaponConsumePrimary||pad.weaponButtons;
         const uint32_t gestureMelee=weaponGesture?0:Game_GestureMeleeInput(inputNow);
-        if(semanticMode) NativeVrActions_Publish(state,currentTitle,inputNow,
-            routedActions.published | ((crouchButtons|gestureMelee|pad.weaponButtons)>>18),directActions);
+        const uint32_t blockedWeaponActions=manual_weapon_input::Blocked(
+            gameplayMode&&inputMode==RuntimeMode::Gameplay,g_config.manual_reload,g_config.weapon_holsters);
+        const uint32_t gestureActions=((crouchButtons|gestureMelee)>>18)|
+            manual_weapon_input::Gestures(pad.weaponButtons,pad.weaponReloadBinding,pad.weaponSwitchBinding);
+        if(semanticMode||blockedWeaponActions) NativeVrActions_Publish(state,currentTitle,inputNow,
+            manual_weapon_input::Publish(routedActions.published,gestureActions,blockedWeaponActions),
+            directActions,blockedWeaponActions);
         btn |= static_cast<WORD>(gestureMelee & 0xFFFF);
         btn |= static_cast<WORD>(pad.weaponButtons & 0xFFFF);
         state->Gamepad.wButtons = btn;

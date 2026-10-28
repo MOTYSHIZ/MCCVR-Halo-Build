@@ -1,3 +1,4 @@
+#include "../common/weapon_alignment.h"
 #include <windows.h>
 #include <windowsx.h>
 #include <algorithm>
@@ -166,7 +167,7 @@ namespace
         {
             if(g_activeCategory!=category&&g_activeCategory!=Cat_QualityOfLife)return;
             ImGui::PushID(static_cast<int>(category));scoped=true;
-            visible=g_activeCategory==category||ImGui::CollapsingHeader(kCategories[category].label);
+            visible=true;
         }
         ~CategorySection(){if(scoped)ImGui::PopID();}
         CategorySection(const CategorySection&)=delete;
@@ -646,7 +647,8 @@ namespace
 
         if (CategorySection section{Cat_Comfort}; section.visible)
         {
-        ImGui::Text("Virtual screen");
+        if (ImGui::CollapsingHeader("Virtual screen##section", ImGuiTreeNodeFlags_None))
+        {
         // These two used to stop at 10 m even though the config file accepts 20,
         // so a value typed into halomccvr.cfg could not be reached or restored
         // from the menu. The slider now spans the file's own range.
@@ -656,7 +658,23 @@ namespace
                             "This is NOT the F1 panel; that one lives under Advanced.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Head motion");
+        }
+        if (ImGui::CollapsingHeader("World scale##section", ImGuiTreeNodeFlags_None))
+        {
+            float worldScale=Game_GetWorldScale()/.33f*100.f;
+            if (vr_menu::SliderFloat("World scale", &worldScale, 50.f, 150.f, "%.0f%%"))
+            {
+                Game_SetWorldScale(worldScale*.0033f);
+                changed=true;
+            }
+            if (ImGui::SmallButton("Reset world scale")) {
+                Game_SetWorldScale(.33f);
+                changed=true;
+            }
+            ImGui::TextDisabled("100% is the original scale. Saved separately for each game.");
+        }
+        if (ImGui::CollapsingHeader("Head motion##section", ImGuiTreeNodeFlags_None))
+        {
         float headsetSmoothPercent = g_config.headset_smoothing * 100.0f;
         if (vr_menu::SliderFloat("Headset micro-smoothing", &headsetSmoothPercent,
                                0.0f, 10.0f, "%.0f%%", ImGuiSliderFlags_None))
@@ -673,16 +691,21 @@ namespace
         ImGui::TextDisabled("Raw by default. Try 5%% only for micro-jitter; capped at 10%% for comfort.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Sound");
+        }
+        if (ImGui::CollapsingHeader("Sound##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Sound follows your head", &g_config.audio_follows_head);
         ImGui::TextDisabled("ON: you hear the world from the way your head faces.\n"
                             "OFF: from the way your gun points, as the game does it.\n"
                             "Halo: Reach, Halo 3, Halo 4 and ODST; other games keep their own sound. Live.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Startup");
+        }
+        if (ImGui::CollapsingHeader("Startup##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Auto-enter VR on level load", &g_config.auto_vr);
         ImGui::TextDisabled("Turns head tracking + stereo on when a level starts and off in the menu.");
+        }
         }
 
         if (CategorySection section{Cat_Theatre}; section.visible)
@@ -696,7 +719,8 @@ namespace
             "Scripted gameplay, vehicles, death cameras, loading and pause stay immersive.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Stereo depth");
+        if (ImGui::CollapsingHeader("Stereo depth##section", ImGuiTreeNodeFlags_None))
+        {
         float depthPercent = g_config.cutscene_theater_depth * 100.0f;
         if (vr_menu::SliderFloat(
                 "Depth", &depthPercent, 0.0f, 200.0f, "%.0f%%"))
@@ -712,7 +736,9 @@ namespace
             "and 200%% doubles the separation. Flip only if depth looks reversed.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Room-fixed screen");
+        }
+        if (ImGui::CollapsingHeader("Room-fixed screen##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= vr_menu::SliderFloat(
             "Screen width (m)##theatre",
             &g_config.cutscene_theater_width_m, 0.5f, 20.0f, "%.1f");
@@ -724,7 +750,9 @@ namespace
             "cinematic projection.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Black cine bars");
+        }
+        if (ImGui::CollapsingHeader("Black cine bars##section", ImGuiTreeNodeFlags_None))
+        {
         bool matteOn = g_config.cutscene_theater_matte_aspect > 0.0f;
         if (ImGui::Checkbox("Show cine bars", &matteOn))
         {
@@ -747,7 +775,9 @@ namespace
             "resized, only covered. Slide moves what stays showing up or down.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Subtitles");
+        }
+        if (ImGui::CollapsingHeader("Subtitles##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox(
             "Show subtitles on the theatre screen",
             &g_config.cutscene_theater_subtitles);
@@ -770,6 +800,7 @@ namespace
                 "Paints the captured strip straight onto the screen with no text\n"
                 "picking at all, so you can see exactly what the mod is reading.\n"
                 "Turn it off for normal play.");
+        }
         }
         }
 
@@ -844,7 +875,8 @@ namespace
                     "press Calibrate while standing tall for the full crouch depth.");
         }
         ImGui::Spacing();
-        ImGui::Text("VR turning (right controller stick)");
+        if (ImGui::CollapsingHeader("VR turning (right controller stick)##section", ImGuiTreeNodeFlags_None))
+        {
         if (ImGui::RadioButton("Snap turn", !g_config.turn_smooth))
         {
             g_config.turn_smooth = false;
@@ -869,7 +901,9 @@ namespace
         ImGui::TextDisabled("On by default. Turn it off if you prefer Y and B to stay separate.");
 
         ImGui::Spacing();
-        ImGui::Text("D-pad gesture (hold controller next to head)");
+        }
+        if (ImGui::CollapsingHeader("D-pad gesture (hold controller next to head)##section", ImGuiTreeNodeFlags_None))
+        {
         if (ImGui::RadioButton("Left controller", g_config.dpad_hand == 0))
         {
             g_config.dpad_hand = 0;
@@ -915,6 +949,7 @@ namespace
                               "A white ring marks the cursor and shrinks when clicked. MCC must have desktop focus.\n"
                               "Release the trigger before your first click. Off preserves normal menu controls.");
         ImGui::TextDisabled("L3+R3 recenters and toggles this menu; the right trigger clicks the VR pointer.");
+        }
         }
 
         if (CategorySection section{Cat_Mappings}; section.visible)
@@ -964,7 +999,8 @@ namespace
 
         if (CategorySection section{Cat_Vehicles}; section.visible)
         {
-        ImGui::Text("First-person vehicle camera");
+        if (ImGui::CollapsingHeader("First-person vehicle camera##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Sit in the seat (first person)",
                                    &g_config.vehicle_first_person);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("All six games. CE, Halo 2 and Halo 4 use the seated character's head position.\n"
@@ -1200,7 +1236,9 @@ namespace
             "Left/right: negative moves left, positive moves right.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Aim in seats");
+        }
+        if (ImGui::CollapsingHeader("Aim in seats##section", ImGuiTreeNodeFlags_None))
+        {
         ImGui::TextDisabled("Seats follow Converged aim and Direct drive in Weapon & Aim, as on foot.\n"
                             "Reach, Halo CE and Halo 2 fire a seat's weapon at what that seat's own crosshair\n"
                             "hits, so the aim is bent to put that crosshair on your target (Halo CE and Halo 2:\n"
@@ -1253,7 +1291,9 @@ namespace
         }
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Turning with the vehicle");
+        }
+        if (ImGui::CollapsingHeader("Turning with the vehicle##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("View follows the vehicle",
                                    &g_config.vehicle_view_follow);
         ImGui::TextDisabled(
@@ -1301,7 +1341,9 @@ namespace
             "Position only - it never turns your view.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("VR controls in seats (Halo CE, Halo 2)");
+        }
+        if (ImGui::CollapsingHeader("VR controls in seats (Halo CE, Halo 2)##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("VR controls in Halo CE and Halo 2 vehicles",
                                    &g_config.vehicle_vr_controls);
         ImGui::TextDisabled(
@@ -1312,7 +1354,9 @@ namespace
             "Reach and Halo 4 seats are not affected.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Motion steering (Halo 3, ODST, Reach)");
+        }
+        if (ImGui::CollapsingHeader("Motion steering (Halo 3, ODST, Reach)##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Virtual steering wheel",
                                    &g_config.vehicle_motion);
         ImGui::TextDisabled(
@@ -1327,11 +1371,23 @@ namespace
         changed |= vr_menu::SliderFloat("Wheel deadzone (deg)",
             &g_config.vehicle_wheel_deadzone_deg, 0.0f, 30.0f, "%.0f");
         }
+        }
 
         if (CategorySection section{Cat_Reload}; section.visible)
         {
-        ImGui::Text("Reload and holsters");
+        if (ImGui::CollapsingHeader("Reload and holsters##section", ImGuiTreeNodeFlags_None))
+        {
+        changed |= ImGui::Checkbox("dual wield shake reload", &g_config.dual_wield_shake_reload);
+        ImGui::TextDisabled("shake to reload a weapon when dual wielding");
+        if(g_config.dual_wield_shake_reload)
+        {
+            changed |= vr_menu::SliderFloat("Minimum shake stroke (m)##dualreload",
+                &g_config.weapon_shake_travel_m,0.06f,0.20f,"%.2f");
+            ImGui::TextDisabled("Halo 2 and Halo 3. Shake either hand back and forth once.\n"
+                "Let the hand settle before shaking again.");
+        }
         changed |= ImGui::Checkbox("Manual Reload", &g_config.manual_reload);
+        if(g_config.manual_reload) ImGui::TextDisabled("Button and keyboard reload are disabled; use reload gestures.");
         if (g_config.manual_reload)
         {
             ImGui::TextDisabled("Hold your support grip at your hip to take a magazine.\n"
@@ -1374,6 +1430,7 @@ namespace
             }
         }
         changed |= ImGui::Checkbox("Weapon Holsters", &g_config.weapon_holsters);
+        if(g_config.weapon_holsters) ImGui::TextDisabled("Button and keyboard weapon switching are disabled; use the holster.");
         if (ImGui::Button("Over-the-shoulder weapon switch (Campaign Evolved)"))
         {
             // That mod's gesture: reach over the weapon-side shoulder and squeeze the grip.
@@ -1468,10 +1525,12 @@ namespace
                 "Button choices are in VR Mappings. Release a claimed grip before starting another gesture.");
         }
         }
+        }
 
         if (CategorySection section{Cat_WeaponAim}; section.visible)
         {
-        ImGui::Text("Aim (every title)");
+        if (ImGui::CollapsingHeader("Aim (every title)##section", ImGuiTreeNodeFlags_None))
+        {
         {
             bool converged = g_config.converged_aim != 0;
             if (ImGui::Checkbox("Converged aim", &converged))
@@ -1549,7 +1608,9 @@ namespace
         ImGui::Spacing();
         ImGui::Separator();
         // Here, not under Comfort: it changes how the hands (and so the aim) are read, not how the view feels.
-        ImGui::Text("Hand smoothing");
+        }
+        if (ImGui::CollapsingHeader("Hand smoothing##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Hand smoothing", &g_config.hand_smoothing);
         ImGui::TextDisabled("Steadies your tracked hands before anything reads them: aim and shots, the arms,\n"
                             "two-handed holds, reload and this pointer. A still hand is held steady; a fast move\n"
@@ -1590,7 +1651,9 @@ namespace
         }
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Two-handed aiming");
+        }
+        if (ImGui::CollapsingHeader("Two-handed aiming##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Two-handed aiming", &g_config.two_handed_aim);
         ImGui::SameLine();
         ImGui::TextDisabled(VR_IsTwoHandAiming() ? "[engaged]" : "[one-handed]");
@@ -1671,7 +1734,7 @@ namespace
             changed |= vr_menu::SliderFloat("Left hand forward offset (m)",
                                           &g_config.left_hand_forward_m,
                                           -0.15f, 0.30f, "%.3f");
-            ImGui::TextDisabled("Moves the visible support hand; the aiming line stays on the controllers.");
+            ImGui::TextDisabled("Additional left-hand adjustment on top of the shared gun forward offset.");
             changed |= vr_menu::SliderFloat("Grab zone side offset (m)",
                                           &g_config.two_hand_zone_right_m,
                                           -0.10f, 0.10f, "%.3f");
@@ -1682,11 +1745,13 @@ namespace
             ImGui::TextDisabled("Moves the support-hand grab sample forward from the tracked controller toward the visible palm.");
             ImGui::Unindent();
         }
+        }
 #include "virtual_stock_menu.inl"
 
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Hand-held weapon");
+        if (ImGui::CollapsingHeader("Hand-held weapon##section", ImGuiTreeNodeFlags_None))
+        {
         if(ImGui::Checkbox("Per-gun alignment",&g_config.per_gun_alignment))
         { Config_RefreshWeaponProfile();changed=true; }
         if(g_config.per_gun_alignment)
@@ -1708,7 +1773,9 @@ namespace
                             "1.00 = authored size. Separate because the left hand is\n"
                             "usually empty; use Match weapon for identical hands.\n"
                             "Its front/back position is \"Left hand forward offset\" below.");
-        ImGui::Text("Visual gun alignment");
+        }
+        if (ImGui::CollapsingHeader("Visual gun alignment##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= vr_menu::SliderFloat("Gun alignment pitch (deg)", &g_config.barrel_pitch_deg, -180.0f, 180.0f, "%.1f");
         changed |= vr_menu::SliderFloat("Gun alignment yaw (deg)", &g_config.barrel_yaw_deg, -180.0f, 180.0f, "%.1f");
         changed |= vr_menu::SliderFloat("Gun alignment roll (deg)", &g_config.barrel_roll_deg, -180.0f, 180.0f, "%.1f");
@@ -1722,28 +1789,37 @@ namespace
         ImGui::TextDisabled("Align the visible barrel with the crosshair. These rotations\n"
                             "move the gun and hands without changing the aiming ray.\n"
                             "Saved separately for each game; zero restores automatic alignment.");
-        changed |= vr_menu::SliderFloat("Gun forward offset (m)", &g_config.gun_forward_m, -0.3f, 0.5f, "%.2f");
-        ImGui::TextDisabled("Slides gun/arms along your aim. Negative seats the gun back in your fist.");
-        changed |= vr_menu::SliderFloat("Gun right offset (m)", &g_config.gun_right_m, -0.3f, 0.3f, "%.2f");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Center##gnrx")) { g_config.gun_right_m = 0.0f; changed = true; }
-        changed |= vr_menu::SliderFloat("Gun up offset (m)", &g_config.gun_up_m, -0.3f, 0.3f, "%.2f");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Center##gnux")) { g_config.gun_up_m = 0.0f; changed = true; }
-        ImGui::TextDisabled("Gun-stock calibration on the weapon's post-rotation right/up axes.");
+        const auto gunBase=weapon_alignment::Baseline(Config_ActiveTitleProfile());
+        const auto offsetSlider=[&](const char* label,float& value,float baseline,float minimum,float maximum) {
+            float delta=value-baseline;
+            if (!vr_menu::SliderFloat(label,&delta,minimum-baseline,maximum-baseline,"%.2f")) return false;
+            value=baseline+delta;
+            return true;
+        };
+        ImGui::TextUnformatted("Right hand");
+        changed |= offsetSlider("Gun forward offset (m)##right",g_config.gun_forward_m,gunBase.forward,-.3f,.5f);
+        changed |= offsetSlider("Gun right offset (m)##right",g_config.gun_right_m,gunBase.right,-.3f,.3f);
+        changed |= offsetSlider("Gun up offset (m)##right",g_config.gun_up_m,gunBase.up,-.3f,.3f);
+        if (ImGui::SmallButton("Reset right gun offsets")) {
+            g_config.gun_forward_m=gunBase.forward;g_config.gun_right_m=gunBase.right;g_config.gun_up_m=gunBase.up;
+            changed=true;
+        }
+        const int offsetProfile=Config_ActiveTitleProfile();
+        const auto leftBase=weapon_alignment::HasProfile(offsetProfile)?weapon_alignment::kLeftOffsets[offsetProfile]:
+            weapon_alignment::Offsets{-.16f,.04f,-.06f};
+        ImGui::TextUnformatted("Left hand");
+        changed |= offsetSlider("Gun forward offset (m)##left",g_config.left_gun_forward_m,leftBase.forward,-.3f,.5f);
+        changed |= offsetSlider("Gun right offset (m)##left",g_config.left_gun_right_m,leftBase.right,-.3f,.3f);
+        changed |= offsetSlider("Gun up offset (m)##left",g_config.left_gun_up_m,leftBase.up,-.3f,.3f);
+        if (ImGui::SmallButton("Reset left gun offsets")) {
+            g_config.left_gun_forward_m=leftBase.forward;g_config.left_gun_right_m=leftBase.right;g_config.left_gun_up_m=leftBase.up;
+            changed=true;
+        }
+        ImGui::TextDisabled("Zero uses this game's calibrated position. Each hand is adjusted independently.");
 
-        ImGui::TextDisabled("All supported VR titles; visual only, shots/reticle remain on controller aim.");
+        ImGui::TextDisabled("Visual rotations are separate from barrel aiming in all supported VR titles.");
         ImGui::Spacing();
-        ImGui::Text("Halo 2 Classic gun alignment");
-        changed |= vr_menu::SliderFloat(
-            "H2 Classic gun yaw (deg)",
-            &g_config.halo2_classic_gun_yaw_deg, -30.0f, 30.0f, "%.1f");
-        changed |= vr_menu::SliderFloat(
-            "H2 Classic gun pitch (deg)",
-            &g_config.halo2_classic_gun_pitch_deg, -30.0f, 30.0f, "%.1f");
-        ImGui::TextDisabled(
-            "Classic/original graphics only; moves the visible gun and hands.\n"
-            "Anniversary, the VR reticle, and bullet direction stay unchanged.");
+        ImGui::TextDisabled("Halo 2 Classic includes a fixed -9.5 pitch and -1 yaw visual correction.");
         changed |= vr_menu::SliderFloat("Muzzle height (m)", &g_config.muzzle_height_m, -0.3f, 0.3f, "%.2f");
         ImGui::TextDisabled("Reach: adjusts secondary muzzle placement; H3/ODST marker effects follow the gun. H2 Classic does not read this slider.");
         ImGui::TextDisabled("Raises supported muzzle/effect placement along the gun's own axis.");
@@ -1762,29 +1838,13 @@ namespace
 
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Visible hand positioning");
-        ImGui::TextDisabled("Offsets follow each hand's local axes. Guns and interactions keep their positions.");
-        changed |= vr_menu::SliderFloat("Left hand X (m)", &g_config.left_hand_mesh_x_m, -.20f, .20f, "%.3f");
-        changed |= vr_menu::SliderFloat("Left hand Y (m)", &g_config.left_hand_mesh_y_m, -.20f, .20f, "%.3f");
-        changed |= vr_menu::SliderFloat("Left hand Z (m)", &g_config.left_hand_mesh_z_m, -.20f, .20f, "%.3f");
-        changed |= vr_menu::SliderFloat("Right hand X (m)", &g_config.right_hand_mesh_x_m, -.20f, .20f, "%.3f");
-        changed |= vr_menu::SliderFloat("Right hand Y (m)", &g_config.right_hand_mesh_y_m, -.20f, .20f, "%.3f");
-        changed |= vr_menu::SliderFloat("Right hand Z (m)", &g_config.right_hand_mesh_z_m, -.20f, .20f, "%.3f");
-        if (ImGui::SmallButton("Reset visible hand positions"))
-        {
-            g_config.left_hand_mesh_x_m=0.0f;
-            g_config.left_hand_mesh_y_m=0.0f;
-            g_config.left_hand_mesh_z_m=0.0f;
-            g_config.right_hand_mesh_x_m=0.0f;
-            g_config.right_hand_mesh_y_m=0.0f;
-            g_config.right_hand_mesh_z_m=0.0f;
-            changed=true;
         }
         }
 
         if (CategorySection section{Cat_Crosshair}; section.visible)
         {
-        ImGui::Text("Crosshair and bullet direction");
+        if (ImGui::CollapsingHeader("Crosshair and bullet direction##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Independent dual-wield trajectories", &g_config.independent_dual_aim);
         ImGui::TextDisabled("Halo 2 and Halo 3: each gun follows its own controller when dual wielding.");
         changed |= ImGui::Checkbox("Aim from the visible gun barrel", &g_config.gun_barrel_aim);
@@ -1806,7 +1866,9 @@ namespace
         ImGui::TextDisabled("Adjusts the aiming ray used by shots and the reticle, even when hidden.\n"
                             "Visual gun alignment and gun-stock offsets are in Weapon & Aim.");
         ImGui::Spacing();
-        ImGui::Text("Authored weapon crosshair (stereo)");
+        }
+        if (ImGui::CollapsingHeader("Authored weapon crosshair (stereo)##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Show a crosshair where the weapon shoots", &g_config.crosshair);
         if (g_config.crosshair)
         {
@@ -1931,10 +1993,12 @@ namespace
         ImGui::TextDisabled("Crosshair smoothing is visual only; bullets keep the current controller ray.\n"
                             "Set it to 0%% for exact raw tracking.");
         }
+        }
 
         if (CategorySection section{Cat_Scope}; section.visible)
         {
-        ImGui::Text("Gun-mounted circular zoom lens");
+        if (ImGui::CollapsingHeader("Gun-mounted circular zoom lens##section", ImGuiTreeNodeFlags_None))
+        {
         ImGui::TextDisabled("Halo 2, Halo 3, ODST, Reach and Halo 4. CE uses native zoom.");
         if (ImGui::Checkbox("Enable R3 zoom lens", &g_config.scope_enabled))
         {
@@ -1977,10 +2041,12 @@ namespace
             ImGui::Unindent();
         }
         }
+        }
 
         if (CategorySection section{Cat_BodyHands}; section.visible)
         {
-        ImGui::Text("Body (VRIK)");
+        if (ImGui::CollapsingHeader("Body (VRIK)##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Arm IK (bend arm to controller)", &g_config.arm_ik);
         ImGui::TextWrapped("Bend supported arm models toward the tracked hands. When a model cannot be solved, keep the working hands and weapons; some titles hide the unsupported arms.");
         if (g_config.arm_ik)
@@ -2031,10 +2097,12 @@ namespace
             ImGui::TextWrapped("Lower-body hiding requires separate leg geometry. Unsupported rigs retain first-person hands. Halo 3 Elite/Arbiter full avatars currently require this option off.");
         }
         }
+        }
 
         if (CategorySection section{Cat_Hud}; section.visible)
         {
-        ImGui::Text("Motion tracker");
+        if (ImGui::CollapsingHeader("Motion tracker##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Motion tracker follows your head", &g_config.tracker_follows_head);
         ImGui::TextDisabled("ON: contacts are placed by where your head faces, so they match what you see:\n"
                             "sweeping the gun moves nothing, turning your head turns them.\n"
@@ -2054,7 +2122,9 @@ namespace
                             "Halo 3 only. Live.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Waypoints");
+        }
+        if (ImGui::CollapsingHeader("Waypoints##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Markers use the headset's field of view", &g_config.nav_markers_on_target);
         ImGui::TextDisabled("ON: objective markers are projected with the field of view each eye is drawn with,\n"
                             "so a marker stays on its point when you turn your head.\n"
@@ -2082,7 +2152,9 @@ namespace
         }
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("HUD layout");
+        }
+        if (ImGui::CollapsingHeader("HUD layout##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Hide HUD completely", &g_config.hide_hud);
         if(g_config.hide_hud) {
             changed|=ImGui::Checkbox("Reveal with hand near head",&g_config.hud_reveal_near_head);
@@ -2155,10 +2227,12 @@ namespace
                 "middle of your view. OFF (default) leaves the visor's thin outline. Live.");
         }
         }
+        }
 
         if (CategorySection section{Cat_Picture}; section.visible)
         {
-        ImGui::Text("Rendering");
+        if (ImGui::CollapsingHeader("Rendering##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Mono rendering: one picture for both eyes", &g_config.mono_rendering);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("The game is drawn once a frame instead of once for each eye, and both eyes see that\n"
@@ -2169,7 +2243,9 @@ namespace
                               "Not on headsets with angled displays, in the cutscene theatre, or with DLSS.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Headset picture resolution");
+        }
+        if (ImGui::CollapsingHeader("Headset picture resolution##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= vr_menu::SliderFloat("Resolution scale", &g_config.resolution_scale,
                                       kResolutionScaleMin, kResolutionScaleMax, "%.2fx");
         // Same even-rounding the launcher applies, so this is the exact render
@@ -2223,7 +2299,9 @@ namespace
                                "    short sessions and drop this if the game won't start.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Optional temporal upscaling");
+        }
+        if (ImGui::CollapsingHeader("Optional temporal upscaling##section", ImGuiTreeNodeFlags_None))
+        {
         changed|=ImGui::Combo("Upscaler",&g_config.upscaler,"Off\0NVIDIA DLSS (experimental)\0");
         if(g_config.upscaler)
         {
@@ -2237,7 +2315,9 @@ namespace
                 "If a game's depth or camera data is unavailable, the ordinary full-resolution view is restored.");
         }
         ImGui::Separator();
-        ImGui::Text("Image quality (applies live, every title)");
+        }
+        if (ImGui::CollapsingHeader("Image quality (applies live, every title)##section", ImGuiTreeNodeFlags_None))
+        {
         const char* upscaleItems[] = {"Linear (old)", "Sharp (strong bicubic)"};
         changed |= ImGui::Combo("Upscale filter", &g_config.upscale_filter,
                                 upscaleItems, 2);
@@ -2256,14 +2336,29 @@ namespace
                             "SMAA costs more GPU only when one of its modes is selected.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Scene");
+        }
+        if (ImGui::CollapsingHeader("Scene##section", ImGuiTreeNodeFlags_None))
+        {
         const auto pictureTitle=TitleAdapter_GetActiveTitle();
         const int bloomTitle=pictureTitle==GameTitle::Halo3?0:
             pictureTitle==GameTitle::Halo3ODST?1:pictureTitle==GameTitle::HaloReach?2:-1;
         if(bloomTitle>=0)
         {
-            changed|=ImGui::Checkbox("Bloom in this game",&g_config.bloom_enabled[bloomTitle]);
-            ImGui::TextWrapped("Turn off to remove the game's bloom glow. This setting is saved separately for each game.");
+            if(pictureTitle==GameTitle::Halo3) {
+                changed|=ImGui::Checkbox("Bloom in this game",&g_config.bloom_enabled[bloomTitle]);
+            } else {
+                bool disabled=!g_config.bloom_enabled[bloomTitle];
+                if(ImGui::Checkbox("Disable bloom",&disabled)) {
+                    g_config.bloom_enabled[bloomTitle]=!disabled;changed=true;
+                }
+            }
+            if(pictureTitle!=GameTitle::Halo3)
+                ImGui::TextWrapped("Restart the game for bloom to be properly disabled.");
+            ImGui::TextWrapped("Bloom is saved separately for each game.");
+            if(pictureTitle==GameTitle::Halo3ODST) {
+                changed|=ImGui::Checkbox("Disable autoexposure",&g_config.disable_autoexposure_odst);
+                ImGui::TextWrapped("Lowering the brightness is highly recommended when autoexposure is disabled.");
+            }
         }
         changed |= vr_menu::SliderFloat("Game brightness", &g_config.game_brightness, 0.5f, 2.0f, "%.2f");
         ImGui::TextDisabled("Brightens/darkens the whole game. 1.0 = the game's own brightness.\n"
@@ -2283,7 +2378,9 @@ namespace
                             "(hard pop-in) for the most frames. Live, all three games.");
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Weather (Halo: Reach honours these today)");
+        }
+        if (ImGui::CollapsingHeader("Weather (Halo: Reach honours these today)##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::Checkbox("Rain", &g_config.rain);
         ImGui::TextDisabled("The rain streaks the game draws across your view. Off by default:\n"
                             "in a headset they read as noise over the whole image. Live -- flip\n"
@@ -2293,6 +2390,7 @@ namespace
                             "Off by default and the bigger clarity win of the two. This is the\n"
                             "game's own fog switch, so hazy levels see much further. Live.\n"
                             "A game with no proven switch is left alone and says so in the log.");
+        }
         }
 
         if (CategorySection section{Cat_Subtitles}; section.visible)
@@ -2328,9 +2426,10 @@ namespace
                 "Unsupported native feeds retain the existing subtitle view.");
         }
 
-        if (g_activeCategory == Cat_Desktop)
+        if (CategorySection section{Cat_Desktop}; section.visible)
         {
-        ImGui::Text("The window on your monitor");
+        if (ImGui::CollapsingHeader("The window on your monitor##section", ImGuiTreeNodeFlags_None))
+        {
         if(ImGui::Checkbox("Fit desktop window to my monitor",&g_config.fit_desktop_window)) {
             changed=true;
             if(D3D_FitActive()) PostMessageW(D3D_GameWindow(),kFitGameWindowMsg,0,0);
@@ -2344,8 +2443,10 @@ namespace
             "disabling it stops further fitting to the monitor.\n"
             "Headset resolution changes work with either setting.");
         }
+        }
 
-        if (g_activeCategory == Cat_Telemetry)
+        if (g_activeCategory == Cat_Telemetry &&
+            ImGui::CollapsingHeader("Telemetry Recorder##section", ImGuiTreeNodeFlags_None))
         {
         const TelemetryStatusSnapshot telemetry = Telemetry_GetStatus();
         const bool active = telemetry.state == TelemetryRecorderState::Starting ||
@@ -2402,9 +2503,10 @@ namespace
         ImGui::TextDisabled("Saved in the Telemetry Recordings folder beside HaloMCCVR.log.");
         }
 
-        if (g_activeCategory == Cat_Advanced)
+        if (CategorySection section{Cat_Advanced}; section.visible)
         {
-        ImGui::Text("Co-op safe shots");
+        if (ImGui::CollapsingHeader("Co-op safe shots##section", ImGuiTreeNodeFlags_None))
+        {
         changed |= ImGui::RadioButton("Automatic##coopsafe", &g_config.coop_safe_shots, 2);
         ImGui::SameLine();
         changed |= ImGui::RadioButton("Always##coopsafe", &g_config.coop_safe_shots, 1);
@@ -2433,6 +2535,9 @@ namespace
         // These flips were the F4/F5/F7 hotkeys. A phantom F4 (SteamVR sends
         // Alt+F4 on its exit path) kept inverting the controls mid-session, so
         // they are reachable only from this menu now.
+        }
+        if (ImGui::CollapsingHeader("Tracking calibration##section", ImGuiTreeNodeFlags_None))
+        {
         ImGui::Text("Tracking calibration  (yaw %+.0f, pitch %+.0f, up-vector %s)",
                     Game_GetYawSign(), Game_GetPitchSign(), Game_GetWriteUp() ? "on" : "off");
         if (ImGui::Button("Flip yaw"))
@@ -2450,7 +2555,9 @@ namespace
 
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Menu panel");
+        }
+        if (ImGui::CollapsingHeader("Menu panel##section", ImGuiTreeNodeFlags_None))
+        {
         ImGui::TextDisabled("Currently %.2f m away, %.2f m wide, %+.2f m high, %+.2f m across.",
                             g_config.menu_distance_m, g_config.menu_width_m,
                             g_config.menu_height_m, g_config.menu_side_m);
@@ -2485,7 +2592,9 @@ namespace
 
         ImGui::Spacing();
         ImGui::Separator();
-        ImGui::Text("Start over");
+        }
+        if (ImGui::CollapsingHeader("Start over##section", ImGuiTreeNodeFlags_None))
+        {
         // Two clicks: a stray VR pointer click here would otherwise wipe a
         // headset-tuned weapon calibration with no undo. Closing the menu
         // disarms it, so a forgotten arm can never fire on the next session.
@@ -2516,8 +2625,10 @@ namespace
                             "Lab is also reset and disabled. Render resolution updates live\n"
                             "once its slider settles; loading defers the change.");
         }
+        }
 
-        if (g_activeCategory == Cat_TwoHandLab)
+        if (g_activeCategory == Cat_TwoHandLab &&
+            ImGui::CollapsingHeader("Two-Handed Lab##section", ImGuiTreeNodeFlags_None))
         {
 #include "two_hand_lab_menu.inl"
         }

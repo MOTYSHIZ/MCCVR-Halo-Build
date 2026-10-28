@@ -309,9 +309,17 @@ int main()
     ConfigLoad(path.c_str());
     Check(g_config.vr_bindings[0][Fire]==Unbound&&g_config.vr_bindings[2][Fire]==PrimaryGrip,"per-game overrides load independently");
     Check(g_config.vr_bindings[5][Reload]==Automatic&&g_config.vr_bindings[4][Melee]==Automatic,"invalid file values retain defaults");
+    Check(!g_config.disable_autoexposure_odst,"ODST exposure is native by default");
+    {std::ofstream file(path);file<<"bloom_enabled_odst = 1\nbloom_enabled_reach = 1\n";}
+    ConfigLoad(path.c_str());
+    Check(!g_config.bloom_enabled[1]&&!g_config.bloom_enabled[2],"first update overrides legacy bloom preferences once");
+    g_config.bloom_enabled[1]=true;g_config.bloom_enabled[2]=true;
+    ConfigSave();ConfigLoad(path.c_str());
+    Check(g_config.bloom_enabled[1]&&g_config.bloom_enabled[2],"post-update bloom choices survive reload");
+    g_config.bloom_enabled[1]=false;g_config.bloom_enabled[2]=false;
     const bool defaultFlashes[6]{false,false,false,true,false,true};
     for(unsigned t=0;t<6;++t) Check(g_config.hide_muzzle_flash[t]==defaultFlashes[t],"muzzle-flash suppression defaults stay title-specific");
-    for(unsigned t=0;t<6;++t) Check(g_config.bloom_enabled[t],"all titles preserve native bloom by default");
+    for(unsigned t=0;t<6;++t) Check(g_config.bloom_enabled[t]==(t!=1&&t!=2),"only ODST and Reach disable bloom by default");
     {std::ofstream file(path);
         file<<"virtual_stock = 1\nvirtual_stock_rear_reference = 3\nvirtual_stock_strength = nan\n"
             "virtual_stock_shoulder_side_m = inf\nvirtual_stock_chest_back_m = garbage\n"
@@ -320,8 +328,10 @@ int main()
             "virtual_stock_adaptive_top_height_m = -.35\nvirtual_stock_adaptive_bottom_height_m = -.2\n"
             "weapon_pouch_location = 99\nweapon_pouch_offset_x_m = -999\nweapon_pouch_offset_y_m = 999\nweapon_pouch_offset_z_m = nan\n"
             "hide_muzzle_flash_halo3 = 1\nhide_muzzle_flash_odst = 7\nhide_muzzle_flash_halo4 = 0\nhide_muzzle_flash_halo2 = junk\n"
-            "bloom_enabled_halo3 = 0\nbloom_enabled_odst = junk\nbloom_enabled_reach = 7\n";}
+            "bloom_enabled_halo3 = 0\nbloom_enabled_odst = junk\nbloom_enabled_reach = 7\n"
+            "disable_autoexposure_odst = 1\ndisable_autoexposure_odst = junk\ndisable_autoexposure_odst = 7\n";}
     ConfigLoad(path.c_str());
+    Check(g_config.disable_autoexposure_odst,"exposure accepts one and rejects malformed boolean overrides");
     const Config defaults{};
     Check(g_config.virtual_stock&&g_config.virtual_stock_rear_reference==3,"stock activation and mode load independently of invalid geometry");
     Check(g_config.virtual_stock_standard_strength==defaults.virtual_stock_standard_strength&&
@@ -336,7 +346,7 @@ int main()
         "dormant Adaptive geometry keeps its own finite clamps without a product pair rule");
     Check(g_config.hide_muzzle_flash[0]&&!g_config.hide_muzzle_flash[1]&&!g_config.hide_muzzle_flash[3]&&g_config.hide_muzzle_flash[5],
         "per-game muzzle-flash values parse strictly and independently");
-    Check(!g_config.bloom_enabled[0]&&g_config.bloom_enabled[1]&&g_config.bloom_enabled[2],
+    Check(!g_config.bloom_enabled[0]&&!g_config.bloom_enabled[1]&&!g_config.bloom_enabled[2],
         "bloom parses independently with strict boolean values");
     Check(g_config.weapon_pouch_location==0&&g_config.weapon_pouch_offset_x_m==-.4f&&
         g_config.weapon_pouch_offset_y_m==.4f&&g_config.weapon_pouch_offset_z_m==0,
@@ -365,8 +375,10 @@ int main()
     for(const auto& field:stockSettings) Check(std::fabs(g_config.*field.member-field.value)<.00001f,"each stock field loads from its public config key");
     for(unsigned t=0;t<6;++t) for(unsigned a=0;a<Count;++a) g_config.vr_bindings[t][a]=static_cast<int>((t+a)%SourceCount);
     for(unsigned t=0;t<6;++t) g_config.bloom_enabled[t]=(t%2)==0;
+    g_config.disable_autoexposure_odst=true;
     const auto expected=g_config;
     ConfigSave();ConfigLoad(path.c_str());
+    Check(g_config.disable_autoexposure_odst==expected.disable_autoexposure_odst,"exposure survives save and reload");
     for(unsigned t=0;t<6;++t) Check(g_config.vr_bindings[t]==expected.vr_bindings[t],"all six per-game mappings survive round trip");
     for(unsigned t=0;t<6;++t) Check(g_config.hide_muzzle_flash[t]==expected.hide_muzzle_flash[t],"all six muzzle-flash settings survive round trip");
     for(unsigned t=0;t<6;++t) Check(g_config.bloom_enabled[t]==expected.bloom_enabled[t],"all six bloom settings survive round trip");

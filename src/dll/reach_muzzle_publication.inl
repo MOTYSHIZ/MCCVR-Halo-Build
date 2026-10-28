@@ -80,6 +80,15 @@ void ReachPublishMuzzlePalette(uint16_t tag,const ReachFpInterpolationContext& c
                 const auto& node=destination[marker->node];
                 if(!weapon_muzzle::Transform(*marker,node.scale,node.rotation,node.translation,ray))
                 {ReachMuzzleNotPublished(kReachPublishTransform);continue;}
+                auto neutral=tracking.aimNeutral,visual=tracking.aimVisual;
+                for(int i=0;i<3;++i) {
+                    const float delta=tracking.rightWrist.translation[i]-visual.translation[i];
+                    neutral.translation[i]+=delta;visual.translation[i]+=delta;
+                }
+                if (!weapon_alignment::Reframe(visual.rotation,visual.translation,
+                        neutral.rotation,neutral.translation,ray)) {
+                    ReachMuzzleNotPublished(kReachPublishTransform);continue;
+                }
                 // THE RECEIPT'S SPACE IS THE TRACKING-SPACE EPOCH, the number the barrel lane reads it back with
                 // (VR_GetContactTrackingSnapshot's referenceEpoch, as Halo 3's publication does). NOT
                 // contactReference: that is Reach's melee HASH of the epoch, which no epoch ever equals, so every

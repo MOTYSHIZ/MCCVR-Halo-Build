@@ -161,6 +161,20 @@ __declspec(noinline) void __fastcall Halo3WeaponHapticShotDetour(uint32_t weapon
     }
 }
 
+// Reuse the admitted per-weapon simulation tick, independently of recoil
+// settings/voice state. Native reload requests never run on the XR thread.
+void Halo3DualShakeTick(uint32_t weapon) noexcept
+{
+    if(!g_config.dual_wield_shake_reload||!g_halo3PlayerUnitGetter||!g_halo3UnitInVehicle)return;
+    __try {
+        const uint32_t unit=g_halo3PlayerUnitGetter(0);
+        uint32_t weapons[2]{};
+        if(unit!=UINT32_MAX&&!g_halo3UnitInVehicle(int32_t(unit))&&
+            Halo3ReadOwnedDualWeapons(unit,weapons)&&weapon==weapons[0])
+            NativeReloadPolicy_DualShakeTick(GameTitle::Halo3,g_halo3RuntimeGeneration.load(),unit,weapons);
+    } __except(EXCEPTION_EXECUTE_HANDLER) { /* Unknown ownership leaves native controls untouched. */ }
+}
+
 __declspec(noinline) uint8_t __fastcall Halo3WeaponHapticTriggerUpdateDetour(uint32_t weapon)
 {
     auto& feature = g_halo3WeaponHaptics;
@@ -189,6 +203,9 @@ __declspec(noinline) uint8_t __fastcall Halo3WeaponHapticTriggerUpdateDetour(uin
         uint8_t result = 0;
         if (feature.triggerUpdateOriginal)
             result = reinterpret_cast<Halo3WeaponTriggerUpdateFn>(feature.triggerUpdateOriginal)(weapon);
+        // Disabled after the headset test: this weapon callback can stop at
+        // idle, so it cannot supply continuous shake-owner receipts.
+        if constexpr(false) Halo3DualShakeTick(weapon);
         return result;
     }
     __finally

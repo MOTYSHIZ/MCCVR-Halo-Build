@@ -1,3 +1,4 @@
+#include "../src/common/visual_aim.h"
 #include <Windows.h>
 #include <MinHook.h>
 #include <atomic>
@@ -18,7 +19,7 @@ static constexpr uintptr_t imageBase=0x180000000;
 static constexpr size_t kOdstTlsObjectTableOffset=0x20;
 static std::atomic<uint32_t> g_odstRuntimeGeneration{7};
 static std::atomic<bool> g_vrAim{true},g_enabled{true},g_odstMuzzleBindingsReady{true};
-static struct {bool gun_barrel_aim=true,left_handed=false,independent_dual_aim=false;
+static struct {float barrel_pitch_deg=0,barrel_yaw_deg=0,barrel_roll_deg=0;bool gun_barrel_aim=true,left_handed=false,independent_dual_aim=false;
     float crosshair_distance_m=10,gun_yaw_deg=0,gun_pitch_deg=0,gun_roll_deg=0;bool shots_from_muzzle=false;} g_config;
 // The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
 [[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
@@ -74,6 +75,8 @@ static bool VR_GetContactTrackingSnapshot(VrContactTrackingSnapshot& out){out=tr
 static int ResolveEquippedWeaponSlot(uint32_t weapon,uint32_t a,uint32_t b,bool,bool)
 {return weapon==a?0:weapon==b?1:-1;}
 struct BoneMatrix {float scale=1,rotation[9]{1,0,0,0,1,0,0,0,1},translation[3]{};};
+static bool DesiredWristWorld(bool,BoneMatrix& visual,float& scale,float*,BoneMatrix* neutral)
+{visual={};*neutral=visual;scale=1;return true;}
 struct FpInterpolationContext
 {bool valid=true;int player=0,slot=0;uint32_t generation=7,muzzleUnit=owner,muzzleWeapon=primary;};
 static struct {bool armed=true;VrContactTrackingSnapshot anatomicalTracking;} g_fpStereoSolveScope;

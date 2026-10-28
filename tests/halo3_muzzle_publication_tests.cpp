@@ -1,3 +1,4 @@
+#include "../src/common/visual_aim.h"
 #include <Windows.h>
 #include "../src/common/weapon_muzzle.h"
 #include "../src/common/contact_melee_motion.h"
@@ -8,7 +9,7 @@ static unsigned checks{};
 static void Check(bool value,const char* name)
 {++checks;if(!value){std::fprintf(stderr,"FAIL: %s\n",name);std::exit(1);}}
 static constexpr uint32_t owner=0x12340001,primary=0x56780002,secondary=0x789A0003;
-static struct {bool gun_barrel_aim=true,left_handed=false,shots_from_muzzle=false;} g_config;
+static struct {float barrel_pitch_deg=0,barrel_yaw_deg=0,barrel_roll_deg=0;bool gun_barrel_aim=true,left_handed=false,shots_from_muzzle=false;} g_config;
 // The three shot switches as they are in effect (sight_layer.h); here, the test's own config.
 [[maybe_unused]] static bool Sight_ShotsFromMuzzle(){return g_config.shots_from_muzzle;}
 [[maybe_unused]] static bool Sight_GunBarrelAim(){return g_config.gun_barrel_aim;}
@@ -40,6 +41,8 @@ static auto g_halo3UnitInVehicle=&Seated;
 static bool Halo3ReadOwnedWeapons(uint32_t unit,uint32_t* weapons,bool requireDual)
 {weapons[0]=primary;weapons[1]=secondary;return owned&&unit==owner&&!requireDual;}
 struct BoneMatrix {float scale=1,rotation[9]{1,0,0,0,1,0,0,0,1},translation[3]{};};
+static bool DesiredWristWorld(bool,BoneMatrix& visual,float& scale,float*,BoneMatrix* neutral)
+{visual={};*neutral=visual;scale=1;return true;}
 struct FpInterpolationContext
 {bool valid=true;int player=0,slot=0;uint32_t generation=7,muzzleUnit=owner,muzzleWeapon=primary;};
 static struct

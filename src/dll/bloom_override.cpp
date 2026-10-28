@@ -26,7 +26,10 @@ std::atomic<ID3D11DeviceContext*> trackedContext{};
 std::atomic<ID3D11ShaderResourceView*> boundViews[2]{};
 std::atomic<unsigned> knownViews{};
 std::atomic<uint32_t> boundShader{};
-std::atomic<bool> available{};
+std::atomic<bool> available{},postAvailable{};
+std::atomic<ID3D11DeviceContext*> postContext{};
+std::atomic<uint32_t> postShader{};
+std::atomic<uint64_t> bloomSkipped{},exposureSkipped{};
 BloomSetResourcesFn setResources{};
 ReaderGate gate;
 SRWLOCK coldLock=SRWLOCK_INIT;
@@ -106,6 +109,38 @@ bool DisabledForTitle(GameTitle title) noexcept
 }
 }
 
+void PostEffects_SetAvailable(bool enabled) noexcept
+{
+    postAvailable.store(false,std::memory_order_release);
+    postShader.store(0,std::memory_order_release);
+    postContext.store(nullptr,std::memory_order_release);
+    postAvailable.store(enabled,std::memory_order_release);
+}
+void PostEffects_ObserveDevice(ID3D11Device* device) noexcept
+{
+    if(!device||!postAvailable.load(std::memory_order_acquire))return;
+    // Resource-factory path only. Hook installation uses a temporary device;
+    // tracking must use the real device that creates the game's pixel shaders.
+    ID3D11DeviceContext* context{};device->GetImmediateContext(&context);
+    if(!context)return;
+    if(postContext.exchange(context,std::memory_order_acq_rel)!=context)
+        postShader.store(0,std::memory_order_release);
+    context->Release(); // borrowed identity only; no COM work from a draw
+}
+bool PostEffects_ShouldSkipDraw(ID3D11DeviceContext* context) noexcept
+{
+    if(!context||!postAvailable.load(std::memory_order_acquire)||
+       context!=postContext.load(std::memory_order_acquire))return false;
+    const auto title=TitleAdapter_GetActiveTitle();
+    const bool disableBloom=(title==GameTitle::HaloReach&&!g_config.bloom_enabled[2])||
+        (title==GameTitle::Halo3ODST&&!g_config.bloom_enabled[1]);
+    const auto pass=DisabledPass(title,postShader.load(std::memory_order_acquire),
+        disableBloom,g_config.disable_autoexposure_odst);
+    if(pass==TogglePass::None)return false;
+    (pass==TogglePass::Bloom?bloomSkipped:exposureSkipped).fetch_add(1,std::memory_order_relaxed);
+    return true;
+}
+
 void Bloom_SetAvailable(bool enabled,BloomSetResourcesFn original) noexcept
 {setResources=original;available.store(enabled&&original,std::memory_order_release);}
 
@@ -173,9 +208,9 @@ void Bloom_ObserveSrvCreated(ID3D11Device* device,ID3D11ShaderResourceView* view
 
 void Bloom_ObserveShaderCreated(ID3D11PixelShader* shader,const void* bytes,size_t size) noexcept
 {
-    if(!shader||!bytes||!size||!available.load(std::memory_order_acquire))return;
+    if(!shader||!bytes||!size||(!available.load(std::memory_order_acquire)&&!postAvailable.load(std::memory_order_acquire)))return;
     const auto crc=Crc32(bytes,size);
-    const uint32_t role=crc==kReachConsumer||crc==kHalo3OdstConsumer?crc:0;
+    const uint32_t role=crc==kReachConsumer||crc==kHalo3OdstConsumer||crc==kOdstAutoExposure?crc:0;
     // Metadata owns no shader reference. Every creation updates a reused
     // address, including unrelated shaders, before it can be bound by MCC.
     // Serialize resource-factory writers only; bind/draw readers never acquire
@@ -196,7 +231,9 @@ void Bloom_ObserveShaderCreated(ID3D11PixelShader* shader,const void* bytes,size
 
 void Bloom_ObserveShader(ID3D11DeviceContext* context,ID3D11PixelShader* shader,UINT classCount) noexcept
 {
-    if(context!=trackedContext.load(std::memory_order_acquire))return;
+    const bool post=context==postContext.load(std::memory_order_acquire);
+    const bool legacy=context==trackedContext.load(std::memory_order_acquire);
+    if(!post&&!legacy)return;
     uint32_t crc=0;
     if(shader&&!classCount)for(const auto& entry:shaders) {
         const auto before=entry.sequence.load(std::memory_order_acquire);
@@ -206,7 +243,8 @@ void Bloom_ObserveShader(ID3D11DeviceContext* context,ID3D11PixelShader* shader,
         if(entry.sequence.load(std::memory_order_acquire)==before)crc=candidate;
         break;
     }
-    boundShader.store(crc,std::memory_order_release);
+    if(legacy)boundShader.store(crc,std::memory_order_release);
+    if(post)postShader.store(crc,std::memory_order_release);
 }
 void Bloom_ObserveResources(ID3D11DeviceContext* context,UINT start,UINT count,ID3D11ShaderResourceView* const* input) noexcept
 {
@@ -219,6 +257,7 @@ void Bloom_ObserveResources(ID3D11DeviceContext* context,UINT start,UINT count,I
 }
 void Bloom_Invalidate(ID3D11DeviceContext* context,bool shaderToo) noexcept
 {
+    if(shaderToo&&context==postContext.load(std::memory_order_acquire))postShader.store(0,std::memory_order_release);
     if(context!=trackedContext.load(std::memory_order_acquire))return;
     knownViews.store(0,std::memory_order_release);
     if(shaderToo)boundShader.store(0,std::memory_order_release);
@@ -226,7 +265,7 @@ void Bloom_Invalidate(ID3D11DeviceContext* context,bool shaderToo) noexcept
 
 BloomDrawScope::BloomDrawScope(ID3D11DeviceContext* value) noexcept
 {
-    if(!available.load(std::memory_order_acquire)||!DisabledForTitle(TitleAdapter_GetActiveTitle())||
+    if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo3||!available.load(std::memory_order_acquire)||!DisabledForTitle(TitleAdapter_GetActiveTitle())||
         !VR_IsEyeRasterActive(value)||value!=trackedContext.load(std::memory_order_acquire))return;
     const uint32_t crc=boundShader.load(std::memory_order_acquire);
     if(crc!=kReachConsumer&&crc!=kHalo3OdstConsumer)return;
@@ -264,6 +303,7 @@ void Bloom_ColdTick(GameTitle title,uint32_t generation) noexcept
         // warm return. Pointer ownership, not an inferred title tag, is their
         // lifetime proof. Keep the bounded pool; revoke only cached bindings.
         Bloom_Invalidate(trackedContext.load(std::memory_order_acquire));
+        postShader.store(0,std::memory_order_release);
         previous=title;previousGeneration=generation;
     }
     if(drainRequested.load(std::memory_order_acquire)) {
@@ -275,6 +315,11 @@ void Bloom_ColdTick(GameTitle title,uint32_t generation) noexcept
     const auto now=GetTickCount64();
     if(now>=last&&now-last<5000)return;
     last=now;
+    const auto skippedBloom=bloomSkipped.exchange(0),skippedExposure=exposureSkipped.exchange(0);
+    if((title==GameTitle::HaloReach||title==GameTitle::Halo3ODST) &&
+       (DisabledForTitle(title)||(title==GameTitle::Halo3ODST&&g_config.disable_autoexposure_odst)))
+        LOG("Native post effects: title=%u available=%d bloomSkipped=%llu exposureSkipped=%llu; exact ShaderToggler pixel hashes",
+            unsigned(title),postAvailable.load()?1:0,skippedBloom,skippedExposure);
     const auto missesNow=misses.exchange(0),draws=substitutions.exchange(0),p=pressure.load(),f=creationFailures.load();
     if(DisabledForTitle(title)&&(missesNow||draws||p!=priorPressure||f!=priorFailures||drainRequested.load()))
         LOG("Bloom consumer: title=%u substituted=%llu stock-misses=%llu capacity=%llu creation=%llu drainPending=%d; "
@@ -286,6 +331,7 @@ void Bloom_ColdTick(GameTitle title,uint32_t generation) noexcept
 
 void Bloom_BeforeResize() noexcept
 {
+    postShader.store(0,std::memory_order_release);
     drainRequested.store(true,std::memory_order_release);
     ColdWrite writer;
     if(writer.admitted){DrainViews();drainRequested.store(false,std::memory_order_release);}

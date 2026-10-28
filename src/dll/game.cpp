@@ -1,3 +1,6 @@
+#include "../common/visual_aim.h"
+#include "../common/weapon_alignment.h"
+#include "../common/weapon_animation_motion.h"
 #include "../common/dlss_logic.h"
 #include "contact_melee_queue.h"
 #include "../common/reach_wind_replay.h"
@@ -43,6 +46,7 @@
 #include "../common/director_camera_logic.h"
 #include "../common/halo3_head_relative_logic.h"
 #include "../common/halo3_tracker_hud_height_logic.h"
+#include "../common/halo3_live_hud_layout.h"
 #include "host_unload_gate.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -96,6 +100,7 @@
 #include "../common/seat_view_logic.h"
 #include "../common/reach_chud_logic.h"
 #include "../common/reach_render_logic.h"
+#include "../common/halo3_held_palette_logic.h"
 #include "../common/reach_vehicle_logic.h"
 #include "../common/reach_hand_shot_logic.h"
 #include "../common/aim_no_unit_logic.h"
@@ -380,6 +385,10 @@ bool Halo4Type13LogInstall(uintptr_t base, size_t size, uint32_t generation);
 #include "../common/halo4_head_relative_logic.h"
 #include "../common/halo4_sound_listener_logic.h"
 #include "../common/odst_bringup_logic.h"
+#include "../common/odst_modded_fp_logic.h"
+#include "../common/odst_fp_map_probe.h"
+#include "../common/odst_mythic_layout.h"
+#include "../common/odst_elite_layout.h"
 #include "../common/odst_vehicle_logic.h"
 #include "../common/scope_logic.h"
 #include "../common/two_hand_ik_logic.h"
@@ -2297,9 +2306,10 @@ namespace
         int elbow = -1;
         int shoulder = -1;
         uint64_t wristDescendants = 0;
-        // Reach uses this exact appended held-object boundary; H3/ODST
-        // leave it disabled and retain their authored descendant masks.
+        // Each title may select the current model's explicit held outputs.
+        // Unselected callers retain the authored descendant/range behavior.
         int heldObjectStart = -1;
+        FpHeldSources heldSources{};
         int lWrist = -1;
         int lElbow = -1;
         int lShoulder = -1;
@@ -2316,6 +2326,7 @@ namespace
     struct FpExplicitPoseTargets
     {
         BoneMatrix centerRoot{};
+        BoneMatrix aimNeutral{},aimVisual{},oneHandAimNeutral{},oneHandAimVisual{};
         BoneMatrix rightWrist{};
         BoneMatrix leftWrist{};
         // Exact translations applied to this prepared pair, not a later
@@ -2363,6 +2374,8 @@ namespace
     weapon_muzzle::Store g_halo3Muzzles;
     std::atomic<bool> g_halo3MuzzleBindingsReady{false};
     bool Halo3CaptureMuzzleOwner(int player,int slot,uint32_t& unit,uint32_t& weapon) noexcept;
+    void Halo3ApplySecondaryWeaponAlignment(uint16_t tag,const FpInterpolationContext& context,
+        BoneMatrix* destination,const int32_t* boneMap);
     void Halo3PublishMuzzlePalette(uint16_t tag,const FpInterpolationContext& context,
         const BoneMatrix* destination,uint32_t generation) noexcept;
     weapon_muzzle::Store g_odstMuzzles;
@@ -2793,9 +2806,9 @@ namespace
         int elbow = -1;
         int shoulder = -1;
         uint64_t wristDescendants = 0;
-        // Reach uses this exact appended held-object boundary; H3/ODST
-        // leave it disabled and retain their authored descendant masks.
+        // The exact model selection participates in stereo-cache identity too.
         int heldObjectStart = -1;
+        FpHeldSources heldSources{};
         int lWrist = -1;
         int lElbow = -1;
         int lShoulder = -1;
@@ -2844,6 +2857,9 @@ namespace
     bool LegacyRouteLeftHandedPalette(GameTitle title, uint16_t tag, const int32_t* boneMap,
         const BoneMatrix& root, const FpInterpolationContext& context,
         FpInterpolationContext& contactContext);
+
+    bool Halo3SelectHeldPaletteSources(uint16_t tag, const int32_t* boneMap,
+                                      FpInterpolationContext& context);
 
     thread_local float g_fpPaletteCollisionCorrection[2][3]{};
 
@@ -4863,8 +4879,17 @@ namespace
         return true;
     }
 
+    std::atomic<uint64_t> g_h3HudRecordAdjusted{0},g_h3HudRecordNative{0};
     void HudLayoutAutoTick(HudLayoutProfile profile)
     {
+        static uint64_t lastLiveHudLog=0;
+        const auto liveHudNow=GetTickCount64();
+        if(profile==HudLayoutProfile::Halo3&&liveHudNow-lastLiveHudLog>=5000) {
+            lastLiveHudLog=liveHudNow;
+            const auto adjusted=g_h3HudRecordAdjusted.exchange(0),native=g_h3HudRecordNative.exchange(0);
+            if(adjusted||native)LOG("H3 live HUD layout: selected-record adjusted=%llu native=%llu; stock scanner independent",adjusted,native);
+        }
+
         const HudLayoutAdapter* adapter = HudLayoutAdapterFor(profile);
         const uint32_t generation = EnsureHudLayoutProfile(profile);
         if (!adapter || !generation)
@@ -5035,7 +5060,7 @@ namespace
     // firing origin or an authored muzzle marker. The firing helper projects
     // and collision-adjusts an origin later; this probe cannot measure it.
     bool DesiredWristWorld(bool left, BoneMatrix& out, float& meshScale,
-                           float* collisionCorrection = nullptr); // defined below
+                           float* collisionCorrection = nullptr, BoneMatrix* neutralVisual = nullptr); // defined below
     void ProbeBulletOrigin()
     {
         if (!g_config.bullet_probe) return;
@@ -5985,6 +6010,7 @@ namespace
     // the secondary's authored pose differs from the primary's.
     std::atomic<float> g_barrelInWrist[2][3];
     std::atomic<bool> g_barrelInWristValid[2]={{false},{false}};
+#include "halo3_secondary_motion.inl"
 
     // Marker/effect packet builders also consume 0x184B08 directly. Preserve
     // their already headset-verified controller registration on the live
@@ -6081,6 +6107,7 @@ namespace
         if (!ApplyControllerToMarkerBonesWithTarget(
                 root,desiredWristWorld,meshScale,bones,count,transformAnchor))
             return false;
+        if(dual) ApplyH3SecondaryEffects(bones,count,desiredWristWorld,&root,meshScale);
         static std::atomic<bool> logged{false};
         if (!logged.exchange(true))
             LOG("M3: marker/muzzle bones rigid-parented with the same transform as the gun");
@@ -6860,6 +6887,7 @@ namespace
                     VR_ObserveSecondaryWeaponPresentation(GameTitle::Halo3, context.generation);
                 memcpy(g_fpUnmodifiedInterpolations[slot],*outBones,
                        static_cast<size_t>(count)*sizeof(BoneMatrix));
+                CaptureH3SecondaryMotion(context,g_fpUnmodifiedInterpolations[slot]);
                 if (slot==1)
                 {
                     static std::atomic<bool> loggedDual{false};
@@ -6942,9 +6970,9 @@ namespace
     // in the world" â€” used by the visible palette, the arm IK, AND the
     // muzzle/marker path so the gun, flash, and hands can never diverge. The
     // right hand carries the weapon mount trim + forward standoff; the left
-    // hand mirrors the yaw/roll trim and has no standoff.
+    // hand mirrors the yaw/roll trim and receives the shared mirrored offsets.
     bool DesiredWristWorld(bool left, BoneMatrix& out, float& meshScale,
-                           float* collisionCorrection)
+                           float* collisionCorrection, BoneMatrix* neutralVisual)
     {
         float basisC[9], posC[3];
         if (!ControllerWorldPoseEx(left, basisC, posC, meshScale))
@@ -6993,6 +7021,7 @@ namespace
                 }
             }
         }
+        float neutralBasis[9];memcpy(neutralBasis,mounted,sizeof(neutralBasis));
         // Right-hand calibration is already part of VR_GetAimPose, so applying
         // it here again would rotate only the mesh a second time. Preserve the
         // existing mirrored presentation trim for the independent left hand.
@@ -7005,7 +7034,8 @@ namespace
             MultiplyBases(mounted, mount, trimmed);
             memcpy(mounted, trimmed, sizeof(trimmed));
         }
-        else if (g_config.barrel_pitch_deg != 0.0f ||
+        memcpy(neutralBasis,mounted,sizeof(neutralBasis));
+        if (g_config.barrel_pitch_deg != 0.0f ||
                  g_config.barrel_yaw_deg != 0.0f ||
                  g_config.barrel_roll_deg != 0.0f)
         {
@@ -7025,12 +7055,23 @@ namespace
         out.scale = 1.0f;
         memcpy(out.rotation, mounted, sizeof(mounted));
         memcpy(out.translation, posC, sizeof(posC));
+        BoneMatrix neutral=out;
+        memcpy(neutral.rotation,neutralBasis,sizeof(neutralBasis));
+        if(left) ApplyH3SecondaryMotion(out,neutral);
+        const BoneMatrix beforeCollision=out;
         (void)LegacyApplyWorldCollision(
             TitleAdapter_GetActiveTitle(), left ? 0 : 1, out, collisionCorrection);
+        for(int axis=0;axis<3;++axis)
+            neutral.translation[axis]+=out.translation[axis]-beforeCollision.translation[axis];
+        if(neutralVisual)*neutralVisual=neutral;
         return true;
     }
 
     bool ReachBoneMatrixFinite(const BoneMatrix& matrix);
+
+static int SafeReadBytes(const void* src,void* dst,size_t n);
+static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t* checksum);
+#include "halo3_dual_animation_probe.inl"
 
     bool ReconstructVisiblePaletteSource(uint16_t tag,
                                          const FpInterpolationContext& context,
@@ -7108,6 +7149,7 @@ namespace
                 cache.shoulder == context.shoulder &&
                 cache.wristDescendants == context.wristDescendants &&
                 cache.heldObjectStart == context.heldObjectStart &&
+                cache.heldSources == context.heldSources &&
                 cache.lWrist == context.lWrist &&
                 cache.lElbow == context.lElbow &&
                 cache.lShoulder == context.lShoulder &&
@@ -7170,6 +7212,7 @@ namespace
                 cache.shoulder = context.shoulder;
                 cache.wristDescendants = context.wristDescendants;
                 cache.heldObjectStart = context.heldObjectStart;
+                cache.heldSources = context.heldSources;
                 cache.lWrist = context.lWrist;
                 cache.lElbow = context.lElbow;
                 cache.lShoulder = context.lShoulder;
@@ -7459,8 +7502,8 @@ namespace
                         const bool handDescendant=i<64 &&
                             (mask&(uint64_t{1}<<i));
                         const bool heldObject=carryHeldObjects &&
-                            context.heldObjectStart>=0 &&
-                            i>=context.heldObjectStart;
+                            FpSourceIndexIsHeldObject(i,context.count,
+                                context.heldObjectStart,context.heldSources);
                         if (!handDescendant && !heldObject) continue;
                         BoneMatrix boneW{},newW{};
                         if (ComposeBoneMatrices(armRoot,unmod[i],boneW) &&
@@ -7664,8 +7707,8 @@ namespace
                             const bool handDescendant=i<64 &&
                                 (mask&(uint64_t{1}<<i));
                             const bool heldObject=carryHeldObjects &&
-                                context.heldObjectStart>=0 &&
-                                i>=context.heldObjectStart;
+                                FpSourceIndexIsHeldObject(i,context.count,
+                                    context.heldObjectStart,context.heldSources);
                             if (!handDescendant && !heldObject) continue;
                             BoneMatrix& bone=g_fpPaletteScratch[i];
                             for (int r=0;r<3;++r)
@@ -8003,6 +8046,11 @@ namespace
                 candidate.valid=false;
                 break;
             }
+        H3SecondaryVisualScope secondaryMotionScope(context);
+        // A modded gun can be parented to base instead of either wrist.
+        // Resolve its actual model outputs before IK, scaling and visibility.
+        if (context.valid)
+            (void)Halo3SelectHeldPaletteSources(tag,boneMap,context);
         const BoneMatrix* selectedSource=source;
         // Never let the visible palette consume the live buffer after the
         // marker/effect preservation rewrite. If the final reconstruction is
@@ -8036,8 +8084,8 @@ namespace
         // FLOATING HANDS (optional, OFF by default): a pure presentation filter
         // over the already-solved palette. The VRIK solve above still tracks the
         // hands to the controllers exactly as normal; here we only collapse the
-        // bones that are NOT part of either hand-or-gun subtree â€” the shoulders,
-        // elbows, and forearms â€” so their skinned geometry vanishes and only the
+        // bones outside the hands and the classified held model, including
+        // guns parented to base. Shoulder/forearm skin disappears while the
         // hands and held guns remain. Scale is a PROVEN render input (the same
         // field the gun_scale trim resizes the visible mesh with), so shrinking a
         // bone's scale toward zero drives its vertices to the joint origin: an
@@ -8050,7 +8098,7 @@ namespace
         {
             const uint64_t keep=context.wristDescendants|context.lWristDescendants;
             for (int i=0;i<context.count;++i)
-                if (!(keep&(1ull<<i)))
+                if (!Halo3FpSourceVisible(i,context.count,keep,context.heldSources))
                     g_fpPaletteScratch[i].scale=0.0001f; // collapse to the joint
         }
 
@@ -8073,8 +8121,11 @@ namespace
         if(reconstructed && selectedSource==g_fpPaletteScratch &&
             !g_scopeRenderActive.load(std::memory_order_acquire))
         {
+            Halo3ApplySecondaryWeaponAlignment(tag,context,destination,boneMap);
             Halo3PublishMuzzlePalette(tag,context,destination,collisionGeneration);
             LegacyApplyVisualHandOffsets(GameTitle::Halo3,tag,boneMap,context,destination);
+            CaptureH3DualAnimation(tag,context,g_fpUnmodifiedInterpolations[context.slot],
+                selectedSource,root,destination,boneMap);
             if(context.valid&&context.player==0&&context.slot==0)
                 ObserveHalo3AvatarFp(tag,destination);
         }
@@ -8357,19 +8408,11 @@ namespace
 #endif
         Halo3SelectHandOrigin(g_config.vehicle_hands_follow_body,
                               bodyAnchorValid, bodyAnchor, cam);
-        // Forward standoff along the controller's own aim direction (basis
-        // column 0 = forward). EVERY left-hand use â€” support hand AND the
-        // dual-wield gun seat â€” is the same wrist-to-palm PALM point (23:17
-        // headset result: seating the dual gun by the weapon depth put it on
-        // the wrist, ~12 cm behind the rendered hand). Right keeps its
-        // independent weapon offset.
-        const float standoff = (left
-            ? Clamp(g_config.left_hand_forward_m, -0.15f, 0.30f)
-            : Clamp(g_config.gun_forward_m, -0.3f, 0.5f)) * s;
-        const float rightOff = !left
-            ? Clamp(g_config.gun_right_m, -0.3f, 0.3f) * s : 0.0f;
-        const float upOff = !left
-            ? Clamp(g_config.gun_up_m, -0.3f, 0.3f) * s : 0.0f;
+        // Both hands receive the shared offsets. Keep the left-only forward
+        // adjustment additive and mirror the lateral offset on the left.
+        const float standoff = weapon_alignment::Forward(left,(left?g_config.left_gun_forward_m:g_config.gun_forward_m),g_config.left_hand_forward_m) * s;
+        const float rightOff = weapon_alignment::Right(false,(left?g_config.left_gun_right_m:g_config.gun_right_m))*s;
+        const float upOff = weapon_alignment::Up((left?g_config.left_gun_up_m:g_config.gun_up_m))*s;
         for (int j = 0; j < 3; ++j)
             pos[j] = cam[j] + off[j] + basis[j] * standoff +
                 basis[3 + j] * rightOff + basis[6 + j] * upOff;
@@ -8496,6 +8539,7 @@ namespace
                 output[i].scale*=meshScale;
             }
         }
+        if(dual) ApplyH3SecondaryEffects(output,count,desired,nullptr,meshScale);
         static std::atomic<bool> logged{false};
         if (!logged.exchange(true))
             LOG("M3: composed wrist subtree snapped to the controller "
@@ -14191,7 +14235,7 @@ namespace
         // against it, so it rides his crouch (as Halo 3's and Reach's do).
         const float characterEyeZ = position[2];
         OdstApplyPhysicalCrouchCamera(position,
-            -Clamp((headPosition[1]-g_headPosRef[1])*kOdstWorldUnitsPerMeter,-1.5f,1.5f),!cinematic);
+            -Clamp((headPosition[1]-g_headPosRef[1])*g_worldScale.load(std::memory_order_relaxed),-1.5f,1.5f),!cinematic);
         // What it gave back (0 unless physical crouch holds a crouch): the hands, built on the engine's
         // eye (g_baseCam), rise by it with the view.
         float viewLiftZ = position[2] - characterEyeZ;
@@ -14200,7 +14244,7 @@ namespace
         Roomscale_Camera(GameTitle::Halo3ODST,
             cinematic ? Roomscale_Refuse(roomscale_admission::Refusal::Cinematic)
                       : Game_RoomscaleCameraVerdict(GameTitle::Halo3ODST),
-            position, headPosition, quaternion, forward, g_headPosRef, kOdstWorldUnitsPerMeter);
+            position, headPosition, quaternion, forward, g_headPosRef, g_worldScale.load(std::memory_order_relaxed));
         if (g_positional.load(std::memory_order_relaxed))
         {
             const float dx = headPosition[0] - g_headPosRef[0];
@@ -14216,7 +14260,7 @@ namespace
                 dz * horizontalForwardZ;
             const float rightMove = dx * (-horizontalForwardZ) +
                 dz * horizontalForwardX;
-            const float scale = kOdstWorldUnitsPerMeter;
+            const float scale = g_worldScale.load(std::memory_order_relaxed);
             // O3: while the view follows the hull, leaning must move through
             // the SAME pitched frame or a lean would slide along the world
             // floor instead of the vehicle's. Tracked pitch and roll are
@@ -15072,18 +15116,15 @@ namespace
     }
 
     // ---- One-shot FP weapon-layout self-check (headset diagnostics) ---------
-    // The two remaining fail-closed risks for the ODST weapon/arm path are (1)
-    // the FP interpolation hook never firing on a weapon slot and (2) the live
-    // node count falling outside ComputeOdstFpSkeletonLayout's accepted 39..64
-    // range (H3ODSTEK-derived indices vs. the retail skeleton). Neither can be
-    // logged from this hot hook, so it publishes atomically and the 50 ms worker
-    // emits one line -- exactly the pattern the non-FP camera capture uses below.
+    // Report mapped-layout learning/rejection outside the render thread.
     struct OdstFpLayoutSelfCheck
     {
         std::atomic<uint32_t> key{0};     // 0 = nothing observed yet
         std::atomic<int> slot{-1};
         std::atomic<int> nodeCount{-1};
-        std::atomic<int> accepted{0};     // 1 = layout accepted the node count
+        std::atomic<int> accepted{0};     // 1 = current palette matches the mapped rig
+        std::atomic<int> bodyCount{0};
+        std::atomic<uint32_t> bodyChecksum{0};
         std::atomic<int> wrist{-1};
         std::atomic<int> cameraControl{-1};
     };
@@ -15094,16 +15135,20 @@ namespace
     // built from slot/count/accepted so it republishes only when the observation
     // changes; the worker then emits each distinct observation at most once.
     void PublishOdstFpLayoutSelfCheck(int slot, int nodeCount, bool accepted,
-                                      const OdstFpSkeletonLayout& layout)
+                                      const OdstFpSkeletonLayout& layout,
+                                      int bodyCount=0,uint32_t bodyChecksum=0)
     {
         const uint32_t key =
             (static_cast<uint32_t>(slot & 0x3) << 30) |
             (static_cast<uint32_t>(accepted ? 1u : 0u) << 29) |
             (static_cast<uint32_t>(nodeCount & 0x1FF) << 20) |
+            (static_cast<uint32_t>(bodyCount & 0x7F) << 8) |
             0x1u;  // low bit set so a real observation is never key 0
         OdstFpLayoutSelfCheck& sc = g_odstFpLayoutSelfCheck;
         if (sc.key.load(std::memory_order_relaxed) == key)
             return;
+        sc.bodyCount.store(bodyCount,std::memory_order_relaxed);
+        sc.bodyChecksum.store(bodyChecksum,std::memory_order_relaxed);
         sc.slot.store(slot, std::memory_order_relaxed);
         sc.nodeCount.store(nodeCount, std::memory_order_relaxed);
         sc.accepted.store(accepted ? 1 : 0, std::memory_order_relaxed);
@@ -15127,6 +15172,17 @@ namespace
             g_odstRuntimeGeneration.load(std::memory_order_acquire),
             preparedSerial, unit, weapon, aux0, aux1);
     }
+
+    void OdstResetAuthoredBarrel(int slot)
+    {
+        g_barrelInWristValid[slot].store(false,std::memory_order_release);
+    }
+
+// Keep the failed learned-palette candidate dormant; restore the pre-ODST solver.
+static constexpr bool kOdstMappedFpEnabled = false;
+#include "odst_modded_fp.inl"
+#include "odst_fp_map_probe.inl"
+#include "odst_mythic_layout.inl"
 
     bool OdstFpInterpolateWeaponBody(
         int view, int id, int slot, BoneMatrix** outBones, int* outCount)
@@ -15218,53 +15274,71 @@ namespace
             g_odstCamera.armed.load(std::memory_order_acquire) &&
             !g_odstCamera.teardownRequested.load(std::memory_order_acquire) &&
             g_enabled.load(std::memory_order_relaxed);
+        if(ownsWeapons)OdstCaptureFpMapProbe(view,id,slot,result,outBones,outCount);
         if ((slot == 0 || slot == 1) && ownsWeapons)
         {
-            g_fpInterpolationContexts[slot] = {};
-            OdstFpSkeletonLayout layout{};
-            const bool haveBones = result && outBones && outCount && *outBones;
-            const bool layoutOk =
-                haveBones && ComputeOdstFpSkeletonLayout(*outCount, layout);
-            PublishOdstFpLayoutSelfCheck(
-                slot, haveBones ? *outCount : -1, layoutOk, layout);
-            if (layoutOk)
+            if (kOdstMappedFpEnabled)
             {
-                const int count = *outCount;
-                FpInterpolationContext& context =
-                    g_fpInterpolationContexts[slot];
-                context.source = *outBones;
-                context.count = count;
-                context.generation=g_odstRuntimeGeneration.load(std::memory_order_acquire);
-                uint32_t currentUnit=UINT32_MAX,currentWeapon=UINT32_MAX;
-                if(muzzleOwner&&OdstCaptureMuzzleOwner(view,slot,currentUnit,currentWeapon)&&
-                    currentUnit==muzzleUnit&&currentWeapon==muzzleWeapon)
-                {context.muzzleUnit=muzzleUnit;context.muzzleWeapon=muzzleWeapon;}
-                context.player = view;
-                context.slot = slot;
-                context.wrist = layout.rightWrist;
-                context.cameraControl = layout.cameraControl;
-                context.elbow = layout.rightElbow;
-                context.shoulder = layout.rightShoulder;
-                context.wristDescendants =
-                    layout.rightHandAndWeaponDescendants;
-                context.lWrist = layout.leftWrist;
-                context.lElbow = layout.leftElbow;
-                context.lShoulder = layout.leftShoulder;
-                context.lWristDescendants = layout.leftHandDescendants;
-                context.valid = true;
-                memcpy(g_fpUnmodifiedInterpolations[slot], *outBones,
-                       static_cast<size_t>(count) * sizeof(BoneMatrix));
-                if (slot == 1 && view == 0)
-                    VR_ObserveSecondaryWeaponPresentation(GameTitle::Halo3ODST,
-                        g_odstRuntimeGeneration.load(std::memory_order_acquire));
-                MeasureOdstAuthoredBarrel(
-                    slot, g_fpUnmodifiedInterpolations[slot],
-                    layout.rightWrist);
-                BoneMatrix root{};
-                if (BuildOdstCenterFpRoot(slot, root))
-                    ApplyControllerToMarkerBonesFromRoot(
-                        root, *outBones, count, layout.rightWrist,
-                        layout.leftWrist, slot == 1);
+                g_fpInterpolationContexts[slot] = {};
+                OdstCaptureMappedInterpolation(view,id,slot,result,outBones,outCount,
+                    muzzleOwner,muzzleUnit,muzzleWeapon);
+            }
+            else
+            {
+                g_fpInterpolationContexts[slot] = {};
+                OdstFpSkeletonLayout layout{};
+                const bool haveBones = result && outBones && outCount && *outBones;
+                const bool layoutOk =
+                    haveBones && ComputeOdstFpSkeletonLayout(*outCount, layout);
+                if(!layoutOk)PublishOdstFpLayoutSelfCheck(
+                    slot, haveBones ? *outCount : -1, false, layout);
+                // Small graphs are observation-only until their body palette
+                // positively identifies the supported Elite rig. No guessed IK.
+                const bool pendingShort=haveBones && *outCount>=33 && *outCount<39;
+                if (layoutOk || pendingShort)
+            {
+                    const int count = *outCount;
+                    FpInterpolationContext& context =
+                        g_fpInterpolationContexts[slot];
+                    context.source = *outBones;
+                    context.count = count;
+                    context.generation=g_odstRuntimeGeneration.load(std::memory_order_acquire);
+                    uint32_t currentUnit=UINT32_MAX,currentWeapon=UINT32_MAX;
+                    if(muzzleOwner&&OdstCaptureMuzzleOwner(view,slot,currentUnit,currentWeapon)&&
+                        currentUnit==muzzleUnit&&currentWeapon==muzzleWeapon)
+                    {context.muzzleUnit=muzzleUnit;context.muzzleWeapon=muzzleWeapon;}
+                    context.player = view;
+                    context.slot = slot;
+                    context.wrist = layoutOk?layout.rightWrist:-1;
+                    context.cameraControl = layout.cameraControl;
+                    context.elbow = layout.rightElbow;
+                    context.shoulder = layout.rightShoulder;
+                    context.wristDescendants =
+                        layout.rightHandAndWeaponDescendants;
+                    context.lWrist = layout.leftWrist;
+                    context.lElbow = layout.leftElbow;
+                    context.lShoulder = layout.leftShoulder;
+                    context.lWristDescendants = layout.leftHandDescendants;
+                    context.valid = true;
+                    memcpy(g_fpUnmodifiedInterpolations[slot], *outBones,
+                           static_cast<size_t>(count) * sizeof(BoneMatrix));
+                    OdstPrepareMythicInterpolation(view,id,slot,context);
+                    if (slot == 1 && view == 0 && context.wrist>=0)
+                        VR_ObserveSecondaryWeaponPresentation(GameTitle::Halo3ODST,
+                            g_odstRuntimeGeneration.load(std::memory_order_acquire));
+                    const auto& mythic=g_odstMythicReceipts[slot];
+                    PublishOdstFpLayoutSelfCheck(slot,count,context.wrist>=0,
+                        mythic.valid?mythic.layout.skeleton:layout,
+                        mythic.valid?mythic.layout.bodyCount:0,mythic.valid?mythic.layout.checksum:0);
+                    if(context.wrist>=0)MeasureOdstAuthoredBarrel(
+                        slot, g_fpUnmodifiedInterpolations[slot],
+                        context.wrist);
+                    BoneMatrix root{};
+                    if (context.wrist>=0 && BuildOdstCenterFpRoot(slot, root))
+                        ApplyControllerToMarkerBonesFromRoot(
+                            root, *outBones, count, context.wrist,
+                            context.lWrist, slot == 1);
+            }
             }
         }
         else if (slot == 0 || slot == 1)
@@ -15308,13 +15382,16 @@ namespace
         const uint32_t collisionGeneration=
             g_odstRuntimeGeneration.load(std::memory_order_acquire);
         FpInterpolationContext context{};
-        for (FpInterpolationContext& candidate : g_fpInterpolationContexts)
-            if (candidate.valid && source && candidate.source == source)
-            {
-                context = candidate;
-                candidate.valid = false;
-                break;
-            }
+        if(kOdstMappedFpEnabled)
+            context=OdstMappedPaletteContext(source);
+        else
+            for (FpInterpolationContext& candidate : g_fpInterpolationContexts)
+                if (candidate.valid && source && candidate.source == source)
+                {
+                    context = candidate;
+                    candidate.valid = false;
+                    break;
+                }
 
         if(g_scopeRenderActive.load(std::memory_order_acquire))
         {
@@ -15329,6 +15406,9 @@ namespace
             if(original)original(tag,root,destination,unused,hidden,boneMap);
             return;
         }
+        OdstObserveFpMapProbe(tag,source,boneMap);
+        if(!kOdstMappedFpEnabled)OdstCorrectMythicBodyPalette(tag,boneMap,context);
+        if (kOdstMappedFpEnabled) (void)OdstResolveMappedPalette(tag,boneMap,context);
         (void)LegacyObserveWeaponRenderModel(GameTitle::Halo3ODST,tag,collisionGeneration,source,boneMap);
         const BoneMatrix* selectedSource = source;
         if (context.valid && source == context.source)
@@ -15367,7 +15447,8 @@ namespace
             const uint64_t keep =
                 context.wristDescendants | context.lWristDescendants;
             for (int i = 0; i < context.count; ++i)
-                if (!(keep & (uint64_t{1} << i)))
+                if (!(keep & (uint64_t{1} << i)) &&
+                    !FpSourceIndexIsHeldObject(i,context.count,context.heldObjectStart,context.heldSources))
                     g_fpPaletteScratch[i].scale = 0.0001f;
         }
         if (g_scopeRenderActive.load(std::memory_order_acquire) &&
@@ -15692,6 +15773,7 @@ namespace
     // line tells us whether the hook fired and whether the skeleton was accepted.
     void LogOdstFpLayoutSelfCheckIfNew()
     {
+        OdstLogFpMapProbe();
         OdstFpLayoutSelfCheck& sc = g_odstFpLayoutSelfCheck;
         const uint32_t key = sc.key.load(std::memory_order_acquire);
         if (key == 0)
@@ -15701,16 +15783,25 @@ namespace
         const int slot = sc.slot.load(std::memory_order_relaxed);
         const int nodeCount = sc.nodeCount.load(std::memory_order_relaxed);
         const int accepted = sc.accepted.load(std::memory_order_relaxed);
+        const int bodyCount=sc.bodyCount.load(std::memory_order_relaxed);
+        const uint32_t bodyChecksum=sc.bodyChecksum.load(std::memory_order_relaxed);
         const int wrist = sc.wrist.load(std::memory_order_relaxed);
         const int cameraControl =
             sc.cameraControl.load(std::memory_order_relaxed);
         if (sc.key.load(std::memory_order_acquire) != key)
             return; // a newer observation started; re-read next tick
         LOG("ODST FP WEAPON SELF-CHECK: interpolation hook fired slot=%d "
-            "nodeCount=%d layoutAccepted=%s (need 39..64) wrist=%d "
-            "cameraControl=%d -- hands/gun driven by controller = %s",
-            slot, nodeCount, accepted ? "YES" : "NO", wrist, cameraControl,
-            accepted ? "YES" : "NO (layout rejected -> stock pose on head)");
+            "nodeCount=%d layoutAccepted=%s (%s) wrist=%d "
+            "cameraControl=%d bodyNodes=%d bodyChecksum=%08X -- hands/gun driven by controller = %s",
+            slot, nodeCount, accepted ? "YES" : "NO",
+            kOdstMappedFpEnabled?"validated body remap":"baseline / verified body layout",
+            wrist, cameraControl,bodyCount,bodyChecksum,
+            accepted ? "YES" : "NO (learning or unsupported palette -> stock pose)");
+        if(kOdstMappedFpEnabled)LOG("ODST mapped FP: tag=%d modelNodes=%d stage=%d bodySeen=%llu gunSeen=%llu accepted=%llu "
+            "(1=no interpolation receipt, 2=stale pair, 3=unreadable model/map, 4=waiting body/complete union, 5=waiting gun/complete union, 6=changed mapping, 7=accepted)",
+            g_odstMappedFpDiagnostics.tag.load(),g_odstMappedFpDiagnostics.modelCount.load(),
+            g_odstMappedFpDiagnostics.stage.load(),g_odstMappedFpDiagnostics.bodyObservations.load(),
+            g_odstMappedFpDiagnostics.gunObservations.load(),g_odstMappedFpDiagnostics.acceptedPalettes.load());
         g_odstFpLayoutLoggedKey.store(key, std::memory_order_relaxed);
     }
 
@@ -15996,7 +16087,7 @@ namespace
                     (savedRight[axis] * eyePosition[0] +
                      savedUp[axis] * eyePosition[1] -
                      savedForward[axis] * eyePosition[2]) *
-                    kOdstWorldUnitsPerMeter;
+                    g_worldScale.load(std::memory_order_relaxed);
 
             const float sinHalf = sqrtf(
                 eyeOrientation[0] * eyeOrientation[0] +
@@ -16799,6 +16890,34 @@ namespace
         }
     }
 
+    using H3HudRecordFn = const halo3_live_hud::Record*(__fastcall*)(int,int);
+    H3HudRecordFn g_realH3HudRecord=nullptr;
+    uintptr_t g_h3HudRecordReturn=0;
+    halo3_live_hud::Record g_h3HudRecordCopies[4][32]{};
+    __declspec(noinline) const halo3_live_hud::Record* __fastcall H3HudRecordHook(int user,int resolution)
+    {
+        const auto caller=reinterpret_cast<uintptr_t>(_ReturnAddress());
+        g_halo3CoreCallbacks.fetch_add(1,std::memory_order_acq_rel);
+        __try {
+            const auto* native=g_realH3HudRecord(user,resolution);
+            if(!g_halo3InstallReady.load(std::memory_order_acquire)||caller!=g_h3HudRecordReturn||
+               TitleAdapter_GetActiveTitle()!=GameTitle::Halo3||!native||user<0||user>=4||resolution<0||resolution>=32)
+                return native;
+            // Native frame setup publishes one shared record pointer for its pass.
+            // Per-user/class copies survive that pass in our image,
+            // which the stock scanner excludes. Never retain or modify tag pointers.
+            float h=0,v=0;ComputeHudSafeFramePair(g_config.hud_size,g_config.hud_aspect,h,v);
+            __try {
+                if(halo3_live_hud::Transform(*native,h,v,g_config.hud_curvature,g_h3HudRecordCopies[user][resolution])) {
+                    g_h3HudRecordAdjusted.fetch_add(1,std::memory_order_relaxed);
+                    return &g_h3HudRecordCopies[user][resolution];
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            g_h3HudRecordNative.fetch_add(1,std::memory_order_relaxed);
+            return native;
+        } __finally {g_halo3CoreCallbacks.fetch_sub(1,std::memory_order_acq_rel);}
+    }
+
     __declspec(noinline) void __fastcall GuardedHudXformHook(float x, float y, float z)
     {
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
@@ -16952,14 +17071,16 @@ namespace
             }
         }
         {
-            const void* functions[]{reinterpret_cast<const void*>(&GuardedHudXformHook),
+            const void* functions[]{reinterpret_cast<const void*>(&H3HudRecordHook),
+                reinterpret_cast<const void*>(&GuardedHudXformHook),
                 reinterpret_cast<const void*>(&GuardedHudAnchorBasisHook),
                 reinterpret_cast<const void*>(&GuardedHudPlaceHook),
                 reinterpret_cast<const void*>(&GuardedHudCrosshairVisibleHook),
                 reinterpret_cast<const void*>(&GuardedHudDrawWidgetHook),
                 reinterpret_cast<const void*>(&GuardedFpDriverHook),
                 reinterpret_cast<const void*>(&GuardedRenderViewHook)};
-            const void* originals[]{reinterpret_cast<const void*>(g_realHudXform),
+            const void* originals[]{reinterpret_cast<const void*>(g_realH3HudRecord),
+                reinterpret_cast<const void*>(g_realHudXform),
                 reinterpret_cast<const void*>(g_realHudAnchorBasis),
                 reinterpret_cast<const void*>(g_realHudPlace),
                 reinterpret_cast<const void*>(g_realHudCrosshairVisible),
@@ -17616,6 +17737,34 @@ namespace
             }
             else
                 LOG("M3: brightness signature missing/ambiguous; brightness fixed at 1.0");
+        }
+
+        // Optional mod-HUD path. The stock scanner remains unchanged.
+        {
+            const auto unique=[&](const char* pattern)->uintptr_t {
+                const auto hit=sig::Find(base,size,pattern);
+                return hit&&!sig::Find(hit+1,base+size-hit-1,pattern)?hit:0;
+            };
+            const auto selector=unique(halo3_live_hud::kSelector);
+            const auto tail=unique(halo3_live_hud::kSelectorTail);
+            const auto caller=unique(halo3_live_hud::kCaller);
+            const auto consumer=unique(halo3_live_hud::kSafeFrameConsumer);
+            int32_t displacement=0;
+            if(caller)memcpy(&displacement,reinterpret_cast<const void*>(caller+1),4);
+            bool ready=false;
+            if(selector&&caller&&consumer&&tail>selector&&tail-selector<0x100&&
+               consumer>caller&&consumer-caller<0x1000&&caller+5+displacement==selector) {
+                const auto status=MH_CreateHook(reinterpret_cast<void*>(selector),
+                    reinterpret_cast<void*>(&H3HudRecordHook),reinterpret_cast<void**>(&g_realH3HudRecord));
+                if(status==MH_OK) {
+                    g_h3HudRecordReturn=caller+5;
+                    ready=MH_QueueEnableHook(reinterpret_cast<void*>(selector))==MH_OK;
+                    if(ready)RememberInstalledGameHook(reinterpret_cast<void*>(selector));
+                    else {MH_RemoveHook(reinterpret_cast<void*>(selector));g_realH3HudRecord=nullptr;}
+                }
+            }
+            LOG("H3 live HUD layout: %s; selected mod resolution receives size/width/curvature; stock scanner preserved",
+                ready?"Installed":"StockFallback (selector/caller/consumer proof or hook failed)");
         }
 
         // HUD CROSSHAIR CLASS HIDER. H3EK and ManagedDonkey agree that class 2
@@ -23127,7 +23276,7 @@ namespace
                 if (isfinite(length) && length > 1.0e-4f)
                 {
                     const float scale =
-                        lift * kReachWorldUnitsPerMeter / length;
+                        lift * g_worldScale.load(std::memory_order_relaxed) / length;
                     for (int i = 0; i < 3; ++i)
                         newPosition[i] += worldUp[i] * scale;
                 }
@@ -24554,7 +24703,7 @@ namespace
         // held against it, so it rides his crouch.
         const float characterEyeZ = pos[2];
         ApplyCachedPhysicalCrouch(GameTitle::HaloReach,pos,
-            -Clamp((hpos[1]-effectiveHeadPosRef[1])*kReachWorldUnitsPerMeter,-1.5f,1.5f),!vehicleEntryRecenter);
+            -Clamp((hpos[1]-effectiveHeadPosRef[1])*g_worldScale.load(std::memory_order_relaxed),-1.5f,1.5f),!vehicleEntryRecenter);
         // What it gave back (0 unless physical crouch holds a crouch): the view now follows the real
         // head, so the hands' and the reticle ray's stock-camera base needs the same lift.
         const float crouchLiftWu = pos[2] - characterEyeZ;
@@ -24563,7 +24712,7 @@ namespace
         Roomscale_Camera(GameTitle::HaloReach,
             vehicleEntryRecenter ? Roomscale_Refuse(roomscale_admission::Refusal::Seated)
                                  : Game_RoomscaleCameraVerdict(GameTitle::HaloReach), pos, hpos, q, fwd,
-            effectiveHeadPosRef, kReachWorldUnitsPerMeter);
+            effectiveHeadPosRef, g_worldScale.load(std::memory_order_relaxed));
         if (!vehicleEntryRecenter)
             memcpy(g_headPosRef, effectiveHeadPosRef, sizeof(g_headPosRef));
         if (g_positional.load())
@@ -24576,7 +24725,7 @@ namespace
             const float hfhx = hfx / hlen, hfhz = hfz / hlen;
             const float fwdComp = dx * hfhx + dz * hfhz;
             const float rightComp = dx * (-hfhz) + dz * hfhx;
-            const float s = kReachWorldUnitsPerMeter;
+            const float s = g_worldScale.load(std::memory_order_relaxed);
             float ox = 0.0f, oy = 0.0f, oz = 0.0f;
             float positionBasis[9]{};
             const float positionLocal[3] = {fwdComp, -rightComp, dy};
@@ -24619,7 +24768,7 @@ namespace
                 ReachFirstPersonFresh(GetTickCount64()) &&
                 std::isfinite(leash) && leash >= 0.0f && std::isfinite(characterEyeZ))
             {
-                const float floorZ = characterEyeZ - leash * kReachWorldUnitsPerMeter;
+                const float floorZ = characterEyeZ - leash * g_worldScale.load(std::memory_order_relaxed);
                 if (pos[2] < floorZ)
                 {
                     g_reachHeadLookLeashLiftWu = floorZ - pos[2];
@@ -24629,7 +24778,7 @@ namespace
         }
 #if HALOMCCVR_DEV_DIAGNOSTICS
         if (!(vehicle && vehicle->active))
-            DevNoteViewAboveEye(GameTitle::HaloReach, pos[2] - characterEyeZ, kReachWorldUnitsPerMeter);
+            DevNoteViewAboveEye(GameTitle::HaloReach, pos[2] - characterEyeZ, g_worldScale.load(std::memory_order_relaxed));
 #endif
         return true;
     }
@@ -24940,7 +25089,7 @@ namespace
             fwd[1] * up[2] - fwd[2] * up[1],
             fwd[2] * up[0] - fwd[0] * up[2],
             fwd[0] * up[1] - fwd[1] * up[0]};
-        const float s = kReachWorldUnitsPerMeter;
+        const float s = g_worldScale.load(std::memory_order_relaxed);
         for (int axis = 0; axis < 3; ++axis)
             pos[axis] += (right[axis] * input.position[0] +
                           up[axis] * input.position[1] -
@@ -25564,7 +25713,7 @@ namespace
                     ? owner.vehicle.cameraBase[axis]
                     : owner.presentedCameraBasePosition[axis]+(axis==2?owner.viewLiftWu:0.0f);
                 out[axis] = base +
-                    offset[axis] * kReachWorldUnitsPerMeter;
+                    offset[axis] * g_worldScale.load(std::memory_order_relaxed);
                 if (!std::isfinite(out[axis]))
                     return false;
             }
@@ -26386,6 +26535,8 @@ namespace
                            const ReachFpBodyLayout& b)
     {
         return a.Valid() && b.Valid() && a.kind==b.kind &&
+            a.paletteToSource==b.paletteToSource &&
+            a.bodySourceMask==b.bodySourceMask &&
             a.paletteBodyNodeCount==b.paletteBodyNodeCount &&
             a.liveSourceNodeCount==b.liveSourceNodeCount &&
             a.rightShoulderSource==b.rightShoulderSource &&
@@ -26554,8 +26705,72 @@ namespace
     }
 
 #include "left_hand_presentation.inl"
+
+    void Halo3ApplySecondaryWeaponAlignment(uint16_t tag,const FpInterpolationContext& context,
+        BoneMatrix* destination,const int32_t* boneMap)
+    {
+        if (!destination || !context.valid || context.slot!=1 || context.player!=0 ||
+            g_config.left_handed) return;
+        uint32_t checksum=0;
+        const int count=LegacyAnatomicalRenderNodeCount(GameTitle::Halo3,tag,&checksum);
+        const float yaw=weapon_alignment::H3SecondaryYaw(unsigned(context.slot),checksum);
+        if (!yaw || count!=(checksum==0x171C0B10u?4:7)) return;
+        uint64_t effectMask=0;
+        int32_t remap[7]{};
+        if(boneMap && context.muzzleUnit!=UINT32_MAX && context.muzzleWeapon!=UINT32_MAX && SafeReadBytes(boneMap,remap,count*sizeof(int32_t))) {
+            bool valid=true;
+            for(int i=0;i<count;++i) {
+                if(remap[i]<0||remap[i]>=context.count||remap[i]>=64||remap[i]==context.cameraControl) {valid=false;break;}
+                effectMask|=uint64_t{1}<<remap[i];
+            }
+            if(valid) {
+                auto& binding=g_h3SecondaryEffectBinding;
+                uint32_t seq=binding.sequence.load();
+                if(!(seq&1)&&binding.sequence.compare_exchange_strong(seq,seq+1)) {
+                    binding.generation=context.generation;binding.unit=context.muzzleUnit;
+                    binding.weapon=context.muzzleWeapon;binding.checksum=checksum;binding.mask=effectMask;
+                    binding.sequence.store(seq+2,std::memory_order_release);
+                }
+            }
+        }
+        BoneMatrix frame{};float scale=1;
+        if (!DesiredWristWorld(true,frame,scale,nullptr)) return;
+        BoneMatrix candidate[7]{};
+        for (int i=0;i<count;++i) {
+            candidate[i]=destination[i];
+            if (!H3CorrectSecondaryMatrix(frame,yaw,candidate[i])) return;
+        }
+        // Only verified secondary weapon palettes move, never the hands.
+        memcpy(destination,candidate,count*sizeof(BoneMatrix));
+    }
+
 #include "visual_hand_palette.inl"
 #include "legacy_runtime_weapon_bounds.inl"
+
+    int OdstReadFpModelIdentity(uint16_t tag,uint32_t& checksum)
+    {
+        return LegacyAnatomicalRenderNodeCount(GameTitle::Halo3ODST,tag,&checksum);
+    }
+
+    bool Halo3SelectHeldPaletteSources(uint16_t tag, const int32_t* boneMap,
+                                      FpInterpolationContext& context)
+    {
+        context.heldSources={};
+        if (!context.valid || !context.source || !boneMap ||
+            context.slot<0 || context.slot>1 || context.count<=0 || context.count>64 ||
+            context.generation!=g_halo3RuntimeGeneration.load(std::memory_order_acquire) ||
+            !LegacyClassifyRuntimeWeapon(GameTitle::Halo3,tag,context.generation,
+                                        context.source,boneMap))
+            return false;
+        const int count=LegacyAnatomicalRenderNodeCount(GameTitle::Halo3,tag);
+        int32_t remap[64]{};
+        if (count<=0 || count>64 ||
+            !SafeReadBytes(boneMap,remap,size_t(count)*sizeof(*remap)))
+            return false;
+        return ResolveHalo3HeldPaletteSources(true,
+            std::span<const int32_t>{remap,size_t(count)},context.count,
+            context.cameraControl,context.heldSources);
+    }
 
     void LegacyObserveReloadModel(
         GameTitle title, uint16_t renderModelTag, uint32_t generation,
@@ -26589,8 +26804,8 @@ namespace
         if(!feature || !generation || feature->generation!=generation)
             return false;
         if (!g_config.world_collision && !Sight_PhysicalMelee()) return false;
-        // Observe the body even when its checksum is unfamiliar. Only the
-        // native appended held graph can authorize an unknown weapon model.
+        // Observe the body even when its checksum is unfamiliar. A validated
+        // native model remap can authorize an uncatalogued held model.
         const bool mappedWeapon=feature->runtimeBoundsProven.load(std::memory_order_acquire) &&
             LegacyClassifyRuntimeWeapon(title,renderModelTag,generation,source,boneMap);
         uint32_t checksum=0;
@@ -27383,7 +27598,8 @@ namespace
         const ReachVrRenderSnapshot& tracking, bool left,
         const float gameplayBase[3], BoneMatrix& out, float& meshScale,
         contact_melee::TrackingToWorld* contactSpace=nullptr,
-        contact_melee::TrackingToWorld* contactController=nullptr)
+        contact_melee::TrackingToWorld* contactController=nullptr,
+        BoneMatrix* neutralVisual=nullptr)
     {
         const bool valid=left ? tracking.leftControllerValid
                               : tracking.rightAimValid;
@@ -27424,6 +27640,7 @@ namespace
         float basis[9];
         BuildTrackedGameBasisFromFrame(
             q, false, followValid, hullYaw, hullPitch, basis);
+        float neutralBasis[9];memcpy(neutralBasis,basis,sizeof(neutralBasis));
         if (left)
         {
             float mount[9],trimmed[9];
@@ -27454,7 +27671,7 @@ namespace
         const float roomForward=dx*sh-dz*ch;
         const float roomRight=dx*ch+dz*sh;
         const float cg=cosf(g_gameYawRef),sg=sinf(g_gameYawRef);
-        const float scale=kReachWorldUnitsPerMeter;
+        const float scale=g_worldScale.load(std::memory_order_relaxed);
         float offset[3]{};
         float positionBasis[9]{};
         const float positionLocal[3] = {roomForward, -roomRight, dy};
@@ -27498,13 +27715,9 @@ namespace
             contactSpace->origin={gameplayBase[0]-reference.x,gameplayBase[1]-reference.y,
                                   gameplayBase[2]-reference.z};
         }
-        const float standoff=(left
-            ? Clamp(g_config.left_hand_forward_m,-0.15f,0.30f)
-            : Clamp(g_config.gun_forward_m,-0.3f,0.5f))*scale;
-        const float rightOff=!left
-            ? Clamp(g_config.gun_right_m,-0.3f,0.3f)*scale : 0.0f;
-        const float upOff=!left
-            ? Clamp(g_config.gun_up_m,-0.3f,0.3f)*scale : 0.0f;
+        const float standoff=weapon_alignment::Forward(left,(left?g_config.left_gun_forward_m:g_config.gun_forward_m),g_config.left_hand_forward_m)*scale;
+        const float rightOff=weapon_alignment::Right(false,(left?g_config.left_gun_right_m:g_config.gun_right_m))*scale;
+        const float upOff=weapon_alignment::Up((left?g_config.left_gun_up_m:g_config.gun_up_m))*scale;
         out={};
         out.scale=1.0f;
         memcpy(out.rotation,basis,sizeof(basis));
@@ -27512,6 +27725,15 @@ namespace
             out.translation[axis]=gameplayBase[axis]+offset[axis]+
                 basis[axis]*standoff + basis[3+axis]*rightOff +
                 basis[6+axis]*upOff;
+        if (neutralVisual) {
+            *neutralVisual=out;
+            if (!left) {
+                memcpy(neutralVisual->rotation,neutralBasis,sizeof(neutralBasis));
+                for(int i=0;i<3;++i) neutralVisual->translation[i]+=
+                    (neutralBasis[i]-basis[i])*standoff+(neutralBasis[3+i]-basis[3+i])*rightOff+
+                    (neutralBasis[6+i]-basis[6+i])*upOff;
+            }
+        }
         meshScale=left
             ? Clamp(g_config.left_hand_scale,0.3f,3.0f)
             : Clamp(g_config.gun_scale,0.3f,3.0f);
@@ -27545,8 +27767,8 @@ namespace
         return ReachBoneMatrixFinite(alignedTarget);
     }
 
-    // Reach's official Spartan/Elite body maps resolve the left wrist to source
-    // node 11 and publish the complete source-space left-hand descendant mask.
+    // Reach's verified body maps resolve the left wrist and publish the
+    // complete source-space left-hand descendant mask, including custom order.
     // The shared rigid (arm_ik=0) reconstruction intentionally carries the
     // whole weapon assembly from the right wrist; that is correct for the gun.
     // HREK proves the visible left-hand skin is also weighted across its hidden
@@ -27629,8 +27851,7 @@ namespace
         if (!rawTargets.rightWristValid || !rawTargets.leftWristValid ||
             fp.count <= 0 || fp.count > int(kReachFpMaxSourceNodeCount) ||
             fp.heldObjectStart <= 0 || fp.heldObjectStart > 64 ||
-            (fp.heldObjectStart < 64 &&
-             ((fp.wristDescendants | fp.lWristDescendants) >> fp.heldObjectStart)))
+            !fp.heldSources.explicitMap)
             return false;
         uint32_t checksum = 0;
         int bodyCount = 0;
@@ -27745,6 +27966,8 @@ namespace
             context.targets.rightOneHandWristValid)
         {
             context.targets.rightWrist=context.targets.rightOneHandWrist;
+            context.targets.aimNeutral=context.targets.oneHandAimNeutral;
+            context.targets.aimVisual=context.targets.oneHandAimVisual;
             context.targets.rightScale=context.targets.rightOneHandScale;
         }
 
@@ -28004,11 +28227,12 @@ namespace
         const BoneMatrix* selectedSource=source;
 
         int paletteCount=0;
-        int32_t mapCopy[64]{};
+        uint32_t bodyChecksum=0;
+        int32_t mapCopy[kReachFpMaxSourceNodeCount]{};
         ReachFpBodyLayout observed{};
         bool bodyLayout=false;
         const bool paletteCountResolved=contextCurrent &&
-            ReachResolvePaletteNodeCount(tag,paletteCount);
+            ReachReadRenderModelIdentity(tag,bodyChecksum,paletteCount);
         if (paletteCountResolved)
             ReachObserveFpLegPalette(tag,paletteCount);
         if (paletteCountResolved && boneMap &&
@@ -28020,8 +28244,12 @@ namespace
             bodyLayout=ResolveReachFpBodyLayout(
                 std::span<const int32_t>{mapCopy,
                     static_cast<size_t>(paletteCount)},
-                static_cast<size_t>(context.liveSourceCount),observed);
+                static_cast<size_t>(context.liveSourceCount),observed,bodyChecksum);
         }
+        if (contextCurrent && !bodyLayout &&
+            (paletteCount==static_cast<int>(kReachSpartanFpBodyNodeCount) ||
+             paletteCount==static_cast<int>(kReachEliteFpBodyNodeCount)))
+            PublishReachFpStatus(4,paletteCount,context.liveSourceCount);
         const bool frozenLayoutValid=context.layout.Valid();
         const bool exactBodyMatchesFrozen=bodyLayout && frozenLayoutValid &&
             tag==context.bodyTag && ReachLayoutsEqual(context.layout,observed);
@@ -28115,6 +28343,26 @@ namespace
                     context.layout.rightHandSourceDescendants;
                 fp.heldObjectStart=static_cast<int>(
                     context.layout.paletteBodyNodeCount);
+                // This palette's native model supplies the held outputs. The
+                // body palette owns no weapon outputs; unrendered graph extras
+                // must not become guns merely because the Elite lacks them.
+                fp.heldSources.explicitMap=true;
+                if (!exactBodyMatchesFrozen &&
+                    (!paletteCountResolved || !boneMap ||
+                     !SafeReadBytes(boneMap,mapCopy,
+                         static_cast<size_t>(paletteCount)*sizeof(int32_t)) ||
+                     !ResolveReachFpHeldSources(context.layout,
+                         std::span<const int32_t>{mapCopy,
+                             static_cast<size_t>(paletteCount)},fp.heldSources)))
+                {
+                    // Refuse only this unrelated/malformed model. A valid
+                    // arms layout must survive an optional palette failure.
+                    selectedSource=context.untouchedLive;
+                    PublishReachFpStatus(4,paletteCount,context.liveSourceCount);
+                    if (original)
+                        original(tag,root,destination,unused,selectedSource,boneMap);
+                    return;
+                }
                 fp.lWrist=context.layout.leftWristSource;
                 fp.lElbow=context.layout.leftElbowSource;
                 fp.lShoulder=context.layout.leftShoulderSource;
@@ -28254,8 +28502,8 @@ namespace
                         {
                             const bool hand=i<64 &&
                                 (keep&(uint64_t{1}<<i));
-                            const bool held=fp.heldObjectStart>=0 &&
-                                i>=fp.heldObjectStart;
+                            const bool held=FpSourceIndexIsHeldObject(i,fp.count,
+                                fp.heldObjectStart,fp.heldSources);
                             if (!hand && !held)
                             {
                                 const bool leftArm=i<64 &&
@@ -32901,7 +33149,8 @@ namespace
                 tracking,false,candidate.gameplayBasePosition,
                 candidate.fpTargets.rightWrist,
                 candidate.fpTargets.rightScale,&candidate.fpTargets.contactSpace[1],
-                &candidate.fpTargets.contactController[1]);
+                &candidate.fpTargets.contactController[1],&candidate.fpTargets.aimNeutral);
+        candidate.fpTargets.aimVisual=candidate.fpTargets.rightWrist;
         candidate.fpTargets.leftWristValid=
             ReachBuildPreparedControllerTarget(
                 tracking,true,candidate.gameplayBasePosition,
@@ -32928,7 +33177,8 @@ namespace
                 ReachBuildPreparedControllerTarget(
                     oneHandTracking,false,candidate.gameplayBasePosition,
                     candidate.fpTargets.rightOneHandWrist,
-                    candidate.fpTargets.rightOneHandScale);
+                    candidate.fpTargets.rightOneHandScale,nullptr,nullptr,&candidate.fpTargets.oneHandAimNeutral);
+            candidate.fpTargets.oneHandAimVisual=candidate.fpTargets.rightOneHandWrist;
         }
         candidate.fpTargets.contactSerial=tracking.preparedSerial;
         candidate.fpTargets.contactTimeNs=tracking.predictedDisplayTimeNs;
@@ -32942,6 +33192,7 @@ namespace
             const float referenceInputs[]{g_headPosRef[0],g_headPosRef[1],g_headPosRef[2],g_headYawRef,
                 g_config.gun_scale,g_config.left_hand_scale,g_config.gun_forward_m,
                 g_config.gun_right_m,g_config.gun_up_m,g_config.left_hand_forward_m,
+                g_config.left_gun_forward_m,g_config.left_gun_right_m,g_config.left_gun_up_m,
                 g_config.gun_pitch_deg,g_config.gun_yaw_deg,g_config.gun_roll_deg,
                 g_config.barrel_pitch_deg,g_config.barrel_yaw_deg,g_config.barrel_roll_deg};
             for (float value:referenceInputs)
@@ -37033,6 +37284,9 @@ namespace
         else if (code==3)
             LOG("Reach FP layout changed or failed validation at live=%d; next pair remains stock",
                 liveCount);
+        else if (code==4)
+            LOG("Reach FP palette stays native: unsupported identity or invalid source mapping; "
+                "palette=%d live=%d; camera and aim remain independent",bodyCount,liveCount);
     }
 
     void ReachVehicleInputLogTick()
@@ -39509,6 +39763,8 @@ namespace
     };
     struct Halo4FloatingPair
     {
+        Halo4FloatingTransform aimNeutral{},aimVisual{},oneHandAimNeutral{},oneHandAimVisual{};
+        bool aimNeutralValid=false,oneHandAimNeutralValid=false;
         contact_melee::TrackingToWorld reloadTrackingTransform{};
         bool reloadTrackingValid=false;
         contact_melee::Frame contactFrames[2]{};
@@ -39540,6 +39796,7 @@ namespace
         // changes the submitted stock body palette.
         bool localUnitFrozen = false;
         uint32_t localUnit = UINT32_MAX;
+        uint32_t animationWeapon = UINT32_MAX;
         // Owner-safe one-hand fallback carrier, built once per pair from the
         // same prepared sample. The weapon carrier consumes it when this
         // invocation is untrusted/detached and the prepared aim is
@@ -41402,14 +41659,14 @@ namespace
                 (sg*roomForward-cg*roomRight)*s,
                 dy*s};
             // Halo 3's standoff, along the controller's own forward column.
-            const float standoff=(left
-                ? Clamp(g_config.left_hand_forward_m,-0.15f,0.30f)
-                : Clamp(g_config.gun_forward_m,-0.3f,0.5f))*s;
+            const float standoff=weapon_alignment::Forward(left,(left?g_config.left_gun_forward_m:g_config.gun_forward_m),g_config.left_hand_forward_m)*s;
             memcpy(controller.basis,basis,sizeof(basis));
             for (int axis=0;axis<3;++axis)
             {
                 controller.position[axis]=
-                    bodyRoot.translation[axis]+off[axis]+basis[axis]*standoff;
+                    bodyRoot.translation[axis]+off[axis]+basis[axis]*standoff+
+                    basis[3+axis]*weapon_alignment::Right(false,(left?g_config.left_gun_right_m:g_config.gun_right_m))*s+
+                    basis[6+axis]*weapon_alignment::Up((left?g_config.left_gun_up_m:g_config.gun_up_m))*s;
                 if (!isfinite(controller.position[axis])) return false;
             }
             for (int i=0;i<9;++i)
@@ -42178,7 +42435,7 @@ namespace
         frame.rightForwardTrim=g_config.halo4_hand_forward_m+
             Clamp(g_config.gun_forward_m,-0.3f,0.5f);
         frame.leftForwardTrim=g_config.halo4_hand_forward_m+
-            Clamp(g_config.left_hand_forward_m,-0.15f,0.30f);
+            weapon_alignment::Forward(true,g_config.left_gun_forward_m,g_config.left_hand_forward_m);
         frame.gunYawDeg=g_config.gun_yaw_deg;
         frame.gunPitchDeg=g_config.gun_pitch_deg;
         frame.gunRollDeg=g_config.gun_roll_deg;
@@ -42287,12 +42544,11 @@ namespace
                 controller.basis,targetPosition,false,
                 frame.gunYawDeg,frame.gunPitchDeg,frame.gunRollDeg,carrier))
             return false;
-        if (!left)
         {
             const float rightOff=
-                Clamp(g_config.gun_right_m,-0.3f,0.3f)*input.worldScale;
+                weapon_alignment::Right(false,(left?g_config.left_gun_right_m:g_config.gun_right_m))*input.worldScale;
             const float upOff=
-                Clamp(g_config.gun_up_m,-0.3f,0.3f)*input.worldScale;
+                weapon_alignment::Up(left?g_config.left_gun_up_m:g_config.gun_up_m)*input.worldScale;
             for (int axis=0;axis<3;++axis)
                 carrier.translation[axis]+=
                     carrier.rotation[3+axis]*rightOff +
@@ -42383,7 +42639,8 @@ namespace
                 targetFrame.rightForwardTrim,targetFrame.leftForwardTrim,
                 targetFrame.visualPitchDeg,targetFrame.visualYawDeg,targetFrame.visualRollDeg,
                 targetFrame.common.verticalTrim,targetFrame.common.lateralTrim,
-                g_config.gun_right_m,g_config.gun_up_m,g_config.gun_scale,g_config.left_hand_scale};
+                g_config.gun_right_m,g_config.gun_up_m,g_config.gun_scale,g_config.left_hand_scale,
+                g_config.left_gun_forward_m,g_config.left_gun_right_m,g_config.left_gun_up_m};
             for(float value:trims)
             { uint32_t bits=0; memcpy(&bits,&value,sizeof(bits)); settings=(settings^bits)*1099511628211ull; }
             for(int hand=0;hand<2;++hand)
@@ -42404,6 +42661,11 @@ namespace
         g_halo4FloatingPair.rightTargetValid=frameValid &&
             Halo4BuildFloatingWorldTarget(
                 false,targetFrame,g_halo4FloatingPair.rightTargetWorld);
+        auto neutralFrame=targetFrame;
+        neutralFrame.visualPitchDeg=neutralFrame.visualYawDeg=neutralFrame.visualRollDeg=0;
+        g_halo4FloatingPair.aimVisual=g_halo4FloatingPair.rightTargetWorld;
+        g_halo4FloatingPair.aimNeutralValid=frameValid &&
+            Halo4BuildFloatingWorldTarget(false,neutralFrame,g_halo4FloatingPair.aimNeutral);
         g_halo4FloatingPair.leftTargetValid=frameValid &&
             Halo4BuildFloatingWorldTarget(
                 true,targetFrame,g_halo4FloatingPair.leftTargetWorld);
@@ -42415,6 +42677,9 @@ namespace
             g_halo4FloatingPair.oneHandRightTargetValid=frameValid &&
                 Halo4BuildFloatingWorldTarget(false,targetFrame,
                     g_halo4FloatingPair.oneHandRightTargetWorld,true);
+        g_halo4FloatingPair.oneHandAimVisual=g_halo4FloatingPair.oneHandRightTargetWorld;
+        g_halo4FloatingPair.oneHandAimNeutralValid=g_halo4FloatingPair.oneHandRightTargetValid &&
+            Halo4BuildFloatingWorldTarget(false,neutralFrame,g_halo4FloatingPair.oneHandAimNeutral,true);
         if (g_halo4FloatingPair.rightTargetValid &&
             g_halo4FloatingPair.leftTargetValid)
         {
@@ -42644,6 +42909,7 @@ namespace
                (g_halo4FloatingPair.localUnitFrozen&&
                 g_halo4FloatingPair.localUnit!=ownerUnit))return false;
             g_halo4FloatingPair.localUnit=ownerUnit;
+            g_halo4FloatingPair.animationWeapon=ownerWeapon;
             g_halo4FloatingPair.localUnitFrozen=true;
             if(VR_SupportGripWiredForTitle(GameTitle::Halo4)&&
                 !g_halo4FloatingPair.supportGripResolved) {
@@ -42791,6 +43057,25 @@ namespace
         (valid?g_halo4FpFingerApplied:g_halo4FpFingerRefused).fetch_add(1,std::memory_order_relaxed);
     }
 
+    thread_local weapon_animation::RotationFilter g_halo4AnimationSmoothing[2];
+    void Halo4SmoothAuthoredWrist(bool left,const Halo4FloatingTransform& carrier,
+        Halo4FloatingTransform& desired)
+    {
+        auto& filter=g_halo4AnimationSmoothing[left?1:0];
+        const auto& pair=g_halo4FloatingPair;
+        if(!pair.localUnitFrozen||pair.animationWeapon==UINT32_MAX) {filter={};return;}
+        weapon_animation::Pose parent{},world{},smoothed{};
+        if(!Halo4NormalizeFloatingBasis(carrier.rotation,parent.rotation)||
+           !Halo4NormalizeFloatingBasis(desired.rotation,world.rotation)) {filter={};return;}
+        memcpy(parent.translation,carrier.translation,sizeof(parent.translation));
+        memcpy(world.translation,desired.translation,sizeof(world.translation));
+        if(weapon_animation::SmoothLocalRotation(filter,
+                {pair.generation,pair.localUnit,pair.animationWeapon,
+                 uint64_t(pair.supportGripAttached)|(uint64_t(pair.handAlignment)<<1)},
+                parent,world,GetTickCount64(),smoothed))
+            memcpy(desired.rotation,smoothed.rotation,sizeof(desired.rotation));
+    }
+
     Halo4VrikStage Halo4BuildFloatingHandsPalette(
         const BoneMatrix* source, BoneMatrix* solved, int nodeCount,
         int32_t objectIndex,bool publish)
@@ -42844,6 +43129,7 @@ namespace
                 supportRightTarget,eyeRoot,stockRight,
                 desiredRight))
             return Halo4VrikStage::RightPoseFailed;
+        // Disabled after headset regression: preserve the accepted native H4 reroot.
         bool markerParityApplied=false;
         bool rigidSupportLockApplied=false;
         bool markerParityFallback=false;
@@ -42864,6 +43150,7 @@ namespace
                     g_halo4FloatingPair.leftTargetWorld,eyeRoot,stockLeft,
                     desiredLeft))
                 return Halo4VrikStage::LeftPoseFailed;
+            // Keep native H4 wrist animation; optional smoothing remains dormant.
             // Reach's official left_hand marker is identity on its wrist.
             // Halo 4's marker is this H4EK quaternion on identity child node54.
             // Align the marker frames; never equate the wrist bone axes again.
@@ -43237,6 +43524,7 @@ namespace
                     (ownerDetail&0x4u)!=0 && ownerUnit!=UINT32_MAX)
                 {
                     g_halo4FloatingPair.localUnit=ownerUnit;
+                    g_halo4FloatingPair.animationWeapon=ownerWeapon;
                     g_halo4FloatingPair.localUnitFrozen=true;
                 }
             }
@@ -48870,6 +49158,7 @@ namespace
             Halo4FlightDriveReport();   // the Broadsword pilot's own line
             GunAimReport();   // DRIVE Halo 3 gun-slaved seat (the gun camera's offset), SEAT LIMIT Halo 3 gun band
             Halo3HeadRelativeReport();   // TRACKER HEAD Halo 3: the switch, by the head / the game's own
+            ReportH3DualAnimation();
             Halo3TrackerHudHeightReport();   // TRACKER HUD HEIGHT Halo 3: the blips moved with the HUD height / not
             HostUnloadGate_Report();   // UNLOAD GATE <title>: MCC's reload of a game DLL waited for our teardown / not
             VR_ReportStandingFollow();   // VIEW HEIGHT title=N: the neutral height began to follow the standing height
@@ -49309,6 +49598,7 @@ namespace
                     default: break;
                     }
                     Config_ApplyTitleProfile(tunableProfile);
+                    Game_SetWorldScale(g_config.world_scale);
                     VR_UpdateWeaponAlignment();
                 }
                 // C-H2-10. The classic core cannot serve Anniversary: with
@@ -52455,7 +52745,7 @@ void Game_PitchTrim(int dir)
 void Game_LeanScale(int dir)
 {
     const float s = Clamp(g_worldScale.load() + dir * 0.05f, 0.05f, 2.0f);
-    g_worldScale = s;
+    Game_SetWorldScale(s);
     LOG("lean scale %.2f (game units per meter)", s);
 }
 
@@ -57081,6 +57371,12 @@ void Game_GunScale(int dir)
 }
 
 float Game_GetWorldScale() { return g_worldScale.load(); }
+void Game_SetWorldScale(float value)
+{
+    if (!std::isfinite(value)) return;
+    g_config.world_scale=Clamp(value,0.165f,0.495f);
+    g_worldScale.store(g_config.world_scale);
+}
 
 // ---- Shots-vs-reticle frame tranche (read-only evidence) ----
 // See game.h. All readers below are bounded, lock-free, finite-checked and

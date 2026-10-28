@@ -1342,3 +1342,10 @@ struct VrDlssRenderPlan
 bool VR_GetDlssRenderPlan(VrDlssRenderPlan& out);
 
 void VR_ObserveReachAlternateDepthBind(ID3D11DeviceContext* context, UINT renderTargetCount, ID3D11DepthStencilView* depth);
+
+// Native simulation-thread receipt and one-shot requests for the exact held pair.
+unsigned VR_DualWieldReloadTick(GameTitle title,uint32_t generation,uint32_t unit,
+    const uint32_t weapons[2]) noexcept;
+
+// Cold-worker input admission and clock diagnostics.
+void VR_ReportDualWieldReloadInput(GameTitle title);
