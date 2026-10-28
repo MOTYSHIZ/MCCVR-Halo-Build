@@ -673,6 +673,9 @@ namespace
     std::atomic<uint64_t> g_halo3AimFrameDownMs{0};
     constexpr uint64_t kHalo3AimFrameCrosshairHoldMs = 400;
     bool Halo3CrosshairReadyForCapture();
+    // Halo 3's own HUD layout (the same both ways), as read from its slots before the first write of a level; 0
+    // until read. It is not one number: MCC's reads 0.87, Project Reclaimer's 0.97.
+    std::atomic<uint32_t> g_halo3TitleSafeFrameBits{0};
     std::atomic<bool> g_halo3AimFramePass{false};
     std::atomic<uint64_t> g_halo3GameZoomMs{0};
     std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
@@ -4947,6 +4950,9 @@ namespace
         if (reportReadback)
             lastReadbackLogMs = readbackNow;
 
+        // Nothing written since these slots were published: they hold the title's own layout.
+        const bool titleOwnLayout = profile == HudLayoutProfile::Halo3 &&
+            g_hudAppliedSafeFrameHBits.load(std::memory_order_relaxed) == 0;
         int live = 0;
         for (int i = 0; i < n && i < kMaxSafeFrameHits; ++i)
         {
@@ -4963,6 +4969,17 @@ namespace
             if (!SafeFramePairPlausible(h, v) ||
                 !HudDestinationPlausible(destinationZ))
                 continue;
+            if (titleOwnLayout && i == 0 && h == v)
+            {
+                // The same both ways and near full size: the title's layout, not one of ours left by a resident tag
+                // (the player's and the frame's both differ across and down).
+                float own = 0.0f;
+                memcpy(&own, &h, sizeof(own));
+                if (own >= 0.8f && own <= 1.0f &&
+                    g_halo3TitleSafeFrameBits.exchange(h, std::memory_order_relaxed) != h)
+                    LOG("SAFEFRAME [Halo 3]: the title's own layout is %.4f; the crosshair is sized for it at the "
+                        "start of each level, until ours is written", own);
+            }
             if (reportReadback)
             {
                 float readH = 0.0f, readV = 0.0f;
@@ -52468,15 +52485,31 @@ bool Game_GetHalo3HudSafeFrameInEffect(float& horizontal, float& vertical, float
 {
     if (Game_GetAppliedHudSafeFrame(horizontal, vertical, size))
         return true;
-    // Not written yet -- it is looked for seconds into each level -- so the game's own layout is what draws, at its
-    // stock 0.87 both ways. Only while the player's layout is a customised one: with a stock layout the title's
-    // own is the player's, and the capture stays as it was.
+    // Not written yet -- it is looked for seconds into each level -- so the game's own layout is what draws, the
+    // same both ways (g_halo3TitleSafeFrameBits). Only while the player's layout is a customised one: with a stock
+    // layout the title's own is the player's, and the capture stays as it was.
     const bool stock = g_config.hud_size >= 0.8695f && g_config.hud_size <= 0.8705f &&
         g_config.hud_aspect >= 0.9995f && g_config.hud_aspect <= 1.0005f &&
         g_config.hud_curvature >= 0.4995f && g_config.hud_curvature <= 0.5005f;
     if (stock || TitleAdapter_GetActiveTitle() != GameTitle::Halo3 || !(g_config.hud_size > 0.0f))
         return false;
-    horizontal = vertical = 0.87f;
+    float own = 0.0f;
+    const uint32_t ownBits = g_halo3TitleSafeFrameBits.load(std::memory_order_relaxed);
+    memcpy(&own, &ownBits, sizeof(own));
+    if (!(own >= 0.8f && own <= 1.0f))
+    {
+        // Not read yet this session: what each host's own reads.
+        static const float hostDefault = []
+        {
+            wchar_t path[MAX_PATH]{};
+            GetModuleFileNameW(nullptr, path, MAX_PATH);
+            for (wchar_t& c : path)
+                c = towlower(c);
+            return wcsstr(path, L"\\project-reclaimer") ? 0.97f : 0.87f;
+        }();
+        own = hostDefault;
+    }
+    horizontal = vertical = own;
     if (size)
         *size = g_config.hud_size;
     return true;

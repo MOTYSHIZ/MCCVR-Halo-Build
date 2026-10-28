@@ -108,7 +108,8 @@ bool Game_HasScopeRenderer(); // optional title-local zoom view is available
 // and the gun-mounted lens is not offered.
 bool Game_AimFrameZoomOwnsZoom();
 // Halo 3's HUD layout as it draws now: the one written (Game_GetAppliedHudSafeFrame), or, before it is written
-// for a customised layout, the game's own stock 0.87 with the player's size. False: the title's own layout.
+// for a customised layout, the title's own (MCC 0.87, Project Reclaimer 0.97) with the player's size. False: the
+// title's own layout.
 bool Game_GetHalo3HudSafeFrameInEffect(float& horizontal, float& vertical, float* size);
 bool Game_IsScopeRendering();
 bool Game_SetScopeRendering(bool active);
