@@ -18144,6 +18144,21 @@ namespace
         uint32_t deferred_ = 0;
         uint32_t immediate_ = 0;
     };
+    // What MinHook's freezes cost (minhook_lifecycle.h, MCCVR_TakeFreezeStats), in words for one log line.
+    std::string DescribeFreezes(const MCCVR_FREEZE_STATS& f)
+    {
+        char text[384];
+        if (!f.freezes)
+            return "No freeze of the game's threads";
+        snprintf(text, sizeof(text),
+                 "%u freeze%s of the game's threads: %u listed this process's own threads (%u in all), %u took the "
+                 "system-wide thread snapshot; listing took %.1f ms, suspending them and reading where each stood "
+                 "%.1f ms (the slowest single thread %.1f ms)",
+                 f.freezes, f.freezes == 1 ? "" : "s", f.ownLists, f.threads, f.systemSnapshots, f.listMs,
+                 f.suspendMs, f.slowestThreadMs);
+        return text;
+    }
+
     // The last install's count, for the worker's line after its MH_ApplyQueued (the same thread).
     uint32_t g_halo3InstallDeferredHooks = 0;
     uint32_t g_halo3InstallImmediateHooks = 0;
@@ -34057,6 +34072,47 @@ namespace
         bool suspended = false;
     };
 
+    // THIS PROCESS'S THREADS, for a freeze. This process's own list first
+    // (minhook_lifecycle.h, MCCVR_ListOwnThreadIds: a walk of its own threads,
+    // a fraction of a millisecond); the system-wide thread snapshot, the route
+    // every freeze here took before, when that list cannot be made. The
+    // snapshot copies every thread on the machine and was measured at
+    // 115-237 ms, and the freeze below took two. Allocates: call it before any
+    // thread is suspended. False: neither could be read.
+    bool ListThisProcessThreads(DWORD processId, std::vector<DWORD>& ids)
+    {
+        ids.clear();
+        DWORD* own = nullptr;
+        UINT count = 0;
+        if (MCCVR_ListOwnThreadIds(&own, &count))
+        {
+            ids.assign(own, own + count);
+            MCCVR_FreeThreadIds(own);
+            return true;
+        }
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if (snapshot == INVALID_HANDLE_VALUE)
+            return false;
+        bool complete = true;
+        THREADENTRY32 entry{};
+        entry.dwSize = sizeof(entry);
+        if (!Thread32First(snapshot, &entry))
+            complete = false;
+        while (complete)
+        {
+            if (entry.th32OwnerProcessID == processId)
+                ids.push_back(entry.th32ThreadID);
+            if (!Thread32Next(snapshot, &entry))
+            {
+                if (GetLastError() != ERROR_NO_MORE_FILES)
+                    complete = false;
+                break;
+            }
+        }
+        CloseHandle(snapshot);
+        return complete;
+    }
+
     // Worker-only process freeze used after both Reach hooks are disabled. It
     // closes the small ingress window in which a thread is already inside a
     // MinHook relay or the detour prologue but has not incremented the counter.
@@ -34072,48 +34128,42 @@ namespace
 
             const DWORD processId = GetCurrentProcessId();
             const DWORD currentThreadId = GetCurrentThreadId();
-            HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (snapshot == INVALID_HANDLE_VALUE)
+            std::vector<DWORD> ids;
+            if (!ListThisProcessThreads(processId, ids))
                 return false;
 
             bool enumerateOk = true;
-            THREADENTRY32 entry{};
-            entry.dwSize = sizeof(entry);
-            if (!Thread32First(snapshot, &entry))
-                enumerateOk = false;
-            while (enumerateOk)
+            for (const DWORD id : ids)
             {
-                if (entry.th32OwnerProcessID == processId &&
-                    entry.th32ThreadID != currentThreadId)
+                if (id == currentThreadId)
+                    continue;
+                HANDLE thread = OpenThread(
+                    THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
+                        THREAD_QUERY_INFORMATION | SYNCHRONIZE,
+                    FALSE, id);
+                if (!thread)
                 {
-                    HANDLE thread = OpenThread(
-                        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
-                            THREAD_QUERY_INFORMATION | SYNCHRONIZE,
-                        FALSE, entry.th32ThreadID);
-                    if (!thread)
+                    if (GetLastError() != ERROR_INVALID_PARAMETER)
                     {
-                        if (GetLastError() != ERROR_INVALID_PARAMETER)
-                            enumerateOk = false;
-                    }
-                    else
-                    {
-                        m_threads.push_back(
-                            {thread, entry.th32ThreadID, false});
+                        enumerateOk = false;
+                        break;
                     }
                 }
-                if (!Thread32Next(snapshot, &entry))
+                else
                 {
-                    if (GetLastError() != ERROR_NO_MORE_FILES)
-                        enumerateOk = false;
-                    break;
+                    m_threads.push_back({thread, id, false});
                 }
             }
-            CloseHandle(snapshot);
             if (!enumerateOk)
             {
                 Release();
                 return false;
             }
+
+            // The completeness check below lists the threads again with every
+            // other one suspended, so its buffer is made here, now: room for
+            // the threads found and for as many again started since.
+            m_check.assign(m_threads.size() * 2 + 64, 0);
 
             // Complete every allocation before the first suspension. All
             // captured threads then remain frozen through the RIP/counter
@@ -34168,6 +34218,41 @@ namespace
         bool FrozenSnapshotIsComplete(
             DWORD processId, DWORD currentThreadId) const
         {
+            // This process's own list, into the buffer Capture made before
+            // suspending anything: no allocation while a frozen thread may
+            // hold a heap lock. More threads than it holds means threads were
+            // started since the first list: not complete.
+            UINT listed = 0;
+            const UINT own = m_check.empty() ? MCCVR_OWN_THREADS_FAILED
+                : MCCVR_ListOwnThreadIdsInto(m_check.data(),
+                      static_cast<UINT>(m_check.size()), &listed);
+            if (own == MCCVR_OWN_THREADS_OVERFLOW)
+                return false;
+            if (own == MCCVR_OWN_THREADS_COMPLETE)
+            {
+                for (UINT i = 0; i < listed; ++i)
+                {
+                    const DWORD id = m_check[i];
+                    if (id == currentThreadId)
+                        continue;
+                    bool foundFrozen = false;
+                    for (const ReachFrozenThread& thread : m_threads)
+                    {
+                        if (thread.threadId == id)
+                        {
+                            foundFrozen = thread.suspended ||
+                                WaitForSingleObject(thread.handle, 0) ==
+                                    WAIT_OBJECT_0;
+                            break;
+                        }
+                    }
+                    if (!foundFrozen)
+                        return false;
+                }
+                return true;
+            }
+
+            // The list could not be made: the system-wide snapshot, as before.
             HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (snapshot == INVALID_HANDLE_VALUE)
                 return false;
@@ -34207,6 +34292,9 @@ namespace
             return complete;
         }
 
+        // The completeness check's list, sized in Capture before any thread
+        // is suspended.
+        mutable std::vector<DWORD> m_check;
         std::vector<ReachFrozenThread> m_threads;
     };
 
@@ -50547,9 +50635,17 @@ namespace
                 // mapping. Retire MinHook's records now, before the loader can
                 // unmap halo3.dll and reuse the same address for the next
                 // level. This is non-owning: no loader refcount is released.
-                hookRefreshPending = !RemoveInstalledGameHooks();
-                LOG("Halo 3 hook epoch retirement at level-liveness boundary: %s",
-                    hookRefreshPending ? "cleanup pending" : "complete");
+                {
+                    MCCVR_FREEZE_STATS freezes{};
+                    MCCVR_TakeFreezeStats(&freezes);
+                    const uint64_t retireBeganMs = GetTickCount64();
+                    hookRefreshPending = !RemoveInstalledGameHooks();
+                    MCCVR_TakeFreezeStats(&freezes);
+                    LOG("Halo 3 hook epoch retirement at level-liveness boundary: %s in %llu ms. %s",
+                        hookRefreshPending ? "cleanup pending" : "complete",
+                        static_cast<unsigned long long>(GetTickCount64() - retireBeganMs),
+                        DescribeFreezes(freezes).c_str());
+                }
                 gameHooked = false;
                 g_hooked = false;
                 // The next install must prove the level is running again.
@@ -50824,16 +50920,21 @@ namespace
                     // of partial install rollback and stale dependency slots.
                     // The optional features' hooks were queued with them
                     // (InstallHookDeferral): this one pass enables them all.
+                    MCCVR_FREEZE_STATS freezes{};
+                    MCCVR_TakeFreezeStats(&freezes);
                     const uint64_t applyBeganMs = GetTickCount64();
                     const MH_STATUS activated = prepared ? MH_ApplyQueued() : MH_UNKNOWN;
                     if (prepared)
+                    {
+                        MCCVR_TakeFreezeStats(&freezes);
                         LOG("Halo 3 install: the core's hooks and %u of the optional features' hooks went live in "
                             "one pass in %llu ms (%u optional hooks were enabled on their own instead; "
-                            "install_hooks_together = %d); MinHook status %d",
+                            "install_hooks_together = %d); MinHook status %d. %s",
                             g_halo3InstallDeferredHooks,
                             static_cast<unsigned long long>(GetTickCount64() - applyBeganMs),
                             g_halo3InstallImmediateHooks, g_config.install_hooks_together,
-                            static_cast<int>(activated));
+                            static_cast<int>(activated), DescribeFreezes(freezes).c_str());
+                    }
                     if (prepared && activated == MH_OK)
                     {
                         g_halo3InstallReady.store(true, std::memory_order_release);
