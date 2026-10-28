@@ -2100,7 +2100,7 @@ namespace
             if (g_config.aim_frame_stereo)
             {
                 changed |= vr_menu::SliderFloat("3D strength##aimframe", &g_config.aim_frame_3d_strength,
-                                              1.0f, 6.0f, "%.1fx");
+                                              1.0f, 10.0f, "%.1fx");
                 ImGui::TextDisabled("The frame's eye spacing as a multiple of yours. Far targets show little depth\n"
                                     "at 1x; what you aim at stays at the frame's depth, with the crosshair.");
             }

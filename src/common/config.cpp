@@ -689,7 +689,7 @@ static void Clamp()
         g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.0f;
     }
     g_config.aim_frame_3d_strength = std::isfinite(g_config.aim_frame_3d_strength)
-        ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 6.0f) : 2.0f;
+        ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 10.0f) : 6.0f;
     g_config.aim_frame_move_s = std::isfinite(g_config.aim_frame_move_s)
         ? std::clamp(g_config.aim_frame_move_s, 0.0f, 1.0f) : 0.12f;
     g_config.scope_screen_width_m = std::clamp(g_config.scope_screen_width_m, 0.04f, 0.25f);
@@ -3164,7 +3164,7 @@ void ConfigSave()
     fprintf(f, "# The frame in 3D: each eye sees its own picture of the zoomed view. 0 = one flat picture.\n");
     fprintf(f, "# (default %d)\n", d.aim_frame_stereo ? 1 : 0);
     fprintf(f, "aim_frame_stereo = %d\n\n", g_config.aim_frame_stereo ? 1 : 0);
-    fprintf(f, "# The frame's 3D strength: its eye spacing as a multiple of yours. (default %.1f, range 1 to 6)\n",
+    fprintf(f, "# The frame's 3D strength: its eye spacing as a multiple of yours. (default %.1f, range 1 to 10)\n",
             d.aim_frame_3d_strength);
     fprintf(f, "aim_frame_3d_strength = %.2f\n\n", g_config.aim_frame_3d_strength);
     fprintf(f, "# The frame's width in degrees at the first zoom level (_1) and the second and higher (_2).\n");

@@ -1416,8 +1416,8 @@ struct Config
     bool aim_frame_stereo = true;
     // How far apart the frame's two eyes are, as a multiple of your own eye spacing (binoculars set their lenses
     // wider for the same reason): far targets show little depth at real spacing. The two pictures meet at the
-    // point you aim at, so it and the game's crosshair sit at the frame's own depth. 1 to 6.
-    float aim_frame_3d_strength = 2.0f;
+    // point you aim at, so it and the game's crosshair sit at the frame's own depth. 1 to 10.
+    float aim_frame_3d_strength = 6.0f;
     float aim_frame_size_deg[2]{50.0f, 50.0f};
     float aim_frame_strength[2]{1.0f, 1.0f};
     float aim_frame_move_s = 0.12f;
