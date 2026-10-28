@@ -163,6 +163,7 @@ __declspec(noinline) void __fastcall Halo3WeaponHapticShotDetour(uint32_t weapon
 
 __declspec(noinline) uint8_t __fastcall Halo3WeaponHapticTriggerUpdateDetour(uint32_t weapon)
 {
+    Halo3HookCalled(Halo3Hook::WeaponTriggerUpdate);
     auto& feature = g_halo3WeaponHaptics;
     feature.callbacks.fetch_add(1, std::memory_order_acq_rel);
     const auto previousSource = g_halo3WeaponHapticSource;
@@ -555,6 +556,7 @@ void Halo3WeaponHapticsTick(float dt) noexcept
 
 __declspec(noinline) void __fastcall Halo3WeaponHapticUpdateDetour(float dt)
 {
+    Halo3HookCalled(Halo3Hook::HapticUpdate);
     auto& feature = g_halo3WeaponHaptics;
     feature.callbacks.fetch_add(1, std::memory_order_acq_rel);
     const bool previousObserved = g_halo3WeaponHapticEvalObserved;
@@ -681,6 +683,8 @@ bool InstallHalo3WeaponHaptics(uintptr_t base, size_t size, uint32_t generation)
         if (MCCVR_EnableHook(target) != MH_OK)
         { LOG("Halo 3 weapon haptics StockFallback: hook enable failed"); (void)RemoveHalo3WeaponHaptics(); return false; }
     }
+    Halo3HookWatchInstalled(Halo3Hook::WeaponTriggerUpdate, reinterpret_cast<uintptr_t>(feature.triggerUpdateTarget));
+    Halo3HookWatchInstalled(Halo3Hook::HapticUpdate, reinterpret_cast<uintptr_t>(feature.updateTarget));
     feature.enabled.store(true, std::memory_order_release);
     LOG("Halo 3 authored weapon haptics installed: admitted shots plus exact local charge effects, per-weapon role, stock evaluator admission");
     return true;

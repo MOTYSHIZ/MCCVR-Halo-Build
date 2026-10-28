@@ -90,6 +90,7 @@ bool Halo3SeatViewWritesTag();
 void Halo3SeatViewArm(int32_t unit);
 void Halo3SeatViewDisarm();
 
+#include "../src/dll/halo3_hook_watch_mark.h"
 #include "../src/dll/halo3_seat_view.inl"
 
 // ---- the fixture ---------------------------------------------------------------------------------------------
