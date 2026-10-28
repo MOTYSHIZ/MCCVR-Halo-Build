@@ -1,5 +1,7 @@
 // Temporary diagnostic: bounded atomic snapshots in the palette hook; all
 // formatting and file output run on the existing diagnostic reporting path.
+// Dev builds only: the capture runs inside every Halo 3 visible palette.
+#if HALOMCCVR_DEV_DIAGNOSTICS
 struct H3DualAnimationSample
 {
     std::atomic_flag writing=ATOMIC_FLAG_INIT;
@@ -49,6 +51,9 @@ void CaptureH3DualAnimation(uint16_t tag,const FpInterpolationContext& context,
     sample.sequence.fetch_add(1,std::memory_order_release);
     sample.writing.clear(std::memory_order_release);
 }
+#endif
+// The secondary-motion counters are cheap and stay in player logs; the
+// per-sample matrix dump is the dev-only part.
 void ReportH3DualAnimation()
 {
     static uint64_t lastMotionReport=0;
@@ -64,6 +69,7 @@ void ReportH3DualAnimation()
             static_cast<unsigned long long>(g_h3SecondaryMotionApplied.load()),
             static_cast<unsigned long long>(g_h3SecondaryMotionSkipped.load()));
     }
+#if HALOMCCVR_DEV_DIAGNOSTICS
     static uint32_t reported[2]{};
     for(int slot=0;slot<2;++slot) {
         auto& sample=g_h3DualAnimation[slot];
@@ -82,4 +88,5 @@ void ReportH3DualAnimation()
                 v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11]);
         }
     }
+#endif
 }

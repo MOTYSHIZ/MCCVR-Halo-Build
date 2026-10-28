@@ -8281,8 +8281,10 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             Halo3ApplySecondaryWeaponAlignment(tag,context,destination,boneMap);
             Halo3PublishMuzzlePalette(tag,context,destination,collisionGeneration);
             LegacyApplyVisualHandOffsets(GameTitle::Halo3,tag,boneMap,context,destination);
+#if HALOMCCVR_DEV_DIAGNOSTICS
             CaptureH3DualAnimation(tag,context,g_fpUnmodifiedInterpolations[context.slot],
                 selectedSource,root,destination,boneMap);
+#endif
             if(context.valid&&context.player==0&&context.slot==0)
                 ObserveHalo3AvatarFp(tag,destination);
         }
@@ -16162,7 +16164,10 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
 // Keep the failed learned-palette candidate dormant; restore the pre-ODST solver.
 static constexpr bool kOdstMappedFpEnabled = false;
 #include "odst_modded_fp.inl"
+// Passive palette-map recorder: dev builds only (it reads and scans per palette).
+#if HALOMCCVR_DEV_DIAGNOSTICS
 #include "odst_fp_map_probe.inl"
+#endif
 #include "odst_mythic_layout.inl"
 
     bool OdstFpInterpolateWeaponBody(
@@ -16255,7 +16260,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
             g_odstCamera.armed.load(std::memory_order_acquire) &&
             !g_odstCamera.teardownRequested.load(std::memory_order_acquire) &&
             g_enabled.load(std::memory_order_relaxed);
+#if HALOMCCVR_DEV_DIAGNOSTICS
         if(ownsWeapons)OdstCaptureFpMapProbe(view,id,slot,result,outBones,outCount);
+#endif
         if ((slot == 0 || slot == 1) && ownsWeapons)
         {
             if (kOdstMappedFpEnabled)
@@ -16387,7 +16394,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
             if(original)original(tag,root,destination,unused,hidden,boneMap);
             return;
         }
+#if HALOMCCVR_DEV_DIAGNOSTICS
         OdstObserveFpMapProbe(tag,source,boneMap);
+#endif
         if(!kOdstMappedFpEnabled)OdstCorrectMythicBodyPalette(tag,boneMap,context);
         if (kOdstMappedFpEnabled) (void)OdstResolveMappedPalette(tag,boneMap,context);
         (void)LegacyObserveWeaponRenderModel(GameTitle::Halo3ODST,tag,collisionGeneration,source,boneMap);
@@ -16754,7 +16763,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
     // line tells us whether the hook fired and whether the skeleton was accepted.
     void LogOdstFpLayoutSelfCheckIfNew()
     {
+#if HALOMCCVR_DEV_DIAGNOSTICS
         OdstLogFpMapProbe();
+#endif
         OdstFpLayoutSelfCheck& sc = g_odstFpLayoutSelfCheck;
         const uint32_t key = sc.key.load(std::memory_order_acquire);
         if (key == 0)

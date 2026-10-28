@@ -835,12 +835,18 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner,const N
     AnimationNode nodes[kFirstPersonMaxNodes]{};
     uint32_t count{};
     if (!ReadGraph(graph,nodes,count)) {
-        (void)fpRefusalProbe.Publish({owner.context.tracking.generation,graph,10});return false;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        (void)fpRefusalProbe.Publish({owner.context.tracking.generation,graph,10});
+#endif
+        return false;
     }
     FirstPersonBinding binding{};
     const auto& context=owner.context;
     if (!BuildFirstPersonBinding(graph,context.tracking.generation,nodes,count,binding)) {
-        (void)fpRefusalProbe.Publish({context.tracking.generation,graph,11,count});return false;
+#if HALOMCCVR_DEV_DIAGNOSTICS
+        (void)fpRefusalProbe.Publish({context.tracking.generation,graph,11,count});
+#endif
+        return false;
     }
     // The optional pose applies only to the official CE first-person hand
     // graph whose five three-joint chains were bound by exact node names and
@@ -873,6 +879,7 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner,const N
     uint32_t refusalStage=0;
     if (!BuildTrackedFirstPersonPalette(binding,source.data(),context.camera,context.tracking,
             context.reference,context.unitsPerMeter,context.positional,staged,&refusalStage,haveAnimation?&animationDelta:nullptr)) {
+#if HALOMCCVR_DEV_DIAGNOSTICS
         FpRefusalProbe failure{};
         failure.generation=binding.generation;failure.graph=graph;failure.stage=refusalStage;
         failure.count=count;failure.identity=binding.nodeIdentity;
@@ -888,10 +895,14 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner,const N
         failure.leftLower=distance(binding.elbow[0],binding.leftWrist);
         failure.rightUpper=distance(binding.shoulder[1],binding.elbow[1]);
         failure.rightLower=distance(binding.elbow[1],binding.rightWrist);
-        (void)fpRefusalProbe.Publish(failure);return false;
+        (void)fpRefusalProbe.Publish(failure);
+#endif
+        return false;
     }
+#if HALOMCCVR_DEV_DIAGNOSTICS
+    // Passive pose evidence (dev builds: it rebuilds the controller matrix a
+    // second time per palette); formatting and logging stay in the cold poll.
     (void)fpRefusalProbe.Publish({binding.generation,graph,0,count,binding.nodeIdentity});
-    // Passive pose evidence; formatting and logging stay in the cold poll.
     FpOrientationProbe probe{};
     probe.generation=binding.generation;probe.graph=graph;probe.identity=binding.nodeIdentity;
     probe.count=int(count);probe.gun=binding.gun;probe.right=binding.rightWrist;probe.left=binding.leftWrist;
@@ -901,6 +912,9 @@ bool ApplyPalette(uint32_t graph,NodeMatrix* matrices,const Scope& owner,const N
             context.tracking.controllers.primaryAim,context.unitsPerMeter,context.positional,probe.expected) &&
         ApplyVisualMount(context.tracking.controllers,context.unitsPerMeter,true,probe.expected))
         (void)fpOrientationProbe.Publish(probe);
+#else
+    (void)refusalStage;
+#endif
     HaloCEContactPublication contact{};
     HaloCEContact_ApplyPalette(context,binding,source.data(),staged.data(),contact);
     (void)ApplyVisibleFirstPersonHandOffsets(binding,context.unitsPerMeter,context.tracking.controllers,staged.data());
@@ -1526,6 +1540,7 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
         LOG("CE weapon animation: applied=%llu settling=%llu",
             static_cast<unsigned long long>(animationApplied.load()),
             static_cast<unsigned long long>(animationSettling.load()));
+#if HALOMCCVR_DEV_DIAGNOSTICS
         FpRefusalProbe failure{};
         if(fpRefusalProbe.Read(failure) && failure.generation==gen)
             LOG("CE FP stage graph=%08X identity=%llX count=%u stage=%u invalidNodes=%llX zeroScale=%llX armLengths=%.6f/%.6f/%.6f/%.6f (0=staged 1=input 2=controller 3=grip 4=hand 5=nodes 6=left-arm 7=right-arm 8=floating 10=read 11=binding)",
@@ -1541,6 +1556,7 @@ bool HaloCEFirstPerson_Poll(uintptr_t base,size_t size,uint32_t gen,bool isActiv
                 probe.after.up.x,probe.after.up.y,probe.after.up.z,
                 probe.expected.up.x,probe.expected.up.y,probe.expected.up.z);
         }
+#endif
         if (alignmentKnownGraph.load() || alignmentUnknownGraph.load())
             LOG("CE hand alignment gen=%u verifiedGripGraph=%llu unknownGraphPriorMount=%llu; unknown graphs retain prior hand placement",
                 gen,alignmentKnownGraph.load(),alignmentUnknownGraph.load());
