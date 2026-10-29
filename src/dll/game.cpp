@@ -5032,9 +5032,13 @@ namespace
         const auto liveHudNow=GetTickCount64();
         if(liveHudNow-lastLiveHudLog>=5000) {
             lastLiveHudLog=liveHudNow;
-            LOG("Authored grip zone title=%u: hit=%llu miss=%llu pending-or-fallback=%llu local=(%.3f,%.3f,%.3f); supported owners never reopen barrel zone",
-                unsigned(TitleAdapter_GetActiveTitle()),authored_grab::hits.exchange(0),authored_grab::misses.exchange(0),authored_grab::fallbacks.exchange(0),
-                authored_grab::lastX.load(),authored_grab::lastY.load(),authored_grab::lastZ.load());
+            // Only when the grip zone was asked something: a quiet session logs nothing.
+            const auto gripHits=authored_grab::hits.exchange(0),gripMisses=authored_grab::misses.exchange(0),
+                gripFallbacks=authored_grab::fallbacks.exchange(0);
+            if(gripHits||gripMisses||gripFallbacks)
+                LOG("Authored grip zone title=%u: hit=%llu miss=%llu pending-or-fallback=%llu local=(%.3f,%.3f,%.3f); supported owners never reopen barrel zone",
+                    unsigned(TitleAdapter_GetActiveTitle()),gripHits,gripMisses,gripFallbacks,
+                    authored_grab::lastX.load(),authored_grab::lastY.load(),authored_grab::lastZ.load());
             const auto adjusted=g_h3HudRecordAdjusted.exchange(0),native=g_h3HudRecordNative.exchange(0);
             if(profile==HudLayoutProfile::Halo3&&(adjusted||native))LOG("H3 live HUD layout: selected-record adjusted=%llu native=%llu; stock scanner independent",adjusted,native);
         }
