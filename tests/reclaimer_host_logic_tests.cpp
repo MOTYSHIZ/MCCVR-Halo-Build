@@ -62,6 +62,22 @@ int main()
         CHECK(WithCenteredCrosshair("{\"centered_crosshair\": 1}", out) == CenteredCrosshairEdit::Unreadable);
         CHECK(WithCenteredCrosshair("[1, 2]", out) == CenteredCrosshairEdit::Unreadable);
     }
+    // The client's display mode: exclusive fullscreen becomes borderless, changing nothing else.
+    {
+        std::string out;
+        CHECK(WithoutExclusiveFullscreen("{\n    \"display_mode\": \"exclusive_fullscreen\",\n    \"fov\": 70\n}", out) ==
+                  DisplayModeEdit::MadeBorderless &&
+              out == "{\n    \"display_mode\": \"borderless\",\n    \"fov\": 70\n}");
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\" :\"exclusive_fullscreen\"}", out) ==
+                  DisplayModeEdit::MadeBorderless &&
+              out == "{\"display_mode\" :\"borderless\"}");
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": \"borderless\"}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": \"windowed\"}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": \"exclusive_fullscreen_x\"}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"fov\": 70}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": 2}", out) == DisplayModeEdit::Unreadable);
+    }
     CHECK(IsClientExeName(L"project-reclaimer-client-v0.9.23.exe"));
     CHECK(IsClientExeName(L"project-reclaimer-client.exe"));
     CHECK(IsClientExeName(Leaf(L"D:\\Some Games\\Project Reclaimer\\0.9.23\\project-reclaimer-client-v0.9.23.exe")));

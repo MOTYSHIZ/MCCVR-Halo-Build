@@ -153,6 +153,41 @@ inline CenteredCrosshairEdit WithCenteredCrosshair(const std::string& text, std:
     return CenteredCrosshairEdit::TurnedOn;
 }
 
+// THE CLIENT'S DISPLAY MODE. Started in exclusive fullscreen ("display_mode": "exclusive_fullscreen"), the client
+// has run at about 10 fps beside the headset's session from its first frame, and a few seconds later the graphics
+// card stopped answering and was reset (0x887A0006); started windowed or borderless it runs normally. The desktop
+// window is only a mirror of the headset's picture, so the launcher starts the client borderless instead, changing
+// nothing else in the file. A file without the key is left alone: borderless is the client's default.
+enum class DisplayModeEdit
+{
+    Kept,           // not exclusive fullscreen: nothing to write
+    MadeBorderless, // `out` is the file with the value set to "borderless"
+    Unreadable,     // the key's value is not a JSON string: left alone
+};
+inline DisplayModeEdit WithoutExclusiveFullscreen(const std::string& text, std::string& out)
+{
+    constexpr std::string_view kKey = "\"display_mode\"";
+    constexpr std::string_view kExclusive = "\"exclusive_fullscreen\"";
+    const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+    const size_t key = text.find(kKey);
+    if (key == std::string::npos)
+        return DisplayModeEdit::Kept;
+    size_t at = key + kKey.size();
+    while (at < text.size() && space(text[at]))
+        ++at;
+    if (at >= text.size() || text[at] != ':')
+        return DisplayModeEdit::Unreadable;
+    ++at;
+    while (at < text.size() && space(text[at]))
+        ++at;
+    if (at >= text.size() || text[at] != '"')
+        return DisplayModeEdit::Unreadable;
+    if (text.compare(at, kExclusive.size(), kExclusive) != 0)
+        return DisplayModeEdit::Kept;
+    out = text.substr(0, at) + "\"borderless\"" + text.substr(at + kExclusive.size());
+    return DisplayModeEdit::MadeBorderless;
+}
+
 // A path as a person gives it: pasted with quotes round it, with spaces or a line end after it.
 inline std::wstring TidyPath(std::wstring_view text)
 {
