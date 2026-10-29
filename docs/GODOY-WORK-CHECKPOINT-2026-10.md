@@ -7,6 +7,45 @@ evidence pointers, not current priorities.
 
 ---
 
+## Latest: absolute alignment defaults, H2 visual identity and needle shake timing
+
+User explicitly supersedes the additive request: use the latest list as final
+values, not increments. Commit requested on two-handed-grip, no build request.
+Reach Needler barrel -1; ODST Needler barrel -12 (latest +6 from -18),
+Brute Shot barrel -8, Plasma Pistol yaw +1; H4 shotgun -.7, railgun +3,
+carbine -.5, Boltshot +3.8; H2A plasma rifle +.5, plasma pistol -.5;
+H2 classic SMG -.7, plasma/brute rifles +1, BR +1.5, shotgun +1.1.
+Other prior defaults remain intact. Accepted release pointer unchanged.
+
+Confirmed Boltshot error: yaw was assigned to storm_burst_pistol (160F1B01),
+but the held Boltshot is storm_stasis_pistol (1305160B), corroborated by the
+reload catalog and preserved Halo 4 model log. Restore unrelated burst model
+baseline to zero. ODST pistol's prior additive result was zero, not +1.
+The SMG previously had +.3 rather than the newly clarified absolute -.7;
+no separate SMG identity failure is established by current evidence.
+
+H2 plasma/brute rifles share the same catalog compression tuple, so FindHalo2
+correctly rejects ambiguous mesh identity. Add separate visual-only observations
+per hand. A bounded alias applies their identical classic +1 yaw without
+changing native model identity, reload ownership or mesh selection. Unique
+models retain their normal identities. Ambiguous H2A variants still have no
+inferred baseline because their requested defaults differ; the explicit regular
+rifle table value is +.5, but this tuple alone cannot select that variant.
+
+Needler shake used coarse GetTickCount64 for velocity and reset its stroke on
+same-timestamp input polls. Use predicted pose milliseconds for motion only,
+as dual-wield shake already does, and ignore duplicate pose timestamps. Native
+pulse deadlines, freshness, ownership checks and cooldown remain wall-clock.
+Regression covers every catalogued needle weapon at coarse wall ticks with
+repeated poses: old timing fails 14 checks, corrected timing passes. This proves
+a detector failure, not that it is the sole cause of the user's runtime report.
+Fresh headset testing is still required for H3/ODST/Reach/H4 reload delivery.
+
+Validation: weapon interaction 16,356 checks pass; weapon defaults regression
+passes; production-extracted model observers 547 checks pass using a local
+Linux SEH syntax shim (not Windows fault handling coverage). No Windows DLL
+compilation or headset validation performed. No workflow dispatch requested.
+
 ## Latest: clarify animation versus grip delay; grip minimum500ms
 
 Reviewed32cd80d4 and574645d5: both change weapon_animation::Reference, not

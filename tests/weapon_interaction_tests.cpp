@@ -292,6 +292,28 @@ int main()
     auto needle=[](Rig& r) {
         r.c.needleShake=true;r.s.weaponGraph=0x55EA2D6F6C10C375ull;r.Step();r.Step();
     };
+    // Pose timing must survive coarse wall-clock ticks and repeated input polls.
+    for(const auto& model:weapon_model::kModels)if(model.needles) {
+        Rig r(model.title);
+        r.c.needleShake=true;r.s.weaponGraph=model.identity;
+        r.s.poseNow=5000;r.Step();r.s.poseNow+=11;r.Step();
+        const auto start=r.s.primary;
+        unsigned requests=0;
+        for(unsigned i=1;i<=24;++i) {
+            r.s.poseNow+=11;
+            r.s.now=1040+((i*11)/16)*16;
+            r.s.primary=start+Vec{0,.14f*(i<=12?i:24-i)/12.f,0};
+            const auto o=r.state.Update(r.s,r.c);
+            requests+=o.reloadRequested;
+            if(o.reloadRequested)Check(o.pulseUntil==r.s.now+120,
+                "pose timing preserves native wall-clock pulse deadline");
+            Check(!r.state.Update(r.s,r.c).reloadRequested,
+                "duplicate pose never restarts the stroke or repeats the pulse");
+        }
+        Check(requests==1,"every catalogued needle weapon reloads with coarse wall time and duplicate poses");
+        Check(r.state.Update(r.s,r.c).buttons==r.c.reloadButton,
+            "gesture retains its native reload binding");
+    }
     for(bool left:{false,true})for(unsigned dt:{8u,11u,14u})for(float grip:{0.0f,1.0f})
         for(Vec axis:{Vec{1,0,0},Vec{0,1,0},Vec{0,0,1},Vec{-.57735f,.57735f,-.57735f}})
     {

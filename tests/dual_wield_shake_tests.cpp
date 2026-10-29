@@ -92,8 +92,8 @@ int main() {
         c.Request(a,3153,3);Check(c.ObserveAndConsume(a,3100)==0,"clock regression rejects requests");
     }
     // Reproduce Windows' coarse tick clock at a faster-than-clock VR rate.
-    // Identical physical strokes fail with repeated wall-clock milliseconds,
-    // but succeed with the actual pose timestamps in either renderer.
+    // Duplicate wall-clock samples are now ignored rather than reseeding the
+    // shared stroke detector, so both coarse and pose-clock samples can finish.
     for(unsigned dt:{8u,11u,14u,22u})for(auto title:{GameTitle::Halo2,GameTitle::Halo3}) {
         Rig coarse(title,false),pose(title,false);
         unsigned oldRequests=0,newRequests=0;
@@ -110,7 +110,7 @@ int main() {
             newRequests|=pose.state.Update(pose.sample);
         }
         Check(newRequests==3,"pose-clock shake works at high and lower frame rates");
-        if(dt<16)Check(oldRequests==0,"old coarse clock repeatedly cancels the high-rate gesture");
+        if(dt<16)Check(oldRequests==3,"duplicate coarse wall-clock polls no longer reset the high-rate gesture");
     }
     Check(dual_wield_shake::PoseMilliseconds(0)==0 && dual_wield_shake::PoseMilliseconds(-1)==0,
         "missing pose time cannot start a gesture");

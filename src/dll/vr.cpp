@@ -10790,6 +10790,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     std::atomic<bool> g_holsterCaptureSavePending{false};
     std::atomic<bool> g_holsterCaptureLeftHanded{false};
     weapon_model::Observations g_weaponModels, g_secondaryWeaponModels;
+    weapon_model::Observations g_halo2VisualModels[2];
     weapon_interaction::ReloadTargets g_reloadTargets;
     WeaponAccessoryRenderer g_weaponAccessoryRenderer;
     weapon_accessory::Presentation g_weaponAccessory; // compositor thread only
@@ -15180,7 +15181,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             const bool headValid=XR_SUCCEEDED(xrLocateSpace(g_viewSpace,g_localSpace,time,&head))&&
                 (head.locationFlags&tracked)==tracked&&NormalizeTrackedPose(head.pose);
             weapon_interaction::Sample sample{};
-            sample.now=inputNow;sample.title=TitleAdapter_GetActiveTitle();
+            sample.now=inputNow;sample.poseNow=dual_wield_shake::PoseMilliseconds(time);
+            sample.title=TitleAdapter_GetActiveTitle();
             sample.generation=TitleAdapter_GetGeneration(sample.title);
             sample.space=g_contactSpaceEpoch.load(std::memory_order_acquire);
             sample.weaponGraph=VR_GetWeaponModelIdentity(sample.title,sample.generation,sample.space,inputNow);
@@ -24735,14 +24737,24 @@ void VR_ObserveSecondaryWeaponModel(GameTitle title,uint32_t generation,uint64_t
         g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64()});
 }
 
+void VR_ObserveHalo2VisualModel(bool secondary,uint32_t generation,uint64_t identity) noexcept
+{
+    if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo2||
+        generation!=TitleAdapter_GetGeneration(GameTitle::Halo2))return;
+    (void)g_halo2VisualModels[secondary?1:0].Publish({GameTitle::Halo2,generation,identity,
+        g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64()});
+}
+
 void VR_LegacyDefaultVisualAngles(bool secondary,bool classic,float& yaw,float& pitch,float& roll) noexcept
 {
     const auto title=TitleAdapter_GetActiveTitle();
     const auto generation=TitleAdapter_GetGeneration(title);
     const auto space=g_contactSpaceEpoch.load(std::memory_order_acquire);
     const auto now=GetTickCount64();
-    const auto identity=secondary?g_secondaryWeaponModels.Read(title,generation,space,now):
-        VR_GetWeaponModelIdentity(title,generation,space,now);
+    const auto identity=title==GameTitle::Halo2?
+        g_halo2VisualModels[secondary?1:0].Read(title,generation,space,now):
+        (secondary?g_secondaryWeaponModels.Read(title,generation,space,now):
+        VR_GetWeaponModelIdentity(title,generation,space,now));
     const auto d=weapon_alignment::LegacyWeaponVisualDefaults(title,identity,classic);
     yaw=d.yaw;pitch=d.pitch;roll=d.roll;
 }

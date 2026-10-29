@@ -6,6 +6,7 @@
 #include "../common/exclusive_input.h"
 #include "../common/halo2_datum_logic.h"
 #include "../common/weapon_model_catalog.h"
+#include "../common/legacy_weapon_visual_defaults.h"
 #include "../common/weapon_muzzle.h"
 #include "../common/visual_hand_config.h"
 #include "../common/scope_logic.h"
@@ -2063,7 +2064,7 @@ namespace
             g_graphDefinitionGet.load(std::memory_order_acquire));
         const auto slot=reinterpret_cast<unsigned char**>(
             g_halo2TagDataBaseSlot.load(std::memory_order_acquire));
-        uint64_t identity=0;
+        uint64_t identity=0,visualIdentity=0;
         __try
         {
             const auto* definition=get?static_cast<const uint8_t*>(get(tag)):nullptr;
@@ -2074,13 +2075,15 @@ namespace
                 const auto* b=reinterpret_cast<const float*>(*slot+static_cast<ptrdiff_t>(offset));
                 const float low[]{b[0],b[2],b[4]},high[]{b[1],b[3],b[5]};
                 identity=weapon_model::Halo2LiveIdentity(low,high,nodes,tag);
+                if(identity)visualIdentity=weapon_alignment::Halo2VisualIdentity(low,high,nodes);
             }
         }
-        __except(EXCEPTION_EXECUTE_HANDLER) { identity=0; }
+        __except(EXCEPTION_EXECUTE_HANDLER) { identity=visualIdentity=0; }
         if(observePrimary)
             VR_ObserveWeaponModel(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),identity);
         else
             VR_ObserveSecondaryWeaponModel(GameTitle::Halo2,TitleAdapter_GetGeneration(GameTitle::Halo2),identity);
+        VR_ObserveHalo2VisualModel(!observePrimary,TitleAdapter_GetGeneration(GameTitle::Halo2),visualIdentity);
         return identity;
     }
 

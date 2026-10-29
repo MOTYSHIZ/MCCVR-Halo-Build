@@ -83,6 +83,7 @@ struct Settings
 struct Sample
 {
     uint64_t now{}, space{};
+    uint64_t poseNow{}; // Predicted pose milliseconds; zero uses now for non-XR callers.
     uint32_t generation{};
     GameTitle title{GameTitle::None};
     bool ready{}, dualWield{};
@@ -220,7 +221,8 @@ public:
     {
         const float travel=Setting(stroke,0.06f,0.20f,0.10f);
         if(!Finite(relative)||!now) { Reset();return false; }
-        if(!last_||now<=last_||now-last_>100||travel_!=travel)
+        if(last_&&now==last_&&travel_==travel)return false;
+        if(!last_||now<last_||now-last_>100||travel_!=travel)
         { Seed(relative,now,travel);return false; }
         const uint64_t previousAt=last_;
         const Vec previous=previous_;
@@ -449,7 +451,7 @@ public:
         if(c.reload&&c.needleShake&&c.reloadButton&&NeedleWeapon(s.title,s.weaponGraph)&&
            !s.otherAction&&!occupied&&!phase_&&!out.pickedMagazine&&!out.grabbedHolster)
         {
-            if(singleShake_.Update(s.primary-s.head,s.now,c.shakeTravel)&&s.now>=cooldown_)
+            if(singleShake_.Update(s.primary-s.head,s.poseNow?s.poseNow:s.now,c.shakeTravel)&&s.now>=cooldown_)
             {
                 pulse_=c.reloadButton;pulseUntil_=s.now+120;cooldown_=s.now+500;
                 out.reloadRequested=true;out.primaryHaptic=0.45f;

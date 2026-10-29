@@ -15,7 +15,7 @@ inline ReachDefaults ReachWeaponDefaults(uint64_t model) noexcept {
     case 0x000000001208171Eull: return {-0.5f,0.0f,0.0f,0.0f,0.0f}; // plasma_repeater
     case 0x00000000100B1711ull: return {1.6f,0.0f,0.0f,1.6f,0.0f}; // plasma_pistol
     case 0x00000000100A141Eull: return {-0.5f,0.0f,0.0f,0.0f,0.0f}; // plasma_launcher
-    case 0x0000000011091511ull: return {-1.5f,0.0f,0.0f,0.0f,-9.0f}; // needler
+    case 0x0000000011091511ull: return {-1.5f,0.0f,0.0f,0.0f,-10.0f}; // needler
     case 0x00000000110D171Eull: return {-0.5f,0.0f,0.0f,0.0f,0.0f}; // focus_rifle
     case 0x000000001615110Eull: return {0.5f,0.0f,0.0f,0.0f,0.0f}; // needle_rifle
     case 0x00000000140C1111ull: return {0.0f,-25.0f,0.0f,0.0f,0.0f}; // energy_sword

@@ -1,3 +1,4 @@
+#include "../src/common/legacy_weapon_visual_defaults.h"
 #include <Windows.h>
 #include "../src/common/weapon_model_catalog.h"
 #include "../src/common/halo2_world_collision_logic.h"
@@ -25,6 +26,9 @@ void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity
 // This fixture extracts the production observer bodies but deliberately does not
 // exercise the separate secondary-presentation path.
 void VR_ObserveSecondaryWeaponModel(GameTitle,uint32_t,uint64_t) noexcept {}
+uint64_t visualIdentities[2]{};
+void VR_ObserveHalo2VisualModel(bool secondary,uint32_t,uint64_t identity) noexcept
+{visualIdentities[secondary?1:0]=identity;}
 uint32_t TitleAdapter_GetGeneration(GameTitle) {return 7;}
 using Halo2GraphDefinitionGetFn=const void*(__fastcall*)(uint32_t);
 std::atomic<uintptr_t> g_graphDefinitionGet{},g_halo2TagDataBaseSlot{};
@@ -91,10 +95,13 @@ int main()
             "production H2 observer reads verified +14/+18 compression header");
         if(model.vertexCount||model.needles) Check(observedIdentity==model.identity,
             "production H2 observer exactly identifies every drawable magazine and Needler");
+        const auto visualIdentity=weapon_alignment::Halo2VisualIdentity(model.minimum,model.maximum,model.nodeCount);
+        Check(visualIdentities[0]==visualIdentity,"primary publishes separate visual identity");
         const auto primaryIdentity=observedIdentity;observations=0;
         const auto secondaryIdentity=Halo2ObserveReloadModel(123,model.nodeCount,false);
         Check(!observations&&secondaryIdentity==primaryIdentity&&observedIdentity==primaryIdentity,
             "secondary muzzle model lookup cannot replace primary alignment/reload identity");
+        Check(visualIdentities[1]==visualIdentity,"secondary publishes its own visual identity");
         g_config.manual_reload=false;g_config.gun_barrel_aim=true;
         Check(Halo2ObserveReloadModel(123,model.nodeCount,false)==primaryIdentity,
             "muzzle model lookup works independently of manual reload");
