@@ -10402,6 +10402,23 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // headset. No D3D device needed here, so it can run while the game loads.
     bool InitInstance()
     {
+        // OFXR Bridge (openxr_layer_report_logic.h): the loader reads an implicit layer's off switch from the
+        // process's environment each time it lists the layers, so setting it here, before the first OpenXR call,
+        // keeps OFXR out of this game alone.
+        if (!g_config.allow_ofxr_bridge)
+        {
+            if (GetEnvironmentVariableW(L"XRFG_DISABLE_OFXR_BRIDGE", nullptr, 0) == 0)
+            {
+                SetEnvironmentVariableW(L"XRFG_DISABLE_OFXR_BRIDGE", L"1");
+                LOG("OFXR Bridge: kept out of this game with its own off switch, XRFG_DISABLE_OFXR_BRIDGE (its frame "
+                    "generation has crashed the mod; allow_ofxr_bridge = 1 lets it in)");
+            }
+            else
+                LOG("OFXR Bridge: XRFG_DISABLE_OFXR_BRIDGE is already set, so OFXR stays out of this game");
+        }
+        else
+            LOG("OFXR Bridge: allowed in this game (allow_ofxr_bridge = 1)");
+
         uint32_t extensionCount = 0;
         std::vector<XrExtensionProperties> availableExtensions;
         if (XR_SUCCEEDED(xrEnumerateInstanceExtensionProperties(
