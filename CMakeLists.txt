@@ -382,7 +382,7 @@ target_compile_definitions(halo3xr PRIVATE
     HALOMCCVR_BUILD_HALO2="${HALOMCCVR_BUILD_HALO2}")
 target_link_libraries(halo3xr PRIVATE
     openxr_loader minhook imgui_lib
-    d3d11 dxgi d3dcompiler gdi32)
+    d3d11 dxgi d3dcompiler gdi32 advapi32)
 target_sources(halo3xr PRIVATE src/dll/native_subtitles.cpp)
 target_sources(halo3xr PRIVATE src/dll/physical_crouch_camera.cpp)
 target_sources(halo3xr PRIVATE src/dll/native_vr_actions.cpp)
@@ -862,6 +862,12 @@ if(BUILD_TESTING)
     target_compile_options(halomccvr_present_owner_tests PRIVATE /W4 /WX)
     target_compile_definitions(halomccvr_present_owner_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_present_owner_tests COMMAND halomccvr_present_owner_tests)
+    # Which OpenXR API layers the loader put between the mod and the runtime, and the ones known to break it
+    # (src/common/openxr_layer_report_logic.h).
+    add_executable(halomccvr_openxr_layer_report_tests tests/openxr_layer_report_tests.cpp)
+    target_compile_options(halomccvr_openxr_layer_report_tests PRIVATE /W4 /WX)
+    target_compile_definitions(halomccvr_openxr_layer_report_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_openxr_layer_report_tests COMMAND halomccvr_openxr_layer_report_tests)
     # The third-person boom: Halo 3's camera track as the game evaluates it, the flat game's look range, the
     # boom's angle from the stick and where it starts (src/common/vehicle_boom_logic.h).
     add_executable(halomccvr_vehicle_boom_tests tests/vehicle_boom_tests.cpp)

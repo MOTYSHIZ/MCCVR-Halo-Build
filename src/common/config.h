@@ -538,6 +538,9 @@ struct Config
     float menu_height_m = -0.08f;   // vertical offset, negative = below eye line
     float menu_side_m = 0.0f;       // sideways offset, positive = to your right
     bool game_menu_pointer = false; // optional controller mouse in native menus
+    // OFXR Bridge, an OpenXR frame-generation layer, has crashed the mod; off, the mod sets OFXR's own off switch
+    // (XRFG_DISABLE_OFXR_BRIDGE) in the game's process before OpenXR starts, so OFXR stays out of this game only.
+    bool allow_ofxr_bridge = false;
 
     // Show the welcome page automatically, once, at the start of each launch.
     // The mod has no other way to tell a player anything before they play: the
