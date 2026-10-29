@@ -58,6 +58,7 @@
 #include "../common/game_menu_pointer.h"
 #include "../common/exclusive_input.h"
 #include "../common/game_menu_pointer_xr.h"
+#include "../common/openxr_layer_report_logic.h"
 #include "game.h"
 #include "sight_layer.h"
 #include "haloce_stereo_core.h"
@@ -10273,6 +10274,130 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 "or a streamer with no process of its own)");
     }
 
+    // Which OpenXR API layers the loader put between the mod and the runtime (openxr_layer_report_logic.h).
+    // Once, after xrCreateInstance: the loader has loaded every implicit layer by then, so a layer's DLL in the
+    // process is the witness that it is in the call chain. Registry, a few small files and one module list.
+    std::string Utf8(const wchar_t* text)
+    {
+        char out[1024]{};
+        WideCharToMultiByte(CP_UTF8, 0, text, -1, out, static_cast<int>(sizeof(out)), nullptr, nullptr);
+        return out;
+    }
+
+    bool EnvironmentSet(const std::string& name)
+    {
+        if (name.empty())
+            return false;
+        wchar_t wide[256]{};
+        if (!MultiByteToWideChar(CP_UTF8, 0, name.c_str(), -1, wide, 256))
+            return false;
+        return GetEnvironmentVariableW(wide, nullptr, 0) > 0;
+    }
+
+    void LogOpenXrApiLayers()
+    {
+        namespace report = openxr_layer_report;
+
+        uint32_t count = 0;
+        std::string available;
+        if (XR_SUCCEEDED(xrEnumerateApiLayerProperties(0, &count, nullptr)) && count > 0)
+        {
+            std::vector<XrApiLayerProperties> layers(count, XrApiLayerProperties{XR_TYPE_API_LAYER_PROPERTIES});
+            if (XR_SUCCEEDED(xrEnumerateApiLayerProperties(count, &count, layers.data())))
+                for (uint32_t i = 0; i < count; ++i)
+                    available += std::string(available.empty() ? "" : ", ") + layers[i].layerName;
+        }
+        LOG("OpenXR API layers the loader offers: %s", available.empty() ? "none" : available.c_str());
+        char env[512]{};
+        if (GetEnvironmentVariableA("XR_ENABLE_API_LAYERS", env, sizeof(env)))
+            LOG("OpenXR API layers asked for by XR_ENABLE_API_LAYERS: %s", env);
+
+        std::vector<std::string> modules;
+        HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+        if (snap != INVALID_HANDLE_VALUE)
+        {
+            MODULEENTRY32W entry{};
+            entry.dwSize = sizeof(entry);
+            if (Module32FirstW(snap, &entry))
+                do
+                    modules.push_back(Utf8(entry.szExePath));
+                while (Module32NextW(snap, &entry));
+            CloseHandle(snap);
+        }
+
+        int registered = 0, loaded = 0;
+        const struct
+        {
+            HKEY root;
+            const char* name;
+        } roots[] = {{HKEY_LOCAL_MACHINE, "HKLM"}, {HKEY_CURRENT_USER, "HKCU"}};
+        for (const auto& root : roots)
+        {
+            HKEY key = nullptr;
+            if (RegOpenKeyExW(root.root, L"SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Implicit", 0,
+                              KEY_READ | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS)
+                continue;
+            for (DWORD index = 0; index < 64; ++index)
+            {
+                wchar_t manifestPath[MAX_PATH * 2]{};
+                DWORD nameChars = static_cast<DWORD>(std::size(manifestPath));
+                DWORD type = 0, value = 0, valueBytes = sizeof(value);
+                const LSTATUS status = RegEnumValueW(key, index, manifestPath, &nameChars, nullptr, &type,
+                                                     reinterpret_cast<BYTE*>(&value), &valueBytes);
+                if (status == ERROR_NO_MORE_ITEMS)
+                    break;
+                if (status != ERROR_SUCCESS)
+                    continue;
+                if (type != REG_DWORD)
+                    value = 0;
+                ++registered;
+
+                std::string json;
+                FILE* file = nullptr;
+                if (_wfopen_s(&file, manifestPath, L"rb") == 0 && file)
+                {
+                    char buffer[4096];
+                    size_t got = 0;
+                    while (json.size() < 64 * 1024 && (got = fread(buffer, 1, sizeof(buffer), file)) > 0)
+                        json.append(buffer, got);
+                    fclose(file);
+                }
+                const std::string manifest = Utf8(manifestPath);
+                const std::string name = report::JsonStringField(json, "name");
+                const std::string library =
+                    report::ResolveLibraryPath(manifest, report::JsonStringField(json, "library_path"));
+                const std::string disable = report::JsonStringField(json, "disable_environment");
+                const std::string enable = report::JsonStringField(json, "enable_environment");
+                const bool inProcess = std::any_of(modules.begin(), modules.end(), [&](const std::string& module) {
+                    return report::ModuleIsLibrary(module, library);
+                });
+                const report::State state = report::Classify(value, !json.empty(), EnvironmentSet(disable),
+                                                             !enable.empty(), EnvironmentSet(enable), inProcess);
+                if (state == report::State::Loaded)
+                    ++loaded;
+                LOG("OpenXR implicit layer %s: %s [%s, %s]%s%s", name.empty() ? "(unnamed)" : name.c_str(),
+                    report::Describe(state), root.name, manifest.c_str(),
+                    disable.empty() ? "" : "; to turn it off for one program set ", disable.c_str());
+                const char* advice = report::KnownProblemAdvice(name, library);
+                if (advice && state == report::State::Loaded)
+                    LOG("WARNING: OpenXR layer %s is in use. %s.%s%s", name.empty() ? manifest.c_str() : name.c_str(),
+                        advice, disable.empty() ? "" : " Its own off switch for one program is the variable ",
+                        disable.c_str());
+            }
+            RegCloseKey(key);
+        }
+        LOG("OpenXR implicit layers: %d registered, %d loaded into this process", registered, loaded);
+
+        // OFXR Bridge answers a function of its own through the instance, so this holds wherever it was
+        // registered: it is in this instance's call chain.
+        PFN_xrVoidFunction ofxr = nullptr;
+        if (g_instance != XR_NULL_HANDLE &&
+            XR_SUCCEEDED(xrGetInstanceProcAddr(g_instance, "xrSetPresentationTransformOFXR", &ofxr)) && ofxr)
+            LOG("WARNING: OFXR Bridge is in this OpenXR instance's call chain. %s. Its own off switch for one "
+                "program is the variable XRFG_DISABLE_OFXR_BRIDGE",
+                report::KnownProblemAdvice("XR_APILAYER_OFXRBridge", ""));
+    }
+
     // Part 1 (background thread): create the OpenXR instance and find the
     // headset. No D3D device needed here, so it can run while the game loads.
     bool InitInstance()
@@ -10402,6 +10527,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 "session by its per-eye FOV instead", g_status.runtime);
         }
         LogStreamingHosts();
+        LogOpenXrApiLayers();
         LOG("OpenXR instance ready; headset found on runtime %s", g_status.runtime);
         return true;
     }
