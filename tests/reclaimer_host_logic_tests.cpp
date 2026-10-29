@@ -424,6 +424,46 @@ int main()
         w = 20000; h = 100;                             // no size in range has that shape
         CHECK(!FitNativeRenderSize(w, h));
     }
+    {
+        // The client's display mode as its settings state it.
+        CHECK(ReadClientDisplayMode("{\"display_mode\": \"windowed\"}") == ClientDisplayMode::Windowed);
+        CHECK(ReadClientDisplayMode("{\n  \"display_mode\" : \"borderless\"\n}") == ClientDisplayMode::Borderless);
+        CHECK(ReadClientDisplayMode("{\"display_mode\":\"exclusive_fullscreen\"}") ==
+              ClientDisplayMode::ExclusiveFullscreen);
+        CHECK(ReadClientDisplayMode("{\"fov\": 70}") == ClientDisplayMode::Borderless);
+        CHECK(ReadClientDisplayMode("") == ClientDisplayMode::Borderless);
+        CHECK(ReadClientDisplayMode("{\"display_mode\": 2}") == ClientDisplayMode::Unknown);
+        CHECK(ReadClientDisplayMode("{\"display_mode\": \"fullscreen\"}") == ClientDisplayMode::Unknown);
+    }
+    {
+        // What Native is answered: never a size larger than the display, and the real mode in exclusive fullscreen.
+        unsigned w = 0, h = 0;
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::Borderless, w, h) ==
+                  NativeAnswer::PanelWithinDisplay &&
+              w == 1996 && h == 1440);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 3840, 2160, ClientDisplayMode::Borderless, w, h) ==
+                  NativeAnswer::Panel &&
+              w == 2912 && h == 2100);
+        CHECK(AnswerNativeRenderSize(2184, 1576, 3840, 2160, ClientDisplayMode::Windowed, w, h) ==
+                  NativeAnswer::Panel &&
+              w == 2184 && h == 1576);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::ExclusiveFullscreen, w, h) ==
+                  NativeAnswer::Display &&
+              w == 2560 && h == 1440);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::Unknown, w, h) ==
+                  NativeAnswer::PanelWithinDisplay &&
+              w <= 2560 && h <= 1440);
+        CHECK(AnswerNativeRenderSize(4000, 1000, 2560, 1440, ClientDisplayMode::Borderless, w, h) ==
+                  NativeAnswer::PanelWithinDisplay &&
+              w == 2560 && h == 640);                   // too wide: the width is the limit
+        CHECK(AnswerNativeRenderSize(2912, 2100, 640, 480, ClientDisplayMode::Borderless, w, h) ==
+                  NativeAnswer::Display &&
+              w == 640 && h == 480);                    // scaled down it would be under 480 high
+        CHECK(AnswerNativeRenderSize(0, 2100, 2560, 1440, ClientDisplayMode::Borderless, w, h) ==
+                  NativeAnswer::Display &&
+              w == 2560 && h == 1440);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 0, 0, ClientDisplayMode::Borderless, w, h) == NativeAnswer::Display);
+    }
 
     if (g_failed)
         std::printf("%d check(s) failed\n", g_failed);

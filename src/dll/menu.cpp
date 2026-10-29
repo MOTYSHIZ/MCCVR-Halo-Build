@@ -2378,12 +2378,32 @@ namespace
         const int resizeState=D3D_LiveResizeState(actualW,actualH);
         if(g_hostOwnsRenderSize)
         {
+            // What its Native read is given: never larger than its display, and its display's own size in exclusive
+            // fullscreen (d3d11_hook.cpp, HostEnumDisplaySettingsShim).
+            unsigned hostW=(unsigned)nextWidth,hostH=(unsigned)nextHeight;
+            int clientModeValue=0;
+            D3D_HostNativeRenderAnswer((unsigned)nextWidth,(unsigned)nextHeight,hostW,hostH,clientModeValue);
+            const auto clientMode=static_cast<reclaimer_host::ClientDisplayMode>(clientModeValue);
+            if(clientMode==reclaimer_host::ClientDisplayMode::Windowed)
+                ImGui::TextWrapped("Project Reclaimer is windowed: there it renders at its Render resolution preset, "
+                                   "or 1920 x 1080 on Native. For the size above, set its Display mode to Borderless "
+                                   "and its Render resolution to Native, then restart it.");
+            else if(clientMode==reclaimer_host::ClientDisplayMode::ExclusiveFullscreen)
+                ImGui::TextWrapped("Project Reclaimer is in exclusive fullscreen: there it renders at your display's "
+                                   "own size. Borderless is the display mode for VR.");
+            else if(hostW!=(unsigned)nextWidth||hostH!=(unsigned)nextHeight)
+                ImGui::TextWrapped("Fitted to your display: Project Reclaimer renders %u x %u. A picture larger than "
+                                   "the screen has stopped the graphics card on some PCs.",hostW,hostH);
             if(!renderPlan.liveRenderW) ImGui::TextWrapped("Project Reclaimer has not drawn a frame yet.");
-            else if(renderPlan.liveRenderW!=(unsigned)nextWidth||renderPlan.liveRenderH!=(unsigned)nextHeight)
+            else if(clientMode==reclaimer_host::ClientDisplayMode::Windowed||
+                    clientMode==reclaimer_host::ClientDisplayMode::ExclusiveFullscreen)
+                ImGui::TextWrapped("It renders %u x %u now.",renderPlan.liveRenderW,renderPlan.liveRenderH);
+            else if(renderPlan.liveRenderW!=hostW||renderPlan.liveRenderH!=hostH)
             {
                 ImGui::TextColored(Rgb(kWarning),"Restart Project Reclaimer to apply this resolution.");
-                ImGui::TextWrapped("It renders %u x %u now. It takes the size above when it starts with its Render "
-                                   "resolution on Native.",renderPlan.liveRenderW,renderPlan.liveRenderH);
+                ImGui::TextWrapped("It renders %u x %u now. It takes the size above when it starts in Borderless "
+                                   "with its Render resolution on Native.",renderPlan.liveRenderW,
+                                   renderPlan.liveRenderH);
             }
             else ImGui::TextWrapped("Project Reclaimer renders at this size.");
         }
