@@ -18,16 +18,20 @@ int main()
     std::array<uint64_t,4> key{1,2,3,4};Pose equip{},idle{},delta{};
     equip.translation[2]=.4f;equip.rotation[0]=0;equip.rotation[1]=1;
     equip.rotation[3]=-1;equip.rotation[4]=0;
-    // A quiet initial equip plateau must not immediately become the baseline.
-    for(uint64_t t=0;t<1000;t+=100)assert(!reference.Update(key,equip,t,.33f,delta));
-    assert(!reference.Update(key,idle,1000,.33f,delta));
-    for(uint64_t t=1100;t<1500;t+=100)assert(!reference.Update(key,idle,t,.33f,delta));
-    assert(reference.Update(key,idle,1500,.33f,delta));same(delta,Pose{});
+    // A quiet pose may settle at the new 500ms initial minimum.
+    for(uint64_t t=0;t<500;t+=100)assert(!reference.Update(key,idle,t,.33f,delta));
+    assert(reference.Update(key,idle,500,.33f,delta));same(delta,Pose{});
+    // Observed motion restarts the independent 500ms quiet window.
+    weapon_animation::Reference movingReference;
+    for(uint64_t t=0;t<300;t+=100)assert(!movingReference.Update(key,equip,t,.33f,delta));
+    assert(!movingReference.Update(key,idle,300,.33f,delta));
+    for(uint64_t t=400;t<800;t+=100)assert(!movingReference.Update(key,idle,t,.33f,delta));
+    assert(movingReference.Update(key,idle,800,.33f,delta));same(delta,Pose{});
     Pose firing=idle;firing.translation[2]=.01f;
-    assert(reference.Update(key,firing,1600,.33f,delta));assert(near(delta.translation[2],0.f));
+    assert(reference.Update(key,firing,600,.33f,delta));assert(near(delta.translation[2],0.f));
     // Recoil/reload never replace an established neutral reference.
-    assert(reference.Update(key,equip,1700,.33f,delta));
-    assert(reference.Update(key,idle,1800,.33f,delta));same(delta,Pose{});
+    assert(reference.Update(key,equip,700,.33f,delta));
+    assert(reference.Update(key,idle,800,.33f,delta));same(delta,Pose{});
     // Regrab and graphics/title identity changes settle independently.
     for(int change=0;change<4;++change) {
         ++key[change];assert(!reference.Update(key,equip,1900+change*2000,.33f,delta));
@@ -139,12 +143,12 @@ int main()
     cache.Store(key,equip);
     weapon_animation::Reference cached;
     assert(!cached.Update(key,idle,0,.33f,delta,true,&cache));
-    for(uint64_t t=100;t<1500;t+=100)assert(!cached.Update(key,idle,t,.33f,delta,true,&cache));
-    assert(cached.Update(key,idle,1500,.33f,delta,true,&cache));same(delta,Pose{});
+    for(uint64_t t=100;t<500;t+=100)assert(!cached.Update(key,idle,t,.33f,delta,true,&cache));
+    assert(cached.Update(key,idle,500,.33f,delta,true,&cache));same(delta,Pose{});
     cached={};
     assert(!cached.Update(key,idle,1700,.33f,delta,true,&cache));
-    for(uint64_t t=1800;t<3200;t+=100)assert(!cached.Update(key,idle,t,.33f,delta,true,&cache));
-    assert(cached.Update(key,idle,3200,.33f,delta,true,&cache));same(delta,Pose{});
+    for(uint64_t t=1800;t<2200;t+=100)assert(!cached.Update(key,idle,t,.33f,delta,true,&cache));
+    assert(cached.Update(key,idle,2200,.33f,delta,true,&cache));same(delta,Pose{});
     for(int field=0;field<4;++field) {
         auto changed=key;++changed[field];cached={};
         assert(!cached.Update(changed,idle,1900,.33f,delta,true,&cache));

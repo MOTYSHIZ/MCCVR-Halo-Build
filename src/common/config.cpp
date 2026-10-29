@@ -499,7 +499,8 @@ static void Clamp()
     g_config.right_hand_mesh_y_m = std::isfinite(g_config.right_hand_mesh_y_m) ? std::clamp(g_config.right_hand_mesh_y_m, -.20f, .20f) : 0.0f;
     g_config.right_hand_mesh_z_m = std::isfinite(g_config.right_hand_mesh_z_m) ? std::clamp(g_config.right_hand_mesh_z_m, -.20f, .20f) : 0.0f;
 
-    g_config.game_brightness = std::clamp(g_config.game_brightness, 0.5f, 2.0f);
+    g_config.game_brightness = std::isfinite(g_config.game_brightness)
+        ? std::clamp(g_config.game_brightness, 0.5f, 2.0f) : TitleTunables{}.game_brightness;
     // Free-form: a hand-typed 0.90 stays 0.90. (Until 2026-07-20 this snapped
     // to the six installer tiers, so any custom value was silently rounded.)
     g_config.resolution_scale = std::clamp(g_config.resolution_scale,
@@ -752,6 +753,7 @@ struct TunableField
 };
 
 const TunableField kTunableFields[] = {
+    {"game_brightness", &TitleTunables::game_brightness, &Config::game_brightness, 0.5f, 2.0f},
     {"left_hand_mesh_x_m", &TitleTunables::left_hand_mesh_x_m, &Config::left_hand_mesh_x_m, -.20f, .20f},
     {"left_hand_mesh_y_m", &TitleTunables::left_hand_mesh_y_m, &Config::left_hand_mesh_y_m, -.20f, .20f},
     {"left_hand_mesh_z_m", &TitleTunables::left_hand_mesh_z_m, &Config::left_hand_mesh_z_m, -.20f, .20f},
@@ -1987,7 +1989,7 @@ void ConfigLoad(const wchar_t* path)
         else if (!strcmp(key, "reticle_element_id"))
             continue; // retired runtime tag-index picker; accept old configs quietly
         else if (!strcmp(key, "game_brightness"))
-            g_config.game_brightness = (float)atof(val);
+            ParseFloatSetting(key, val, g_config.game_brightness);
         else if (!strcmp(key, "resolution_scale"))
             g_config.resolution_scale = (float)atof(val);
         else if (!strcmp(key, "fit_desktop_window"))
@@ -3224,9 +3226,9 @@ void ConfigSave()
     fprintf(f, "#  Shared intent; each title adapter maps it to that game's renderer.\n");
     fprintf(f, "# -------------------------------------------------------------------\n\n");
     fprintf(f, "# Game brightness / gamma. 1.0 = the game's own; higher = brighter.\n");
-    fprintf(f, "# One value for Halo 3, ODST and Reach, so a change is felt in all three.\n");
+    fprintf(f, "# Shared starting value; each game saves its own game_brightness profile below.\n");
     fprintf(f, "# (default %.2f, range 0.5 to 2)\n", d.game_brightness);
-    fprintf(f, "game_brightness = %.2f\n\n", g_config.game_brightness);
+    fprintf(f, "game_brightness = %.2f\n\n", g_config.base_tunables.game_brightness);
     fprintf(f, "# How sharp the game renders inside the headset. ANY value in range\n");
     fprintf(f, "# works, so pick your own: 0.90 really means 90%%, not \"rounded to 80\".\n");
     fprintf(f, "# The named tiers are only shortcuts in the F1 menu:\n");

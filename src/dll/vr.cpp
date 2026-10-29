@@ -1,3 +1,7 @@
+#include "../common/legacy_weapon_visual_defaults.h"
+#include "../common/reach_weapon_defaults.h"
+#include "../common/halo4_weapon_visual_defaults.h"
+#include "../common/authored_grab_zone.h"
 #include "../common/vr_interaction_refinement_logic.h"
 #include "../common/hand_smoothing.h"
 #include "../common/support_grip_logic.h"
@@ -10785,7 +10789,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // inside the OpenXR frame function, where a rewrite of the whole config file is a dropped frame.
     std::atomic<bool> g_holsterCaptureSavePending{false};
     std::atomic<bool> g_holsterCaptureLeftHanded{false};
-    weapon_model::Observations g_weaponModels;
+    weapon_model::Observations g_weaponModels, g_secondaryWeaponModels;
     weapon_interaction::ReloadTargets g_reloadTargets;
     WeaponAccessoryRenderer g_weaponAccessoryRenderer;
     weapon_accessory::Presentation g_weaponAccessory; // compositor thread only
@@ -10905,6 +10909,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // it - the offline fixtures in particular - keeps the pre-W3 product
         // shape. Virtual Stock solves never read it.
         float twoHandOffhandInfluence = 1.0f;
+        float closeGripAuthority = 1.0f;
         // Persistent support grip solve-time qualification (T5b). Plain
         // scalars only, exactly like the Lab fields above: the offline aim
         // fixtures compile this struct without the support-grip or vr headers.
@@ -13742,14 +13747,44 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // the raw point.
     //
     // This is the BASE (PG-off / unwired-title) helper and its geometry is the
-    // pre-fix rule verbatim, including the palm-depth shift along the SUPPORT
+    // legacy fallback rule, including the palm-depth shift along the SUPPORT
     // controller's own forward vector. The persistent-grip writer does not call
-    // it: `PersistentSupportGrabZoneHit` below carries the A003 acquisition
+    // it: both try the authored H3 zone first; `PersistentSupportGrabZoneHit` carries the A003 fallback
     // rule the archive wired, so a support-wrist rotation cannot orbit the
     // acquisition sample across the lateral boundary while the feature is on.
+    bool AuthoredSupportGrabHit(const XrPosef& primary,const XrPosef& support,bool& hit) noexcept
+    {
+        const auto title=TitleAdapter_GetActiveTitle();
+        if(title==GameTitle::None||g_config.left_handed)return false;
+        const auto generation=TitleAdapter_GetGeneration(title);
+        support_grip::OwnerTuple owner{};support_grip::OwnerEvidence evidence{};uint64_t revision=0;
+        if(!ReadSupportGripOwnerEvidenceInternal(title,generation,owner,evidence,revision)||
+           evidence!=support_grip::OwnerEvidence::KnownPresent)return false;
+        const authored_grab::Key key{unsigned(title),generation,owner.unit,owner.weapon};
+        authored_grab::Point local{};
+        if(!authored_grab::publication.Read(key,GetTickCount64(),local)){
+            ++authored_grab::fallbacks;hit=false;
+            // A supported weapon waiting for a fresh endpoint must not reopen
+            // the old 80cm barrel zone. Unknown weapons retain the old fallback.
+            return authored_grab::publication.Owns(key);
+        }
+        authored_grab::lastX.store(local[0]);authored_grab::lastY.store(local[1]);authored_grab::lastZ.store(local[2]);
+        const auto primaryPoint=g_primaryGripPoseValid?g_primaryGripPosePosition:primary.position;
+        const auto supportPoint=g_supportGripPoseValid?g_supportGripPosePosition:support.position;
+        const XrQuaternionf inverse{-primary.orientation.x,-primary.orientation.y,-primary.orientation.z,primary.orientation.w};
+        const auto relative=Rotate(inverse,{supportPoint.x-primaryPoint.x,supportPoint.y-primaryPoint.y,supportPoint.z-primaryPoint.z});
+        const authored_grab::Point sample{relative.x,relative.y,relative.z};
+        local[0]+=std::clamp(g_config.two_hand_zone_right_m,-.10f,.10f);
+        hit=authored_grab::Short(local)?authored_grab::ShortHit(sample):authored_grab::Hit(local,sample);
+        (hit?authored_grab::hits:authored_grab::misses).fetch_add(1,std::memory_order_relaxed);
+        return true;
+    }
+
     bool TwoHandGrabZoneHit(const XrPosef& rpose,
         const XrPosef& lpose) noexcept
     {
+        bool authoredHit=false;
+        if(AuthoredSupportGrabHit(rpose,lpose,authoredHit))return authoredHit;
         const XrVector3f rfwd = Rotate(rpose.orientation, {0,0,-1});
         const float zr = std::clamp(g_config.two_hand_zone_right_m, -0.10f, 0.10f);
         const XrVector3f rright = Rotate(rpose.orientation, {1,0,0});
@@ -13784,10 +13819,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // while moving the hand still moves it naturally. Thresholds, the zone-right
     // nudge and its clamp, and the fail-closed non-finite behaviour are the
     // shared support_grab::EvaluateSupportGrabZone contract. The base helper
-    // above keeps the pre-fix geometry verbatim for PG off / unwired titles.
+    // above keeps the legacy fallback for titles without an authored endpoint.
     bool PersistentSupportGrabZoneHit(const XrPosef& rpose,
         const XrPosef& lpose) noexcept
     {
+        bool authoredHit=false;
+        if(AuthoredSupportGrabHit(rpose,lpose,authoredHit))return authoredHit;
         const XrVector3f rfwd = Rotate(rpose.orientation, {0,0,-1});
         const XrVector3f rright = Rotate(rpose.orientation, {1,0,0});
         const support_grab::SupportGrabZone zone =
@@ -24643,7 +24680,7 @@ void VR_GetPadState(VrPadState& out)
 
 void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept
 {
-    if((!g_config.manual_reload&&!g_config.per_gun_alignment)||title!=TitleAdapter_GetActiveTitle()||
+    if(title!=TitleAdapter_GetActiveTitle()||
         generation!=TitleAdapter_GetGeneration(title)) return;
     (void)g_weaponModels.Publish({title,generation,identity,
         g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64()});
@@ -24678,6 +24715,45 @@ void VR_PublishReloadTarget(GameTitle title,uint32_t generation,uint64_t identit
     if(weapon_interaction::BuildReloadTarget(title,generation,identity,
         current.referenceEpoch,GetTickCount64(),current.leftHanded,{world[0],world[1],world[2]},
         trackingToWorld,primaryController,target)) (void)g_reloadTargets.Publish(target);
+}
+
+void VR_ReachDefaultVisualAngles(float& yaw,float& pitch,float& roll) noexcept
+{
+    yaw=pitch=roll=0.f;
+    if(TitleAdapter_GetActiveTitle()!=GameTitle::HaloReach)return;
+    const auto identity=VR_GetWeaponModelIdentity(GameTitle::HaloReach,
+        TitleAdapter_GetGeneration(GameTitle::HaloReach),
+        g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64());
+    const auto defaults=weapon_alignment::ReachWeaponDefaults(identity);
+    yaw=defaults.yaw;pitch=defaults.pitch;roll=defaults.roll;
+}
+
+void VR_ObserveSecondaryWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept
+{
+    if(title!=TitleAdapter_GetActiveTitle()||generation!=TitleAdapter_GetGeneration(title))return;
+    (void)g_secondaryWeaponModels.Publish({title,generation,identity,
+        g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64()});
+}
+
+void VR_LegacyDefaultVisualAngles(bool secondary,bool classic,float& yaw,float& pitch,float& roll) noexcept
+{
+    const auto title=TitleAdapter_GetActiveTitle();
+    const auto generation=TitleAdapter_GetGeneration(title);
+    const auto space=g_contactSpaceEpoch.load(std::memory_order_acquire);
+    const auto now=GetTickCount64();
+    const auto identity=secondary?g_secondaryWeaponModels.Read(title,generation,space,now):
+        VR_GetWeaponModelIdentity(title,generation,space,now);
+    const auto d=weapon_alignment::LegacyWeaponVisualDefaults(title,identity,classic);
+    yaw=d.yaw;pitch=d.pitch;roll=d.roll;
+}
+
+float VR_DefaultWeaponVisualYaw() noexcept
+{
+    const auto title=TitleAdapter_GetActiveTitle();
+    if(title!=GameTitle::Halo4)return 0.f;
+    const auto identity=VR_GetWeaponModelIdentity(title,TitleAdapter_GetGeneration(title),
+        g_contactSpaceEpoch.load(std::memory_order_acquire),GetTickCount64());
+    return weapon_alignment::Halo4DefaultVisualYaw(identity);
 }
 
 void VR_UpdateWeaponAlignment()

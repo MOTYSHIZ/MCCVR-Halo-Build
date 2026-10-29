@@ -52,13 +52,13 @@ void OdstPublishMuzzlePalette(uint16_t tag,const FpInterpolationContext& context
                 if(!marker || marker->nodeCount!=count || marker->node>=count)continue;
                 const auto& node=destination[marker->node];
                 if(!weapon_muzzle::Transform(*marker,node.scale,node.rotation,node.translation,ray))continue;
-                if ((g_config.barrel_pitch_deg!=0 ||
-                    g_config.barrel_yaw_deg!=0 || g_config.barrel_roll_deg!=0)) {
-                    BoneMatrix visual{},neutral{};float scale=1;
-                    if (!DesiredWristWorld(context.slot==1,visual,scale,nullptr,&neutral) ||
-                        !weapon_alignment::Reframe(visual.rotation,visual.translation,
-                            neutral.rotation,neutral.translation,ray)) continue;
-                }
+                // Defaults also rotate the visible wrist when sliders are zero.
+                // Remove that visual frame before applying the explicit barrel trim.
+                BoneMatrix visual{},neutral{};float scale=1;
+                if (!DesiredWristWorld(context.slot==1,visual,scale,nullptr,&neutral) ||
+                    !weapon_alignment::Reframe(visual.rotation,visual.translation,
+                        neutral.rotation,neutral.translation,ray) ||
+                    !weapon_alignment::ApplyOdstBarrelDefaults(checksum,neutral.rotation,ray))continue;
                 palette.barrels[barrel]={GameTitle::Halo3ODST,generation,unit,weapon,checksum,
                     tracking.referenceEpoch,tracking.serial,now,tracking.timeNs,uint8_t(context.slot),
                     barrel,g_config.left_handed,ray};

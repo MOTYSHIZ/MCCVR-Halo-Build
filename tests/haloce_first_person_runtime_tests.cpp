@@ -9,6 +9,8 @@
 
 Config::Config() {}
 Config g_config;
+void Game_PublishAuthoredGrip(GameTitle,uint32_t,uint32_t,uint32_t,const void*,const void*,const void*,const float*,float,bool) {}
+
 
 static GameTitle testTitle=GameTitle::HaloCE;
 static uint32_t testGeneration=3;

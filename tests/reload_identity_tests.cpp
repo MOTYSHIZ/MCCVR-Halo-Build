@@ -22,6 +22,9 @@ bool LegacyClassifyRuntimeWeapon(GameTitle,uint16_t,uint32_t,const BoneMatrix*,c
 {return fixtureHeld;}
 void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept
 {++observations;observedTitle=title;observedGeneration=generation;observedIdentity=identity;}
+// This fixture extracts the production observer bodies but deliberately does not
+// exercise the separate secondary-presentation path.
+void VR_ObserveSecondaryWeaponModel(GameTitle,uint32_t,uint64_t) noexcept {}
 uint32_t TitleAdapter_GetGeneration(GameTitle) {return 7;}
 using Halo2GraphDefinitionGetFn=const void*(__fastcall*)(uint32_t);
 std::atomic<uintptr_t> g_graphDefinitionGet{},g_halo2TagDataBaseSlot{};
@@ -46,11 +49,12 @@ int main()
                 readTitle==model.title&&observedGeneration==7,"production observer selects each title's own exact catalogue identity");
             g_config.manual_reload=false;observations=0;
             LegacyObserveReloadModel(model.title,123,7,&primary,&remap);
-            Check(!observations,"disabled optional consumers do not observe native models");
-            g_config.per_gun_alignment=true;
+            Check(observations==1&&observedIdentity==model.identity,
+                "primary weapon identity remains available for visual defaults when manual reload is disabled");
+            g_config.per_gun_alignment=true;observations=0;
             LegacyObserveReloadModel(model.title,123,7,&primary,&remap);
             Check(observations==1&&observedIdentity==model.identity,
-                "per-gun alignment observes primary identity with manual reload disabled");
+                "per-gun alignment retains primary identity with manual reload disabled");
             g_config.per_gun_alignment=false;g_config.manual_reload=true;
             observations=0;LegacyObserveReloadModel(model.title,123,7,nullptr,&remap);
             Check(!observations,"null native source refused");

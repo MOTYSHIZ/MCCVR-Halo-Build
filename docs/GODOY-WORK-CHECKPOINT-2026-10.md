@@ -7,6 +7,174 @@ evidence pointers, not current priorities.
 
 ---
 
+## Latest: clarify animation versus grip delay; grip minimum500ms
+
+Reviewed32cd80d4 and574645d5: both change weapon_animation::Reference, not
+acquisition. The latter correctly sets animation minimum500ms while retaining
+its500ms quiet window and corresponding tests. Authored grip Learner still had
+1000ms minimum; user explicitly wants half-second grip delay. Set its minimum
+to500ms, retaining500ms quiet and tracking-gap/owner safeguards. Tests cover
+stable readiness, motion, replacement and sample-gap restart. No animation
+change, no build requested; commit/push on two-handed-grip.
+
+## Latest: additive weapon alignment follow-up, five commits
+
+User explicitly requests increments over prior defaults, one commit per game.
+Final values: Reach Needler barrel pitch-9; ODST Needler barrel-18, Brute Shot
+barrel-8, Plasma Pistol visual yaw0. H4 shotgun yaw-.3, railgun1.5, carbine-.5,
+Boltshot7.6. H2A plasma rifle yaw1, plasma pistol.5. H2 classic SMG yaw.3,
+plasma/brute rifles2, BR3, shotgun1.1. Other fields preserved.
+ODST muzzle publication now always removes the visual frame, including built-in
+visual defaults at zero sliders, before applying the exact-model barrel pitch.
+Barrel origin stays fixed. Portable math/table checks pass for every increment,
+title separation and ODST downward ray/origin. No DLL build requested.
+
+## Latest: 500ms weapon-animation reference settling trial
+
+Following commit 32cd80d4, reduce the initial Reference::Update minimum from
+1000ms to 500ms. Keep the independent quiet window at500ms: observed motion
+restarts that window, so elapsed minimum alone does not allow a moving weapon
+pose to settle. Regression tests cover stable-pose readiness at500ms and motion
+requiring a full500ms quiet period. This is the weapon-animation reference timer
+in weapon_animation_motion.h; the separate authored-grip learning delay in
+authored_grab_zone.h remains unchanged. Commit requested; no build requested.
+
+
+## Latest: independent game brightness profiles
+
+User reports brightness changes affecting every game. game_brightness was a
+shared Config field, omitted from TitleTunables/descriptor table; the UI and
+save comments explicitly described the shared behavior. Add it to the existing
+per-title profile table (range.5..2, default1.11), save the shared base rather
+than the active title value, and show the edited profile in Picture. Existing
+shared config brightness seeds unconfigured profiles, preserving appearance.
+No per-weapon brightness overrides. H2A/classic use their existing separate
+profiles; CE/CEA share the existing CE profile.
+Production config round-trip fixture passes locally with a temporary Linux
+Win32 file-API shim, including legacy migration, seven distinct profile values,
+save while active, reload and preservation of the shared seed. No DLL build.
+Commit requested on two-handed-grip; no compilation workflow requested.
+
+## Latest: separate Halo 2 classic/Anniversary visual defaults
+
+Second requested commit: H2A Magnum pitch1, Plasma Rifle yaw.5, Plasma Pistol
+yaw1, Brute Shot roll90. Classic SMG/plasma rifles yaw1, Plasma Pistol/BR yaw1.5,
+Brute Shot pitch10 roll90. Add per-model defaults to each hand's own visual
+carrier, preserving existing classic-wide pitch/yaw and neutral muzzle frames.
+Separate secondary model observation avoids using primary weapon defaults on
+the offhand. Portable table checks pass. No Windows compilation requested.
+
+## Latest: Halo 3/ODST visual defaults
+
+User confirms unnamed axes are yaw. Default pitch+1 for H3/ODST, overridden by
+Needler+8, sword-25, Automag0. Spiker roll+10; both plasma rifles yaw+1;
+Plasma Pistol yaw-1. Shared visual wrist path applies defaults before existing
+secondary SMG/plasma rifle correction; neutral ballistic frame unchanged.
+Secondary model observation is separate from primary to support different guns
+in dual wield. Local table smoke checks pass. Commit only; no build requested.
+
+## Latest: Reach model-specific visual and barrel defaults
+
+User requests13 Reach model adjustments. reach_weapon_defaults.h contains the
+exact yaw/pitch/roll baseline table, added to visual sliders at the prepared
+controller target. Zero sliders select the new defaults. Identity observation
+remains active without manual reload/per-gun options. Existing H4 defaults kept.
+Two explicit barrel exceptions: Plasma Pistol yaw+1.6 and Needler pitch-8.
+Apply these after removing visual trim from the shared muzzle receipt, using
+its exact model checksum and neutral controller basis. Rotate direction/up only,
+retain muzzle origin; reticle and barrel-shot consumers share the receipt.
+Unknown models unchanged. Portable math check verifies rightward yaw, downward
+pitch and fixed origin; Windows/runtime test pending. Commit only, no build.
+
+## Latest: Halo 4 per-model visual yaw defaults
+
+User confirms Reach/H4 grip reacquisition is fixed. Requested22 Halo4 weapon
+visual yaw baselines are in halo4_weapon_visual_defaults.h, keyed by the existing
+held-model catalog identities. Apply as an additive baseline before visual target
+construction; the neutral muzzle frame still zeros visual angles. Slider0 now
+means the shipped per-model yaw; saved manual trims remain additive. Observation
+stays enabled for H4 even if manual reload/per-gun alignment are disabled.
+Unknown models get0. Catalog check resolves exactly22 distinct H4 models; no
+Windows build requested. Commit only on two-handed-grip. Headset yaw validation
+pending; prior accepted release pointer remains unchanged.
+
+## Latest: Reach/H4 regrip and downward acquisition margin
+
+User reports first grip works, then release/regrab fails until weapon change in
+Reach/H4; other changes accepted. Their log source adb695a0 includes both titles.
+Replace null publication bases with each title's frozen aimNeutral controller
+basis. Attached heartbeat must only refresh an existing matching owner, never
+claim an uncalibrated unknown weapon and close legacy acquisition. See evidence
+and limitations in AUTHORED-GRIP-ZONE.md. Enlarge shared zone downward5cm only.
+Add unknown/foreign/repeated refresh and lower/upper bound tests. Cold counters
+now include Reach/H4. No new hook, no relationship state-machine change.
+No Windows build requested; source commit/push, headset validation pending.
+
+## Latest: all-title authored grip and requested menu/input follow-ups
+
+User accepts the H3 grip and reports the Plasma Rifle projectile issue resolved.
+Port the same authored wrist zone and binary close-hand policy to CE/CEA,
+H2/H2A, ODST, Reach and H4 using their existing admitted palette adapters.
+Standard handedness remains the supported scope. New title headset tests pending.
+Separate commits: all-title adapter, animation reference minimum1000ms (quiet
+500ms retained), Crosshair & Trajectory label, H3 occupied support-hand pickup
+suppression at proven semantic input aliases. Manual reload alone still permits
+pickup. Publication and bridge run when two-handed aiming is enabled even with
+manual reload and action mapping off. No new native offsets or hook signatures.
+
+Local309 production aim checks, authored-zone tests, CE palette tests and
+animation tests pass; persistent-support guard passes. Windows native input
+fixture gains occupied/free-hand and unrelated-caller coverage, to run in CI.
+User requests one combined build; trigger exact source workflow after source
+push, without monitoring, installing or changing accepted release pointer.
+
+## Latest: binary close-hand protection shared with committed aim
+
+Remove gradual distance influence; close controllers restore the entire primary
+pose with no support steering. Apply in the shared live/committed constructor
+(the prior wrapper left committed/native-camera consumers unprotected).
+Initial authored-grip learning delay1000ms; quiet check500ms unchanged.
+309 production aim checks, zone tests and persistent-support guard pass.
+No Windows build/headset validation. Plasma Rifle dual projectile report pending
+which firing hand was affected; independent aim is enabled in supplied log.
+No dual-shot behavior changed. See AUTHORED-GRIP-ZONE.md.
+
+## Latest: larger grip zone and zero lateral-controller authority
+
+User confirms source6735313e solves Magnum placement and reacquisition bug.
+On two-handed-grip, expand long authored zone to54cm capsule/12cm radius and
+short grip area to44cm wide/28cm tall/34cm long. Distance influence remains
+unchanged; additional primary-local lateral guard zeros offhand directional
+authority for side-by-side controllers, smoothly restoring it forward.
+Tests pass (zone boundaries, distance unchanged,307 production aim checks).
+Preserve stable owner publication and grip state machine. No build requested.
+See AUTHORED-GRIP-ZONE.md for exact bounds and validation limits.
+
+## Latest: H3 authored grip test follow-up
+
+User reports Magnum requires forward placement/pulls aim down, far barrel still
+acquires, and outside attempts appear to prevent reacquisition. Log confirms
+frequent legacy fallback plus final continuous misses, not a proven stuck latch.
+Preserve last settled owner-specific point with live attached/settling heartbeat;
+supported pending/stale data no longer reopens barrel fallback. Use controller
+grip positions and generic short-separation lateral volume. Add H3 distance-based
+orientation authority (0<=16cm, full>=30cm) before calibration for stock on/off.
+State machine and other titles unchanged. See AUTHORED-GRIP-ZONE.md.307 extracted
+production aim checks, new geometry/publication tests and wiring guard pass.
+Windows DLL/headset validation pending. Commit on two-handed-grip; no build yet.
+
+## Latest: first authored two-handed grip acquisition adapter
+
+Work on user branch two-handed-grip (created from6e13ded0). New H3 primary-only
+acquisition zone derived from authored left/right wrist relation; exact owner,
+fresh publication and continuous settling required. Both grip acquisition paths
+use it, falling back to old barrel geometry. No permanent pose cache and no aim
+solver changes. Other games and left-handed mode retain prior behavior. See
+AUTHORED-GRIP-ZONE.md for semantics, known limits and headset test matrix.
+Portable new tests and69 legacy checks pass; Windows/headset validation pending.
+Commit only; no compilation workflow triggered. Preserve prior accepted fixes.
+
+
 ## Latest: accepted settling rollback; additional 5mm H3 offhand adjustment
 
 User confirms the last build works. Move Halo 3 offhand SMG/Plasma Rifle another

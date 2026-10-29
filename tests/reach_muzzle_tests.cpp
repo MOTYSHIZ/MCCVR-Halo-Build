@@ -1,3 +1,4 @@
+#include "../src/common/reach_weapon_defaults.h"
 #include "../src/common/visual_aim.h"
 #include <Windows.h>
 #include <MinHook.h>

@@ -142,7 +142,7 @@ namespace
         {"Weapon & Aim",  "Gun placement, per-title calibration, muzzle alignment, and two-handed aiming."},
         {"Virtual Stock Lab", "Experimental virtual shoulder aiming and proximity release."},
         {"Two-Handed Lab", "Experimental two-hand anchor, authority and damping rig (runtime-only)."},
-        {"Crosshair",     "The floating reticle that shows where the weapon really shoots."},
+        {"Crosshair & Trajectory",     "The floating reticle that shows where the weapon really shoots."},
         {"Body & Hands",  "Arms, shoulders, and how much of Chief you can see."},
         {"Picture",       "Render resolution, sharpening, anti-aliasing and brightness."},
         {"HUD",           "Size and position of the active game's HUD."},
@@ -2575,9 +2575,10 @@ namespace
                 ImGui::TextWrapped("Lowering the brightness is highly recommended when autoexposure is disabled.");
             }
         }
+        ImGui::Text("Adjusting brightness for: %s", Config_TitleProfileName(Config_ActiveTitleProfile()));
         changed |= vr_menu::SliderFloat("Game brightness", &g_config.game_brightness, 0.5f, 2.0f, "%.2f");
         ImGui::TextDisabled("Brightens/darkens the whole game. 1.0 = the game's own brightness.\n"
-                            "One setting for Halo 3, ODST and Reach - all three move together.");
+                            "Saved separately for each game.");
         changed |= ImGui::Checkbox("Motion blur", &g_config.motion_blur);
         ImGui::TextDisabled("Off is the VR standard. In stereo the game's blur is fed the wrong\n"
                             "previous frame and smears bright edges into repeating echoes.");

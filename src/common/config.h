@@ -431,6 +431,8 @@ struct TitleTunables
     float crosshair_size_deg = 4.00f;
     float crosshair_opacity = 1.25f;
     float crosshair_brightness = 1.25f;
+    // Whole-game brightness is stored independently for each title.
+    float game_brightness = 1.11f;
 };
 
 struct Config
@@ -1436,7 +1438,7 @@ struct Config
     // publishes: halo3+0x278EE0, halo3odst+0x2A6308, haloreach+0x252E28. 1.0 =
     // the game's own brightness; higher = brighter, lower = darker. NOT a HUD
     // control — the function once thought to size the HUD adjusts brightness.
-    // One value for all three titles, so a change is felt everywhere.
+    // Live value follows the selected title profile; the shared key seeds older configs.
     float game_brightness = 1.11f;
 
     // Halo's internal raster scale, applied by the launcher on the next game

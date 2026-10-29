@@ -41,6 +41,8 @@ static unsigned char raw[16]{}, wrongRaw[16]{};
 static void Check(bool value,const char* why) {
     ++checks;if(!value){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}
 }
+static bool supportPickupBlocked=false;
+bool Game_BlockHalo3SupportPickup() noexcept {return supportPickupBlocked;}
 void Logf(const char*,...){}
 bool Game_ReadVrActionBindings(vr_mapping::Transports& out,uint64_t,unsigned){out.fill(0x4000);return fallbackVerified;}
 GameTitle TitleAdapter_GetActiveTitle(){
@@ -313,6 +315,21 @@ static void TestH3(){
         Check(native_h3::ReaderHook(image.data()+0x100000,secondaryIds[i],
             reinterpret_cast<uintptr_t>(image.data())+secondaryCallers[i])==&h3Physical,
             "manual reload preserves all native dual-pickup alias records");
+    supportPickupBlocked=true;
+    for(unsigned i=0;i<4;++i) {
+        auto* result=static_cast<native_action_button::Gen3Record*>(native_h3::ReaderHook(
+            image.data()+0x100000,secondaryIds[i],reinterpret_cast<uintptr_t>(image.data())+secondaryCallers[i]));
+        Check(result!=&h3Physical&&result->state.frames==0&&h3Physical.state.frames==9,
+            "occupied support hand blocks every pickup alias without modifying native state");
+    }
+    Check(H3Read(vr_mapping::Interact)==&h3Physical,"support grip preserves ordinary interaction");
+    Check(native_h3::ReaderHook(image.data()+0x100000,4,
+        reinterpret_cast<uintptr_t>(image.data())+native_h3::consumerBegin+0x10)==&h3Physical,
+        "occupied support hand does not suppress unrelated readers of the same action");
+    supportPickupBlocked=false;
+    Check(native_h3::ReaderHook(image.data()+0x100000,4,
+        reinterpret_cast<uintptr_t>(image.data())+0xF6159)==&h3Physical,
+        "releasing support grip immediately restores dual pickup");
     Check(native_h3::runtime.secondaryEdgesReady,"optional H3 edge hook installed");
     native_h3::runtime.localPlayer=&H3LocalPlayer;
     alignas(8) uint8_t packet[0x48]{};

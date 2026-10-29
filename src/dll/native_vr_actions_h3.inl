@@ -63,7 +63,7 @@ struct ThreadState {
 } thread_local local;
 bool Current() noexcept {
     return runtime.admitted.load(std::memory_order_acquire) &&
-        !runtime.faulted.load(std::memory_order_relaxed) && (g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()) &&
+        !runtime.faulted.load(std::memory_order_relaxed) && (g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()||g_config.two_handed_aim) &&
         TitleAdapter_GetActiveTitle()==title &&
         TitleAdapter_GetGeneration(title)==runtime.generation;
 }
@@ -125,12 +125,13 @@ void* ReadOwned(void* state,unsigned action,void* native,uintptr_t caller) noexc
             publication.generation.load(std::memory_order_acquire)!=local.generation ||
             local.cancelEpoch!=publication.cancelEpoch.load(std::memory_order_acquire)) return native;
         runtime.readerAt.store(now,std::memory_order_release);
-        // Disabled after pickup regression: these aliases also drive dual pickup.
+        // These semantic aliases drive dual pickup regardless of controller layout.
+        // Suppress them only while the support hand is actually occupied.
         const int secondary=SecondaryReloadRecord(action,caller-runtime.base);
-        if(false && secondary>=0 && runtime.secondaryReloadProved.load(std::memory_order_acquire) &&
-           (local.blocked&(1u<<vr_mapping::Reload))) {
-            // Gesture reloads use the proven native weapon-slot path. A primary
-            // reload publication must never reload the secondary as a side effect.
+        if(secondary>=0 && runtime.secondaryReloadProved.load(std::memory_order_acquire) &&
+           Game_BlockHalo3SupportPickup()) {
+            // Return a released copy without modifying native input storage.
+            // Manual reload alone must continue to permit dual pickup.
             auto& released=local.secondaryReleased[secondary];released.Reset(title,action);
             runtime.routed.fetch_add(1,std::memory_order_relaxed);
             return released.bytes.data();
@@ -238,7 +239,7 @@ void Poll() {
     }
     if(runtime.module && (active!=title || generation!=runtime.generation))
         if(!Retire()) return;
-    if(active!=title || !generation || generation==blockedGeneration || !(g_config.vr_action_mapping||Config_GestureOnlyWeaponInput())) return;
+    if(active!=title || !generation || generation==blockedGeneration || !(g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()||g_config.two_handed_aim)) return;
     if(!runtime.attempted) {
         // The preexisting read-only transport resolver must verify the reader
         // before MinHook changes its prologue. Retain that cache so optional

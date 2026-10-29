@@ -165,7 +165,7 @@ struct Reference
             if(trace<2.997259f) {
                 anchor=local;stableSince=now;
             }
-            if(now-started<1500||now-stableSince<500)return false;
+            if(now-started<500||now-stableSince<500)return false;
             reference=local;ready=true;
             if(cache)cache->Store(identity,reference);
         }

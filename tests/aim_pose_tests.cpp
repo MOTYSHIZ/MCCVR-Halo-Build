@@ -2088,6 +2088,25 @@ void TestFixedGripProductionGeometry()
 // intermediate value blends primary direction -> accepted B through the same
 // tested TryBlendDirectionAuthority the Lab consumes. Acceptance, the active
 // two-hand relationship and the base pose never depend on it.
+void TestCloseGripAuthority()
+{
+    for(bool stock:{false,true}) {
+        auto inputs=HybridInputs();inputs.virtualStockEnabled=stock;
+        inputs.closeGripAuthority=0;inputs.gunPitchDeg=7;inputs.gunYawDeg=-4;
+        const auto result=ComputeAimPose(inputs);
+        Check(result.valid,"close-hand solve remains valid with stock on/off");
+        Check(SameQuaternion(result.pose.orientation,ApplyCalibration(inputs.right.orientation,
+            inputs.gunYawDeg,inputs.gunPitchDeg,inputs.gunRollDeg),1e-4f),
+            "close hands preserve calibrated primary orientation with stock on/off");
+        Check(result.pose.position.x==inputs.right.position.x&&
+            result.pose.position.y==inputs.right.position.y&&result.pose.position.z==inputs.right.position.z,
+            "close hands preserve primary position with stock on/off");
+        inputs.closeGripAuthority=1.f;AimPoseTrace trace{};
+        const auto middle=ComputeAimPose(inputs,&trace);
+        Check(middle.valid&&SameAimResult(middle,ComputeAimPose(inputs)),"close-hand traced and normal solves agree");
+    }
+}
+
 void TestFreeTwoHandOffhandInfluence()
 {
     const auto base = []() {
@@ -3370,6 +3389,7 @@ int main()
     TestPersistentGripRetainedSteering();
     TestFixedGripProductionGeometry();
     TestFreeTwoHandOffhandInfluence();
+    TestCloseGripAuthority();
     TestAimTraceSemantics();
     TestCounterfactualProfileIdentity();
     TestHybridInverseNeckIntegration();

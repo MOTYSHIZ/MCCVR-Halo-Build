@@ -1,3 +1,5 @@
+#include "../common/legacy_weapon_visual_defaults.h"
+#include "../common/reach_weapon_defaults.h"
 #include "../common/visual_aim.h"
 #include "../common/weapon_alignment.h"
 #include "../common/weapon_animation_motion.h"
@@ -52,6 +54,7 @@
 #include "../common/halo3_glass_fade.h"
 #include "../common/foreign_detour.h"
 #include "../common/halo3_live_hud_layout.h"
+#include "../common/authored_grab_zone.h"
 #include "host_unload_gate.h"
 #include <windows.h>
 #include <tlhelp32.h>
@@ -5027,10 +5030,13 @@ namespace
     {
         static uint64_t lastLiveHudLog=0;
         const auto liveHudNow=GetTickCount64();
-        if(profile==HudLayoutProfile::Halo3&&liveHudNow-lastLiveHudLog>=5000) {
+        if(liveHudNow-lastLiveHudLog>=5000) {
             lastLiveHudLog=liveHudNow;
+            LOG("Authored grip zone title=%u: hit=%llu miss=%llu pending-or-fallback=%llu local=(%.3f,%.3f,%.3f); supported owners never reopen barrel zone",
+                unsigned(TitleAdapter_GetActiveTitle()),authored_grab::hits.exchange(0),authored_grab::misses.exchange(0),authored_grab::fallbacks.exchange(0),
+                authored_grab::lastX.load(),authored_grab::lastY.load(),authored_grab::lastZ.load());
             const auto adjusted=g_h3HudRecordAdjusted.exchange(0),native=g_h3HudRecordNative.exchange(0);
-            if(adjusted||native)LOG("H3 live HUD layout: selected-record adjusted=%llu native=%llu; stock scanner independent",adjusted,native);
+            if(profile==HudLayoutProfile::Halo3&&(adjusted||native))LOG("H3 live HUD layout: selected-record adjusted=%llu native=%llu; stock scanner independent",adjusted,native);
         }
 
         const HudLayoutAdapter* adapter = HudLayoutAdapterFor(profile);
@@ -7192,17 +7198,22 @@ namespace
             memcpy(mounted, trimmed, sizeof(trimmed));
         }
         memcpy(neutralBasis,mounted,sizeof(neutralBasis));
-        if (g_config.barrel_pitch_deg != 0.0f ||
-                 g_config.barrel_yaw_deg != 0.0f ||
-                 g_config.barrel_roll_deg != 0.0f)
+        float defaultYaw=0,defaultPitch=0,defaultRoll=0;
+        VR_LegacyDefaultVisualAngles(left,false,defaultYaw,defaultPitch,defaultRoll);
+        const float visualYaw=g_config.barrel_yaw_deg+defaultYaw;
+        const float visualPitch=g_config.barrel_pitch_deg+defaultPitch;
+        const float visualRoll=g_config.barrel_roll_deg+defaultRoll;
+        if (visualPitch != 0.0f ||
+                 visualYaw != 0.0f ||
+                 visualRoll != 0.0f)
         {
             // Mesh-only barrel trim (per title profile): turns the drawn
             // gun about the controller after the automatic barrel
             // alignment; the aim ray and crosshair are untouched.
             float mount[9], trimmed[9];
-            BasisFromAngles(-g_config.barrel_yaw_deg * 0.0174533f,
-                             g_config.barrel_pitch_deg * 0.0174533f,
-                            -g_config.barrel_roll_deg * 0.0174533f, mount);
+            BasisFromAngles(-visualYaw * 0.0174533f,
+                             visualPitch * 0.0174533f,
+                            -visualRoll * 0.0174533f, mount);
             MultiplyBases(mounted, mount, trimmed);
             bool finite = true;
             for (int j = 0; j < 9; ++j) if (!isfinite(trimmed[j])) { finite = false; break; }
@@ -7229,6 +7240,17 @@ namespace
 static int SafeReadBytes(const void* src,void* dst,size_t n);
 static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t* checksum);
 #include "halo3_dual_animation_probe.inl"
+
+    // First adapter: H3 primary authored wrists before any controller arm solve.
+    void PublishAuthoredGrab(const FpInterpolationContext& context,const BoneMatrix* source,
+                             const BoneMatrix& desired,bool attached,const float* basis)
+    {
+        if(context.slot!=0||context.player!=0||!context.valid||!source||
+           context.wrist<0||context.wrist>=context.count||context.lWrist<0||context.lWrist>=context.count)return;
+        Game_PublishAuthoredGrip(TitleAdapter_GetActiveTitle(),context.generation,
+            context.muzzleUnit,context.muzzleWeapon,&source[context.wrist],&source[context.lWrist],
+            &desired,basis,g_worldScale.load(),attached);
+    }
 
     bool ReconstructVisiblePaletteSource(uint16_t tag,
                                          const FpInterpolationContext& context,
@@ -7459,6 +7481,10 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 centerRoot.translation[2]=g_camZ.load();
             }
         }
+
+        if(!dual&&haveDesiredWrist)
+            PublishAuthoredGrab(context,unmodified,desiredWristWorld,supportGripAttached,
+                explicitTargets?explicitTargets->aimNeutral.rotation:nullptr);
 
         // SHOULDER LEVELING (2026-07-19): the arm rest pose is composed from the
         // camera frame, so its FULL pitch/roll rides the head â€” look down and the
@@ -27664,19 +27690,25 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // Optional reload identity is independent of collision settings. Read
         // through each title's existing verified tag reader; never change a
         // palette, inventory, native animation or camera to select an accessory.
-        if((g_config.manual_reload || g_config.per_gun_alignment) && source && boneMap && generation)
+        if(source && boneMap && generation)
         {
             const bool primary=title==GameTitle::HaloReach ||
                 (g_fpInterpolationContexts[0].source==source &&
                  g_fpInterpolationContexts[0].generation==generation);
+            const bool secondary=title!=GameTitle::HaloReach&&
+                g_fpInterpolationContexts[1].source==source&&
+                g_fpInterpolationContexts[1].generation==generation;
             uint32_t identity=0;
             // Observe the native body mapping too: it establishes the appended
             // held range for unfamiliar modded models without name guessing.
-            const bool held=primary&&LegacyClassifyRuntimeWeapon(
+            const bool held=(primary||secondary)&&LegacyClassifyRuntimeWeapon(
                 title,renderModelTag,generation,source,boneMap);
-            if(primary && LegacyReadWeaponRenderModelChecksum(title,renderModelTag,identity) &&
-                (held||weapon_model::Find(title,identity)))
-                VR_ObserveWeaponModel(title,generation,weapon_model::LiveIdentity(identity,renderModelTag));
+            if((primary||secondary) && LegacyReadWeaponRenderModelChecksum(title,renderModelTag,identity) &&
+                (held||weapon_model::Find(title,identity))) {
+                const auto model=weapon_model::LiveIdentity(identity,renderModelTag);
+                if(primary)VR_ObserveWeaponModel(title,generation,model);
+                else VR_ObserveSecondaryWeaponModel(title,generation,model);
+            }
         }
     }
 
@@ -28526,6 +28558,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
         BuildTrackedGameBasisFromFrame(
             q, false, followValid, hullYaw, hullPitch, basis);
         float neutralBasis[9];memcpy(neutralBasis,basis,sizeof(neutralBasis));
+        float defaultYaw=0,defaultPitch=0,defaultRoll=0;
+        if(!left)VR_ReachDefaultVisualAngles(defaultYaw,defaultPitch,defaultRoll);
+        const float visualYaw=g_config.barrel_yaw_deg+defaultYaw;
+        const float visualPitch=g_config.barrel_pitch_deg+defaultPitch;
+        const float visualRoll=g_config.barrel_roll_deg+defaultRoll;
         if (left)
         {
             float mount[9],trimmed[9];
@@ -28535,15 +28572,15 @@ static constexpr bool kOdstMappedFpEnabled = false;
             MultiplyBases(basis,mount,trimmed);
             memcpy(basis,trimmed,sizeof(basis));
         }
-        else if (g_config.barrel_pitch_deg!=0.0f ||
-                 g_config.barrel_yaw_deg!=0.0f ||
-                 g_config.barrel_roll_deg!=0.0f)
+        else if (visualPitch!=0.0f ||
+                 visualYaw!=0.0f ||
+                 visualRoll!=0.0f)
         {
             // Mesh-only barrel trim (per title profile); aim ray untouched.
             float mount[9],trimmed[9];
-            BasisFromAngles(-g_config.barrel_yaw_deg*0.0174533f,
-                             g_config.barrel_pitch_deg*0.0174533f,
-                            -g_config.barrel_roll_deg*0.0174533f,mount);
+            BasisFromAngles(-visualYaw*0.0174533f,
+                             visualPitch*0.0174533f,
+                            -visualRoll*0.0174533f,mount);
             MultiplyBases(basis,mount,trimmed);
             bool finite=true;
             for(int j=0;j<9;++j) if(!isfinite(trimmed[j])){finite=false;break;}
@@ -29254,6 +29291,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 fp.lWristDescendants=
                     context.layout.leftHandSourceDescendants;
                 fp.valid=true;
+                fp.generation=context.generation;
+                fp.muzzleUnit=context.muzzleUnit;fp.muzzleWeapon=context.muzzleWeapon;
                 selectedSource=context.untouchedLive;
                 const BoneMatrix* replacement=selectedSource;
                 FpExplicitPoseTargets targets=context.targets;
@@ -43327,7 +43366,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         frame.gunPitchDeg=g_config.gun_pitch_deg;
         frame.gunRollDeg=g_config.gun_roll_deg;
         frame.visualPitchDeg=g_config.barrel_pitch_deg;
-        frame.visualYawDeg=g_config.barrel_yaw_deg;
+        frame.visualYawDeg=g_config.barrel_yaw_deg+VR_DefaultWeaponVisualYaw();
         frame.visualRollDeg=g_config.barrel_roll_deg;
         frame.twoHandAimActive=g_halo4RigTracking.twoHandAimActive;
         for (float value : frame.common.trackingOriginPosition)
@@ -43997,12 +44036,13 @@ static constexpr bool kOdstMappedFpEnabled = false;
         Halo4FloatingTransform desiredRight{},desiredLeft{};
         Halo4FloatingTransform supportRightTarget=
             g_halo4FloatingPair.rightTargetWorld;
-        if (VR_SupportGripWiredForTitle(GameTitle::Halo4) &&
+        const bool supportOneHand = VR_SupportGripWiredForTitle(GameTitle::Halo4) &&
             !g_halo4FloatingPair.supportGripAttached &&
             g_halo4FloatingPair.oneHandRightTargetValid &&
             support_grip::AimSupportDerived(
                 g_halo4FloatingPair.rightTargetValid,
-                g_halo4FloatingPair.twoHandAimActive))
+                g_halo4FloatingPair.twoHandAimActive);
+        if (supportOneHand)
         {
             // Owner-untrusted/detached invocation whose prepared aim is
             // support-derived: the weapon carrier must not ride the two-hand
@@ -44016,6 +44056,16 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 supportRightTarget,eyeRoot,stockRight,
                 desiredRight))
             return Halo4VrikStage::RightPoseFailed;
+        // Use this title's frozen controller frame, not the H3 camera globals.
+        const bool gripBasisValid=supportOneHand?g_halo4FloatingPair.oneHandAimNeutralValid:
+            g_halo4FloatingPair.aimNeutralValid;
+        const auto& gripBasis=supportOneHand?g_halo4FloatingPair.oneHandAimNeutral:
+            g_halo4FloatingPair.aimNeutral;
+        if(gripBasisValid)
+            Game_PublishAuthoredGrip(GameTitle::Halo4,g_halo4FloatingPair.generation,
+                g_halo4FloatingPair.localUnit,g_halo4FloatingPair.animationWeapon,
+                &stockRight,&stockLeft,&desiredRight,gripBasis.rotation,g_worldScale.load(),
+                g_halo4FloatingPair.supportGripAttached);
         // Disabled after headset regression: preserve the accepted native H4 reroot.
         bool markerParityApplied=false;
         bool rigidSupportLockApplied=false;
@@ -51225,6 +51275,45 @@ void Game_Init()
     Input_InstallXInputHook();
     Input_ClaimXInputIat();
     CreateThread(nullptr, 0, WaitThread, nullptr, 0, nullptr);
+}
+
+bool Game_BlockHalo3SupportPickup() noexcept
+{
+    if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo3||!g_config.two_handed_aim||
+       g_config.left_handed)return false;
+    if(!g_config.persistent_support_grip)return VR_IsTwoHandAiming();
+    SupportGripRelationshipSnapshot grip{};
+    support_grip::OwnerTuple owner{};support_grip::OwnerEvidence evidence{};uint64_t revision=0;
+    const auto generation=TitleAdapter_GetGeneration(GameTitle::Halo3);
+    return VR_GetSupportGripRelationship(grip)&&grip.engaged&&grip.title==GameTitle::Halo3&&
+        grip.generation==generation&&VR_ReadSupportGripOwnerEvidence(GameTitle::Halo3,generation,
+            owner,evidence,revision)&&evidence==support_grip::OwnerEvidence::KnownPresent&&
+        owner.unit==grip.unit&&owner.weapon==grip.weapon;
+}
+
+void Game_PublishAuthoredGrip(GameTitle title,uint32_t generation,uint32_t unit,uint32_t weapon,
+    const void* right,const void* left,const void* desired,const float* controllerBasis,float units,bool attached)
+{
+    if(title!=TitleAdapter_GetActiveTitle()||generation!=TitleAdapter_GetGeneration(title)||
+       !generation||g_config.left_handed||unit==UINT32_MAX||weapon==UINT32_MAX||
+       !right||!left||!desired||!std::isfinite(units)||units<=0)return;
+    const authored_grab::Key key{unsigned(title),generation,unit,weapon};
+    const auto now=GetTickCount64();
+    if(attached){authored_grab::publication.Refresh(key,now);return;}
+    BoneMatrix r{},l{},d{},inverse{},relative{},target{};
+    memcpy(&r,right,sizeof(r));memcpy(&l,left,sizeof(l));memcpy(&d,desired,sizeof(d));
+    if(!InvertBoneMatrix(r,inverse)||!ComposeBoneMatrices(inverse,l,relative)||
+       !ComposeBoneMatrices(d,relative,target))return;
+    float basis[9],origin[3],scale=1;
+    if(controllerBasis)memcpy(basis,controllerBasis,sizeof(basis));
+    else if(!ControllerWorldPoseEx(false,basis,origin,scale))return;
+    float local[3]{};
+    for(int axis=0;axis<3;++axis)for(int j=0;j<3;++j)
+        local[axis]+=basis[axis*3+j]*(target.translation[j]-d.translation[j])/units;
+    const authored_grab::Point point{-local[1],local[2],-local[0]};
+    static thread_local authored_grab::Learner learner;
+    const bool ready=learner.Observe(key,point,now);
+    authored_grab::publication.Publish(key,point,now,ready);
 }
 
 bool Game_IsHooked() { return g_hooked; }

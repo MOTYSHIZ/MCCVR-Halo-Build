@@ -11,6 +11,15 @@
 #include "../common/support_grip_logic.h"
 #include "../common/vr_action_mapping.h"
 
+// Native 13-float matrix records (scale, column-major basis, translation).
+// Call only with owner-verified authored wrists and the solved primary target.
+void Game_PublishAuthoredGrip(GameTitle title, uint32_t generation,
+    uint32_t unit, uint32_t weapon, const void* right, const void* left,
+    const void* desired, const float* controllerBasis, float units, bool attached);
+
+// True only for a current, occupied support hand in Halo 3.
+bool Game_BlockHalo3SupportPickup() noexcept;
+
 // Read-only, generation-tagged controller bindings. No game memory is touched
 // on the caller's thread. False means there is no verified current snapshot.
 bool Game_ReadVrActionBindings(vr_mapping::Transports& out, uint64_t nowMs,

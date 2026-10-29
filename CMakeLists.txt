@@ -478,6 +478,8 @@ set_target_properties(reach_runtime_observer PROPERTIES
     OUTPUT_NAME "reach-runtime-observer")
 
 if(BUILD_TESTING)
+    add_executable(authored_grab_zone_tests tests/authored_grab_zone_tests.cpp)
+    add_test(NAME authored_grab_zone_tests COMMAND authored_grab_zone_tests)
     add_executable(halo3_live_hud_tests tests/halo3_live_hud_tests.cpp)
     add_test(NAME halo3_live_hud_tests COMMAND halo3_live_hud_tests)
     add_executable(halomccvr_post_effect_policy_tests tests/post_effect_policy_tests.cpp)

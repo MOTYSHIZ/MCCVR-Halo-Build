@@ -1,3 +1,4 @@
+#include "../src/common/legacy_weapon_visual_defaults.h"
 #include "../src/common/visual_aim.h"
 #include <Windows.h>
 #include <MinHook.h>

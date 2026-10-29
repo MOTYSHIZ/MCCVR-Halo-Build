@@ -89,6 +89,11 @@ void ReachPublishMuzzlePalette(uint16_t tag,const ReachFpInterpolationContext& c
                         neutral.rotation,neutral.translation,ray)) {
                     ReachMuzzleNotPublished(kReachPublishTransform);continue;
                 }
+                // Rotate only the barrel ray, in the same neutral controller
+                // frame used above. Keep the muzzle origin fixed.
+                if(!weapon_alignment::ApplyReachBarrelDefaults(checksum,neutral.rotation,ray)) {
+                    ReachMuzzleNotPublished(kReachPublishTransform);continue;
+                }
                 // THE RECEIPT'S SPACE IS THE TRACKING-SPACE EPOCH, the number the barrel lane reads it back with
                 // (VR_GetContactTrackingSnapshot's referenceEpoch, as Halo 3's publication does). NOT
                 // contactReference: that is Reach's melee HASH of the epoch, which no epoch ever equals, so every

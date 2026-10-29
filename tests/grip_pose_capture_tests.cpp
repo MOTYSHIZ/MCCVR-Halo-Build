@@ -116,6 +116,22 @@ XrQuaternionf AxisAngle(const XrVector3f& axis, float degrees)
         static_cast<float>(std::cos(radians*0.5))};
 }
 
+// The generator extracts the two legacy geometry helpers, not the full
+// shipping adapter (which needs live title/owner evidence). Model that seam
+// here so this isolated fixture can test that the authored result takes
+// precedence while authored_grab_zone_tests.cpp covers the portable geometry.
+bool g_authoredGrabHandled = false;
+bool g_authoredGrabResult = false;
+unsigned g_authoredGrabCalls = 0;
+bool AuthoredSupportGrabHit(const XrPosef&, const XrPosef&, bool& hit) noexcept
+{
+    ++g_authoredGrabCalls;
+    if (!g_authoredGrabHandled)
+        return false;
+    hit = g_authoredGrabResult;
+    return true;
+}
+
 #include "grip_pose_capture_functions.inl"
 
 void TestNoQueryShortCircuits()
@@ -365,6 +381,25 @@ void TestSupportGrabAcquisitionSeam()
     Check(!TwoHandGrabZoneHit(nanPose,lposeNeutral)&&
             !PersistentSupportGrabZoneHit(nanPose,lposeNeutral),
         "non-finite primary geometry fails closed in both acquisition helpers");
+
+    // When the authored adapter has a fresh matching endpoint, both
+    // acquisition paths must use its answer instead of legacy barrel geometry.
+    const unsigned callsBeforeAuthored = g_authoredGrabCalls;
+    g_authoredGrabHandled = true;
+    g_authoredGrabResult = true;
+    Check(TwoHandGrabZoneHit(rpose, edgePose),
+        "base acquisition accepts a positive authored endpoint result");
+    Check(PersistentSupportGrabZoneHit(rpose, lposeNeutral),
+        "persistent acquisition accepts a positive authored endpoint result");
+    g_authoredGrabResult = false;
+    Check(!TwoHandGrabZoneHit(rpose, lposeNeutral),
+        "base acquisition rejects when the authored endpoint says miss");
+    Check(!PersistentSupportGrabZoneHit(rpose, lposeNeutral),
+        "persistent acquisition rejects when the authored endpoint says miss");
+    Check(g_authoredGrabCalls == callsBeforeAuthored + 4,
+        "both acquisition paths consult the authored adapter before legacy fallback");
+    g_authoredGrabHandled = false;
+    g_authoredGrabResult = false;
 
     g_config.two_hand_zone_right_m=0.0f;
     g_config.left_grip_forward_m=0.097f;

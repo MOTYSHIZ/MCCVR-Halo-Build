@@ -1,3 +1,24 @@
+struct Halo2AuthoredGripCapture {
+    Halo2FirstPersonTransform right{},left{};int wrist=-1;
+    Halo2AuthoredGripCapture(const Halo2VisibleConsumerContext& c,const float* hands) {
+        if(!hands||g_config.left_handed||c.secondaryWeaponObject!=UINT32_MAX||
+           !c.handsRemap||c.handsCount>kHalo2FirstPersonPaletteCapacity)return;
+        int l=-1;
+        for(uint32_t i=0;i<c.handsCount;++i) {
+            if(c.handsRemap[i]==c.binding.rightWrist)wrist=int(i);
+            if(c.handsRemap[i]==c.binding.leftWrist)l=int(i);
+        }
+        if(wrist<0||l<0||!Halo2ReadFirstPersonTransform(hands+wrist*kHalo2FirstPersonNodeFloats,right)||
+           !Halo2ReadFirstPersonTransform(hands+l*kHalo2FirstPersonNodeFloats,left))wrist=-1;
+    }
+    void Publish(const Halo2VisibleConsumerContext& c,const float* hands) const {
+        Halo2FirstPersonTransform desired{};weapon_animation::Pose carrier{};
+        if(wrist<0||!Halo2ReadFirstPersonTransform(hands+wrist*kHalo2FirstPersonNodeFloats,desired)||
+           !Halo2AnimationCameraPose(c.rightCarrier,carrier))return;
+        Game_PublishAuthoredGrip(GameTitle::Halo2,g_generation.load(),c.unitObject,c.weaponObject,
+            &right,&left,&desired,carrier.rotation,c.worldScale,c.supportGripAttached);
+    }
+};
 // Separate native packet producers, shared presentation policy. Neither
 // renderer borrows the other's camera-local reference across a graphics switch.
 thread_local weapon_animation::Reference g_h2WeaponAnimation[2][2];
