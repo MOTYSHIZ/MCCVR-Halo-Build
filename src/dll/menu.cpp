@@ -2378,8 +2378,14 @@ namespace
         const int resizeState=D3D_LiveResizeState(actualW,actualH);
         if(g_hostOwnsRenderSize)
         {
-            // What its Native read is given: never larger than its display, and its display's own size in exclusive
-            // fullscreen (d3d11_hook.cpp, HostEnumDisplaySettingsShim).
+            // What its Native read is given: no larger than its display while fitting is on, and its display's own
+            // size in exclusive fullscreen (d3d11_hook.cpp, HostEnumDisplaySettingsShim).
+            changed |= ImGui::Checkbox("Fit to my monitor",&g_config.reclaimer_fit_to_display);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Keeps Project Reclaimer's picture no larger than your monitor. A picture larger\n"
+                                  "than the screen is suspected of stopping the graphics card on some PCs. Off gives\n"
+                                  "the full size above, which is sharper in the headset when your monitor is smaller.\n"
+                                  "Applies at Project Reclaimer's next start.");
             unsigned hostW=(unsigned)nextWidth,hostH=(unsigned)nextHeight;
             int clientModeValue=0;
             D3D_HostNativeRenderAnswer((unsigned)nextWidth,(unsigned)nextHeight,hostW,hostH,clientModeValue);
@@ -2392,8 +2398,7 @@ namespace
                 ImGui::TextWrapped("Project Reclaimer is in exclusive fullscreen: there it renders at your display's "
                                    "own size. Borderless is the display mode for VR.");
             else if(hostW!=(unsigned)nextWidth||hostH!=(unsigned)nextHeight)
-                ImGui::TextWrapped("Fitted to your display: Project Reclaimer renders %u x %u. A picture larger than "
-                                   "the screen has stopped the graphics card on some PCs.",hostW,hostH);
+                ImGui::TextWrapped("Fitted to your monitor: Project Reclaimer renders %u x %u.",hostW,hostH);
             if(!renderPlan.liveRenderW) ImGui::TextWrapped("Project Reclaimer has not drawn a frame yet.");
             else if(clientMode==reclaimer_host::ClientDisplayMode::Windowed||
                     clientMode==reclaimer_host::ClientDisplayMode::ExclusiveFullscreen)

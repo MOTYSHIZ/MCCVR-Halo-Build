@@ -648,9 +648,10 @@ inline bool FitNativeRenderSize(unsigned& width, unsigned& height) noexcept
 // buffers, and in exclusive fullscreen the display mode DXGI switches to (the client asks for no mode of its own).
 // So a size larger than the real display is a buffer larger than the screen: in exclusive fullscreen a 2912 x 2100
 // buffer on a 2560 x 1440 display ran at about 10 fps from the first frame until the graphics card was reset, and
-// borderless also failed on that PC. Exclusive fullscreen is therefore told the real display mode, and any other
-// mode is given the Picture panel's size scaled down, its shape kept, until it fits inside the display. Windowed
-// ignores the answer (it renders 1920 x 1080 on Native), so it is answered the same way as borderless.
+// borderless also failed on that PC. Exclusive fullscreen is therefore told the real display mode. Any other mode
+// is given the Picture panel's size, scaled down with its shape kept until it fits inside the display when
+// `fitToDisplay` (the player's choice: a smaller picture is a softer one in the headset). Windowed ignores the
+// answer (it renders 1920 x 1080 on Native), so it is answered the same way as borderless.
 enum class NativeAnswer
 {
     Panel,              // the Picture panel's size, as asked
@@ -658,14 +659,23 @@ enum class NativeAnswer
     Display,            // the real display mode, unchanged
 };
 inline NativeAnswer AnswerNativeRenderSize(unsigned wantWidth, unsigned wantHeight, unsigned displayWidth,
-                                           unsigned displayHeight, ClientDisplayMode mode, unsigned& width,
-                                           unsigned& height) noexcept
+                                           unsigned displayHeight, ClientDisplayMode mode, bool fitToDisplay,
+                                           unsigned& width, unsigned& height) noexcept
 {
     width = displayWidth;
     height = displayHeight;
     if (mode == ClientDisplayMode::ExclusiveFullscreen || !wantWidth || !wantHeight || !displayWidth ||
         !displayHeight)
         return NativeAnswer::Display;
+    if (!fitToDisplay)
+    {
+        unsigned w = wantWidth, h = wantHeight;
+        if (!FitNativeRenderSize(w, h))
+            return NativeAnswer::Display;
+        width = w;
+        height = h;
+        return NativeAnswer::Panel;
+    }
     // Whole numbers, so the side that meets the display meets it exactly.
     uint64_t sw = wantWidth, sh = wantHeight;
     if (sw > displayWidth || sh > displayHeight)

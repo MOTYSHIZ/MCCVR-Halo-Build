@@ -1341,7 +1341,7 @@ static BOOL WINAPI HostEnumDisplaySettingsShim(LPCWSTR device, DWORD mode, DEVMO
     unsigned answerW = 0, answerH = 0;
     const reclaimer_host::NativeAnswer answer = reclaimer_host::AnswerNativeRenderSize(
         static_cast<unsigned>(want >> 32), static_cast<unsigned>(want & 0xFFFFFFFFu), realW, realH, clientMode,
-        answerW, answerH);
+        g_config.reclaimer_fit_to_display, answerW, answerH);
     dm->dmPelsWidth = answerW;
     dm->dmPelsHeight = answerH;
     // Every answer while there have been few (Reclaimer reads it when it decides its size, not each frame), then
@@ -1353,12 +1353,17 @@ static BOOL WINAPI HostEnumDisplaySettingsShim(LPCWSTR device, DWORD mode, DEVMO
         const char* const modeName = HostClientDisplayModeName(clientMode);
         if (answer == reclaimer_host::NativeAnswer::Panel)
             LOG("render size: Project Reclaimer (%s) read its display mode (%lux%lu) and was given the Picture "
-                "panel's %ux%u, what its Native render resolution renders at (read %u)", modeName, realW, realH,
-                answerW, answerH, answers);
+                "panel's %ux%u, what its Native render resolution renders at%s (read %u)", modeName, realW, realH,
+                answerW, answerH,
+                answerW > realW || answerH > realH
+                    ? "; larger than the display, as reclaimer_fit_to_display = 0 allows"
+                    : "",
+                answers);
         else if (answer == reclaimer_host::NativeAnswer::PanelWithinDisplay)
             LOG("render size: Project Reclaimer (%s) read its display mode (%lux%lu) and was given %ux%u, the "
                 "Picture panel's %llux%llu scaled down to fit inside the display: a picture larger than the screen "
-                "has stopped the graphics card on some PCs (read %u)", modeName, realW, realH, answerW, answerH,
+                "is suspected of stopping the graphics card on some PCs (reclaimer_fit_to_display = 0 gives the "
+                "full size) (read %u)", modeName, realW, realH, answerW, answerH,
                 static_cast<unsigned long long>(want >> 32), static_cast<unsigned long long>(want & 0xFFFFFFFFu),
                 answers);
         else
@@ -1383,7 +1388,8 @@ bool D3D_HostNativeRenderAnswer(unsigned wantW, unsigned wantH, unsigned& width,
         return false;
     reclaimer_host::AnswerNativeRenderSize(wantW, wantH, static_cast<unsigned>(display >> 32),
                                            static_cast<unsigned>(display & 0xFFFFFFFFu),
-                                           static_cast<reclaimer_host::ClientDisplayMode>(clientMode), width, height);
+                                           static_cast<reclaimer_host::ClientDisplayMode>(clientMode),
+                                           g_config.reclaimer_fit_to_display, width, height);
     return true;
 }
 
