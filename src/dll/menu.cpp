@@ -2232,6 +2232,33 @@ namespace
                                 "Lower it until you can see them. Live. (default 75%%)");
         }
         ImGui::Spacing();
+        ImGui::Text("Player tags");
+        changed |= ImGui::Checkbox("Show player tags", &g_config.player_tags_show);
+        ImGui::TextDisabled("The service tag and arrow over each teammate. Objective markers and flag, ball and\n"
+                            "bomb carriers are not changed. Halo 3, in MCC and in Project Reclaimer. Live.");
+        if (g_config.player_tags_show)
+        {
+            float tagScalePercent = g_config.player_tags_scale * 100.0f;
+            if (vr_menu::SliderFloat("Player tag size", &tagScalePercent, 25.0f, 200.0f, "%.0f%%",
+                                     ImGuiSliderFlags_None))
+            {
+                g_config.player_tags_scale = tagScalePercent / 100.0f;
+                changed = true;
+            }
+            float tagOpacityPercent = g_config.player_tags_opacity * 100.0f;
+            if (vr_menu::SliderFloat("Player tag opacity", &tagOpacityPercent, 0.0f, 100.0f, "%.0f%%",
+                                     ImGuiSliderFlags_None))
+            {
+                g_config.player_tags_opacity = tagOpacityPercent / 100.0f;
+                changed = true;
+            }
+            changed |= vr_menu::SliderFloat("Player tag distance", &g_config.player_tags_max_distance_m, 0.0f, 300.0f,
+                                            g_config.player_tags_max_distance_m > 0.0f ? "%.0f m" : "no limit",
+                                            ImGuiSliderFlags_None);
+            ImGui::TextDisabled("Tags farther away than the distance fade out over the last 5 m. 0 = no limit.\n"
+                                "(defaults 100%%, 100%%, no limit)");
+        }
+        ImGui::Spacing();
         ImGui::Separator();
         ImGui::Text("HUD layout");
         changed |= ImGui::Checkbox("Hide HUD completely", &g_config.hide_hud);
