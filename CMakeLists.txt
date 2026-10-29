@@ -382,7 +382,7 @@ target_compile_definitions(halo3xr PRIVATE
     HALOMCCVR_BUILD_HALO2="${HALOMCCVR_BUILD_HALO2}")
 target_link_libraries(halo3xr PRIVATE
     openxr_loader minhook imgui_lib
-    d3d11 dxgi d3dcompiler gdi32 advapi32)
+    d3d11 dxgi d3dcompiler gdi32 advapi32 shell32 ole32)
 target_sources(halo3xr PRIVATE src/dll/native_subtitles.cpp)
 target_sources(halo3xr PRIVATE src/dll/physical_crouch_camera.cpp)
 target_sources(halo3xr PRIVATE src/dll/native_vr_actions.cpp)

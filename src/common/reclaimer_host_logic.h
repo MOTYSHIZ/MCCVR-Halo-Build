@@ -164,28 +164,75 @@ enum class DisplayModeEdit
     MadeBorderless, // `out` is the file with the value set to "borderless"
     Unreadable,     // the key's value is not a JSON string: left alone
 };
-inline DisplayModeEdit WithoutExclusiveFullscreen(const std::string& text, std::string& out)
+// Where "display_mode"'s value starts in the file: its opening quote. Missing when the file has no such key,
+// NotAString when the value is anything but a JSON string.
+enum class DisplayModeValue
+{
+    Missing,
+    Found,
+    NotAString,
+};
+inline DisplayModeValue FindDisplayModeValue(const std::string& text, size_t& quote)
 {
     constexpr std::string_view kKey = "\"display_mode\"";
-    constexpr std::string_view kExclusive = "\"exclusive_fullscreen\"";
     const auto space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
     const size_t key = text.find(kKey);
     if (key == std::string::npos)
-        return DisplayModeEdit::Kept;
+        return DisplayModeValue::Missing;
     size_t at = key + kKey.size();
     while (at < text.size() && space(text[at]))
         ++at;
     if (at >= text.size() || text[at] != ':')
-        return DisplayModeEdit::Unreadable;
+        return DisplayModeValue::NotAString;
     ++at;
     while (at < text.size() && space(text[at]))
         ++at;
     if (at >= text.size() || text[at] != '"')
+        return DisplayModeValue::NotAString;
+    quote = at;
+    return DisplayModeValue::Found;
+}
+
+inline DisplayModeEdit WithoutExclusiveFullscreen(const std::string& text, std::string& out)
+{
+    constexpr std::string_view kExclusive = "\"exclusive_fullscreen\"";
+    size_t at = 0;
+    const DisplayModeValue value = FindDisplayModeValue(text, at);
+    if (value == DisplayModeValue::Missing)
+        return DisplayModeEdit::Kept;
+    if (value == DisplayModeValue::NotAString)
         return DisplayModeEdit::Unreadable;
     if (text.compare(at, kExclusive.size(), kExclusive) != 0)
         return DisplayModeEdit::Kept;
     out = text.substr(0, at) + "\"borderless\"" + text.substr(at + kExclusive.size());
     return DisplayModeEdit::MadeBorderless;
+}
+
+// The client's display mode as its settings.json states it. A file without the key is borderless, the client's
+// default; a value that is not one of the three is Unknown.
+enum class ClientDisplayMode
+{
+    Unknown,
+    Windowed,
+    Borderless,
+    ExclusiveFullscreen,
+};
+inline ClientDisplayMode ReadClientDisplayMode(const std::string& text)
+{
+    size_t at = 0;
+    const DisplayModeValue value = FindDisplayModeValue(text, at);
+    if (value == DisplayModeValue::Missing)
+        return ClientDisplayMode::Borderless;
+    if (value == DisplayModeValue::NotAString)
+        return ClientDisplayMode::Unknown;
+    const auto is = [&](std::string_view quoted) { return text.compare(at, quoted.size(), quoted) == 0; };
+    if (is("\"windowed\""))
+        return ClientDisplayMode::Windowed;
+    if (is("\"borderless\""))
+        return ClientDisplayMode::Borderless;
+    if (is("\"exclusive_fullscreen\""))
+        return ClientDisplayMode::ExclusiveFullscreen;
+    return ClientDisplayMode::Unknown;
 }
 
 // A path as a person gives it: pasted with quotes round it, with spaces or a line end after it.
@@ -595,5 +642,61 @@ inline bool FitNativeRenderSize(unsigned& width, unsigned& height) noexcept
     width = w;
     height = h;
     return true;
+}
+
+// WHAT THE NATIVE READ IS ANSWERED. The one size Native reads becomes the client's render size AND its swapchain's
+// buffers, and in exclusive fullscreen the display mode DXGI switches to (the client asks for no mode of its own).
+// So a size larger than the real display is a buffer larger than the screen: in exclusive fullscreen a 2912 x 2100
+// buffer on a 2560 x 1440 display ran at about 10 fps from the first frame until the graphics card was reset, and
+// borderless also failed on that PC. Exclusive fullscreen is therefore told the real display mode. Any other mode
+// is given the Picture panel's size, scaled down with its shape kept until it fits inside the display when
+// `fitToDisplay` (the player's choice: a smaller picture is a softer one in the headset). Windowed ignores the
+// answer (it renders 1920 x 1080 on Native), so it is answered the same way as borderless.
+enum class NativeAnswer
+{
+    Panel,              // the Picture panel's size, as asked
+    PanelWithinDisplay, // the Picture panel's shape, scaled down to fit inside the display
+    Display,            // the real display mode, unchanged
+};
+inline NativeAnswer AnswerNativeRenderSize(unsigned wantWidth, unsigned wantHeight, unsigned displayWidth,
+                                           unsigned displayHeight, ClientDisplayMode mode, bool fitToDisplay,
+                                           unsigned& width, unsigned& height) noexcept
+{
+    width = displayWidth;
+    height = displayHeight;
+    if (mode == ClientDisplayMode::ExclusiveFullscreen || !wantWidth || !wantHeight || !displayWidth ||
+        !displayHeight)
+        return NativeAnswer::Display;
+    if (!fitToDisplay)
+    {
+        unsigned w = wantWidth, h = wantHeight;
+        if (!FitNativeRenderSize(w, h))
+            return NativeAnswer::Display;
+        width = w;
+        height = h;
+        return NativeAnswer::Panel;
+    }
+    // Whole numbers, so the side that meets the display meets it exactly.
+    uint64_t sw = wantWidth, sh = wantHeight;
+    if (sw > displayWidth || sh > displayHeight)
+    {
+        if (sw * displayHeight > sh * displayWidth)
+        {
+            sh = sh * displayWidth / sw;
+            sw = displayWidth;
+        }
+        else
+        {
+            sw = sw * displayHeight / sh;
+            sh = displayHeight;
+        }
+    }
+    unsigned w = static_cast<unsigned>(sw) & ~1u;
+    unsigned h = static_cast<unsigned>(sh) & ~1u;
+    if (w > displayWidth || h > displayHeight || !FitNativeRenderSize(w, h))
+        return NativeAnswer::Display;
+    width = w;
+    height = h;
+    return w == wantWidth && h == wantHeight ? NativeAnswer::Panel : NativeAnswer::PanelWithinDisplay;
 }
 } // namespace reclaimer_host

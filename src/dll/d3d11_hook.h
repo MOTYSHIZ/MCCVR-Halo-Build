@@ -133,6 +133,10 @@ void D3D_RetryLiveResize();
 // one failed (MCC never re-sized; the forced size was reverted to the real
 // backbuffer, reported in actualW/H).
 int D3D_LiveResizeState(unsigned& actualW, unsigned& actualH);
+// Project Reclaimer: the size its Native render resolution is given for a Picture panel size of wantW x wantH (never
+// larger than its display), and its display mode as its settings stated it at its last read
+// (reclaimer_host::ClientDisplayMode as int). False, with the size unchanged, until it has read its display mode.
+bool D3D_HostNativeRenderAnswer(unsigned wantW, unsigned wantH, unsigned& width, unsigned& height, int& clientMode);
 HWND D3D_GameWindow();
 
 

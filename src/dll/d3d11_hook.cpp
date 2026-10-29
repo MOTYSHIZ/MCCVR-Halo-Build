@@ -1,5 +1,6 @@
 #include "../common/hud_visibility.h"
 #include <windows.h>
+#include <shlobj.h>
 #include <d3d11.h>
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
@@ -911,6 +912,11 @@ static bool g_planDlssRuntimePresent = false;
 // the high half, fitted to what the host accepts; what its Native render resolution is answered with
 // (HostEnumDisplaySettingsShim). 0 until planned.
 static std::atomic<uint64_t> g_hostWant{0};
+// What the host's Native read was last answered (width in the high half), the real display mode at that read, and
+// the client's display mode from its settings then (reclaimer_host::ClientDisplayMode). All 0 until the host reads.
+static std::atomic<uint64_t> g_hostLastAnswered{0};
+static std::atomic<uint64_t> g_hostDisplaySize{0};
+static std::atomic<int> g_hostClientDisplayMode{0};
 // `atStart`: the plan made as the mod starts, before the host has read its size; later, a change the host takes at
 // its next start.
 static void HostWantRenderSize(UINT width, UINT height, bool atStart);
@@ -1202,8 +1208,9 @@ static void InitForcedRenderSize()
         // The forced size stays 0, which is this file's pass-through: the swapchain is created and resized as
         // the game asks, no size is lied about, and AdoptHostRenderSize takes the game's size as the plan.
         LOG("Live render sizing: the host draws the game at its own render resolution whatever the swapchain's "
-            "size, so the mod sizes no swapchain and the game's own is the VR raster. With Project Reclaimer's "
-            "Render resolution on Native that size is the Picture panel's (its display mode is answered with it)");
+            "size, so the mod sizes no swapchain and the game's own is the VR raster. With Project Reclaimer in "
+            "Borderless and its Render resolution on Native that size is the Picture panel's, fitted inside the "
+            "display (its display mode is answered with it)");
         return;
     }
     g_forcedRenderW = g_planRenderW.load();
@@ -1237,11 +1244,24 @@ static void AdoptHostRenderSize(UINT width, UINT height, const char* when)
     g_planDlss = false;
     const uint64_t want = g_hostWant.load(std::memory_order_relaxed);
     const UINT wantW = static_cast<UINT>(want >> 32), wantH = static_cast<UINT>(want);
-    if (want && (wantW != width || wantH != height))
+    const uint64_t answered = g_hostLastAnswered.load(std::memory_order_relaxed);
+    if (want && answered == ((uint64_t(width) << 32) | height) && (wantW != width || wantH != height))
+        LOG("render plan: the host's own %ux%u (%s), what its Native render resolution was given; the game renders "
+            "and the headset gets that picture", width, height, when);
+    else if (want && (wantW != width || wantH != height))
     {
-        LOG("render plan: the host's own %ux%u (%s); the game renders and the headset gets that picture. It is not "
-            "the Picture panel's %ux%u: Project Reclaimer takes that size with its Render resolution on Native "
-            "(Settings > Graphics > Render resolution), from its next start", width, height, when, wantW, wantH);
+        const auto clientMode =
+            static_cast<reclaimer_host::ClientDisplayMode>(g_hostClientDisplayMode.load(std::memory_order_relaxed));
+        if (clientMode == reclaimer_host::ClientDisplayMode::Windowed)
+            LOG("render plan: the host's own %ux%u (%s); the game renders and the headset gets that picture. It is "
+                "not the Picture panel's %ux%u: windowed, Project Reclaimer renders at its Render resolution preset, "
+                "or 1920x1080 on Native. The Picture panel's size needs Display mode Borderless with Render "
+                "resolution Native, from its next start", width, height, when, wantW, wantH);
+        else
+            LOG("render plan: the host's own %ux%u (%s); the game renders and the headset gets that picture. It is "
+                "not the Picture panel's %ux%u: Project Reclaimer takes that size with Display mode Borderless and "
+                "Render resolution Native (Settings > Graphics), from its next start", width, height, when, wantW,
+                wantH);
     }
     else
         LOG("render plan: the host's own %ux%u (%s)%s; the game renders and the headset gets that picture", width,
@@ -1255,11 +1275,54 @@ static void AdoptHostRenderSize(UINT width, UINT height, const char* when)
 // field and mode number, and every caller outside its image -- DXGI, Windows, this mod -- see the real display. A
 // preset never asks, so it keeps its own size. Reclaimer reads it as it starts (its code suggests also when its own
 // settings change; unmeasured), not on a display-change message (a posted WM_DISPLAYCHANGE was not followed by a
-// read), so a size the panel asks for later is taken at its next start.
+// read), so a size the panel asks for later is taken at its next start. Windowed, Native ignores the read and renders
+// 1920 x 1080 (0.9.23). The same read decides the client's swapchain buffers and, in exclusive fullscreen, the
+// display mode DXGI switches to, so the answer is never larger than the real display and exclusive fullscreen is told
+// the truth (reclaimer_host::AnswerNativeRenderSize).
 using EnumDisplaySettingsWFn = BOOL(WINAPI*)(LPCWSTR, DWORD, DEVMODEW*);
 static EnumDisplaySettingsWFn g_hostPrevEnumDisplaySettingsW = nullptr;
-static std::atomic<uint64_t> g_hostLastAnswered{0};
 static std::atomic<uint32_t> g_hostAnswers{0};
+
+// The client's display mode as its settings.json (Documents\My Games\Project Reclaimer) states it now. Read only when
+// the client reads its display mode, which it does as it starts and when its own settings change.
+static reclaimer_host::ClientDisplayMode ReadHostClientDisplayMode()
+{
+    PWSTR documents = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents)) || !documents)
+        return reclaimer_host::ClientDisplayMode::Unknown;
+    std::wstring path = documents;
+    CoTaskMemFree(documents);
+    path += L"\\My Games\\Project Reclaimer\\settings.json";
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return reclaimer_host::ClientDisplayMode::Unknown;
+    std::string text;
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= (1 << 20))
+    {
+        text.resize(static_cast<size_t>(size.QuadPart));
+        DWORD read = 0;
+        if (!ReadFile(file, text.data(), static_cast<DWORD>(text.size()), &read, nullptr))
+            read = 0;
+        text.resize(read);
+    }
+    CloseHandle(file);
+    if (text.empty())
+        return reclaimer_host::ClientDisplayMode::Unknown;
+    return reclaimer_host::ReadClientDisplayMode(text);
+}
+
+static const char* HostClientDisplayModeName(reclaimer_host::ClientDisplayMode mode)
+{
+    switch (mode)
+    {
+    case reclaimer_host::ClientDisplayMode::Windowed: return "windowed";
+    case reclaimer_host::ClientDisplayMode::Borderless: return "borderless";
+    case reclaimer_host::ClientDisplayMode::ExclusiveFullscreen: return "exclusive fullscreen";
+    default: return "unknown";
+    }
+}
 
 static BOOL WINAPI HostEnumDisplaySettingsShim(LPCWSTR device, DWORD mode, DEVMODEW* dm)
 {
@@ -1272,16 +1335,62 @@ static BOOL WINAPI HostEnumDisplaySettingsShim(LPCWSTR device, DWORD mode, DEVMO
     if (!want)
         return ok;
     const DWORD realW = dm->dmPelsWidth, realH = dm->dmPelsHeight;
-    dm->dmPelsWidth = static_cast<DWORD>(want >> 32);
-    dm->dmPelsHeight = static_cast<DWORD>(want & 0xFFFFFFFFu);
+    const reclaimer_host::ClientDisplayMode clientMode = ReadHostClientDisplayMode();
+    g_hostDisplaySize.store((uint64_t(realW) << 32) | realH, std::memory_order_relaxed);
+    g_hostClientDisplayMode.store(static_cast<int>(clientMode), std::memory_order_relaxed);
+    unsigned answerW = 0, answerH = 0;
+    const reclaimer_host::NativeAnswer answer = reclaimer_host::AnswerNativeRenderSize(
+        static_cast<unsigned>(want >> 32), static_cast<unsigned>(want & 0xFFFFFFFFu), realW, realH, clientMode,
+        g_config.reclaimer_fit_to_display, answerW, answerH);
+    dm->dmPelsWidth = answerW;
+    dm->dmPelsHeight = answerH;
     // Every answer while there have been few (Reclaimer reads it when it decides its size, not each frame), then
     // only a changed one.
+    const uint64_t answered = (uint64_t(answerW) << 32) | answerH;
     const uint32_t answers = g_hostAnswers.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (g_hostLastAnswered.exchange(want, std::memory_order_relaxed) != want || answers <= 12)
-        LOG("render size: Project Reclaimer read its display mode (%lux%lu) and was given the Picture panel's "
-            "%lux%lu, what its Native render resolution renders at (read %u)", realW, realH, dm->dmPelsWidth,
-            dm->dmPelsHeight, answers);
+    if (g_hostLastAnswered.exchange(answered, std::memory_order_relaxed) != answered || answers <= 12)
+    {
+        const char* const modeName = HostClientDisplayModeName(clientMode);
+        if (answer == reclaimer_host::NativeAnswer::Panel)
+            LOG("render size: Project Reclaimer (%s) read its display mode (%lux%lu) and was given the Picture "
+                "panel's %ux%u, what its Native render resolution renders at%s (read %u)", modeName, realW, realH,
+                answerW, answerH,
+                answerW > realW || answerH > realH
+                    ? "; larger than the display, as reclaimer_fit_to_display = 0 allows"
+                    : "",
+                answers);
+        else if (answer == reclaimer_host::NativeAnswer::PanelWithinDisplay)
+            LOG("render size: Project Reclaimer (%s) read its display mode (%lux%lu) and was given %ux%u, the "
+                "Picture panel's %llux%llu scaled down to fit inside the display: a picture larger than the screen "
+                "is suspected of stopping the graphics card on some PCs (reclaimer_fit_to_display = 0 gives the "
+                "full size) (read %u)", modeName, realW, realH, answerW, answerH,
+                static_cast<unsigned long long>(want >> 32), static_cast<unsigned long long>(want & 0xFFFFFFFFu),
+                answers);
+        else
+            LOG("render size: Project Reclaimer (%s) read its display mode (%lux%lu) and was given it unchanged%s "
+                "(read %u)", modeName, realW, realH,
+                clientMode == reclaimer_host::ClientDisplayMode::ExclusiveFullscreen
+                    ? ": exclusive fullscreen switches the display to that size, so it must be one the display has. "
+                      "Borderless is the display mode for VR"
+                    : ": the Picture panel's size does not fit it",
+                answers);
+    }
     return ok;
+}
+
+bool D3D_HostNativeRenderAnswer(unsigned wantW, unsigned wantH, unsigned& width, unsigned& height, int& clientMode)
+{
+    width = wantW;
+    height = wantH;
+    clientMode = g_hostClientDisplayMode.load(std::memory_order_relaxed);
+    const uint64_t display = g_hostDisplaySize.load(std::memory_order_relaxed);
+    if (!g_hostOwnsRenderSize || !display)
+        return false;
+    reclaimer_host::AnswerNativeRenderSize(wantW, wantH, static_cast<unsigned>(display >> 32),
+                                           static_cast<unsigned>(display & 0xFFFFFFFFu),
+                                           static_cast<reclaimer_host::ClientDisplayMode>(clientMode),
+                                           g_config.reclaimer_fit_to_display, width, height);
+    return true;
 }
 
 static void ClaimHostDisplayModeImport()
