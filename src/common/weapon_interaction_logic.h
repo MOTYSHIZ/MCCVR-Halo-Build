@@ -26,6 +26,13 @@ inline constexpr uint32_t Button(int index) noexcept
 {
     return index >= 0 && index < 8 ? kButtons[index] : 0;
 }
+// The reload button a gesture presses from the per-title setting (weapon_reload_button_<title>), whose default
+// X is MCC's layout. Project Reclaimer's Halo 3 reloads on Right bumper and X does not reload there, so in
+// Reclaimer that default means Right bumper. Any other choice is the player's and is pressed as set.
+inline constexpr uint32_t ReloadButton(GameTitle title, int configured, bool projectReclaimer) noexcept
+{
+    return Button(projectReclaimer && title == GameTitle::Halo3 && configured == 0 ? 1 : configured);
+}
 struct Vec { float x{}, y{}, z{}; };
 struct Quat { float x{}, y{}, z{}, w{1}; };
 inline Vec operator+(Vec a, Vec b) noexcept { return {a.x+b.x,a.y+b.y,a.z+b.z}; }

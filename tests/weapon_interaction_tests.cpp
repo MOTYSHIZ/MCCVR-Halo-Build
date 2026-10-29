@@ -525,6 +525,19 @@ int main()
         r.Step(200);r.Step(200);r.Step(200); // allow the completed draw's cooldown
         Check(BlocksSupportGrab(r.GrabMagazine()),"held reload magazine still blocks support acquisition");
     }
+    {
+        // Reload button: MCC's default X; Project Reclaimer's Halo 3 reloads on Right bumper.
+        Check(ReloadButton(GameTitle::Halo3,0,false)==0x4000,"MCC Halo 3 keeps the default X");
+        Check(ReloadButton(GameTitle::Halo3,0,true)==0x0200,"Project Reclaimer's Halo 3 default is Right bumper");
+        for(int choice=1;choice<8;++choice)
+            Check(ReloadButton(GameTitle::Halo3,choice,true)==Button(choice),
+                "a Halo 3 button the player chose is pressed as set in Project Reclaimer");
+        for(auto title:{GameTitle::Halo3ODST,GameTitle::HaloReach,GameTitle::Halo4,GameTitle::HaloCE,GameTitle::Halo2})
+            Check(ReloadButton(title,0,true)==0x4000&&ReloadButton(title,0,false)==0x4000,
+                "only Halo 3 changes in Project Reclaimer");
+        Check(!ReloadButton(GameTitle::Halo3,-1,true)&&!ReloadButton(GameTitle::Halo3,8,true),
+            "an out-of-range setting presses nothing, as before");
+    }
     std::printf("Weapon interactions: %u checks, %u failures\n",checks,failures);
     return failures?1:0;
 }

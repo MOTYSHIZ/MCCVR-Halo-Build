@@ -3351,6 +3351,7 @@ void ConfigSave()
     fprintf(f, "# Show a generic blue reload item for detected unfamiliar/modded held models.\n");
     fprintf(f, "weapon_unknown_reload_visual = %d\n",g_config.weapon_unknown_reload_visual?1:0);
     fprintf(f, "# 0=X, 1=RB, 2=LB, 3=B, 4=Y, 5=A, 6=LT, 7=RT. CE/H2 share both graphics modes.\n");
+    fprintf(f, "# Project Reclaimer: Halo 3 reload 0 (X, MCC's default) presses RB, Reclaimer's reload.\n");
     for(unsigned i=0;i<weapon_interaction::kTitleCount;++i)
     {
         fprintf(f,"weapon_reload_button_%s = %d\n",weapon_interaction::kTitleKeys[i],g_config.weapon_reload_button[i]);
