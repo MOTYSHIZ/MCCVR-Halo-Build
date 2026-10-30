@@ -205,8 +205,9 @@ namespace
             return NativeVrActions_GestureBit(action);
         if(g_config.vr_action_mapping)
             return Game_VrActionTransport(action,now);
-        return weapon_interaction::Button(action==vr_mapping::Reload?
-            g_config.weapon_reload_button[index]:g_config.weapon_switch_button[index]);
+        return action==vr_mapping::Reload?
+            weapon_interaction::ReloadButton(title,g_config.weapon_reload_button[index],g_hostIsProjectReclaimer):
+            weapon_interaction::Button(g_config.weapon_switch_button[index]);
     }
     bool g_touchProProfileEnabled = false;
     // The headset's real panel rate, read once from the runtime (0 = the runtime

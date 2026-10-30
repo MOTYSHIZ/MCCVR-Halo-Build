@@ -358,6 +358,14 @@ int main()
         g_config.weapon_holster_slide=false;gestureRead(false);g_config.weapon_holster_slide=true;
         g_config.weapon_needler_shake=true;gestureRead(false);g_config.weapon_needler_shake=false;
         ++g_config.weapon_reload_button[index];gestureRead(false);--g_config.weapon_reload_button[index];
+        {
+            // Project Reclaimer: Halo 3's default reload is Right bumper; every other title keeps its setting.
+            g_hostIsProjectReclaimer=true;
+            gestureRead(fixtureTitle!=GameTitle::Halo3);
+            const auto mccReload=g_padState.weaponReloadBinding;
+            g_padState.weaponReloadBinding=0x0200;gestureRead(fixtureTitle==GameTitle::Halo3);
+            g_padState.weaponReloadBinding=mccReload;g_hostIsProjectReclaimer=false;gestureRead(true);
+        }
         g_config.vr_action_mapping=true;
         fixtureNativeBindings[vr_mapping::Reload]=g_padState.weaponReloadBinding;
         fixtureNativeBindings[vr_mapping::SwitchWeapon]=g_padState.weaponSwitchBinding;

@@ -1606,7 +1606,8 @@ struct Config
     float weapon_holster_custom_x_m = 0.198f;
     float weapon_holster_custom_y_m = 0.085f;
     float weapon_holster_custom_z_m = -0.284f;
-    // X, RB, LB, B, Y, A, LT, RT. H3, ODST, Reach, H4, CE, H2.
+    // X, RB, LB, B, Y, A, LT, RT. H3, ODST, Reach, H4, CE, H2. In Project Reclaimer, Halo 3's X means RB
+    // (weapon_interaction::ReloadButton).
     int weapon_reload_button[6]{0,0,0,0,0,0};
     int weapon_switch_button[6]{4,4,4,4,4,4};
 
