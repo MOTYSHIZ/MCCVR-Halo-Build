@@ -648,6 +648,14 @@ struct Config
     // object-anchored markers' arrows. Read live, every projection.
     // Acts only with nav_marker_arrow_in_view = 1.
     float nav_marker_ring = 0.75f;
+    // PLAYER TAGS: the service tag and arrow Halo 3 draws over each teammate (halo3_player_tags.inl). show 0 =
+    // none; scale and opacity multiply the game's own size and alpha; max_distance_m hides tags farther than that
+    // from your eye (fading over the last fifth, at most 5 m), 0 = no limit. Objective markers and flag, ball and
+    // bomb carriers keep the game's own. Halo 3, in MCC and in Project Reclaimer. Read live, every HUD draw.
+    bool player_tags_show = true;
+    float player_tags_scale = 1.0f;            // 0.25 to 2
+    float player_tags_opacity = 1.0f;          // 0 to 1
+    float player_tags_max_distance_m = 0.0f;   // 0 to 300
     // DEV BUILDS ONLY (parsed and saved there; a player build always has the default).
     // nav_marker_witness: 1 = report the pixel the game puts each marker on against the pixel the eye's own
     // picture shows its target at. Live.

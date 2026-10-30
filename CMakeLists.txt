@@ -1079,6 +1079,11 @@ if(BUILD_TESTING)
     add_executable(halomccvr_reach_head_relative_tests tests/reach_head_relative_tests.cpp)
     target_include_directories(halomccvr_reach_head_relative_tests PRIVATE src/common)
     add_test(NAME halomccvr_reach_head_relative_tests COMMAND halomccvr_reach_head_relative_tests)
+    # Halo 3's player tags (src/common/halo3_player_tags_logic.h): which navpoints are teammates' tags, what each
+    # setting does to one, and the positions named beside its signatures.
+    add_executable(halomccvr_halo3_player_tags_tests tests/halo3_player_tags_tests.cpp)
+    target_include_directories(halomccvr_halo3_player_tags_tests PRIVATE src/common)
+    add_test(NAME halomccvr_halo3_player_tags_tests COMMAND halomccvr_halo3_player_tags_tests)
     # Halo 4's motion tracker follows the head (src/common/halo4_head_relative_logic.h; a retail-derived lead, not
     # H4EK-verified): the decode of the three sites and its refusals, the proof the hook takes at run time before
     # it changes anything (agree, disagree, a reference that did not move, withdrawal), and the two headset checks

@@ -2682,6 +2682,10 @@ namespace
     bool InstallHalo3HudNote(uintptr_t base, size_t size, uint32_t generation);
     void RemoveHalo3HudNote();
     void Halo3HudNotePost();
+    // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the HUD's navpoint draw.
+    bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveHalo3PlayerTags();
+    void ReportHalo3PlayerTags();
     void Halo3VehicleNoteShow(const std::wstring& text, float seconds);
     void Halo3VehicleNoteTick();
     // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): one hook on the blip draw.
@@ -18119,6 +18123,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         RemoveHalo3GunBand();
         if (!RemoveHalo3HeadRelative()) return false;
         RemoveHalo3HudNote();
+        if (!RemoveHalo3PlayerTags()) return false;
         RemoveHalo3TagNames();
         RemoveHalo3StringIds();
         EngineExposureLockRelease(g_halo3Exposure);
@@ -19206,6 +19211,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
+        // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the navpoint draw; fails closed alone.
+        (void)InstallHalo3PlayerTags(base,size,runtimeGeneration);
         // The loaded map's tag names (halo3_tag_names.inl): two sites, no hook, read-only; not bound, vehicles are
         // identified by their physics alone, as before.
         (void)InstallHalo3TagNames(base,size,runtimeGeneration);
@@ -28066,7 +28073,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); }
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); }
         if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
@@ -29606,6 +29613,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     #include "halo3_part_draw.inl"
     #include "halo3_head_relative.inl"
     #include "halo3_hud_note.inl"
+    #include "halo3_player_tags.inl"
     #include "halo3_tracker_hud_height.inl"
     #include "odst_contact_melee_runtime.inl"
     #include "odst_physical_crouch.inl"
