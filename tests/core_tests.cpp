@@ -10657,6 +10657,14 @@ int main()
                       !Halo2SaberViewRecordIsMainView(0x40) &&
                       !Halo2SaberViewRecordIsMainView(0x4),
                 "E-H2-21 a record with any of flags 0x4C is not a main view");
+            Check(kHalo2SaberViewSlotsRva == 0x01DFF3B0 &&
+                      kHalo2SaberViewSlotsRva + kHalo2SaberViewSlotPointerOffset == 0x01DFF858 &&
+                      kHalo2SaberViewSlotStride == 0x4E0 && kHalo2SaberViewSlotCount == 12,
+                "the view slot pointer is the one the scene render reads at 0x471E59");
+            Check(Halo2SaberViewSlotsIntact(0, 0) && Halo2SaberViewSlotsIntact(0, 0xFFF) &&
+                      Halo2SaberViewSlotsIntact(0xFFF, 0xFFF) && Halo2SaberViewSlotsIntact(0x0F0, 0xFFF) &&
+                      !Halo2SaberViewSlotsIntact(0xFFF, 0xFFE) && !Halo2SaberViewSlotsIntact(0x0F0, 0),
+                "an eye pass waits while any slot seen filled this level is empty");
             float a[16]{1,0,0,0, 0,1,0,0, 0,0,1,0, 1.0f,2.0f,3.0f,1};
             float b[16]{1,0,0,0, 0,1,0,0, 0,0,1,0, 1.0f,2.0f,3.0f,1};
             Check(Halo2SaberViewMatricesMatch(a, b, 2.0e-3f, 0.02f),
