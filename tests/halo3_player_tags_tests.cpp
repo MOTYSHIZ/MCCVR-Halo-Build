@@ -126,9 +126,23 @@ int main()
     Check(scale[4] + 8 == static_cast<int>(kScaleOffset), "the size read is the distance scale");
     const auto alpha = Tokens(kAlphaReadPattern);
     Check(alpha[4] + 8 == 0x70 && alpha[12] + 8 == static_cast<int>(kAlphaOffset), "fade times the alpha multiplier");
-    const auto loop = Tokens(kLoopPattern);
-    Check(loop[3] == static_cast<int>(kEntryStride) && loop[7] == kEntryCount, "the loop's stride and count");
-    Check(kEntryStride * kEntryCount <= 0x948, "the entries end before the focused navpoint");
+    const auto stride = Tokens(kStridePattern);
+    Check(stride[3] == static_cast<int>(kEntryStride), "the stride");
+    const auto gamertag = Tokens(kGamertagPattern);
+    Check(gamertag[0] == 0x4D && gamertag[1] == 0x8D && Wild(gamertag, kGamertagDisp, 4), "the gamertag's disp32");
+    Check(call[kFocusIndexDisp - 3] == 0x45 && call[kFocusIndexDisp - 2] == 0x8B && Wild(call, kFocusIndexDisp, 4),
+          "the focused index's disp32");
+
+    // The number of entries from the two fields past them.
+    Check(EntryCountFromLayout(0x91C, 0x948) == 20, "MCC's twenty (retail halo3.dll)");
+    Check(EntryCountFromLayout(0x601C, 0x6048) == 212, "an enlarged array (Project Reclaimer's 212)");
+    Check(EntryCountFromLayout(0x91C, 0x6048) == 0, "the two fields disagree");
+    Check(EntryCountFromLayout(0x920, 0x94C) == 0, "not a whole number of entries");
+    Check(EntryCountFromLayout(0x800, 0x82C) == 0, "fewer than twenty");
+    const uint32_t tooMany = static_cast<uint32_t>((kMaxEntryCount + 1) * kEntryStride);
+    Check(EntryCountFromLayout(tooMany + kGamertagPastEntries, tooMany + kFocusIndexPastEntries) == 0,
+          "more than the most allowed");
+    Check(EntryCountFromLayout(0, 0) == 0 && EntryCountFromLayout(4, 0x948) == 0, "below the fields' own offsets");
 
     std::printf("%u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;

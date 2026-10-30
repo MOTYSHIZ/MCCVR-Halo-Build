@@ -8,9 +8,10 @@
 //
 // PROOF (resolved + guarded, nothing hardcoded): the draw by its entry signature and again by its one caller's call
 // operand; the projection by the draw's own call; the view by the projection's own read; the entry layout by the
-// draw's own instructions that read the position, the size, the alpha and the loop's stride and count. The same
-// in-body checks run again on the draw's first call, after any host has patched the image: a miss there leaves the
-// game's own tags for the rest of the level, said once.
+// draw's own instructions that read the position, the size, the alpha and the stride; the number of entries by the
+// two fields it addresses past them (20 in MCC, 212 in Project Reclaimer, which enlarges the array). The same
+// in-body checks run again on the draw's first call, after any host has patched the image, and that count is the
+// one used: a miss there leaves the game's own tags for the rest of the level, said once.
 //
 // THREAD. The draw runs inside the HUD draw. The only fields written are the two the draw reads and the game
 // rewrites every update (+0x14 alpha, +0x38 size); each is put back only where it still holds what was written, so
@@ -30,6 +31,7 @@ struct Halo3PlayerTagsLane
     uint8_t* const* view = nullptr;     // the view pointer the projection reads
     std::atomic<bool> ready{false};
     std::atomic<int> checked{0};        // 0 not yet, 1 proven on the live code, -1 refused
+    std::atomic<int> count{0};          // entries, decoded from the live code (written before `checked` = 1)
     std::atomic<uint32_t> callbacks{0};
     std::atomic<uint32_t> faults{0};
     // Cold reporting: the last settings the draw applied (halo3_player_tags::Fingerprint), logged once per change.
@@ -42,8 +44,8 @@ Halo3PlayerTagsLane g_halo3PlayerTags;
 namespace
 {
 // The in-body checks (halo3_player_tags_logic.h): the entry layout the writes below depend on, and the projection.
-// Null when every one holds; otherwise what failed. `projection` gets the projection's address.
-const char* Halo3PlayerTagsBodyProof(uintptr_t draw, uintptr_t base, size_t size, uintptr_t& projection)
+// Null when every one holds; otherwise what failed. `projection` gets the projection's address, `count` the entries.
+const char* Halo3PlayerTagsBodyProof(uintptr_t draw, uintptr_t base, size_t size, uintptr_t& projection, int& count)
 {
     using namespace halo3_player_tags;
     const size_t span = (draw + kDrawBodyBytes <= base + size) ? kDrawBodyBytes : 0;
@@ -55,14 +57,22 @@ const char* Halo3PlayerTagsBodyProof(uintptr_t draw, uintptr_t base, size_t size
         return "the size read";
     if (!sig::Find(draw, span, kAlphaReadPattern))
         return "the alpha read";
-    if (!mcc_clock::FindUnique(draw, span, kLoopPattern))
-        return "the loop's stride and count";
+    if (!mcc_clock::FindUnique(draw, span, kStridePattern))
+        return "the stride";
     const uintptr_t call = mcc_clock::FindUnique(draw, span, kProjectionCallPattern);
     if (!call)
         return "the projection call";
     projection = sig::RipTarget(call + kProjectionCallRel, call + kProjectionCallRel + 4);
     if (projection < base || projection >= base + size)
         return "the projection's address";
+    const uintptr_t gamertag = mcc_clock::FindUnique(draw, span, kGamertagPattern);
+    if (!gamertag)
+        return "the focused gamertag's read";
+    uint32_t gamertagDisp = 0, focusDisp = 0;
+    std::memcpy(&gamertagDisp, reinterpret_cast<const void*>(gamertag + kGamertagDisp), sizeof(gamertagDisp));
+    std::memcpy(&focusDisp, reinterpret_cast<const void*>(call + kFocusIndexDisp), sizeof(focusDisp));
+    if (!(count = EntryCountFromLayout(gamertagDisp, focusDisp)))
+        return "the number of entries (the gamertag and focused index disagree)";
     return nullptr;
 }
 
@@ -73,19 +83,24 @@ bool Halo3PlayerTagsLiveProof(Halo3PlayerTagsLane& lane)
     if (state)
         return state > 0;
     bool ok = false;
+    int count = 0;
     __try
     {
         uintptr_t projection = 0;
-        ok = !Halo3PlayerTagsBodyProof(lane.body, lane.base, lane.size, projection);
+        ok = !Halo3PlayerTagsBodyProof(lane.body, lane.base, lane.size, projection, count);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         ok = false;
     }
+    if (ok)
+        lane.count.store(count, std::memory_order_relaxed);
     lane.checked.store(ok ? 1 : -1, std::memory_order_release);
     if (!ok)
         LOG("PLAYER TAGS Halo 3: StockFallback: the navpoint draw changed after install (another program patched "
             "it?); teammates' tags stay as the game draws them for the rest of this level");
+    else
+        LOG("PLAYER TAGS Halo 3: the navpoint draw proved on its first call: %d entries", count);
     return ok;
 }
 
@@ -101,11 +116,12 @@ halo3_player_tags::Settings Halo3PlayerTagsSettings()
 
 struct Halo3PlayerTagsSaved
 {
-    float alpha[halo3_player_tags::kEntryCount];
-    float scale[halo3_player_tags::kEntryCount];
-    float wroteAlpha[halo3_player_tags::kEntryCount];
-    float wroteScale[halo3_player_tags::kEntryCount];
-    bool changed[halo3_player_tags::kEntryCount];
+    int scanned = 0; // entries whose `changed` is set, from 0; only these are restored
+    float alpha[halo3_player_tags::kMaxEntryCount];
+    float scale[halo3_player_tags::kMaxEntryCount];
+    float wroteAlpha[halo3_player_tags::kMaxEntryCount];
+    float wroteScale[halo3_player_tags::kMaxEntryCount];
+    bool changed[halo3_player_tags::kMaxEntryCount];
 };
 
 // Applies the settings to every player tag. Guarded: no C++ object here.
@@ -127,10 +143,12 @@ void Halo3PlayerTagsApply(Halo3PlayerTagsLane& lane, uint8_t* navpoints, const h
                 haveEye = std::isfinite(eye[0]) && std::isfinite(eye[1]) && std::isfinite(eye[2]);
             }
         }
-        for (int i = 0; i < kEntryCount; ++i)
+        const int count = lane.count.load(std::memory_order_relaxed);
+        for (int i = 0; i < count && i < kMaxEntryCount; ++i)
         {
             uint8_t* entry = navpoints + i * kEntryStride;
             saved.changed[i] = false;
+            saved.scanned = i + 1;
             if (!entry[kValidOffset])
                 continue;
             int32_t icon = 0;
@@ -176,7 +194,7 @@ void Halo3PlayerTagsRestore(Halo3PlayerTagsLane& lane, uint8_t* navpoints, const
     using namespace halo3_player_tags;
     __try
     {
-        for (int i = 0; i < kEntryCount; ++i)
+        for (int i = 0; i < saved.scanned; ++i)
         {
             if (!saved.changed[i])
                 continue;
@@ -236,12 +254,13 @@ bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
     }
     const char* why = nullptr;
     uintptr_t draw = 0, caller = 0, projection = 0, viewRead = 0;
+    int count = 0;
     if (!(draw = mcc_clock::FindUnique(base, size, kDrawEntryPattern)))
         why = "the navpoint draw's entry";
     else if (!(caller = mcc_clock::FindUnique(base, size, kCallerPattern)) ||
              sig::RipTarget(caller + kCallerCallRel, caller + kCallerCallRel + 4) != draw)
         why = "the HUD draw's call of it";
-    else if (const char* body = Halo3PlayerTagsBodyProof(draw, base, size, projection))
+    else if (const char* body = Halo3PlayerTagsBodyProof(draw, base, size, projection, count))
         why = body;
     else if (!(viewRead = mcc_clock::FindUnique(projection, kProjectionHeadBytes, kViewReadPattern)))
         why = "the projection's view read";
@@ -255,6 +274,7 @@ bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
     lane.body = draw;
     lane.base = base;
     lane.size = size;
+    lane.count.store(0, std::memory_order_relaxed);
     lane.checked.store(0, std::memory_order_release);
     lane.faults.store(0, std::memory_order_relaxed);
     void* const target = reinterpret_cast<void*>(draw);
@@ -274,12 +294,13 @@ bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
         return false;
     }
     LOG("PLAYER TAGS Halo 3: Installed (generation %u): chud_draw_navpoints +0x%llX (called once, from +0x%llX) draws "
-        "the twenty navpoints of a user's HUD; around it each teammate's tag gets its alpha and size from the player "
-        "tag settings and both are put back after. Projection +0x%llX, its view %s. Proven: the entry and its "
-        "caller, and in the draw the position, size and alpha reads and the loop of 20 x 0x74 (checked again on the "
-        "first draw). Settings: show %d, size %.2f, opacity %.2f, max distance %.0f m (0 = none)",
+        "the navpoints of a user's HUD (%d here, 0x74 bytes each); around it each teammate's tag gets its alpha and "
+        "size from the player tag settings and both are put back after. Projection +0x%llX, its view %s. Proven: "
+        "the entry and its caller, and in the draw the position, size, alpha and stride reads and the count from the "
+        "two fields past the entries (checked again on the first draw). Settings: show %d, size %.2f, opacity %.2f, "
+        "max distance %.0f m (0 = none)",
         generation, static_cast<unsigned long long>(draw - base), static_cast<unsigned long long>(caller - base),
-        static_cast<unsigned long long>(projection - base),
+        count, static_cast<unsigned long long>(projection - base),
         lane.view ? "bound (distance limit available)" : "not bound (the distance limit does nothing)",
         g_config.player_tags_show ? 1 : 0, g_config.player_tags_scale, g_config.player_tags_opacity,
         g_config.player_tags_max_distance_m);

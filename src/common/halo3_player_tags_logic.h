@@ -16,6 +16,12 @@
 //   (icons 0.5x, text 0.75x and 14x of it). Nothing else reads +0x14 or +0x38 between the update that writes them
 //   and this draw (the add, the update and the radar read only +0x10, +0x24 and +0x30).
 //
+//   HOW MANY. The stock array holds twenty; after it come the focused player's gamertag (+0xC past the array) and
+//   the focused entry's index (+0x38 past it), both addressed by the draw with a 32-bit displacement. A host may
+//   enlarge the array: Project Reclaimer moves everything after it (the gamertag read becomes +0x601C, so 212
+//   entries) and replaces the draw's own count check. So the count is never assumed: it is read from those two
+//   displacements in the running code, which must agree with each other and with the stride.
+//
 //   A PLAYER navpoint (a teammate's service tag and arrow) has icon #1 0, 1 or none and none of flags 0x01 / 0x40.
 //   Objectives write icon #1 = 2 and flags 0x41 / 0xC1; a flag, ball or bomb carrier sets 0x01 and keeps its
 //   marker, so carriers are left as the game draws them.
@@ -53,16 +59,20 @@ inline constexpr int kCallerCallRel = 26;
 //   the record: lea rsi,[rbx+0x34] (entry +0x3C); movsd xmm0,[rbx+0x1C] (+0x24, the position); ... [rbx+0x24].
 inline constexpr char kRecordPattern[] =
     "48 8D 73 34 45 33 ED 88 06 F2 0F 10 43 1C F2 0F 11 43 38 8B 43 24 89 43 40";
-//   the projection: mov rcx,rsi; call <projection>. Its rel32 at +4.
+//   the projection: mov rcx,rsi; call <projection>; ...; mov r12d,[r14+<focused index>]. Rel32 at +4, disp32 at +17.
 inline constexpr char kProjectionCallPattern[] = "48 8B CE E8 ?? ?? ?? ?? F3 44 0F 10 43 54 45 8B A6 ?? ?? ?? ??";
 inline constexpr int kProjectionCallRel = 4;
+inline constexpr int kFocusIndexDisp = 17;
+//   the focused gamertag: lea r9,[r14+<gamertag>]. Its disp32 at +3.
+inline constexpr char kGamertagPattern[] = "4D 8D 8E ?? ?? ?? ?? 48 89";
+inline constexpr int kGamertagDisp = 3;
 //   the size: movss xmm7,[rbx+0x30] (entry +0x38, the distance scale).
 inline constexpr char kScaleReadPattern[] = "F3 0F 10 7B 30 41 83 F8 FF";
 //   the alpha: movss xmm1,[rbx+0x68] (+0x70, fade); xorps; mulss xmm1,[rbx+0x0C] (+0x14, the alpha multiplier).
 //   The same three instructions draw the arrow, the text and the second icon, so this is searched for at least once.
 inline constexpr char kAlphaReadPattern[] = "F3 0F 10 4B 68 0F 57 C0 F3 0F 59 4B 0C";
-//   the loop: add rbx,0x74; cmp r15d,20; jl.
-inline constexpr char kLoopPattern[] = "48 83 C3 74 41 83 FF 14 0F 8C";
+//   the stride: add rbx,0x74 (its count check, which follows, is a host's to replace; see HOW MANY).
+inline constexpr char kStridePattern[] = "48 83 C3 74";
 inline constexpr size_t kDrawBodyBytes = 0x930; // the draw's extent in .pdata is 0x92C bytes
 // In the projection's first kProjectionHeadBytes: mov rax,[rip+view]; movsxd rcx,[rax+0x27F4]. Its disp32 at +3.
 inline constexpr char kViewReadPattern[] = "48 8B 05 ?? ?? ?? ?? 48 63 88 F4 27 00 00";
@@ -70,8 +80,11 @@ inline constexpr int kViewReadDisp = 3;
 inline constexpr size_t kProjectionHeadBytes = 0x100;
 
 // ---- the entry (ADDR-HYGIENE: structural; proven in place by the patterns above, see the header) ----
-inline constexpr int kEntryCount = 20;
+inline constexpr int kStockEntryCount = 20;
+inline constexpr int kMaxEntryCount = 256;           // more than this is refused, not adjusted
 inline constexpr size_t kEntryStride = 0x74;
+inline constexpr uint32_t kGamertagPastEntries = 0xC;
+inline constexpr uint32_t kFocusIndexPastEntries = 0x38;
 inline constexpr size_t kIconOffset = 0x04;
 inline constexpr size_t kFlagsOffset = 0x10;
 inline constexpr size_t kAlphaOffset = 0x14;
@@ -84,6 +97,21 @@ inline constexpr int32_t kObjectiveIcon = 2;
 inline constexpr size_t kViewPositionOffset = 0x08;
 // Halo 3's world unit: 10 feet.
 inline constexpr float kMetresPerWorldUnit = 3.048f;
+
+// The number of entries, from the two displacements the draw addresses past the array (HOW MANY): both must put the
+// array's end at the same whole number of entries, from twenty to kMaxEntryCount. 0 when they do not.
+inline int EntryCountFromLayout(uint32_t gamertagDisp, uint32_t focusIndexDisp) noexcept
+{
+    if (gamertagDisp < kGamertagPastEntries || focusIndexDisp < kFocusIndexPastEntries)
+        return 0;
+    const uint32_t end = gamertagDisp - kGamertagPastEntries;
+    if (end != focusIndexDisp - kFocusIndexPastEntries || end % kEntryStride)
+        return 0;
+    const uint32_t count = end / static_cast<uint32_t>(kEntryStride);
+    return (count >= static_cast<uint32_t>(kStockEntryCount) && count <= static_cast<uint32_t>(kMaxEntryCount))
+               ? static_cast<int>(count)
+               : 0;
+}
 
 // A teammate's service tag and arrow, not an objective or a carrier.
 inline bool IsPlayerTag(int32_t icon, uint32_t flags) noexcept
