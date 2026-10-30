@@ -24064,6 +24064,8 @@ bool VR_ScopeShouldRenderThisFrame()
     const bool previous=g_scopeActive.exchange(active,std::memory_order_acq_rel);
     if(previous && !active)
         g_scopeHasImage.store(false,std::memory_order_release);
+    if(previous!=active)
+        LOG("universal scope: lens %s (title %u)",active?"open":"closed",static_cast<unsigned>(title));
     const uint64_t now=GetTickCount64();
     const float deltaSeconds=active && g_scopeZoomLastMs
         ? static_cast<float>(now-g_scopeZoomLastMs)/1000.0f : 0.0f;
