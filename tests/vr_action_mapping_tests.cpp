@@ -72,6 +72,14 @@ void CheckScopeAdmission()
         scope.Update(true,bits,source,1,route,true,false);
         Check(!scope.Update(true,0,source,1,0,true,false).changed,"leaving D-pad gesture cancels rather than releases zoom");
     }
+    {
+        // MCC polls the pad from more than one thread, and they share one detector (input.cpp g_scopeInput): the
+        // release one poll takes is not taken again by the next.
+        ScopeActionInput shared;
+        auto poll=[&](uint32_t bits){return shared.Update(true,bits,RightClick,1,0,true,false);};
+        poll(0);poll(0);poll(Bit(RightClick));poll(Bit(RightClick));
+        Check(poll(0).changed&&!poll(0).changed,"a second poller does not take the same zoom release again");
+    }
     ScopeActionInput scope;
     scope.Update(true,0,A,1,0,true,false);
     scope.Update(true,Bit(A),A,1,0,true,false);

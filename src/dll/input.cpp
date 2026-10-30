@@ -66,7 +66,12 @@ namespace
     // polled too rarely to see the hold reach its second took the release for a tap and stepped the camera.
     vehicle_seat_buttons::Seat g_seatButtons;
     std::mutex g_seatButtonsLock;
-    thread_local ScopeActionInput g_scopeInput;
+    // The zoom release's one edge, for every thread that polls the pad, for the same reason: with a copy per thread
+    // each of MCC's polling threads took the same release, two scope toggles a few ms apart, and the scope stayed
+    // shut whenever the render thread saw them in different frames (ODST zoom, 2026-10-30).
+    ScopeActionInput g_scopeInput;
+    std::mutex g_scopeInputLock;
+    void SuspendScopeInput() { std::lock_guard<std::mutex> lock(g_scopeInputLock); g_scopeInput.Suspend(); }
     thread_local PhysicalCrouchInput g_physicalCrouchInput;
     std::atomic<bool> g_physicalCrouchRiseCapped{false};   // the menu's recalibrate hint
     thread_local vr_mapping::Mapper g_vrActionMapper;
@@ -227,7 +232,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         {
             Game_VehicleBoomStick(0.0f);
             g_vrActionMapper.ready=false;
-            g_scopeInput.Suspend();
+            SuspendScopeInput();
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
             PhysicalCrouchCamera_Invalidate();
             Roomscale_Input(false,0,0);
@@ -398,10 +403,14 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         // unaffected by entering the optional head D-pad gesture.
         const unsigned scopeRoute=zoomSource>=vr_mapping::DpadUp?
             (pad.thumbrestDpad?2u:(dpadMode?1u:0u)):0u;
-        const ScopeToggleUpdate scope=g_scopeInput.Update(scopeFeatureAvailable,collectedSources,
-            zoomSource,mappingEpoch,scopeRoute,
-            scopeAvailable&&!menuOpen&&(!pad.exclusiveInput||pad.thumbrestDpad),
-            chord.consumeClicks||pauseChord.consumeClicks);
+        ScopeToggleUpdate scope{};
+        {
+            std::lock_guard<std::mutex> lock(g_scopeInputLock);
+            scope=g_scopeInput.Update(scopeFeatureAvailable,collectedSources,
+                zoomSource,mappingEpoch,scopeRoute,
+                scopeAvailable&&!menuOpen&&(!pad.exclusiveInput||pad.thumbrestDpad),
+                chord.consumeClicks||pauseChord.consumeClicks);
+        }
         if(scope.changed&&scopeAvailable)
         {
             VR_RequestScopeToggle();
@@ -1032,7 +1041,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         if (!Game_AllowsSharedControllerInput())
         {
             g_vrActionMapper.ready=false;
-            g_scopeInput.Suspend();
+            SuspendScopeInput();
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
             PhysicalCrouchCamera_Invalidate();
             Roomscale_Input(false, 0, 0);
@@ -1074,7 +1083,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             WitnessPad(pad);
 #endif
             g_vrActionMapper.ready=false;
-            g_scopeInput.Suspend();
+            SuspendScopeInput();
             g_physicalCrouchInput.Suspend(g_config.physical_crouch);
             PhysicalCrouchCamera_Invalidate();
             Roomscale_Input(false, 0, 0);
