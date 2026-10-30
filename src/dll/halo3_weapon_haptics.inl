@@ -695,7 +695,7 @@ bool InstallHalo3WeaponHaptics(uintptr_t base, size_t size, uint32_t generation)
     for (auto target : {feature.weaponTarget,feature.triggerUpdateTarget,feature.wrapperTarget,feature.playerEffectTarget,feature.workerTarget,
             feature.evaluatorTarget,feature.updateTarget})
     {
-        if (MH_EnableHook(target) != MH_OK)
+        if (MCCVR_EnableHook(target) != MH_OK)
         { LOG("Halo 3 weapon haptics StockFallback: hook enable failed"); (void)RemoveHalo3WeaponHaptics(); return false; }
     }
     feature.enabled.store(true, std::memory_order_release);

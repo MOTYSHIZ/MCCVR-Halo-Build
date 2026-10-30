@@ -211,6 +211,101 @@ Halo3SeatViewSwap Halo3SeatViewSwapBytes(uint8_t* at, const uint8_t* expected, c
     return result;
 }
 
+// Every site not yet redirected gets its redirect, under ONE freeze of the other threads. Halo3SeatViewSwapBytes
+// freezes the whole process for its one site, and an install redirects three, at a level's start, when a freeze is
+// slowest and the game stalls for its length. Each site's result is the one Halo3SeatViewSwapBytes would give it:
+// Done (redirected now, or already), Busy (no freeze, no write access, or a thread inside its bytes; nothing
+// written there), Foreign (neither the game's call nor the redirect). A site found Foreign before the freeze means
+// nothing is written at any site.
+void Halo3SeatViewRedirectSites(Halo3SeatViewState& s, Halo3SeatViewSwap (&results)[seat_view::kDirectorSiteCount])
+{
+    constexpr size_t n = seat_view::kCallBytes;
+    constexpr size_t count = seat_view::kDirectorSiteCount;
+    bool candidate[count]{};
+    bool writable[count]{};
+    DWORD previous[count]{};
+    bool foreign = false, any = false;
+    for (size_t i = 0; i < count; ++i)
+    {
+        Halo3SeatViewSite& site = s.sites[i];
+        results[i] = Halo3SeatViewSwap::Done;
+        if (site.patched)
+            continue;
+        uint8_t now[n];
+        if (!SeatAimFrameExecutable(site.call, n) || !Halo3SeatViewRead(site.call, now) ||
+            (memcmp(now, site.redirect, n) && memcmp(now, site.stock, n)))
+        {
+            results[i] = Halo3SeatViewSwap::Foreign;
+            foreign = true;
+        }
+        else if (memcmp(now, site.redirect, n))
+        {
+            results[i] = Halo3SeatViewSwap::Busy;
+            candidate[i] = true;
+        }
+    }
+    for (size_t i = 0; i < count && !foreign; ++i)
+    {
+        if (!candidate[i])
+            continue;
+        writable[i] = VirtualProtect(s.sites[i].call, n, PAGE_EXECUTE_READWRITE, &previous[i]) != FALSE;
+        any = any || writable[i];
+    }
+    if (any)
+    {
+        ReachThreadFreeze frozen;
+        if (frozen.Capture())
+        {
+            bool safe[count]{};
+            for (size_t i = 0; i < count; ++i)
+                safe[i] = writable[i];
+            for (const ReachFrozenThread& thread : frozen.Threads())
+            {
+                if (!thread.suspended)
+                    continue;
+                CONTEXT context{};
+                context.ContextFlags = CONTEXT_CONTROL;
+                if (!GetThreadContext(thread.handle, &context))
+                {
+                    // A live thread whose place is unknown could be inside any of them.
+                    if (WaitForSingleObject(thread.handle, 0) != WAIT_OBJECT_0)
+                        for (bool& one : safe)
+                            one = false;
+                    continue;
+                }
+                for (size_t i = 0; i < count; ++i)
+                {
+                    const auto at = reinterpret_cast<DWORD64>(s.sites[i].call);
+                    if (context.Rip > at && context.Rip < at + n)
+                        safe[i] = false;
+                }
+            }
+            for (size_t i = 0; i < count; ++i)
+            {
+                if (!safe[i])
+                    continue;
+                uint8_t* const at = s.sites[i].call;
+                uint8_t check[n];
+                if (!Halo3SeatViewRead(at, check) || memcmp(check, s.sites[i].stock, n))
+                    results[i] = Halo3SeatViewSwap::Foreign;
+                else if (Halo3SeatViewWrite(at, s.sites[i].redirect) && Halo3SeatViewRead(at, check) &&
+                         !memcmp(check, s.sites[i].redirect, n))
+                {
+                    FlushInstructionCache(GetCurrentProcess(), at, n);
+                    results[i] = Halo3SeatViewSwap::Done;
+                }
+            }
+            (void)frozen.Release();
+        }
+    }
+    for (size_t i = 0; i < count; ++i)
+    {
+        DWORD ignored = 0;
+        if (writable[i])
+            VirtualProtect(s.sites[i].call, n, previous[i], &ignored);
+    }
+}
+
 // No thread is inside the relay, and none can return into it: its own count is zero and, with every other thread
 // suspended, no instruction pointer lies in it. Only meaningful once every site is back to stock.
 bool Halo3SeatViewRelayQuiet(const Halo3SeatViewState& s)
@@ -370,12 +465,15 @@ void Halo3SeatViewApply(Halo3SeatViewState& s)
         return;
     }
     bool busy = false;
+    Halo3SeatViewSwap swaps[seat_view::kDirectorSiteCount];
+    Halo3SeatViewRedirectSites(s, swaps);
+    // Every site written is ours to put back, whatever another site turned out to be.
+    for (size_t i = 0; i < seat_view::kDirectorSiteCount; ++i)
+        if (swaps[i] == Halo3SeatViewSwap::Done)
+            s.sites[i].patched = true;
     for (size_t i = 0; i < seat_view::kDirectorSiteCount; ++i)
     {
-        Halo3SeatViewSite& site = s.sites[i];
-        if (site.patched)
-            continue;
-        const Halo3SeatViewSwap swap = Halo3SeatViewSwapBytes(site.call, site.stock, site.redirect);
+        const Halo3SeatViewSwap swap = swaps[i];
         if (swap == Halo3SeatViewSwap::Busy)
         {
             busy = true;
@@ -393,7 +491,6 @@ void Halo3SeatViewApply(Halo3SeatViewState& s)
             s.standDown = true;
             return;
         }
-        site.patched = true;
     }
     if (busy)
     {

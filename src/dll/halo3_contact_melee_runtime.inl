@@ -399,7 +399,7 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
             reinterpret_cast<void**>(&g_halo3Contact.damageOriginal))!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: damage hook creation failed"); return false; }
     g_halo3Contact.damageTarget=damageTarget;
-    if(MH_EnableHook(damageTarget)!=MH_OK)
+    if(MCCVR_EnableHook(damageTarget)!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: damage hook enable failed; retained for cleanup"); return false; }
     }
     void* const updateTarget=reinterpret_cast<void*>(base+0x379B30);
@@ -407,7 +407,7 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
             reinterpret_cast<void**>(&g_halo3Contact.updateOriginal))!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: simulation hook creation failed"); return false; }
     g_halo3Contact.updateTarget=updateTarget;
-    if(MH_EnableHook(updateTarget)!=MH_OK)
+    if(MCCVR_EnableHook(updateTarget)!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: simulation hook enable failed; retained for cleanup"); return false; }
     // In a host that hooks the damage routine the lane stays disabled (Halo3ContactTick does nothing then);
     // the simulation hook is in for the aim trace alone.

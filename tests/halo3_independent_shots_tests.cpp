@@ -207,6 +207,7 @@ static bool WaitForNativeDetourQuiescence(const void* const* functions,const voi
 }
 #define MH_CreateHook FixtureCreate
 #define MH_EnableHook FixtureEnable
+#define MCCVR_EnableHook FixtureEnable
 #define MH_RemoveHook FixtureRemove
 #define LOG(...) (++logged)
 static bool RemoveHalo3Muzzle(){return true;}
@@ -215,6 +216,7 @@ static bool InstallHalo3Muzzle(uintptr_t,size_t){return false;}
 #undef LOG
 #undef MH_CreateHook
 #undef MH_EnableHook
+#undef MCCVR_EnableHook
 #undef MH_RemoveHook
 
 static void LifecycleTests()

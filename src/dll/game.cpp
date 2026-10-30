@@ -127,6 +127,7 @@
 // Where the direct drives' code is in the loaded game DLL: the tables and their resolution, and the DLL's side.
 #include "../common/drive_sites.h"
 #include "drive_cascade.h"
+#include "install_search_cache.h"
 #include "drive_install.h"
 // THE FREE CAMERA WITH NO PLAYER UNIT (src/common/aim_no_unit_logic.h). Each servo title's own vehicle/seat
 // sampler already reads its local player's unit through the output-user getter on an engine thread; it also
@@ -18160,18 +18161,53 @@ static constexpr bool kOdstMappedFpEnabled = false;
     // what it found then: the first install pays for the searches and the later ones for a compare at each place.
     // install_search_memory = 0 makes every install search again.
     //
+    // ACROSS LAUNCHES (install_search_cache.h): with `saved`, the first install of each load of the DLL identifies
+    // the DLL's build and puts that build's answers saved by an earlier launch in the memo; the scanner checks each
+    // as it checks one it remembers (a match compared again in place, "no match" searched again). After the install
+    // has gone live the worker saves what this load's searches added or corrected (SaveInstallSearches).
+    // install_search_cache = 0 leaves the file alone.
+    //
     // One line per install says what it asked of the image and how long the install took, so a session's log holds
     // the first install and the later ones side by side. An install that neither searched nor finished writes
     // nothing: a title that is asked again until it is ready does not fill the log. `memo` is the title's own, one
     // for the life of the process. The worker thread's alone, as the installs are.
+    // The build of a title's DLL whose saved answers its memo holds, for the save after the install.
+    struct SavedInstallSearches
+    {
+        install_search_cache::Identity identity{};
+        bool identified = false;
+        uintptr_t base = 0;
+        uint32_t generation = 0;
+    };
+
     class InstallSearches
     {
     public:
-        InstallSearches(const char* title, sig::ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation)
+        InstallSearches(const char* title, sig::ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation,
+                        SavedInstallSearches* saved = nullptr)
             : title_(title), use_(g_config.install_search_memory != 0), check_(Checking()),
               scope_(memo, base, size, generation, use_, check_)
         {
             QueryPerformanceCounter(&begun_);
+            // Once per load of the DLL, before its first search: an emptied memo (a new load) has not looked yet.
+            if (saved && use_ && generation && g_config.install_search_cache != 0 && !memo.savedLoaded &&
+                memo.base == base && memo.generation == generation)
+            {
+                memo.savedLoaded = true;
+                looked_ = true;
+                const char* why = nullptr;
+                saved->identified = install_search_cache::Identify(title, base, size, saved->identity, why);
+                saved->base = base;
+                saved->generation = generation;
+                LARGE_INTEGER identified{};
+                QueryPerformanceCounter(&identified);
+                identifyMs_ = Ms(begun_, identified);
+                if (saved->identified)
+                    load_ = install_search_cache::Load(saved->identity, memo);
+                else
+                    notIdentified_ = why;
+                codeBytes_ = saved->identity.codeBytes;
+            }
         }
         InstallSearches(const InstallSearches&) = delete;
         InstallSearches& operator=(const InstallSearches&) = delete;
@@ -18194,11 +18230,24 @@ static constexpr bool kOdstMappedFpEnabled = false;
             if (check_)
                 snprintf(checked, sizeof(checked), "; CHECK: %u remembered answers were NOT confirmed by a search",
                          counts.disagreed);
-            LOG("%s install: %u searches of the game's DLL were made and %u were answered from this load's earlier "
-                "searches (%u remembered places no longer stood and were searched for again, %u could not be "
-                "kept); the install took %.1f ms%s; install_search_memory = %d%s",
-                title_, made, counts.remembered, counts.searchedAgain, counts.notHeld, elapsedMs,
-                finished_ ? "" : " and did not finish", use_ ? 1 : 0, checked);
+            char savedLine[384]{};
+            if (looked_ && notIdentified_)
+                snprintf(savedLine, sizeof(savedLine), "; saved searches not used: the DLL's build could not be "
+                         "identified (%s)", notIdentified_);
+            else if (looked_)
+                snprintf(savedLine, sizeof(savedLine), "; saved searches: %s, %u answers put in (the build "
+                         "identified in %.1f ms from %llu bytes of code, the file read in %.1f ms, it holds %u "
+                         "build%s)", install_search_cache::Describe(load_.result), load_.taken, identifyMs_,
+                         static_cast<unsigned long long>(codeBytes_), load_.ms, load_.builds,
+                         load_.builds == 1 ? "" : "s");
+            LOG("%s install: %u searches of the game's DLL were made, %u were answered from this load's earlier "
+                "searches and %u from the searches saved for this build by an earlier launch (%u remembered places "
+                "no longer stood and were searched for again, %u of them saved ones; %u could not be kept); "
+                "answering them took %.1f ms of the install's %.1f ms%s; install_search_memory = %d, "
+                "install_search_cache = %d%s%s",
+                title_, made, counts.remembered, counts.fromSaved, counts.searchedAgain, counts.savedStale,
+                counts.notHeld, counts.ms, elapsedMs, finished_ ? "" : " and did not finish", use_ ? 1 : 0,
+                g_config.install_search_cache, savedLine, checked);
         }
 
     private:
@@ -18210,24 +18259,182 @@ static constexpr bool kOdstMappedFpEnabled = false;
             return false;
 #endif
         }
+        static double Ms(const LARGE_INTEGER& from, const LARGE_INTEGER& to)
+        {
+            LARGE_INTEGER frequency{};
+            QueryPerformanceFrequency(&frequency);
+            return frequency.QuadPart > 0
+                ? static_cast<double>(to.QuadPart - from.QuadPart) * 1000.0 / static_cast<double>(frequency.QuadPart)
+                : 0.0;
+        }
         const char* title_;
         bool use_;
         bool check_;
         bool finished_ = false;
         LARGE_INTEGER begun_{};
         sig::ImageMemoScope scope_;
+        bool looked_ = false;
+        const char* notIdentified_ = nullptr;
+        double identifyMs_ = 0.0;
+        uint64_t codeBytes_ = 0;
+        install_search_cache::LoadReport load_{};
     };
 
+    // After an install has gone live (the worker, once per install): what this load's searches added to or
+    // corrected in the memo is saved for the DLL's build. Nothing to save, the setting off, or a memo that is no
+    // longer the identified load's: nothing is written. One line when something was written or could not be.
+    void SaveInstallSearches(const char* title, sig::ImageMemo& memo, const SavedInstallSearches& saved)
+    {
+        if (!g_config.install_search_memory || !g_config.install_search_cache || !saved.identified ||
+            !memo.changes || memo.base != saved.base || memo.generation != saved.generation)
+            return;
+        const uint32_t changes = memo.changes;
+        const char* why = nullptr;
+        double ms = 0.0;
+        if (install_search_cache::Save(saved.identity, memo, why, ms))
+            LOG("%s install searches: %u answers saved for this build of the DLL (%u new or corrected in this "
+                "load) in %.1f ms; the next launch checks them in place before using them "
+                "(HaloMCCVR-install-searches.bin)", title, memo.count, changes, ms);
+        else
+            LOG("%s install searches: not saved (%s); the next launch searches again", title,
+                why ? why : "unknown");
+    }
+
+    // WHERE ONE INSTALL'S TIME GOES. Each Mark closes the step that began at the previous Mark (or when this was
+    // made) and names it; Write puts every step in one line. Worker thread only, one install at a time; a Mark with
+    // no install open does nothing. A QueryPerformanceCounter per step, once per install.
+    class InstallSteps
+    {
+    public:
+        InstallSteps()
+        {
+            QueryPerformanceFrequency(&frequency_);
+            QueryPerformanceCounter(&last_);
+            s_open = this;
+        }
+        ~InstallSteps() { s_open = nullptr; }
+        InstallSteps(const InstallSteps&) = delete;
+        InstallSteps& operator=(const InstallSteps&) = delete;
+
+        static void Mark(const char* step)
+        {
+            if (s_open)
+                s_open->Close(step);
+        }
+
+        void Write(const char* title) const
+        {
+            if (!count_)
+                return;
+            char line[1536];
+            int at = snprintf(line, sizeof(line), "%s install steps (ms):", title);
+            for (uint32_t i = 0; i < count_ && at > 0 && static_cast<size_t>(at) < sizeof(line); ++i)
+                at += snprintf(line + at, sizeof(line) - static_cast<size_t>(at), "%s %s %.0f", i ? "," : "",
+                               names_[i], ms_[i]);
+            LOG("%s", line);
+        }
+
+    private:
+        void Close(const char* step)
+        {
+            LARGE_INTEGER now{};
+            QueryPerformanceCounter(&now);
+            if (count_ < kSteps && frequency_.QuadPart > 0)
+            {
+                names_[count_] = step;
+                ms_[count_] = static_cast<double>(now.QuadPart - last_.QuadPart) * 1000.0 /
+                              static_cast<double>(frequency_.QuadPart);
+                ++count_;
+            }
+            last_ = now;
+        }
+
+        static constexpr uint32_t kSteps = 40;
+        static inline InstallSteps* s_open = nullptr;
+        LARGE_INTEGER frequency_{};
+        LARGE_INTEGER last_{};
+        const char* names_[kSteps]{};
+        double ms_[kSteps]{};
+        uint32_t count_ = 0;
+    };
+
+    // THE INSTALL'S OPTIONAL HOOKS GO LIVE WITH THE CORE'S (minhook_lifecycle.h, MCCVR_EnableHook). The core queues
+    // its hooks and the worker enables them all with one MH_ApplyQueued, one freeze of the game's threads. The
+    // optional features (world contact, direct drive, haptics, the head-relative tracker and listener, ...) each
+    // enabled theirs on the spot, one freeze per hook: about twenty at a level's start, measured 0.3-2 s apiece in
+    // the logs, while every install step without a hook took milliseconds. While this is open they queue instead,
+    // and the worker's MH_ApplyQueued takes them in the same freeze. Every proof each feature makes is unchanged and
+    // made before its hook is queued; only the moment the bytes are written moves, to the end of this install,
+    // before the worker reports the title installed. `install_hooks_together = 0` leaves it closed.
+    class InstallHookDeferral
+    {
+    public:
+        InstallHookDeferral()
+            : open_(g_config.install_hooks_together != 0 && MCCVR_BeginHookEnableDeferral() != FALSE) {}
+        ~InstallHookDeferral() { End(false); }
+        InstallHookDeferral(const InstallHookDeferral&) = delete;
+        InstallHookDeferral& operator=(const InstallHookDeferral&) = delete;
+        // `applyFollows`: the caller's MH_ApplyQueued comes next. Otherwise every hook still queued here is enabled
+        // now, one at a time, as the features asked.
+        void End(bool applyFollows)
+        {
+            if (!open_)
+                return;
+            open_ = false;
+            UINT immediate = 0;
+            deferred_ = MCCVR_EndHookEnableDeferral(applyFollows ? TRUE : FALSE, &immediate);
+            immediate_ = immediate;
+        }
+        uint32_t Deferred() const { return deferred_; }
+        uint32_t Immediate() const { return immediate_; }
+
+    private:
+        bool open_;
+        uint32_t deferred_ = 0;
+        uint32_t immediate_ = 0;
+    };
+    // What MinHook's freezes cost (minhook_lifecycle.h, MCCVR_TakeFreezeStats), in words for one log line.
+    std::string DescribeFreezes(const MCCVR_FREEZE_STATS& f)
+    {
+        char text[384];
+        if (!f.freezes)
+            return "No freeze of the game's threads";
+        snprintf(text, sizeof(text),
+                 "%u freeze%s of the game's threads: %u listed this process's own threads (%u in all), %u took the "
+                 "system-wide thread snapshot; listing took %.1f ms, suspending them and reading where each stood "
+                 "%.1f ms (the slowest single thread %.1f ms)",
+                 f.freezes, f.freezes == 1 ? "" : "s", f.ownLists, f.threads, f.systemSnapshots, f.listMs,
+                 f.suspendMs, f.slowestThreadMs);
+        return text;
+    }
+
+    // The last install's count, for the worker's line after its MH_ApplyQueued (the same thread).
+    uint32_t g_halo3InstallDeferredHooks = 0;
+    uint32_t g_halo3InstallImmediateHooks = 0;
+
     bool InstallHookBody(uintptr_t base, size_t size, uint32_t runtimeGeneration);
+    // Halo 3's searches of halo3.dll, remembered for the load and saved per build (InstallSearches). The worker's.
+    sig::ImageMemo g_halo3InstallSearchMemo;
+    SavedInstallSearches g_halo3SavedInstallSearches;
 
     // Halo 3's hooks are retired when the game stops copying its camera for two seconds (a level ending, a
     // loading screen; the pause menu keeps the camera running) and installed again when the next level is live,
     // within one load of halo3.dll: a campaign session meets this at every new level.
     bool InstallHook(uintptr_t base, size_t size, uint32_t runtimeGeneration)
     {
-        static sig::ImageMemo s_searches;
-        InstallSearches searches("Halo 3", s_searches, base, size, runtimeGeneration);
+        InstallSearches searches("Halo 3", g_halo3InstallSearchMemo, base, size, runtimeGeneration,
+                                 &g_halo3SavedInstallSearches);
+        InstallSteps steps;
+        InstallHookDeferral deferral;
         const bool prepared = InstallHookBody(base, size, runtimeGeneration);
+        InstallSteps::Mark("stereo render");
+        // Prepared: the worker's MH_ApplyQueued follows at once (and a failed one rolls every hook back, the
+        // queued ones with the rest). Not prepared: nothing applies the queue, so each feature's hook is enabled
+        // on its own here, as before.
+        deferral.End(prepared);
+        g_halo3InstallDeferredHooks = deferral.Deferred();
+        g_halo3InstallImmediateHooks = deferral.Immediate();
+        steps.Write("Halo 3");
         if (prepared)
             searches.Finished();
         return prepared;
@@ -19179,6 +19386,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
             LOG("M2: gun-camera signature missing/ambiguous; weapon/HUD will stay oversized in stereo");
         }
 
+        InstallSteps::Mark("core hooks");
         if (InstallLegacyWorldCollision(
                 g_halo3WorldCollision, GameTitle::Halo3, base, size,
                 runtimeGeneration,
@@ -19186,16 +19394,24 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 0x001FFD18,nullptr,false,0x001FD748,
                 kHalo3CollisionVectorSignature))
             RememberInstalledGameHook(g_halo3WorldCollision.target);
+        InstallSteps::Mark("world collision");
         (void)InstallHalo3ContactMelee(base,size,runtimeGeneration);
+        InstallSteps::Mark("contact melee and sight");
         (void)LegacyDriveInstall(GameTitle::Halo3,base,size);
+        InstallSteps::Mark("direct drive");
         (void)SeatAimFrameInstall(GameTitle::Halo3,base,size,runtimeGeneration);
+        InstallSteps::Mark("seat aim frame");
         (void)Halo3SeatViewInstall(base,size,runtimeGeneration);
+        InstallSteps::Mark("seat view");
         (void)InstallHalo3WeaponHaptics(base,size,runtimeGeneration);
+        InstallSteps::Mark("weapon haptics");
         (void)InstallHalo3Avatar(base,size,runtimeGeneration);
+        InstallSteps::Mark("avatar");
         // The rejected early-helper-only detours remain inert. The new optional
         // path owns acquisition and downstream assist together, with its own
         // default-off setting and feature-only failure isolation.
         (void)InstallHalo3DualAim(base,size,runtimeGeneration);
+        InstallSteps::Mark("dual aim");
         // The evaluator's chase path, the start of a stock seat's crosshair line (seat_upstream_logic.h 4b): no hook,
         // so it is bound whether or not the lane above installed.
         BindHalo3ChaseCamera(base,size,runtimeGeneration);
@@ -19204,10 +19420,13 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // Roomscale's Forge Monitor check (roomscale_admission_logic.h): two sites, two reader calls, no hook.
         (void)BindHalo3SandboxEditor(base,size,runtimeGeneration,g_engineTlsIndex,
             reinterpret_cast<uintptr_t>(g_halo3PlayerUnitGetter));
+        InstallSteps::Mark("chase camera, eye and Forge binds");
         // A look-steered driver's gun band (halo3_vehicle_gun_band.inl): anchors only, no hook; fails closed alone.
         (void)InstallHalo3GunBand(base,size,runtimeGeneration);
+        InstallSteps::Mark("gun band");
         // The motion tracker by the head's heading (halo3_head_relative.inl): its own transaction, fails closed alone.
         (void)InstallHalo3HeadRelative(base,size,runtimeGeneration);
+        InstallSteps::Mark("head-relative tracker and listener");
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
@@ -19224,11 +19443,14 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // The third-person boom's game side (halo3_vehicle_boom.inl): anchors and tag reads only, no hook; each part
         // unbound alone leaves the boom on its own fallback.
         BindHalo3VehicleBoom(base,size,runtimeGeneration);
+        InstallSteps::Mark("HUD note, tag names, string ids, part draw, boom");
         // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): its own transaction too.
         (void)InstallHalo3TrackerHudHeight(base,size,runtimeGeneration);
+        InstallSteps::Mark("tracker HUD height");
 #if HALOMCCVR_DEV_DIAGNOSTICS
         InstallHalo3AssistWitness(base,size);   // SHOT Halo 3 assist (dev): the turn, cap hits, residual
         InstallHalo3ImpactWitness(base,size);   // SHOT IMPACT / SHOT RETICLE Halo 3 (dev): where rounds really go
+        InstallSteps::Mark("dev witnesses");
 #endif
 
         uintptr_t renderHit = sig::Find(base, size, kRenderViewSig);
@@ -28015,7 +28237,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         feature.resolver=schedulerRva
             ? reinterpret_cast<void*>(hit):trampoline;
         feature.originalIsVectorTest=schedulerRva!=0;
-        if(MH_EnableHook(target)!=MH_OK)
+        if(MCCVR_EnableHook(target)!=MH_OK)
         {
             MH_RemoveHook(target);
             feature.target=nullptr;
@@ -34248,6 +34470,47 @@ static constexpr bool kOdstMappedFpEnabled = false;
         bool suspended = false;
     };
 
+    // THIS PROCESS'S THREADS, for a freeze. This process's own list first
+    // (minhook_lifecycle.h, MCCVR_ListOwnThreadIds: a walk of its own threads,
+    // a fraction of a millisecond); the system-wide thread snapshot, the route
+    // every freeze here took before, when that list cannot be made. The
+    // snapshot copies every thread on the machine and was measured at
+    // 115-237 ms, and the freeze below took two. Allocates: call it before any
+    // thread is suspended. False: neither could be read.
+    bool ListThisProcessThreads(DWORD processId, std::vector<DWORD>& ids)
+    {
+        ids.clear();
+        DWORD* own = nullptr;
+        UINT count = 0;
+        if (MCCVR_ListOwnThreadIds(&own, &count))
+        {
+            ids.assign(own, own + count);
+            MCCVR_FreeThreadIds(own);
+            return true;
+        }
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if (snapshot == INVALID_HANDLE_VALUE)
+            return false;
+        bool complete = true;
+        THREADENTRY32 entry{};
+        entry.dwSize = sizeof(entry);
+        if (!Thread32First(snapshot, &entry))
+            complete = false;
+        while (complete)
+        {
+            if (entry.th32OwnerProcessID == processId)
+                ids.push_back(entry.th32ThreadID);
+            if (!Thread32Next(snapshot, &entry))
+            {
+                if (GetLastError() != ERROR_NO_MORE_FILES)
+                    complete = false;
+                break;
+            }
+        }
+        CloseHandle(snapshot);
+        return complete;
+    }
+
     // Worker-only process freeze used after both Reach hooks are disabled. It
     // closes the small ingress window in which a thread is already inside a
     // MinHook relay or the detour prologue but has not incremented the counter.
@@ -34263,48 +34526,42 @@ static constexpr bool kOdstMappedFpEnabled = false;
 
             const DWORD processId = GetCurrentProcessId();
             const DWORD currentThreadId = GetCurrentThreadId();
-            HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-            if (snapshot == INVALID_HANDLE_VALUE)
+            std::vector<DWORD> ids;
+            if (!ListThisProcessThreads(processId, ids))
                 return false;
 
             bool enumerateOk = true;
-            THREADENTRY32 entry{};
-            entry.dwSize = sizeof(entry);
-            if (!Thread32First(snapshot, &entry))
-                enumerateOk = false;
-            while (enumerateOk)
+            for (const DWORD id : ids)
             {
-                if (entry.th32OwnerProcessID == processId &&
-                    entry.th32ThreadID != currentThreadId)
+                if (id == currentThreadId)
+                    continue;
+                HANDLE thread = OpenThread(
+                    THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
+                        THREAD_QUERY_INFORMATION | SYNCHRONIZE,
+                    FALSE, id);
+                if (!thread)
                 {
-                    HANDLE thread = OpenThread(
-                        THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
-                            THREAD_QUERY_INFORMATION | SYNCHRONIZE,
-                        FALSE, entry.th32ThreadID);
-                    if (!thread)
+                    if (GetLastError() != ERROR_INVALID_PARAMETER)
                     {
-                        if (GetLastError() != ERROR_INVALID_PARAMETER)
-                            enumerateOk = false;
-                    }
-                    else
-                    {
-                        m_threads.push_back(
-                            {thread, entry.th32ThreadID, false});
+                        enumerateOk = false;
+                        break;
                     }
                 }
-                if (!Thread32Next(snapshot, &entry))
+                else
                 {
-                    if (GetLastError() != ERROR_NO_MORE_FILES)
-                        enumerateOk = false;
-                    break;
+                    m_threads.push_back({thread, id, false});
                 }
             }
-            CloseHandle(snapshot);
             if (!enumerateOk)
             {
                 Release();
                 return false;
             }
+
+            // The completeness check below lists the threads again with every
+            // other one suspended, so its buffer is made here, now: room for
+            // the threads found and for as many again started since.
+            m_check.assign(m_threads.size() * 2 + 64, 0);
 
             // Complete every allocation before the first suspension. All
             // captured threads then remain frozen through the RIP/counter
@@ -34359,6 +34616,41 @@ static constexpr bool kOdstMappedFpEnabled = false;
         bool FrozenSnapshotIsComplete(
             DWORD processId, DWORD currentThreadId) const
         {
+            // This process's own list, into the buffer Capture made before
+            // suspending anything: no allocation while a frozen thread may
+            // hold a heap lock. More threads than it holds means threads were
+            // started since the first list: not complete.
+            UINT listed = 0;
+            const UINT own = m_check.empty() ? MCCVR_OWN_THREADS_FAILED
+                : MCCVR_ListOwnThreadIdsInto(m_check.data(),
+                      static_cast<UINT>(m_check.size()), &listed);
+            if (own == MCCVR_OWN_THREADS_OVERFLOW)
+                return false;
+            if (own == MCCVR_OWN_THREADS_COMPLETE)
+            {
+                for (UINT i = 0; i < listed; ++i)
+                {
+                    const DWORD id = m_check[i];
+                    if (id == currentThreadId)
+                        continue;
+                    bool foundFrozen = false;
+                    for (const ReachFrozenThread& thread : m_threads)
+                    {
+                        if (thread.threadId == id)
+                        {
+                            foundFrozen = thread.suspended ||
+                                WaitForSingleObject(thread.handle, 0) ==
+                                    WAIT_OBJECT_0;
+                            break;
+                        }
+                    }
+                    if (!foundFrozen)
+                        return false;
+                }
+                return true;
+            }
+
+            // The list could not be made: the system-wide snapshot, as before.
             HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (snapshot == INVALID_HANDLE_VALUE)
                 return false;
@@ -34398,6 +34690,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
             return complete;
         }
 
+        // The completeness check's list, sized in Capture before any thread
+        // is suspended.
+        mutable std::vector<DWORD> m_check;
         std::vector<ReachFrozenThread> m_threads;
     };
 
@@ -50789,9 +51084,17 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 // mapping. Retire MinHook's records now, before the loader can
                 // unmap halo3.dll and reuse the same address for the next
                 // level. This is non-owning: no loader refcount is released.
-                hookRefreshPending = !RemoveInstalledGameHooks();
-                LOG("Halo 3 hook epoch retirement at level-liveness boundary: %s",
-                    hookRefreshPending ? "cleanup pending" : "complete");
+                {
+                    MCCVR_FREEZE_STATS freezes{};
+                    MCCVR_TakeFreezeStats(&freezes);
+                    const uint64_t retireBeganMs = GetTickCount64();
+                    hookRefreshPending = !RemoveInstalledGameHooks();
+                    MCCVR_TakeFreezeStats(&freezes);
+                    LOG("Halo 3 hook epoch retirement at level-liveness boundary: %s in %llu ms. %s",
+                        hookRefreshPending ? "cleanup pending" : "complete",
+                        static_cast<unsigned long long>(GetTickCount64() - retireBeganMs),
+                        DescribeFreezes(freezes).c_str());
+                }
                 gameHooked = false;
                 g_hooked = false;
                 // The next install must prove the level is running again.
@@ -51064,7 +51367,23 @@ static constexpr bool kOdstMappedFpEnabled = false;
                     const bool prepared = InstallHook(base, size, generation);
                     // Staging every core hook first keeps native callbacks out
                     // of partial install rollback and stale dependency slots.
+                    // The optional features' hooks were queued with them
+                    // (InstallHookDeferral): this one pass enables them all.
+                    MCCVR_FREEZE_STATS freezes{};
+                    MCCVR_TakeFreezeStats(&freezes);
+                    const uint64_t applyBeganMs = GetTickCount64();
                     const MH_STATUS activated = prepared ? MH_ApplyQueued() : MH_UNKNOWN;
+                    if (prepared)
+                    {
+                        MCCVR_TakeFreezeStats(&freezes);
+                        LOG("Halo 3 install: the core's hooks and %u of the optional features' hooks went live in "
+                            "one pass in %llu ms (%u optional hooks were enabled on their own instead; "
+                            "install_hooks_together = %d); MinHook status %d. %s",
+                            g_halo3InstallDeferredHooks,
+                            static_cast<unsigned long long>(GetTickCount64() - applyBeganMs),
+                            g_halo3InstallImmediateHooks, g_config.install_hooks_together,
+                            static_cast<int>(activated), DescribeFreezes(freezes).c_str());
+                    }
                     if (prepared && activated == MH_OK)
                     {
                         g_halo3InstallReady.store(true, std::memory_order_release);
@@ -51073,6 +51392,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
                         haloInstalledAtMs = GetTickCount64();
                         hookRefreshPending = false;
                         hookedBase = base;
+                        // After the hooks are live, never ahead of them: a few milliseconds of file I/O.
+                        SaveInstallSearches("Halo 3", g_halo3InstallSearchMemo, g_halo3SavedInstallSearches);
                     }
                     else if (g_installedGameHookCount)
                     {
