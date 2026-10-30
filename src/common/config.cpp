@@ -686,9 +686,9 @@ static void Clamp()
     for (int level = 0; level < 2; ++level)
     {
         const float size = g_config.aim_frame_size_deg[level];
-        g_config.aim_frame_size_deg[level] = std::isfinite(size) ? std::clamp(size, 10.0f, 120.0f) : 50.0f;
+        g_config.aim_frame_size_deg[level] = std::isfinite(size) ? std::clamp(size, 10.0f, 120.0f) : 100.0f;
         const float strength = g_config.aim_frame_strength[level];
-        g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.0f;
+        g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.5f;
     }
     g_config.aim_frame_3d_strength = std::isfinite(g_config.aim_frame_3d_strength)
         ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 10.0f) : 6.0f;

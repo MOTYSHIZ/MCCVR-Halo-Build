@@ -2192,7 +2192,7 @@ namespace
         ImGui::TextDisabled("While the game is zoomed, the headset shows the game's zoomed picture as a frame\n"
                             "centred on your aim instead of the 3D view, like playing it on a flat screen. The\n"
                             "zoom button reaches the game, so the lens below is not offered in Halo 3 while this\n"
-                            "is on. Halo 3 in MCC and Project Reclaimer. Off by default. Live.");
+                            "is on. Halo 3 in MCC and Project Reclaimer. On by default. Live.");
         if (g_config.aim_frame_zoom)
         {
             ImGui::Indent();
