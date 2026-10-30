@@ -2755,10 +2755,13 @@ namespace
     bool InstallHalo3HudNote(uintptr_t base, size_t size, uint32_t generation);
     void RemoveHalo3HudNote();
     void Halo3HudNotePost();
-    // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the HUD's navpoint draw.
+    // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the HUD's navpoint draw, per title.
     bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation);
     bool RemoveHalo3PlayerTags();
     void ReportHalo3PlayerTags();
+    bool InstallOdstPlayerTags(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveOdstPlayerTags();
+    void ReportOdstPlayerTags();
     void Halo3VehicleNoteShow(const std::wstring& text, float seconds);
     void Halo3VehicleNoteTick();
     // The tracker's blips move with the HUD height (halo3_tracker_hud_height.inl): one hook on the blip draw.
@@ -21507,6 +21510,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     {
         if(!RemoveOdstWeaponHaptics())return false;
         if(!RemoveOdstMuzzle())return false;
+        if(!RemoveOdstPlayerTags())return false;
         if(!LegacyDriveRemove(GameTitle::Halo3ODST)) return false;
         // The seat aim rebase skip is retired further down, after the
         // all-detour quiescence: it is inert only once the camera thread can
@@ -21919,6 +21923,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         (void)SeatAimFrameInstall(GameTitle::Halo3ODST,base,size,runtimeGeneration);
         (void)InstallOdstMuzzle(base,size,runtimeGeneration);
         (void)InstallOdstWeaponHaptics(base,size,runtimeGeneration);
+        // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the navpoint draw; fails closed alone.
+        (void)InstallOdstPlayerTags(base,size,runtimeGeneration);
         // The motion tracker and the sound listener by the head (halo3_head_relative.inl): own transactions.
         (void)InstallOdstHeadRelative(base,size,runtimeGeneration);
 
@@ -28731,7 +28737,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
         if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); }
-        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();}
+        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
                 "%u polls / %u unavailable, %u missing velocity, peak %.2f m/s, "

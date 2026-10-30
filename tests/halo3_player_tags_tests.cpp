@@ -144,6 +144,40 @@ int main()
           "more than the most allowed");
     Check(EntryCountFromLayout(0, 0) == 0 && EntryCountFromLayout(4, 0x948) == 0, "below the fields' own offsets");
 
+    // ODST: its own patterns' positions, and its count from its own two fields (the gamertag 0x40 past the array).
+    const auto odstCaller = Tokens(kOdstCallerPattern);
+    Check(odstCaller[kOdstCallerCallRel - 1] == 0xE8 && Wild(odstCaller, kOdstCallerCallRel, 4),
+          "ODST: the caller's call rel32");
+    const auto odstCall = Tokens(kOdstProjectionCallPattern);
+    Check(odstCall[kOdstProjectionCallRel - 1] == 0xE8 && Wild(odstCall, kOdstProjectionCallRel, 4),
+          "ODST: the projection call's rel32");
+    Check(odstCall[kOdstFocusIndexDisp - 3] == 0x41 && odstCall[kOdstFocusIndexDisp - 2] == 0x8B &&
+              odstCall[kOdstFocusIndexDisp - 1] == 0x85 && Wild(odstCall, kOdstFocusIndexDisp, 4),
+          "ODST: the focused index's disp32 (mov eax, [r13 + disp32])");
+    const auto odstView = Tokens(kOdstViewReadPattern);
+    Check(odstView[0] == 0x48 && odstView[1] == 0x8B && odstView[2] == 0x05 && Wild(odstView, kOdstViewReadDisp, 4) &&
+              odstView[15] == static_cast<int>(kViewPositionOffset),
+          "ODST: the view's disp32, and the camera at [view] + 8");
+    const auto odstRecord = Tokens(kOdstRecordPattern);
+    Check(odstRecord[3] + 8 == 0x3C && odstRecord[10] + 8 == static_cast<int>(kPositionOffset),
+          "ODST: record at +0x3C, position");
+    const auto odstScale = Tokens(kOdstScaleReadPattern);
+    Check(odstScale[5] + 8 == static_cast<int>(kScaleOffset), "ODST: the size read is the distance scale");
+    const auto odstGamertag = Tokens(kOdstGamertagPattern);
+    Check(odstGamertag[0] == 0x4D && odstGamertag[1] == 0x8D && odstGamertag[2] == 0x8D &&
+              Wild(odstGamertag, kOdstGamertagDisp, 4),
+          "ODST: the gamertag's disp32 (lea r9, [r13 + disp32])");
+    Check(EntryCountFromLayout(0x950, 0x948, kOdstGamertagPastEntries) == 20, "ODST's twenty (retail halo3odst.dll)");
+    Check(EntryCountFromLayout(0x950, 0x948) == 0, "ODST's gamertag field is not where Halo 3 keeps it");
+    Check(kOdstDraw.alphaReadPattern == kAlphaReadPattern && kOdstDraw.stridePattern == kStridePattern &&
+              kOdstDraw.gamertagPastEntries == kOdstGamertagPastEntries && kHalo3Draw.gamertagPastEntries == 0xC,
+          "each title's profile names its own fields");
+
+    // The census key round-trips, and a teammate with no flags is never an empty slot.
+    Check(KindKey(0, 0) != 0, "a kind is never an empty census slot");
+    Check(KindIcon(KindKey(-1, 0x10)) == -1 && KindFlags(KindKey(-1, 0x10)) == 0x10, "no icon, speaking");
+    Check(KindIcon(KindKey(2, 0xC1)) == 2 && KindFlags(KindKey(2, 0xC1)) == 0xC1, "an objective");
+
     std::printf("%u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

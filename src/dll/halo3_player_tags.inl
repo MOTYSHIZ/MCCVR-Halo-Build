@@ -1,10 +1,11 @@
-// PLAYER TAGS, Halo 3 (player_tags_show / _scale / _opacity / _max_distance_m; halo3_player_tags_logic.h has the
-// game's side and the rules). Included in game.cpp after halo3_hud_note.inl.
+// PLAYER TAGS, Halo 3 and ODST (player_tags_show / _scale / _opacity / _max_distance_m; halo3_player_tags_logic.h has
+// the game's side and the rules). Included in game.cpp after halo3_hud_note.inl.
 //
-// One hook, on chud_draw_navpoints: around the original, each teammate's tag gets its alpha multiplier and its size
-// from the player's settings, and both are put back after it. With every setting at its default the detour only
-// forwards. Halo 3 in MCC and in Project Reclaimer (which loads the same halo3.dll and enlarges the HUD block the
-// navpoints live in: the draw takes them by pointer, so nothing here depends on that block's size).
+// One hook per title, on chud_draw_navpoints: around the original, each teammate's tag gets its alpha multiplier and
+// its size from the player's settings, and both are put back after it. With every setting at its default the detour
+// only forwards. Halo 3 in MCC and in Project Reclaimer (which loads the same halo3.dll and enlarges the HUD block the
+// navpoints live in: the draw takes them by pointer, so nothing here depends on that block's size), and ODST, whose
+// draw is the same per entry (halo3_player_tags::kOdstDraw). Each title has its own lane and detour; the code is one.
 //
 // PROOF (resolved + guarded, nothing hardcoded): the draw by its entry signature and again by its one caller's call
 // operand; the projection by the draw's own call; the view by the projection's own read; the entry layout by the
@@ -23,10 +24,11 @@ using Halo3NavpointsDrawFn = void(__fastcall*)(uint8_t* navpoints, int user);
 
 struct Halo3PlayerTagsLane
 {
+    const halo3_player_tags::DrawProfile* profile = nullptr;
     void* target = nullptr;
     Halo3NavpointsDrawFn original = nullptr;
     uintptr_t body = 0;                 // the draw, for the first-call recheck
-    uintptr_t base = 0;                 // halo3.dll, for the same
+    uintptr_t base = 0;                 // the title's DLL, for the same
     size_t size = 0;
     uint8_t* const* view = nullptr;     // the view pointer the projection reads
     std::atomic<bool> ready{false};
@@ -38,40 +40,48 @@ struct Halo3PlayerTagsLane
     std::atomic<uint32_t> appliedFingerprint{0};
     uint32_t reportedFingerprint = 0;
     std::atomic<uint32_t> lastPlayerTags{0}, lastHidden{0};
+    // The census: each navpoint kind (KindKey) a level showed while the settings were applied, a line per new one.
+    static constexpr int kKinds = 8;
+    std::atomic<uint64_t> kinds[kKinds]{};
+    int reportedKinds = 0;
 };
 Halo3PlayerTagsLane g_halo3PlayerTags;
+Halo3PlayerTagsLane g_odstPlayerTags;
 
 namespace
 {
+bool RemovePlayerTags(Halo3PlayerTagsLane& lane, void* detour);
+
 // The in-body checks (halo3_player_tags_logic.h): the entry layout the writes below depend on, and the projection.
 // Null when every one holds; otherwise what failed. `projection` gets the projection's address, `count` the entries.
-const char* Halo3PlayerTagsBodyProof(uintptr_t draw, uintptr_t base, size_t size, uintptr_t& projection, int& count)
+const char* Halo3PlayerTagsBodyProof(const halo3_player_tags::DrawProfile& p, uintptr_t draw, uintptr_t base,
+                                     size_t size, uintptr_t& projection, int& count)
 {
     using namespace halo3_player_tags;
-    const size_t span = (draw + kDrawBodyBytes <= base + size) ? kDrawBodyBytes : 0;
+    const size_t span = (draw + p.drawBodyBytes <= base + size) ? p.drawBodyBytes : 0;
     if (!span)
         return "the draw's extent";
-    if (!mcc_clock::FindUnique(draw, span, kRecordPattern))
+    if (!mcc_clock::FindUnique(draw, span, p.recordPattern))
         return "the record and position reads";
-    if (!mcc_clock::FindUnique(draw, span, kScaleReadPattern))
+    if (!mcc_clock::FindUnique(draw, span, p.scaleReadPattern))
         return "the size read";
-    if (!sig::Find(draw, span, kAlphaReadPattern))
+    if (!sig::Find(draw, span, p.alphaReadPattern))
         return "the alpha read";
-    if (!mcc_clock::FindUnique(draw, span, kStridePattern))
+    if (!mcc_clock::FindUnique(draw, span, p.stridePattern))
         return "the stride";
-    const uintptr_t call = mcc_clock::FindUnique(draw, span, kProjectionCallPattern);
+    const uintptr_t call = mcc_clock::FindUnique(draw, span, p.projectionCallPattern);
     if (!call)
         return "the projection call";
-    projection = sig::RipTarget(call + kProjectionCallRel, call + kProjectionCallRel + 4);
+    projection = sig::RipTarget(call + p.projectionCallRel, call + p.projectionCallRel + 4);
     if (projection < base || projection >= base + size)
         return "the projection's address";
-    const uintptr_t gamertag = mcc_clock::FindUnique(draw, span, kGamertagPattern);
+    const uintptr_t gamertag = mcc_clock::FindUnique(draw, span, p.gamertagPattern);
     if (!gamertag)
         return "the focused gamertag's read";
     uint32_t gamertagDisp = 0, focusDisp = 0;
-    std::memcpy(&gamertagDisp, reinterpret_cast<const void*>(gamertag + kGamertagDisp), sizeof(gamertagDisp));
-    std::memcpy(&focusDisp, reinterpret_cast<const void*>(call + kFocusIndexDisp), sizeof(focusDisp));
-    if (!(count = EntryCountFromLayout(gamertagDisp, focusDisp)))
+    std::memcpy(&gamertagDisp, reinterpret_cast<const void*>(gamertag + p.gamertagDisp), sizeof(gamertagDisp));
+    std::memcpy(&focusDisp, reinterpret_cast<const void*>(call + p.focusIndexDisp), sizeof(focusDisp));
+    if (!(count = EntryCountFromLayout(gamertagDisp, focusDisp, p.gamertagPastEntries)))
         return "the number of entries (the gamertag and focused index disagree)";
     return nullptr;
 }
@@ -87,7 +97,7 @@ bool Halo3PlayerTagsLiveProof(Halo3PlayerTagsLane& lane)
     __try
     {
         uintptr_t projection = 0;
-        ok = !Halo3PlayerTagsBodyProof(lane.body, lane.base, lane.size, projection, count);
+        ok = !Halo3PlayerTagsBodyProof(*lane.profile, lane.body, lane.base, lane.size, projection, count);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -97,10 +107,10 @@ bool Halo3PlayerTagsLiveProof(Halo3PlayerTagsLane& lane)
         lane.count.store(count, std::memory_order_relaxed);
     lane.checked.store(ok ? 1 : -1, std::memory_order_release);
     if (!ok)
-        LOG("PLAYER TAGS Halo 3: StockFallback: the navpoint draw changed after install (another program patched "
-            "it?); teammates' tags stay as the game draws them for the rest of this level");
+        LOG("PLAYER TAGS %s: StockFallback: the navpoint draw changed after install (another program patched "
+            "it?); teammates' tags stay as the game draws them for the rest of this level", lane.profile->title);
     else
-        LOG("PLAYER TAGS Halo 3: the navpoint draw proved on its first call: %d entries", count);
+        LOG("PLAYER TAGS %s: the navpoint draw proved on its first call: %d entries", lane.profile->title, count);
     return ok;
 }
 
@@ -123,6 +133,19 @@ struct Halo3PlayerTagsSaved
     float wroteScale[halo3_player_tags::kMaxEntryCount];
     bool changed[halo3_player_tags::kMaxEntryCount];
 };
+
+// Records a navpoint kind in the lane's census: lock-free, at most kKinds kinds, the rest uncounted.
+void Halo3PlayerTagsCensus(Halo3PlayerTagsLane& lane, uint64_t key)
+{
+    for (auto& slot : lane.kinds)
+    {
+        uint64_t seen = slot.load(std::memory_order_relaxed);
+        if (seen == key)
+            return;
+        if (!seen && (slot.compare_exchange_strong(seen, key, std::memory_order_relaxed) || seen == key))
+            return;
+    }
+}
 
 // Applies the settings to every player tag. Guarded: no C++ object here.
 void Halo3PlayerTagsApply(Halo3PlayerTagsLane& lane, uint8_t* navpoints, const halo3_player_tags::Settings& s,
@@ -155,6 +178,7 @@ void Halo3PlayerTagsApply(Halo3PlayerTagsLane& lane, uint8_t* navpoints, const h
             uint32_t flags = 0;
             std::memcpy(&icon, entry + kIconOffset, sizeof(icon));
             std::memcpy(&flags, entry + kFlagsOffset, sizeof(flags));
+            Halo3PlayerTagsCensus(lane, KindKey(icon, flags));
             if (!IsPlayerTag(icon, flags))
                 continue;
             ++players;
@@ -213,11 +237,10 @@ void Halo3PlayerTagsRestore(Halo3PlayerTagsLane& lane, uint8_t* navpoints, const
         lane.faults.fetch_add(1, std::memory_order_relaxed);
     }
 }
-} // namespace
 
-__declspec(noinline) void __fastcall Halo3NavpointsDrawDetour(uint8_t* navpoints, int user)
+// The body both titles' detours run.
+void PlayerTagsDraw(Halo3PlayerTagsLane& lane, uint8_t* navpoints, int user)
 {
-    auto& lane = g_halo3PlayerTags;
     lane.callbacks.fetch_add(1, std::memory_order_acq_rel);
     __try
     {
@@ -242,34 +265,36 @@ __declspec(noinline) void __fastcall Halo3NavpointsDrawDetour(uint8_t* navpoints
 }
 
 // Install thread. Its own transaction: any miss leaves the game's own tags, said once.
-bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
+bool InstallPlayerTags(Halo3PlayerTagsLane& lane, const halo3_player_tags::DrawProfile& p, void* detour,
+                       uintptr_t base, size_t size, uint32_t generation)
 {
     using namespace halo3_player_tags;
-    auto& lane = g_halo3PlayerTags;
     lane.ready.store(false, std::memory_order_release);
     if (lane.target)
     {
-        LOG("PLAYER TAGS Halo 3: StockFallback: a previous navpoint hook has not retired");
+        LOG("PLAYER TAGS %s: StockFallback: a previous navpoint hook has not retired", p.title);
         return false;
     }
     const char* why = nullptr;
     uintptr_t draw = 0, caller = 0, projection = 0, viewRead = 0;
     int count = 0;
-    if (!(draw = mcc_clock::FindUnique(base, size, kDrawEntryPattern)))
+    if (!(draw = mcc_clock::FindUnique(base, size, p.drawEntryPattern)))
         why = "the navpoint draw's entry";
-    else if (!(caller = mcc_clock::FindUnique(base, size, kCallerPattern)) ||
-             sig::RipTarget(caller + kCallerCallRel, caller + kCallerCallRel + 4) != draw)
+    else if (!(caller = mcc_clock::FindUnique(base, size, p.callerPattern)) ||
+             sig::RipTarget(caller + p.callerCallRel, caller + p.callerCallRel + 4) != draw)
         why = "the HUD draw's call of it";
-    else if (const char* body = Halo3PlayerTagsBodyProof(draw, base, size, projection, count))
+    else if (const char* body = Halo3PlayerTagsBodyProof(p, draw, base, size, projection, count))
         why = body;
-    else if (!(viewRead = mcc_clock::FindUnique(projection, kProjectionHeadBytes, kViewReadPattern)))
+    else if (!(viewRead = mcc_clock::FindUnique(projection, p.projectionHeadBytes, p.viewReadPattern)))
         why = "the projection's view read";
     if (why)
     {
-        LOG("PLAYER TAGS Halo 3: StockFallback: %s did not prove; teammates' tags stay as the game draws them", why);
+        LOG("PLAYER TAGS %s: StockFallback: %s did not prove; teammates' tags stay as the game draws them", p.title,
+            why);
         return false;
     }
-    const uintptr_t view = sig::RipTarget(viewRead + kViewReadDisp, viewRead + kViewReadDisp + 4);
+    const uintptr_t view = sig::RipTarget(viewRead + p.viewReadDisp, viewRead + p.viewReadDisp + 4);
+    lane.profile = &p;
     lane.view = (view >= base && view < base + size) ? reinterpret_cast<uint8_t* const*>(view) : nullptr;
     lane.body = draw;
     lane.base = base;
@@ -277,30 +302,32 @@ bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
     lane.count.store(0, std::memory_order_relaxed);
     lane.checked.store(0, std::memory_order_release);
     lane.faults.store(0, std::memory_order_relaxed);
+    for (auto& kind : lane.kinds)
+        kind.store(0, std::memory_order_relaxed);
+    lane.reportedKinds = 0;
     void* const target = reinterpret_cast<void*>(draw);
-    if (MH_CreateHook(target, reinterpret_cast<void*>(&Halo3NavpointsDrawDetour),
-                      reinterpret_cast<void**>(&lane.original)) != MH_OK)
+    if (MH_CreateHook(target, detour, reinterpret_cast<void**>(&lane.original)) != MH_OK)
     {
         lane.original = nullptr;
-        LOG("PLAYER TAGS Halo 3: StockFallback: the navpoint draw's hook was not created");
+        LOG("PLAYER TAGS %s: StockFallback: the navpoint draw's hook was not created", p.title);
         return false;
     }
     lane.target = target;
     lane.ready.store(true, std::memory_order_release);
     if (MH_EnableHook(target) != MH_OK)
     {
-        LOG("PLAYER TAGS Halo 3: StockFallback: the navpoint draw's hook did not enable");
-        (void)RemoveHalo3PlayerTags();
+        LOG("PLAYER TAGS %s: StockFallback: the navpoint draw's hook did not enable", p.title);
+        (void)RemovePlayerTags(lane, detour);
         return false;
     }
-    LOG("PLAYER TAGS Halo 3: Installed (generation %u): chud_draw_navpoints +0x%llX (called once, from +0x%llX) draws "
+    LOG("PLAYER TAGS %s: Installed (generation %u): chud_draw_navpoints +0x%llX (called once, from +0x%llX) draws "
         "the navpoints of a user's HUD (%d here, 0x74 bytes each); around it each teammate's tag gets its alpha and "
         "size from the player tag settings and both are put back after. Projection +0x%llX, its view %s. Proven: "
         "the entry and its caller, and in the draw the position, size, alpha and stride reads and the count from the "
         "two fields past the entries (checked again on the first draw). Settings: show %d, size %.2f, opacity %.2f, "
         "max distance %.0f m (0 = none)",
-        generation, static_cast<unsigned long long>(draw - base), static_cast<unsigned long long>(caller - base),
-        count, static_cast<unsigned long long>(projection - base),
+        p.title, generation, static_cast<unsigned long long>(draw - base),
+        static_cast<unsigned long long>(caller - base), count, static_cast<unsigned long long>(projection - base),
         lane.view ? "bound (distance limit available)" : "not bound (the distance limit does nothing)",
         g_config.player_tags_show ? 1 : 0, g_config.player_tags_scale, g_config.player_tags_opacity,
         g_config.player_tags_max_distance_m);
@@ -308,29 +335,31 @@ bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
 }
 
 // Worker: retire the hook (disable, prove nothing is inside, remove). Idempotent; false = try again.
-bool RemoveHalo3PlayerTags()
+bool RemovePlayerTags(Halo3PlayerTagsLane& lane, void* detour)
 {
-    auto& lane = g_halo3PlayerTags;
     lane.ready.store(false, std::memory_order_release);
     if (!lane.target)
         return true;
+    const char* title = lane.profile ? lane.profile->title : "?";
     const auto status = MCCVR_DisableHookForRetirement(lane.target);
     if (status != MH_OK && status != MH_ERROR_DISABLED && status != MH_ERROR_NOT_CREATED)
     {
-        LOG("PLAYER TAGS Halo 3 CleanupRequired: the navpoint hook did not disable (%d)", static_cast<int>(status));
+        LOG("PLAYER TAGS %s CleanupRequired: the navpoint hook did not disable (%d)", title, static_cast<int>(status));
         return false;
     }
-    const void* functions[]{reinterpret_cast<const void*>(&Halo3NavpointsDrawDetour)};
-    const void* trampolines[]{reinterpret_cast<const void*>(lane.original)};
-    if (!WaitForNativeDetourQuiescence(functions, trampolines, 1, lane.callbacks))
+    // The title's detour and the body it calls: a thread that has entered the body but not yet counted itself in
+    // `callbacks` is still found by where it stands.
+    const void* functions[]{detour, reinterpret_cast<const void*>(&PlayerTagsDraw)};
+    const void* trampolines[]{reinterpret_cast<const void*>(lane.original), nullptr};
+    if (!WaitForNativeDetourQuiescence(functions, trampolines, 2, lane.callbacks))
     {
-        LOG("PLAYER TAGS Halo 3 CleanupRequired: the navpoint detour is busy");
+        LOG("PLAYER TAGS %s CleanupRequired: the navpoint detour is busy", title);
         return false;
     }
     const auto removed = MH_RemoveHook(lane.target);
     if (removed != MH_OK && removed != MH_ERROR_NOT_CREATED)
     {
-        LOG("PLAYER TAGS Halo 3 CleanupRequired: the navpoint hook was not removed (%d)", static_cast<int>(removed));
+        LOG("PLAYER TAGS %s CleanupRequired: the navpoint hook was not removed (%d)", title, static_cast<int>(removed));
         return false;
     }
     lane.target = nullptr;
@@ -341,17 +370,67 @@ bool RemoveHalo3PlayerTags()
     return true;
 }
 
-// Cold worker: one line when the applied settings change, with what the last draw saw.
-void ReportHalo3PlayerTags()
+// Cold worker: one line per new navpoint kind, and one when the applied settings change, with what the last draw saw.
+void ReportPlayerTags(Halo3PlayerTagsLane& lane)
 {
-    auto& lane = g_halo3PlayerTags;
+    if (!lane.profile)
+        return;
+    for (; lane.reportedKinds < Halo3PlayerTagsLane::kKinds; ++lane.reportedKinds)
+    {
+        const uint64_t key = lane.kinds[lane.reportedKinds].load(std::memory_order_relaxed);
+        if (!key)
+            break;
+        const int32_t icon = halo3_player_tags::KindIcon(key);
+        const uint32_t flags = halo3_player_tags::KindFlags(key);
+        LOG("PLAYER TAGS %s: navpoint kind icon %d flags 0x%X: %s", lane.profile->title, icon, flags,
+            halo3_player_tags::IsPlayerTag(icon, flags) ? "a teammate's tag (the settings apply)"
+                                                         : "an objective or carrier (left as the game draws it)");
+    }
     const uint32_t applied = lane.appliedFingerprint.load(std::memory_order_relaxed);
     if (!applied || applied == lane.reportedFingerprint)
         return;
     lane.reportedFingerprint = applied;
-    LOG("PLAYER TAGS Halo 3: applied show %d, size %.2f, opacity %.2f, max distance %.0f m: last draw %u teammate "
+    LOG("PLAYER TAGS %s: applied show %d, size %.2f, opacity %.2f, max distance %.0f m: last draw %u teammate "
         "tag(s), %u hidden; %u fault(s)",
-        g_config.player_tags_show ? 1 : 0, g_config.player_tags_scale, g_config.player_tags_opacity,
-        g_config.player_tags_max_distance_m, lane.lastPlayerTags.load(std::memory_order_relaxed),
-        lane.lastHidden.load(std::memory_order_relaxed), lane.faults.load(std::memory_order_relaxed));
+        lane.profile->title, g_config.player_tags_show ? 1 : 0, g_config.player_tags_scale,
+        g_config.player_tags_opacity, g_config.player_tags_max_distance_m,
+        lane.lastPlayerTags.load(std::memory_order_relaxed), lane.lastHidden.load(std::memory_order_relaxed),
+        lane.faults.load(std::memory_order_relaxed));
+}
+} // namespace
+
+__declspec(noinline) void __fastcall Halo3NavpointsDrawDetour(uint8_t* navpoints, int user)
+{
+    PlayerTagsDraw(g_halo3PlayerTags, navpoints, user);
+}
+__declspec(noinline) void __fastcall OdstNavpointsDrawDetour(uint8_t* navpoints, int user)
+{
+    PlayerTagsDraw(g_odstPlayerTags, navpoints, user);
+}
+
+bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
+{
+    return InstallPlayerTags(g_halo3PlayerTags, halo3_player_tags::kHalo3Draw,
+                             reinterpret_cast<void*>(&Halo3NavpointsDrawDetour), base, size, generation);
+}
+bool RemoveHalo3PlayerTags()
+{
+    return RemovePlayerTags(g_halo3PlayerTags, reinterpret_cast<void*>(&Halo3NavpointsDrawDetour));
+}
+void ReportHalo3PlayerTags()
+{
+    ReportPlayerTags(g_halo3PlayerTags);
+}
+bool InstallOdstPlayerTags(uintptr_t base, size_t size, uint32_t generation)
+{
+    return InstallPlayerTags(g_odstPlayerTags, halo3_player_tags::kOdstDraw,
+                             reinterpret_cast<void*>(&OdstNavpointsDrawDetour), base, size, generation);
+}
+bool RemoveOdstPlayerTags()
+{
+    return RemovePlayerTags(g_odstPlayerTags, reinterpret_cast<void*>(&OdstNavpointsDrawDetour));
+}
+void ReportOdstPlayerTags()
+{
+    ReportPlayerTags(g_odstPlayerTags);
 }

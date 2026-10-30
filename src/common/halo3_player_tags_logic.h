@@ -1,4 +1,9 @@
-// PLAYER TAGS, Halo 3: the pure half of src/dll/halo3_player_tags.inl. No game, engine or OpenXR includes.
+// PLAYER TAGS, Halo 3 and ODST: the pure half of src/dll/halo3_player_tags.inl. No game, engine or OpenXR includes.
+//
+// ODST (see its signatures below): its draw is Halo 3's per entry, proven in halo3odst.dll's own code; its
+// producers were not read (H3ODSTEK was not at hand), so that ODST marks objectives and carriers as Halo 3 does
+// (IsPlayerTag) is the one thing taken over. The draw's census logs each navpoint kind a level shows, with how it
+// was classed, so a player's game confirms or refutes it; a wrong class only sizes or fades a marker, never more.
 //
 // WHAT THE GAME DOES (read in the H3EK debug build halo3_tag_test.exe, chud_navpoints.cpp / chud_draw.cpp by their
 // assert text, then matched in retail halo3.dll 1.3528; every name below is ours).
@@ -79,6 +84,40 @@ inline constexpr char kViewReadPattern[] = "48 8B 05 ?? ?? ?? ?? 48 63 88 F4 27 
 inline constexpr int kViewReadDisp = 3;
 inline constexpr size_t kProjectionHeadBytes = 0x100;
 
+// ---- ODST (halo3odst.dll, MCC 2025.08.16; read in retail, each matching exactly once where it is searched) ----
+// ODST's chud_draw_navpoints (+0x32FEE0, one caller, the user's HUD draw at +0x2FDB1C, the navpoints at the HUD
+// block's +0x156C) is Halo 3's per entry: it reads the same thirteen entry fields at the same offsets the same number
+// of times, with the same 0x74 stride, and walks twenty (its loop bound is `cmp r12d, 0x14`). It keeps the navpoints
+// in r13, not r14, and puts the focused gamertag 0x40 past the array (Halo 3: 0xC); the focused index is 0x38 past
+// it in both. The patterns below are ODST's own code; where ODST's bytes equal Halo 3's (the alpha read, the stride),
+// Halo 3's pattern is used and matches in ODST's draw.
+//   The entry: through `mov r13, rcx` (the navpoints). Searched in the whole module.
+inline constexpr char kOdstDrawEntryPattern[] =
+    "89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? ?? ?? B8 ?? ?? ?? ?? E8 ?? ?? "
+    "?? ?? 48 2B E0 48 8B 05 ?? ?? ?? ?? 45 33 FF 0F 29 B4 24 ?? ?? ?? ?? 44 8B F2 0F 29 BC 24 ?? ?? ?? ?? 4C 8B E9";
+//   The caller: `lea rcx, [r9 + <the navpoints in the user's HUD block>]; mov edx, ebx; add rcx, rsi; call <draw>`.
+//   The call's rel32 is at +27.
+inline constexpr char kOdstCallerPattern[] =
+    "48 8B 04 38 40 38 AC 18 ?? ?? ?? ?? 74 15 49 8D 89 ?? ?? ?? ?? 8B D3 48 03 CE E8 ?? ?? ?? ??";
+inline constexpr int kOdstCallerCallRel = 27;
+//   The record: lea rsi,[rbx+0x34]; mov [rsi],al; movsd xmm0,[rbx+0x1C] (+0x24, the position); ... [rbx+0x24].
+inline constexpr char kOdstRecordPattern[] = "48 8D 73 34 88 06 F2 0F 10 43 1C F2 0F 11 43 38 8B 43 24 89 43 40";
+//   The projection: mov rcx,rsi; call <projection>; mov eax,[r13+<focused index>]. Rel32 at +4, disp32 at +11.
+inline constexpr char kOdstProjectionCallPattern[] = "48 8B CE E8 ?? ?? ?? ?? 41 8B 85 ?? ?? ?? ??";
+inline constexpr int kOdstProjectionCallRel = 4;
+inline constexpr int kOdstFocusIndexDisp = 11;
+//   The focused gamertag: lea r9,[r13+<gamertag>]. Its disp32 at +3.
+inline constexpr char kOdstGamertagPattern[] = "4D 8D 8D ?? ?? ?? ??";
+inline constexpr int kOdstGamertagDisp = 3;
+inline constexpr uint32_t kOdstGamertagPastEntries = 0x40;
+//   The size: movss xmm8,[rbx+0x30] (entry +0x38, the distance scale).
+inline constexpr char kOdstScaleReadPattern[] = "F3 44 0F 10 43 30 41 83 F8 FF";
+inline constexpr size_t kOdstDrawBodyBytes = 0xC88; // the draw's extent in .pdata is 0xC87 bytes
+//   In the projection's head: mov rax,[rip+view]; movss xmm1,[rcx+8]; lea rdi,[rax+8] (the camera's position, the
+//   point every navpoint is projected from). Its disp32 at +3.
+inline constexpr char kOdstViewReadPattern[] = "48 8B 05 ?? ?? ?? ?? F3 0F 10 49 08 48 8D 78 08";
+inline constexpr int kOdstViewReadDisp = 3;
+
 // ---- the entry (ADDR-HYGIENE: structural; proven in place by the patterns above, see the header) ----
 inline constexpr int kStockEntryCount = 20;
 inline constexpr int kMaxEntryCount = 256;           // more than this is refused, not adjusted
@@ -100,11 +139,13 @@ inline constexpr float kMetresPerWorldUnit = 3.048f;
 
 // The number of entries, from the two displacements the draw addresses past the array (HOW MANY): both must put the
 // array's end at the same whole number of entries, from twenty to kMaxEntryCount. 0 when they do not.
-inline int EntryCountFromLayout(uint32_t gamertagDisp, uint32_t focusIndexDisp) noexcept
+// `gamertagPastEntries`: where the title keeps the focused gamertag past the array (Halo 3 0xC, ODST 0x40).
+inline int EntryCountFromLayout(uint32_t gamertagDisp, uint32_t focusIndexDisp,
+                                uint32_t gamertagPastEntries = kGamertagPastEntries) noexcept
 {
-    if (gamertagDisp < kGamertagPastEntries || focusIndexDisp < kFocusIndexPastEntries)
+    if (gamertagDisp < gamertagPastEntries || focusIndexDisp < kFocusIndexPastEntries)
         return 0;
-    const uint32_t end = gamertagDisp - kGamertagPastEntries;
+    const uint32_t end = gamertagDisp - gamertagPastEntries;
     if (end != focusIndexDisp - kFocusIndexPastEntries || end % kEntryStride)
         return 0;
     const uint32_t count = end / static_cast<uint32_t>(kEntryStride);
@@ -201,4 +242,46 @@ inline float DistanceM(const float a[3], const float b[3]) noexcept
     const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
     return std::isfinite(d) ? d * kMetresPerWorldUnit : -1.0f;
 }
+
+// One title's draw: where each of the signatures above is, for halo3_player_tags.inl's install and checks. The entry
+// layout (stride, field offsets) is the same in both and is proven per title by its own draw's reads.
+struct DrawProfile
+{
+    const char* title;
+    const char* drawEntryPattern;
+    const char* callerPattern;
+    int callerCallRel;
+    const char* recordPattern;
+    const char* projectionCallPattern;
+    int projectionCallRel;
+    int focusIndexDisp;
+    const char* gamertagPattern;
+    int gamertagDisp;
+    uint32_t gamertagPastEntries;
+    const char* scaleReadPattern;
+    const char* alphaReadPattern;
+    const char* stridePattern;
+    size_t drawBodyBytes;
+    const char* viewReadPattern;
+    int viewReadDisp;
+    size_t projectionHeadBytes;
+};
+inline constexpr DrawProfile kHalo3Draw{
+    "Halo 3", kDrawEntryPattern, kCallerPattern, kCallerCallRel, kRecordPattern, kProjectionCallPattern,
+    kProjectionCallRel, kFocusIndexDisp, kGamertagPattern, kGamertagDisp, kGamertagPastEntries, kScaleReadPattern,
+    kAlphaReadPattern, kStridePattern, kDrawBodyBytes, kViewReadPattern, kViewReadDisp, kProjectionHeadBytes};
+inline constexpr DrawProfile kOdstDraw{
+    "ODST", kOdstDrawEntryPattern, kOdstCallerPattern, kOdstCallerCallRel, kOdstRecordPattern,
+    kOdstProjectionCallPattern, kOdstProjectionCallRel, kOdstFocusIndexDisp, kOdstGamertagPattern, kOdstGamertagDisp,
+    kOdstGamertagPastEntries, kOdstScaleReadPattern, kAlphaReadPattern, kStridePattern, kOdstDrawBodyBytes,
+    kOdstViewReadPattern, kOdstViewReadDisp, kProjectionHeadBytes};
+
+// A navpoint kind as the census records it (icon #1 and flags), for a log line per new kind and title. Never 0 (an
+// empty census slot): bit 31 marks a kind; the flags use the low byte.
+inline uint64_t KindKey(int32_t icon, uint32_t flags) noexcept
+{
+    return (static_cast<uint64_t>(static_cast<uint32_t>(icon)) << 32) | 0x80000000u | (flags & 0x7FFFFFFFu);
+}
+inline int32_t KindIcon(uint64_t key) noexcept { return static_cast<int32_t>(static_cast<uint32_t>(key >> 32)); }
+inline uint32_t KindFlags(uint64_t key) noexcept { return static_cast<uint32_t>(key) & 0x7FFFFFFFu; }
 } // namespace halo3_player_tags
