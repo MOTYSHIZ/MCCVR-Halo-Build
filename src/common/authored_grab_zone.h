@@ -8,7 +8,8 @@ using Key=std::array<uint32_t,4>; // title, generation, unit, weapon
 using Point=std::array<float,3>; // primary-controller local OpenXR metres
 inline bool Valid(Point p){float n=0;for(float v:p){if(!std::isfinite(v))return false;n+=v*v;}return n<=1.0f;}
 inline float Distance2(Point a,Point b){float n=0;for(int i=0;i<3;++i)n+=(a[i]-b[i])*(a[i]-b[i]);return n;}
-// Continuously relearn after motion; never permanently cache an equip/reload pose.
+// Retained settling implementation; live grip acquisition no longer uses this
+// timer. Animation reference settling is separate and remains unchanged.
 struct Learner {
     Key key{};Point anchor{};uint64_t start{},quiet{},last{};bool active=false;
     bool Observe(Key k,Point p,uint64_t now){
@@ -26,9 +27,11 @@ struct Publication {
         bool same=true;for(int i=0;i<4;++i)same=same&&key[i].load()==k[i];
         if(!same)calibrated.store(false);
         for(int i=0;i<4;++i)key[i].store(k[i]);
-        if(ready&&now&&Valid(p)){
-            for(int i=0;i<3;++i)point[i].store(p[i]);
-            calibrated.store(true);
+        if(ready){
+            // Invalid live geometry must not refresh an older valid endpoint.
+            const bool valid=now&&Valid(p);
+            if(valid)for(int i=0;i<3;++i)point[i].store(p[i]);
+            calibrated.store(valid);
         }
         at.store(now);sequence.store(seq+2);
     }
@@ -59,7 +62,7 @@ inline std::atomic<uint64_t> hits{0},misses{0},fallbacks{0};
 // Short authored separation permits a side-by-side support grip. Longer arms
 // use a short longitudinal capsule; no weapon-specific calibration.
 inline bool Short(Point centre){return Valid(centre)&&Distance2(centre,{0,0,0})<=.24f*.24f;}
-inline bool ShortHit(Point p){return Valid(p)&&std::fabs(p[0])<=.22f&&p[1]>=-.19f&&p[1]<=.14f&&p[2]>=-.18f&&p[2]<=.16f;}
+inline bool ShortHit(Point p){return Valid(p)&&std::fabs(p[0])<=.22f&&p[1]>=-.19f&&p[1]<=.14f&&p[2]>=-.14f&&p[2]<=.12f;}
 // Binary exclusion: outside the close-hand volume, keep the user's full
 // configured influence. Physical grip separation ignores controller rotation.
 inline float CloseHandAuthority(Point local){
@@ -71,12 +74,12 @@ inline float CloseHandAuthority(Point local){
 }
 inline bool Hit(Point centre,Point sample){
     if(!Valid(centre)||!Valid(sample))return false;
-    // 30cm segment plus 12cm rounded ends: 54cm total, versus the old
-    // 72cm forward interval. The segment stays centred on the authored grip.
+    // 22cm segment plus 12cm rounded ends: 46cm total. OpenXR forward
+    // is negative Z: trim 4cm from the front and 4cm from the rear.
     Point nearest=centre;
     // Extend only downward by 5cm; keep the top and lateral boundaries.
     nearest[1]+=std::fmax(-.05f,std::fmin(0.f,sample[1]-centre[1]));
-    nearest[2]+=std::fmax(-.15f,std::fmin(.15f,sample[2]-centre[2]));
+    nearest[2]+=std::fmax(-.11f,std::fmin(.11f,sample[2]-centre[2]));
     return Distance2(nearest,sample)<.12f*.12f;
 }
 }

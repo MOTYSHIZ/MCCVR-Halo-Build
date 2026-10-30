@@ -1709,7 +1709,7 @@ struct Config
     // (positive = toward the player's right) so the grab line sits on the
     // visible barrel. Headset request 2026-07-19: the AR's barrel sat right of
     // the zone and the left hand reached past it.
-    float two_hand_zone_right_m = 0.03f;
+    float two_hand_zone_right_m = 0.08f; // Menu zero represents this physical baseline.
     // Support-controller-to-palm depth for two-hand grab acquisition only,
     // along support forward. Moves the grab sample from the tracked
     // controller toward the visible palm. Never enters aim geometry,

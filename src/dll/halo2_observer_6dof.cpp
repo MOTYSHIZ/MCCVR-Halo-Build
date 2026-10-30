@@ -1759,9 +1759,9 @@ namespace
         return VR_GetAimPose(aimOrientation, aimPosition) &&
             BuildFirstPersonCarrierFromAimPose(
                 renderCamera, aimOrientation, aimPosition,
-                std::clamp(g_config.gun_forward_m, -0.3f, 0.5f),
-                std::clamp(g_config.gun_right_m, -0.3f, 0.3f),
-                std::clamp(g_config.gun_up_m, -0.3f, 0.3f), carrier);
+                weapon_alignment::Forward(false,g_config.gun_forward_m,0.f),
+                weapon_alignment::Right(false,g_config.gun_right_m),
+                weapon_alignment::Up(g_config.gun_up_m), carrier);
     }
 
     bool BuildStableFirstPersonCarriers(
@@ -1787,9 +1787,9 @@ namespace
                    publication.referencePosition,
                    independentPrimary ? tracking.independentRightAimOrientation : tracking.rightAimOrientation,
                    tracking.rightAimPosition, worldScale,
-                   std::clamp(g_config.gun_forward_m, -0.3f, 0.5f),
-                   std::clamp(g_config.gun_right_m, -0.3f, 0.3f),
-                   std::clamp(g_config.gun_up_m, -0.3f, 0.3f),
+                   weapon_alignment::Forward(false,g_config.gun_forward_m,0.f),
+                   weapon_alignment::Right(false,g_config.gun_right_m),
+                   weapon_alignment::Up(g_config.gun_up_m),
                    rightCarrier) &&
             Halo2BuildStableControllerCarrier(
                    Halo2ControllerReference(publication), publication.referenceOrientation,

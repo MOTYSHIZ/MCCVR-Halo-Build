@@ -37,6 +37,14 @@ int main()
         assert(near(Right(true,right.right+.01f,profile),left.right-.01f));
         assert(near(Up(right.up+.01f,true,profile),left.up+.01f));
     }
+    for(int profile=0;profile<7;++profile)for(bool left:{false,true}) {
+        const auto base=left?kLeftOffsets[profile]:kRightOffsets[profile];
+        for(float delta:{-.30f,0.f,.30f}) {
+            assert(near(Forward(left,base.forward+delta,0.f),base.forward+delta));
+            assert(near(Right(false,base.right+delta),base.right+delta));
+            assert(near(Up(base.up+delta),base.up+delta));
+        }
+    }
     assert(near(kH2ClassicVisualYaw,-1.f));
     assert(H3SecondaryYaw(1,0x171C0B10u)==30 && H3SecondaryYaw(0,0x171C0B10u)==0);
     assert(H3SecondaryYaw(1,0x1E130811u)==0);

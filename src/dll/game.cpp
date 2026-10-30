@@ -43363,7 +43363,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         frame.common.lateralTrim=g_config.halo4_hand_lateral_m;
         frame.common.mirrored=g_config.halo4_hands_mirrored;
         frame.rightForwardTrim=g_config.halo4_hand_forward_m+
-            Clamp(g_config.gun_forward_m,-0.3f,0.5f);
+            weapon_alignment::Forward(false,g_config.gun_forward_m,0.f);
         frame.leftForwardTrim=g_config.halo4_hand_forward_m+
             weapon_alignment::Forward(true,g_config.left_gun_forward_m,g_config.left_hand_forward_m);
         frame.gunYawDeg=g_config.gun_yaw_deg;
@@ -51315,9 +51315,9 @@ void Game_PublishAuthoredGrip(GameTitle title,uint32_t generation,uint32_t unit,
     for(int axis=0;axis<3;++axis)for(int j=0;j<3;++j)
         local[axis]+=basis[axis*3+j]*(target.translation[j]-d.translation[j])/units;
     const authored_grab::Point point{-local[1],local[2],-local[0]};
-    static thread_local authored_grab::Learner learner;
-    const bool ready=learner.Observe(key,point,now);
-    authored_grab::publication.Publish(key,point,now,ready);
+    // Acquisition follows the current authored support hand immediately. Keep
+    // updating while detached instead of caching an equip/reload pose.
+    authored_grab::publication.Publish(key,point,now);
 }
 
 bool Game_IsHooked() { return g_hooked; }

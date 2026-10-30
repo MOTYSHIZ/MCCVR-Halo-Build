@@ -1898,10 +1898,16 @@ namespace
                                           &g_config.left_hand_forward_m,
                                           -0.15f, 0.30f, "%.3f");
             ImGui::TextDisabled("Additional left-hand adjustment on top of the shared gun forward offset.");
-            changed |= vr_menu::SliderFloat("Grab zone side offset (m)",
-                                          &g_config.two_hand_zone_right_m,
-                                          -0.10f, 0.10f, "%.3f");
-            ImGui::TextDisabled("Slides the grip-click zone sideways (+ = right) onto the visible barrel.");
+            // Store absolute metres for compatibility with existing configurations.
+            constexpr float grabSideBaseline=0.080f;
+            float grabSideAdjustment=g_config.two_hand_zone_right_m-grabSideBaseline;
+            if(vr_menu::SliderFloat("Grab zone side offset (m)",
+                                   &grabSideAdjustment,
+                                   -0.10f,0.10f,"%.3f")) {
+                g_config.two_hand_zone_right_m=grabSideAdjustment+grabSideBaseline;
+                changed=true;
+            }
+            ImGui::TextDisabled("Slides the grip-click zone sideways (+ = right). Zero uses the default 0.080 m offset.");
             changed |= vr_menu::SliderFloat("Left palm depth (m)",
                                           &g_config.left_grip_forward_m,
                                           -0.05f, 0.25f, "%.3f");
@@ -1953,16 +1959,16 @@ namespace
                             "move the gun and hands without changing the aiming ray.\n"
                             "Saved separately for each game; zero restores automatic alignment.");
         const auto gunBase=weapon_alignment::Baseline(Config_ActiveTitleProfile());
-        const auto offsetSlider=[&](const char* label,float& value,float baseline,float minimum,float maximum) {
+        const auto offsetSlider=[&](const char* label,float& value,float baseline) {
             float delta=value-baseline;
-            if (!vr_menu::SliderFloat(label,&delta,minimum-baseline,maximum-baseline,"%.2f")) return false;
+            if (!vr_menu::SliderFloat(label,&delta,-.30f,.30f,"%.2f")) return false;
             value=baseline+delta;
             return true;
         };
         ImGui::TextUnformatted("Right hand");
-        changed |= offsetSlider("Gun forward offset (m)##right",g_config.gun_forward_m,gunBase.forward,-.3f,.5f);
-        changed |= offsetSlider("Gun right offset (m)##right",g_config.gun_right_m,gunBase.right,-.3f,.3f);
-        changed |= offsetSlider("Gun up offset (m)##right",g_config.gun_up_m,gunBase.up,-.3f,.3f);
+        changed |= offsetSlider("Gun forward offset (m)##right",g_config.gun_forward_m,gunBase.forward);
+        changed |= offsetSlider("Gun right offset (m)##right",g_config.gun_right_m,gunBase.right);
+        changed |= offsetSlider("Gun up offset (m)##right",g_config.gun_up_m,gunBase.up);
         if (ImGui::SmallButton("Reset right gun offsets")) {
             g_config.gun_forward_m=gunBase.forward;g_config.gun_right_m=gunBase.right;g_config.gun_up_m=gunBase.up;
             changed=true;
@@ -1971,9 +1977,9 @@ namespace
         const auto leftBase=weapon_alignment::HasProfile(offsetProfile)?weapon_alignment::kLeftOffsets[offsetProfile]:
             weapon_alignment::Offsets{-.16f,.04f,-.06f};
         ImGui::TextUnformatted("Left hand");
-        changed |= offsetSlider("Gun forward offset (m)##left",g_config.left_gun_forward_m,leftBase.forward,-.3f,.5f);
-        changed |= offsetSlider("Gun right offset (m)##left",g_config.left_gun_right_m,leftBase.right,-.3f,.3f);
-        changed |= offsetSlider("Gun up offset (m)##left",g_config.left_gun_up_m,leftBase.up,-.3f,.3f);
+        changed |= offsetSlider("Gun forward offset (m)##left",g_config.left_gun_forward_m,leftBase.forward);
+        changed |= offsetSlider("Gun right offset (m)##left",g_config.left_gun_right_m,leftBase.right);
+        changed |= offsetSlider("Gun up offset (m)##left",g_config.left_gun_up_m,leftBase.up);
         if (ImGui::SmallButton("Reset left gun offsets")) {
             g_config.left_gun_forward_m=leftBase.forward;g_config.left_gun_right_m=leftBase.right;g_config.left_gun_up_m=leftBase.up;
             changed=true;

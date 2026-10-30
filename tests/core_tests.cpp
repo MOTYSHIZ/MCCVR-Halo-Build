@@ -1,3 +1,4 @@
+#include "../src/common/weapon_alignment.h"
 #include "../src/common/reach_wind_replay.h"
 int RunRoomscaleInputTests();
 int RunRoomscaleRecenterTests();
@@ -15696,7 +15697,9 @@ int main()
             g_config.per_gun_alignment=true;Config_RefreshWeaponProfile();
             Check(Config_ActiveWeaponProfileName()!=nullptr&&g_config.gun_forward_m==-.123f,
                 "first gun inherits title calibration when enabled");
-            g_config.gun_forward_m=.231234f;g_config.barrel_roll_deg=37.f;
+            // Exercise precision within the new +/-0.30 m slider range.
+            const float firstGunForward=weapon_alignment::Baseline(title).forward+.231234f;
+            g_config.gun_forward_m=firstGunForward;g_config.barrel_roll_deg=37.f;
             g_config.halo2_classic_gun_pitch_deg=12.f;g_config.muzzle_height_m=.12f;
             g_config.hud_size=.71f;
             ConfigSave();
@@ -15709,11 +15712,11 @@ int main()
                 "second gun starts from fallback including Classic and muzzle trims");
             g_config.gun_forward_m=-.211f;
             Config_ApplyWeaponProfile(guns[0]);
-            Check(std::abs(g_config.gun_forward_m-.231234f)<1e-6f&&
+            Check(std::abs(g_config.gun_forward_m-firstGunForward)<1e-6f&&
                 g_config.barrel_roll_deg==37.f&&g_config.halo2_classic_gun_pitch_deg==12.f,
                 "switching back restores the first gun exactly");
             ConfigSave();ConfigLoad(primary.c_str());Config_ApplyWeaponProfile(guns[0]);
-            Check(g_config.per_gun_alignment&&std::abs(g_config.gun_forward_m-.231234f)<1e-6f&&
+            Check(g_config.per_gun_alignment&&std::abs(g_config.gun_forward_m-firstGunForward)<1e-6f&&
                 g_config.halo2_classic_gun_pitch_deg==12.f&&g_config.muzzle_height_m==.12f,
                 "stable title and weapon identity survives a full config round trip");
             Config_ApplyWeaponProfile(guns[1]);

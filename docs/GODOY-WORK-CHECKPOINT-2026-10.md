@@ -7,6 +7,80 @@ evidence pointers, not current priorities.
 
 ---
 
+## Latest: repair per-weapon config fixture after slider range change
+
+Run40936096643 compiled successfully but failed halomccvr_core_tests; 206 of
+207 targets passed. Fourteen failures came from the seven-title per-weapon
+round-trip block assigning absolute forward .231234, beyond the new .20
+absolute envelope, then expecting unclamped restoration. Use each title's
+baseline plus .231234 instead, within the requested relative +/-.30 range.
+Keep all precision, weapon switching, fallback isolation and save/load checks.
+No production offset or range changes.
+
+The exact corrected core-test block plus the existing player config round-trip
+suite passes with production config.cpp and the local Linux Win32 file shim.
+Full Windows suite remains for the requested replacement workflow. No install
+or runtime launch. Source branch godoy-development.
+
+## Latest: godoy-development grip and slider range follow-up
+
+User merged two-handed-grip into godoy-development; work now targets that branch.
+Three requested source commits: trim another 2cm off grip-zone front (authored
+capsule front -.11, short front -.14, fallback forward max .76); side slider
++/- .100 relative to .080 baseline (absolute -.020...180); all six gun offset
+sliders +/- .300 relative to each title/hand baseline. Preserve baseline values.
+
+Persistence and runtime clamps now admit the union of the calibrated gun
+ranges, including CE up, H2 primary carriers and H4 primary forward. Stored
+values remain absolute for compatibility. Menu, title profiles and per-weapon
+profiles no longer truncate valid slider endpoints to old absolute limits.
+
+Validation: authored-grab boundary assertions, support-grab 69 checks,
+weapon-alignment all-title/hand endpoint tests, production config save/load
+round-trip including all six endpoints and side offset passed. Config test
+used the Linux Win32 file shim. Windows build requested after source commits;
+workflow commit will pin the exact final source. No installation or monitoring.
+Accepted release pointer unchanged; headset testing pending.
+
+## Latest: grip side baseline and asymmetric length reduction
+
+User accepts immediate grip acquisition. Set the stored physical side-offset
+factory default to .080 m, with menu displaying adjustment relative to .080 m
+(default 0.000). Existing saved absolute offsets are preserved. Physical limits
+remain -.10..+.10 m; displayed limits are -.180..+.020 m. The authored short
+zone now receives the side translation too, without reclassifying a short grip
+based on its translated centre.
+
+Trim rear 4cm and front 2cm in all acquisition shapes: OpenXR local capsule
+segment -.13..+.11 (previous -.15..+.15), short zone Z -.16..+.12 (previous
+-.18..+.16), fallback forward interval .12...78 (previous .08...80). Width,
+downward extent, close-hand aim influence and immediate acquisition preserved.
+Update boundary fixtures; static diff and numeric boundary checks performed.
+User explicitly requests commit without compiling: no C++ tests, DLL build or
+workflow dispatch. Headset validation pending; accepted pointer unchanged.
+
+## Latest: immediate authored support-grip acquisition
+
+User accepts preceding alignment/shake changes and requests removing the grip
+wait on weapon pickup/switch. The 500ms minimum plus 500ms quiet interval was
+in the VR-side authored_grab::Learner, not a native attachment requirement.
+Already-engaged grip only refreshes its endpoint and does not need acquisition.
+
+Game_PublishAuthoredGrip now publishes each valid detached authored endpoint
+immediately for all existing title adapters. It continuously follows geometry;
+no permanent equip/reload pose cache. Existing attached Refresh remains owner
+checked and cannot create a new endpoint. Invalid live geometry now invalidates
+readiness rather than refreshing a previous point. Owner/generation validation,
+100ms freshness and geometry bounds remain. The old learner is retained dormant.
+Animation reference timing and aim influence are unchanged.
+
+Portable authored-grab tests pass, including first-frame pickup, replacement,
+motion, attach/release, invalid geometry and recovery across all six titles.
+This removes the artificial timer, not the requirement for a fresh native pose;
+headset acceptance is pending. Test pistol/rifle switches, pickup while holding
+and releasing grip, and immediate reload after pickup, including Reach/H4.
+No Windows build requested or performed; accepted release pointer unchanged.
+
 ## Latest: absolute alignment defaults, H2 visual identity and needle shake timing
 
 User explicitly supersedes the additive request: use the latest list as final

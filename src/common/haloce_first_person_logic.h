@@ -714,7 +714,7 @@ inline bool ApplyVisualMount(const ControllerRig& rig,float unitsPerMeter,
     candidate.position=candidate.position+candidate.forward*
         (forward*unitsPerMeter);
     candidate.position=candidate.position-candidate.left*(weapon_alignment::Right(false,primary?rig.gunRightM:rig.leftGunRightM)*unitsPerMeter)+
-            candidate.up*(std::clamp(primary?rig.gunUpM:rig.leftGunUpM,-0.3f,0.3f)*unitsPerMeter);
+            candidate.up*(weapon_alignment::Up(primary?rig.gunUpM:rig.leftGunUpM)*unitsPerMeter);
     if (!Valid(candidate)) return false;
     matrix=candidate;return true;
 }

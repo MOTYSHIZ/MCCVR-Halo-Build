@@ -16,22 +16,26 @@ inline constexpr Offsets kLeftOffsets[]{
 inline constexpr bool HasProfile(int profile) noexcept {return profile>=0 && profile<7;}
 inline constexpr Offsets Baseline(int profile) noexcept
 {return HasProfile(profile)?kRightOffsets[profile]:Offsets{-.14f,0,0};}
+// Absolute safety envelopes cover +/-0.30 m around every shipped hand baseline.
+inline constexpr float kForwardMinimum=-.50f,kForwardMaximum=.20f;
+inline constexpr float kRightMinimum=-.34f,kRightMaximum=.34f;
+inline constexpr float kUpMinimum=-.40f,kUpMaximum=.30f;
 // Stored values remain absolute for existing configs and weapon profiles.
 // Shared slider deltas move both hands, mirroring only the lateral delta.
 inline float Forward(bool left,float gun,float leftExtra,int profile=-1) noexcept
 {
     const float correction=left&&HasProfile(profile)?kLeftOffsets[profile].forward-kRightOffsets[profile].forward:0.f;
-    return std::clamp(gun,-.3f,.5f)+correction+(left?std::clamp(leftExtra,-.15f,.30f):0.f);
+    return std::clamp(gun,kForwardMinimum,kForwardMaximum)+correction+(left?std::clamp(leftExtra,-.15f,.30f):0.f);
 }
 inline float Right(bool left,float value,int profile=-1) noexcept
 {
     const float correction=left&&HasProfile(profile)?kLeftOffsets[profile].right+kRightOffsets[profile].right:0.f;
-    return (left?-1.f:1.f)*std::clamp(value,-.3f,.3f)+correction;
+    return (left?-1.f:1.f)*std::clamp(value,kRightMinimum,kRightMaximum)+correction;
 }
 inline float Up(float value,bool left=false,int profile=-1) noexcept
 {
     const float correction=left&&HasProfile(profile)?kLeftOffsets[profile].up-kRightOffsets[profile].up:0.f;
-    return std::clamp(value,-.3f,.3f)+correction;
+    return std::clamp(value,kUpMinimum,kUpMaximum)+correction;
 }
 inline constexpr float kH2ClassicVisualPitch=-9.5f;
 inline constexpr float kH2ClassicVisualYaw=-1.f;

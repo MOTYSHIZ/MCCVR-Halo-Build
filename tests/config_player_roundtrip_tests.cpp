@@ -169,6 +169,39 @@ int main()
         DeleteFileW(path);
     }
 
+    // Relative slider endpoints survive save/reload for every title and hand.
+    for(float delta:{-.30f,.30f}) {
+        for(int profile=0;profile<kTitleProfileCount;++profile) {
+            Config_ApplyTitleProfile(profile);
+            const auto right=weapon_alignment::kRightOffsets[profile];
+            const auto left=weapon_alignment::kLeftOffsets[profile];
+            g_config.gun_forward_m=right.forward+delta;
+            g_config.gun_right_m=right.right+delta;
+            g_config.gun_up_m=right.up+delta;
+            g_config.left_gun_forward_m=left.forward+delta;
+            g_config.left_gun_right_m=left.right+delta;
+            g_config.left_gun_up_m=left.up+delta;
+            Config_StoreLiveTunables();
+        }
+        g_config.two_hand_zone_right_m=delta<0?-.02f:.18f;
+        ConfigSave();ConfigLoad(path);
+        Check(std::fabs(g_config.two_hand_zone_right_m-(delta<0?-.02f:.18f))<.0001f,
+            "grab side slider endpoints survive reload");
+        for(int profile=0;profile<kTitleProfileCount;++profile) {
+            Config_ApplyTitleProfile(profile);
+            const auto right=weapon_alignment::kRightOffsets[profile];
+            const auto left=weapon_alignment::kLeftOffsets[profile];
+            Check(std::fabs(g_config.gun_forward_m-right.forward-delta)<.0001f&&
+                std::fabs(g_config.gun_right_m-right.right-delta)<.0001f&&
+                std::fabs(g_config.gun_up_m-right.up-delta)<.0001f&&
+                std::fabs(g_config.left_gun_forward_m-left.forward-delta)<.0001f&&
+                std::fabs(g_config.left_gun_right_m-left.right-delta)<.0001f&&
+                std::fabs(g_config.left_gun_up_m-left.up-delta)<.0001f,
+                "all six gun offsets preserve the full relative slider range");
+        }
+    }
+    Config_ApplyTitleProfile(-1);DeleteFileW(path);
+
     if (failures)
         std::printf("%d check(s) failed\n", failures);
     else
