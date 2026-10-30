@@ -665,6 +665,77 @@ namespace
     std::atomic<float> g_projectionTanX{1.091595f};
     std::atomic<float> g_projectionTanY{1.114286f};
     std::atomic<float> g_zoomFactor{1.0f}; // >1 while the player is zoomed (scope)
+    // AIM FRAME ZOOM (config.h aim_frame_zoom), Halo 3. The zoom level the game hands its own aim-assist query
+    // for the local player -- the unit's current zoom level, -1 while not zoomed -- and when, written by
+    // Halo3IndependentQueryDetour on the simulation thread. It is the game's own state: it follows toggles,
+    // cancels on a weapon switch and re-arms as the game decides, which the button cannot tell.
+    std::atomic<int> g_halo3GameZoomLevel{-1};
+    // The frame is up (the HUD layout goes back to the flat game's while it is: HudLayoutWanted), and the eye
+    // renderer is inside the frame's pass (the game draws its own crosshair and zoom art into it, as on a flat
+    // screen, and the HUD height is left as the game places it).
+    std::atomic<bool> g_halo3AimFrameUp{false};
+    // The frame's shape: the flat game's 16:9, whatever the render surface's (the camera's own tangents are
+    // nearly square on this engine, measured 88.8 x 89.0 deg).
+    constexpr float kHalo3AimFrameAspect = 16.0f / 9.0f;
+    // Whether the Halo 3 HUD layout last written in full was the frame's (1) or the player's (0); -1 none yet.
+    // The layout follows the frame one present behind it (HudLayoutAutoTick), and the crosshair is taken from
+    // the HUD as drawn: Halo3CrosshairReadyForCapture holds the capture until the two agree.
+    std::atomic<int> g_halo3LayoutAppliedForFrame{-1};
+    // When the frame last came down (GetTickCount64). The game's crosshair takes a moment to leave its zoomed
+    // look; the art held from before the zoom is this weapon's and stays up until then.
+    std::atomic<uint64_t> g_halo3AimFrameDownMs{0};
+    constexpr uint64_t kHalo3AimFrameCrosshairHoldMs = 400;
+    bool Halo3CrosshairReadyForCapture();
+    // Halo 3's own HUD layout (the same both ways), as read from its slots before the first write of a level; 0
+    // until read. It is not one number: MCC's reads 0.87, Project Reclaimer's 0.97.
+    std::atomic<uint32_t> g_halo3TitleSafeFrameBits{0};
+    bool Halo3AimFrameAllowed();
+    bool Halo3GameZoomed(int& level);
+    std::atomic<bool> g_halo3AimFramePass{false};
+    std::atomic<uint64_t> g_halo3GameZoomMs{0};
+    std::atomic<uint32_t> g_halo3GameZoomGeneration{0};
+    void Halo3NoteGameZoomLevel(int16_t level, uint32_t generation)
+    {
+        const int previous = g_halo3GameZoomLevel.exchange(level, std::memory_order_relaxed);
+        g_halo3GameZoomGeneration.store(generation, std::memory_order_relaxed);
+        g_halo3GameZoomMs.store(GetTickCount64(), std::memory_order_release);
+        if (previous != level && g_config.aim_frame_zoom)
+            LOG("Halo 3 zoom: the game's zoom level is %d%s", static_cast<int>(level),
+                level < 0 ? " (not zoomed)" : "");
+    }
+    // The compact cameras CamCopy completed, and the tangents the game gave each BEFORE the headset's visibility
+    // cover widens them: while zoomed, the game's own zoomed field of view (the eye renderer's saved +0x28 is the
+    // widened one). A few slots, because CamCopy runs several times a frame for different cameras.
+    struct Halo3NativeCameraTangents
+    {
+        std::atomic<const void*> camera{nullptr};
+        std::atomic<float> tanX{0.0f}, tanY{0.0f};
+    };
+    Halo3NativeCameraTangents g_halo3NativeTangents[4];
+    std::atomic<unsigned> g_halo3NativeTangentsNext{0};
+    void Halo3NoteNativeTangents(const void* camera, float tanX, float tanY)
+    {
+        Halo3NativeCameraTangents* slot = nullptr;
+        for (auto& candidate : g_halo3NativeTangents)
+            if (candidate.camera.load(std::memory_order_relaxed) == camera) { slot = &candidate; break; }
+        if (!slot)
+            slot = &g_halo3NativeTangents[g_halo3NativeTangentsNext.fetch_add(1, std::memory_order_relaxed) % 4];
+        slot->tanX.store(tanX, std::memory_order_relaxed);
+        slot->tanY.store(tanY, std::memory_order_relaxed);
+        slot->camera.store(camera, std::memory_order_release);
+    }
+    bool Halo3NativeTangentsFor(const void* camera, float& tanX, float& tanY)
+    {
+        for (const auto& slot : g_halo3NativeTangents)
+            if (slot.camera.load(std::memory_order_acquire) == camera)
+            {
+                tanX = slot.tanX.load(std::memory_order_relaxed);
+                tanY = slot.tanY.load(std::memory_order_relaxed);
+                return std::isfinite(tanX) && std::isfinite(tanY) && tanX > 1.0e-3f && tanY > 1.0e-3f &&
+                    tanX < 5.0f && tanY < 5.0f;
+            }
+        return false;
+    }
     std::atomic<float> g_renderHalfFovX{atanf(1.091595f)};
     std::atomic<float> g_renderHalfFovY{atanf(1.114286f)};
 
@@ -2669,6 +2740,7 @@ namespace
     void EndHalo3AvatarPair();
     void ObserveHalo3AvatarFp(uint16_t tag,const BoneMatrix* destination);
     bool InstallHalo3DualAim(uintptr_t base, size_t size, uint32_t generation);
+    bool InstallHalo3ZoomReader(uintptr_t base, size_t size, uint32_t generation);
     void BindHalo3ChaseCamera(uintptr_t base, size_t size, uint32_t generation);
     bool RemoveHalo3DualAim();
     void PublishHalo3DualAim();
@@ -3091,7 +3163,8 @@ namespace
             result = g_realHudAnchorBasis(
                 userIndex, drawWidgetData, anchorType, basis);
             if (outermost && result && basis && !g_authoredReticleCaptureStarted &&
-                g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled())
+                g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled() &&
+                !g_halo3AimFramePass.load(std::memory_order_acquire))
             {
                 const float height = g_config.hud_vertical_offset;
                 if (isfinite(height) && height >= kHudHeightMin && height <= kHudHeightMax)
@@ -3179,6 +3252,15 @@ namespace
                 return false;
             if (!g_config.kill_reticle)
                 return true;
+            // AIM FRAME ZOOM: the frame is the flat game's picture, so the game draws its own crosshair and zoom
+            // reticle into it where it always does, at the centre; the lifted crosshair is not shown meanwhile.
+            if (g_halo3AimFramePass.load(std::memory_order_acquire))
+                return true;
+            // Just out of the frame the HUD is still at the frame's layout for a present, and the crosshair is
+            // still leaving its zoomed look: a picture taken now would be of either. The quad keeps the art it
+            // holds meanwhile, the one from before the zoom.
+            if (TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && !Halo3CrosshairReadyForCapture())
+                return false;
 
             const int eye = g_stereoEye.load(std::memory_order_relaxed);
             const int captureEye = g_config.right_eye_first ? 1 : 0;
@@ -4485,6 +4567,48 @@ namespace
         vertical = fmaxf(0.15f, fminf(vertical, 1.0f));
     }
 
+    // The layout the HUD should have now: the player's (hud_size, hud_aspect, hud_curvature, with the headset's
+    // correction), or, while Halo 3's aim frame is up, the flat game's own -- stock size, square aspect, the
+    // authored curvature and no headset correction, because the frame's picture has the game's own proportions.
+    // `aimFrameUsed`: whether this is Halo 3's aim frame layout (the frame read once, here).
+    static void HudLayoutWanted(HudLayoutProfile profile, float& size, float& aspect, float& curvature,
+                                float& horizontal, float& vertical, bool* aimFrameUsed = nullptr)
+    {
+        const bool aimFrame = profile == HudLayoutProfile::Halo3 && g_halo3AimFrameUp.load(std::memory_order_acquire);
+        if (aimFrameUsed)
+            *aimFrameUsed = aimFrame;
+        if (aimFrame)
+        {
+            size = 0.87f;
+            aspect = 1.0f;
+            curvature = 0.5f;
+            horizontal = vertical = size;
+            // The HUD is built for the game's render surface; the frame shows that surface at 16:9. The same
+            // correction as the headset's (ComputeHudSafeFramePair), against the frame's shape.
+            float gameAspect = 0.0f;
+            if (VR_GetGameRenderAspect(gameAspect) && isfinite(gameAspect) && gameAspect > 0.1f)
+            {
+                const float correction = gameAspect / kHalo3AimFrameAspect;
+                if (correction >= 0.25f && correction <= 4.0f)
+                {
+                    if (correction > 1.0f)
+                        vertical = size / correction;
+                    else
+                        horizontal = size * correction;
+                }
+            }
+            const float width = g_config.aim_frame_hud_width;
+            if (isfinite(width) && width >= 0.8f && width <= 1.25f)
+                horizontal *= width;
+            return;
+        }
+        size = g_config.hud_size;
+        aspect = g_config.hud_aspect;
+        curvature = g_config.hud_curvature;
+        horizontal = vertical = size;
+        ComputeHudSafeFramePair(size, aspect, horizontal, vertical);
+    }
+
     static uintptr_t EncodeHudLayoutScanToken(
         HudLayoutProfile profile, uint32_t generation)
     {
@@ -4546,97 +4670,133 @@ namespace
                 kReachHudFastStart > addr && kReachHudFastStart < addrMax)
                 addr = kReachHudFastStart;
         }
-        MEMORY_BASIC_INFORMATION mbi{};
-        while (addr < addrMax && accepted < kMaxSafeFrameHits &&
-               VirtualQuery(
-                   reinterpret_cast<void*>(addr), &mbi, sizeof(mbi)) ==
-                   sizeof(mbi))
+        // HALO 3: THE TAG DATA FIRST. The layout records are tag data, and a tag address is a 32-bit offset in
+        // 4-byte units from the engine's tag base, so every one lies in the 16 GiB above it. Searching that span
+        // first takes a fraction of the whole-process search (14 to 26 s at each level start), which left the
+        // player's HUD layout, and the crosshair sized for it, unapplied all that time. A span that does not hold
+        // exactly the title's records falls back to the whole search, as before.
+        uintptr_t scanEnd = addrMax;
+        bool tagSpanPass = false;
+        if (profile == HudLayoutProfile::Halo3)
         {
-            if (!HudLayoutContextMatches(profile, generation))
+            constexpr uintptr_t kTagSpan = uintptr_t{1} << 34;
+            const uintptr_t tagBase = Halo3TagDataBaseValue();
+            if (tagBase > addrMin && tagBase < addrMax)
             {
-                cancelled = true;
-                break;
+                addr = tagBase;
+                scanEnd = addrMax - tagBase > kTagSpan ? tagBase + kTagSpan : addrMax;
+                tagSpanPass = true;
             }
-            const uintptr_t regionBase =
-                reinterpret_cast<uintptr_t>(mbi.BaseAddress);
-            const uintptr_t next = regionBase + mbi.RegionSize;
-            // Halo 3's tag data is private read-write, and that exact filter is
-            // headset-proven for Halo 3 and ODST. Reach's map data need not be:
-            // its adapter also inspects mapped and copy-on-write regions, so a
-            // record the engine actually reads cannot be missed just because it
-            // was not allocated the way Halo 3's was. Writing a copy-on-write
-            // page privatises it in this process only; no file is modified.
-            // Halo 3's tag data is private read-write and that exact filter is
-            // headset-proven for Halo 3 and ODST. Reach's is not: the curvature
-            // record is const to the engine, so the copy it actually renders
-            // from can be a read-only mapping. Reach therefore accepts any
-            // committed readable private or mapped region, and the writer makes
-            // the page writable copy-on-write for the store, which privatises
-            // it in this process only and never modifies a file on disk.
-            const bool readableProtect =
-                mbi.Protect == PAGE_READWRITE ||
-                (adapter->scanMappedRegions &&
-                 (mbi.Protect == PAGE_READONLY ||
-                  mbi.Protect == PAGE_WRITECOPY ||
-                  mbi.Protect == PAGE_EXECUTE_READ ||
-                  mbi.Protect == PAGE_EXECUTE_READWRITE ||
-                  mbi.Protect == PAGE_EXECUTE_WRITECOPY));
-            const bool writableProtect = readableProtect;
-            // The headset-proven Reach anchors are MEM_PRIVATE/PAGE_READWRITE,
-            // while other tag-backed copies can be mapped. Reach therefore
-            // accepts both storage classes; H3/ODST retain their established
-            // private-only rule. Stage 3O accidentally narrowed this to mapped
-            // only, which made every Reach scan return zero raw anchor hits.
-            const bool allowedType = adapter->scanMappedRegions
-                ? (mbi.Type == MEM_PRIVATE || mbi.Type == MEM_MAPPED)
-                : mbi.Type == MEM_PRIVATE;
-            const bool candidate =
-                mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) &&
-                writableProtect && allowedType;
-            const bool self = selfBase && regionBase >= selfBase &&
-                regionBase < selfBase + selfSize;
-            if (candidate && !self)
+        }
+        for (;;)
+        {
+            MEMORY_BASIC_INFORMATION mbi{};
+            while (addr < scanEnd && accepted < kMaxSafeFrameHits &&
+                   VirtualQuery(
+                       reinterpret_cast<void*>(addr), &mbi, sizeof(mbi)) ==
+                       sizeof(mbi))
             {
-                uintptr_t hits[kMaxSafeFrameHits]{};
-                const int n = SafeFrameScanRegion(
-                    regionBase, mbi.RegionSize, *adapter,
-                    hits, kMaxSafeFrameHits);
-                for (int k = 0; k < n; ++k)
+                if (!HudLayoutContextMatches(profile, generation))
                 {
-                    ++rawHits;
-                    uint32_t destinationZ = 0, h = 0, v = 0;
-                    if (!SafeFrameReadLayout(
-                            hits[k], *adapter, &destinationZ, &h, &v))
-                        continue;
-                    const bool payloadOk =
-                        SafeFramePairPlausible(h, v) &&
-                        HudDestinationPlausible(destinationZ);
-                    LOG("SAFEFRAME [%s]: anchor at %p (type 0x%X protect "
-                        "0x%X) destination-Z %08X, safe frame %08X/%08X -> %s",
-                        adapter->name, reinterpret_cast<void*>(hits[k]),
-                        static_cast<unsigned>(mbi.Type),
-                        static_cast<unsigned>(mbi.Protect),
-                        destinationZ, h, v,
-                        payloadOk ? "VERIFIED" :
-                            "payload implausible, REJECTED");
-                    if (payloadOk && accepted < kMaxSafeFrameHits)
+                    cancelled = true;
+                    break;
+                }
+                const uintptr_t regionBase =
+                    reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+                const uintptr_t next = regionBase + mbi.RegionSize;
+                // Halo 3's tag data is private read-write, and that exact filter is
+                // headset-proven for Halo 3 and ODST. Reach's map data need not be:
+                // its adapter also inspects mapped and copy-on-write regions, so a
+                // record the engine actually reads cannot be missed just because it
+                // was not allocated the way Halo 3's was. Writing a copy-on-write
+                // page privatises it in this process only; no file is modified.
+                // Halo 3's tag data is private read-write and that exact filter is
+                // headset-proven for Halo 3 and ODST. Reach's is not: the curvature
+                // record is const to the engine, so the copy it actually renders
+                // from can be a read-only mapping. Reach therefore accepts any
+                // committed readable private or mapped region, and the writer makes
+                // the page writable copy-on-write for the store, which privatises
+                // it in this process only and never modifies a file on disk.
+                const bool readableProtect =
+                    mbi.Protect == PAGE_READWRITE ||
+                    (adapter->scanMappedRegions &&
+                     (mbi.Protect == PAGE_READONLY ||
+                      mbi.Protect == PAGE_WRITECOPY ||
+                      mbi.Protect == PAGE_EXECUTE_READ ||
+                      mbi.Protect == PAGE_EXECUTE_READWRITE ||
+                      mbi.Protect == PAGE_EXECUTE_WRITECOPY));
+                const bool writableProtect = readableProtect;
+                // The headset-proven Reach anchors are MEM_PRIVATE/PAGE_READWRITE,
+                // while other tag-backed copies can be mapped. Reach therefore
+                // accepts both storage classes; H3/ODST retain their established
+                // private-only rule. Stage 3O accidentally narrowed this to mapped
+                // only, which made every Reach scan return zero raw anchor hits.
+                const bool allowedType = adapter->scanMappedRegions
+                    ? (mbi.Type == MEM_PRIVATE || mbi.Type == MEM_MAPPED)
+                    : mbi.Type == MEM_PRIVATE;
+                const bool candidate =
+                    mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) &&
+                    writableProtect && allowedType;
+                const bool self = selfBase && regionBase >= selfBase &&
+                    regionBase < selfBase + selfSize;
+                if (candidate && !self)
+                {
+                    uintptr_t hits[kMaxSafeFrameHits]{};
+                    const int n = SafeFrameScanRegion(
+                        regionBase, mbi.RegionSize, *adapter,
+                        hits, kMaxSafeFrameHits);
+                    for (int k = 0; k < n; ++k)
                     {
-                        acceptedSlots[accepted] = hits[k];
-                        acceptedBaselines[accepted] =
-                            RememberedHudCurvatureBaseline(profile, hits[k], destinationZ);
-                        ++accepted;
+                        ++rawHits;
+                        uint32_t destinationZ = 0, h = 0, v = 0;
+                        if (!SafeFrameReadLayout(
+                                hits[k], *adapter, &destinationZ, &h, &v))
+                            continue;
+                        const bool payloadOk =
+                            SafeFramePairPlausible(h, v) &&
+                            HudDestinationPlausible(destinationZ);
+                        LOG("SAFEFRAME [%s]: anchor at %p (type 0x%X protect "
+                            "0x%X) destination-Z %08X, safe frame %08X/%08X -> %s",
+                            adapter->name, reinterpret_cast<void*>(hits[k]),
+                            static_cast<unsigned>(mbi.Type),
+                            static_cast<unsigned>(mbi.Protect),
+                            destinationZ, h, v,
+                            payloadOk ? "VERIFIED" :
+                                "payload implausible, REJECTED");
+                        if (payloadOk && accepted < kMaxSafeFrameHits)
+                        {
+                            acceptedSlots[accepted] = hits[k];
+                            acceptedBaselines[accepted] =
+                                RememberedHudCurvatureBaseline(profile, hits[k], destinationZ);
+                            ++accepted;
+                        }
                     }
                 }
+                // The accepted Steam proof contains six Reach records clustered
+                // in the same high tag allocation. Once all six are collected, do
+                // not waste tens of seconds scanning unrelated resident modules.
+                // If a future build exposes only the adapter minimum (three), this
+                // condition never fires and the scan naturally retains the complete
+                // fallback behavior.
+                if (profile == HudLayoutProfile::HaloReach && accepted >= 6)
+                    break;
+                addr = next;
             }
-            // The accepted Steam proof contains six Reach records clustered
-            // in the same high tag allocation. Once all six are collected, do
-            // not waste tens of seconds scanning unrelated resident modules.
-            // If a future build exposes only the adapter minimum (three), this
-            // condition never fires and the scan naturally retains the complete
-            // fallback behavior.
-            if (profile == HudLayoutProfile::HaloReach && accepted >= 6)
+            if (cancelled || !tagSpanPass)
                 break;
-            addr = next;
+            if (HudLayoutAcceptedCountOk(*adapter, accepted))
+            {
+                LOG("SAFEFRAME [%s]: %d record(s) found in the engine's tag data in %llu ms", adapter->name,
+                    accepted, static_cast<unsigned long long>(GetTickCount64() - t0));
+                break;
+            }
+            LOG("SAFEFRAME [%s]: the engine's tag data held %d record(s), not the title's %d; searching all memory",
+                adapter->name, accepted, adapter->expectedBlocks);
+            tagSpanPass = false;
+            accepted = 0;
+            rawHits = 0;
+            addr = addrMin;
+            scanEnd = addrMax;
         }
 
         if (cancelled)
@@ -4822,19 +4982,16 @@ namespace
         if (n <= 0)
             return;
 
-        const float wantSize = g_config.hud_size;
-        const float wantAspect = g_config.hud_aspect;
-        const float wantCurvature = g_config.hud_curvature;
+        float wantSize = 0.0f, wantAspect = 0.0f, wantCurvature = 0.0f;
+        float wantH = 0.0f, wantV = 0.0f;
+        bool wantForAimFrame = false;
+        HudLayoutWanted(profile, wantSize, wantAspect, wantCurvature, wantH, wantV, &wantForAimFrame);
         if (!(wantSize >= 0.30f && wantSize <= 1.00f) ||
             !(wantAspect >= kHudAspectMin &&
               wantAspect <= kHudAspectMax) ||
             !(wantCurvature >= kHudCurvatureMin &&
               wantCurvature <= kHudCurvatureMax))
             return;
-
-        float wantH = wantSize, wantV = wantSize;
-        ComputeHudSafeFramePair(
-            wantSize, wantAspect, wantH, wantV);
         uint32_t wantBits = 0, wantAspectBits = 0;
         uint32_t wantCurvatureBits = 0;
         uint32_t wantHBits = 0, wantVBits = 0;
@@ -4858,6 +5015,9 @@ namespace
         if (reportReadback)
             lastReadbackLogMs = readbackNow;
 
+        // Nothing written since these slots were published: they hold the title's own layout.
+        const bool titleOwnLayout = profile == HudLayoutProfile::Halo3 &&
+            g_hudAppliedSafeFrameHBits.load(std::memory_order_relaxed) == 0;
         int live = 0;
         for (int i = 0; i < n && i < kMaxSafeFrameHits; ++i)
         {
@@ -4874,6 +5034,17 @@ namespace
             if (!SafeFramePairPlausible(h, v) ||
                 !HudDestinationPlausible(destinationZ))
                 continue;
+            if (titleOwnLayout && i == 0 && h == v)
+            {
+                // The same both ways and near full size: the title's layout, not one of ours left by a resident tag
+                // (the player's and the frame's both differ across and down).
+                float own = 0.0f;
+                memcpy(&own, &h, sizeof(own));
+                if (own >= 0.8f && own <= 1.0f &&
+                    g_halo3TitleSafeFrameBits.exchange(h, std::memory_order_relaxed) != h)
+                    LOG("SAFEFRAME [Halo 3]: the title's own layout is %.4f; the crosshair is sized for it at the "
+                        "start of each level, until ours is written", own);
+            }
             if (reportReadback)
             {
                 float readH = 0.0f, readV = 0.0f;
@@ -4934,6 +5105,8 @@ namespace
 
         if (live == n)
         {
+            if (profile == HudLayoutProfile::Halo3)
+                g_halo3LayoutAppliedForFrame.store(wantForAimFrame ? 1 : 0, std::memory_order_release);
             g_hudAppliedBits.store(
                 wantBits, std::memory_order_relaxed);
             g_hudAppliedAspectBits.store(
@@ -4954,6 +5127,7 @@ namespace
                 0, std::memory_order_relaxed);
             g_hudAppliedSafeFrameHBits.store(0, std::memory_order_relaxed);
             g_hudAppliedSafeFrameVBits.store(0, std::memory_order_relaxed);
+            g_halo3LayoutAppliedForFrame.store(-1, std::memory_order_release);
             g_safeFramePublishedOwner.store(
                 HudLayoutProfile::None, std::memory_order_relaxed);
             g_safeFramePublishedGeneration.store(
@@ -5031,6 +5205,25 @@ namespace
     }
 
     std::atomic<uint64_t> g_h3HudRecordAdjusted{0},g_h3HudRecordNative{0};
+    bool Halo3CrosshairReadyForCapture()
+    {
+        // Zoomed, the crosshair is the zoom's art, and the art held now is what shows once the frame is gone: keep
+        // the one from before the zoom. The frame's own passes draw the game's crosshair before this is asked.
+        if (g_halo3AimFrameUp.load(std::memory_order_acquire))
+            return false;
+        int zoomLevel = -1;
+        if (Halo3AimFrameAllowed() && Halo3GameZoomed(zoomLevel))
+            return false;
+        const uint64_t down = g_halo3AimFrameDownMs.load(std::memory_order_acquire);
+        if (down && GetTickCount64() - down < kHalo3AimFrameCrosshairHoldMs)
+            return false;
+        // No layout of ours in the game: the HUD draws at the game's own, which is what the capture expects then.
+        if (g_safeFrameHitCount.load(std::memory_order_acquire) <= 0)
+            return true;
+        return g_halo3LayoutAppliedForFrame.load(std::memory_order_acquire) ==
+            (g_halo3AimFrameUp.load(std::memory_order_acquire) ? 1 : 0);
+    }
+
     void HudLayoutAutoTick(HudLayoutProfile profile)
     {
         static uint64_t lastLiveHudLog=0;
@@ -5053,9 +5246,9 @@ namespace
         if (!adapter || !generation)
             return;
 
-        const float wantSize = g_config.hud_size;
-        const float wantAspect = g_config.hud_aspect;
-        const float wantCurvature = g_config.hud_curvature;
+        float wantSize = 0.0f, wantAspect = 0.0f, wantCurvature = 0.0f;
+        float wantH = 0.0f, wantV = 0.0f;
+        HudLayoutWanted(profile, wantSize, wantAspect, wantCurvature, wantH, wantV);
         uint32_t wantBits = 0, wantAspectBits = 0;
         uint32_t wantCurvatureBits = 0;
         memcpy(&wantBits, &wantSize, sizeof(wantBits));
@@ -5110,7 +5303,14 @@ namespace
             // and no title reload): a once-per-second reassert loses that race
             // for most of every second. Reasserting every Present call is the
             // only way ours is reliably the last write before the next draw.
-            if (adapter->forceWriteEveryPass ||
+            // Halo 3's aim frame coming up or down changes the layout at once, even where the player's settings
+            // read the same as the frame's (HudLayoutWanted).
+            static bool appliedForAimFrame = false;
+            const bool aimFrameUp = profile == HudLayoutProfile::Halo3 &&
+                g_halo3AimFrameUp.load(std::memory_order_acquire);
+            const bool aimFrameChanged = aimFrameUp != appliedForAimFrame;
+            appliedForAimFrame = aimFrameUp;
+            if (adapter->forceWriteEveryPass || aimFrameChanged ||
                 g_hudAppliedBits.load(
                     std::memory_order_relaxed) != wantBits ||
                 g_hudAppliedAspectBits.load(
@@ -13117,6 +13317,11 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         }
 
         void* result=g_origCamCopy(dst,src);
+        if(dst)
+        {
+            const float* nativeTangents=reinterpret_cast<const float*>(static_cast<const char*>(dst)+0x28);
+            Halo3NoteNativeTangents(dst,nativeTangents[0],nativeTangents[1]);
+        }
         // The native copy has now completed the compact camera (+28/+2C).
         // Widen before upstream visibility can consume it; the eye renderer
         // later restores its exact raster projection independently.
@@ -13187,6 +13392,137 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         memcpy(camera+0x00,pose.position,sizeof(pose.position));
         memcpy(camera+0x0C,pose.forward,sizeof(pose.forward));
         memcpy(camera+0x18,pose.up,sizeof(pose.up));
+        return true;
+    }
+
+    // AIM FRAME ZOOM (config.h aim_frame_zoom; the vr-game-conversion playbook's Aim Frame Zoom). While the game
+    // itself is zoomed, the eye renderer draws ONE picture, from the rendered centre eye along the aim, at the
+    // game's own zoomed field of view (over the level's strength), and the present shows it as a frame centred on
+    // the aim instead of the immersive view (vr.cpp, VR_NoteAimFrameRendered). The frame's width eases between the
+    // picture's own angles (where the view meets the world one to one) and the level's setting over the move time,
+    // so it grows out of the view on the way in and back into it on the way out.
+    struct Halo3AimFrame
+    {
+        float forward[3]{}, up[3]{};
+        float tanX = 0.0f, tanY = 0.0f;   // the picture's half-angle tangents
+        float widthDeg = 0.0f;            // the frame's width this frame
+        int level = 0;                    // 0 the first zoom level, 1 the second and higher
+    };
+    struct Halo3AimFrameState
+    {
+        float t = 0.0f;                   // 0 the immersive view, 1 the frame
+        uint64_t lastUs = 0;
+        int level = 0;
+        int loggedOn = -1;
+    };
+    Halo3AimFrameState g_halo3AimFrameState;   // the render thread
+
+    bool Halo3AimFrameAllowed()
+    {
+        return g_config.aim_frame_zoom && g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled() &&
+            TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && !Game_IsCameraOnlyBringup() &&
+            !VR_IsCutsceneTheaterActive() && !VR_IsPausePresentation() && !VR_IsPausePresentationTarget() &&
+            // DLSS keeps a history per eye; a picture along another axis would be blended into it.
+            !VR_DlssWantsEyeCamera();
+    }
+
+    // The game's own zoom level for the local player, read within the last half second of this generation.
+    bool Halo3GameZoomed(int& level)
+    {
+        const uint32_t generation = g_halo3RuntimeGeneration.load(std::memory_order_acquire);
+        const uint64_t ms = g_halo3GameZoomMs.load(std::memory_order_acquire);
+        const uint64_t now = GetTickCount64();
+        level = g_halo3GameZoomLevel.load(std::memory_order_relaxed);
+        return generation && g_halo3GameZoomGeneration.load(std::memory_order_relaxed) == generation && ms &&
+            now >= ms && now - ms <= 500 && level >= 0;
+    }
+
+    bool Halo3AimFrameThisFrame(const void* camera, const unsigned char* saved, Halo3AimFrame& out)
+    {
+        auto& s = g_halo3AimFrameState;
+        const uint64_t nowUs = Sight_NowUs();
+        const float dt = s.lastUs && nowUs > s.lastUs
+            ? std::min(0.1f, static_cast<float>(nowUs - s.lastUs) * 1.0e-6f) : 0.0f;
+        s.lastUs = nowUs;
+        const bool allowed = Halo3AimFrameAllowed();
+        int level = -1;
+        const bool zoomed = allowed && Halo3GameZoomed(level);
+        if (zoomed)
+            s.level = level >= 1 ? 1 : 0;
+        const float move = g_config.aim_frame_move_s;
+        const float step = move > 1.0e-3f ? dt / move : 1.0f;
+        s.t = !allowed ? 0.0f : zoomed ? std::min(1.0f, s.t + step) : std::max(0.0f, s.t - step);
+        float nativeX = 0.0f, nativeY = 0.0f;
+        bool ok = s.t > 0.0f && Halo3NativeTangentsFor(camera, nativeX, nativeY);
+        float forward[3]{}, up[3]{};
+        if (ok)
+        {
+            // The aim: the intent ray the converged aim and direct drive write the game's aim from (it starts at
+            // this same rendered centre eye), else the game's own aim forward.
+            SightRay ray{};
+            if (Sight_ReadRay(GameTitle::Halo3, TitleAdapter_GetGeneration(GameTitle::Halo3), kSightRayFreshMs, ray))
+                memcpy(forward, ray.dir, sizeof(forward));
+            else
+            {
+                forward[0] = g_aimFwdX.load();
+                forward[1] = g_aimFwdY.load();
+                forward[2] = g_aimFwdZ.load();
+            }
+            const float fl = sqrtf(forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]);
+            // Level with the world: Halo 3's world up is +Z. The learned estimate (g_worldUp) is trained on the
+            // camera's up, which carries head roll, and would turn the frame after the head over a second or two.
+            const float worldUp[3]{0.0f, 0.0f, 1.0f};
+            const float* savedUp = reinterpret_cast<const float*>(saved + 0x18);
+            ok = std::isfinite(fl) && fl > 1.0e-4f;
+            if (ok)
+            {
+                for (float& f : forward)
+                    f /= fl;
+                // Upright: the world's up made square to the aim (a flat screen does not roll with the wrist).
+                for (int attempt = 0; attempt < 2; ++attempt)
+                {
+                    const float* u = attempt == 0 ? worldUp : savedUp;
+                    const float along = u[0] * forward[0] + u[1] * forward[1] + u[2] * forward[2];
+                    for (int axis = 0; axis < 3; ++axis)
+                        up[axis] = u[axis] - along * forward[axis];
+                    const float ul = sqrtf(up[0] * up[0] + up[1] * up[1] + up[2] * up[2]);
+                    if (std::isfinite(ul) && ul > 0.05f)
+                    {
+                        for (float& v : up)
+                            v /= ul;
+                        break;
+                    }
+                    if (attempt == 1)
+                        ok = false;
+                }
+            }
+        }
+        g_halo3AimFrameUp.store(ok, std::memory_order_release);
+        const int on = ok ? 1 : 0;
+        if (on != s.loggedOn)
+        {
+            if (!on && s.loggedOn == 1)
+                g_halo3AimFrameDownMs.store(GetTickCount64(), std::memory_order_release);
+            s.loggedOn = on;
+            if (on)
+                LOG("Halo 3 Aim Frame Zoom: on (zoom level %d; the game's view %.1f x %.1f deg, the frame %.0f deg "
+                    "wide at strength %.2f)",
+                    s.level + 1, 2.0f * atanf(nativeX) * 57.29578f, 2.0f * atanf(nativeY) * 57.29578f,
+                    g_config.aim_frame_size_deg[s.level], g_config.aim_frame_strength[s.level]);
+            else
+                LOG("Halo 3 Aim Frame Zoom: off; the immersive view is back");
+        }
+        if (!ok)
+            return false;
+        const float strength = g_config.aim_frame_strength[s.level];
+        out.tanX = nativeX / strength;
+        out.tanY = out.tanX / kHalo3AimFrameAspect;
+        memcpy(out.forward, forward, sizeof(forward));
+        memcpy(out.up, up, sizeof(up));
+        out.level = s.level;
+        const float trueDeg = 2.0f * atanf(out.tanX) * 57.29578f;
+        const float eased = s.t * s.t * (3.0f - 2.0f * s.t);
+        out.widthDeg = trueDeg + (g_config.aim_frame_size_deg[s.level] - trueDeg) * eased;
         return true;
     }
 
@@ -13277,12 +13613,59 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         // pass is drawn as the eye the eye-order setting draws first, so what is done once a frame in that pass
         // (the crosshair's capture) is done in it; its camera has no eye offset and no cant, and its frustum
         // covers either eye's.
+        // AIM FRAME ZOOM: while the game is zoomed, one pass along the aim (Halo3AimFrameThisFrame), drawn as the
+        // first eye like a mono frame; it wins over mono rendering.
+        Halo3AimFrame aimFrame{};
+        const bool aimFrameFrame = !cutsceneTheater && Halo3AimFrameThisFrame(camera, saved, aimFrame);
+        // 3D in the frame: both eye passes along the aim, each from its own eye (the eyes' offsets laid along the
+        // aim's basis, no cant: the frame is a flat screen with one frustum for both).
+        const bool aimFrameStereo = aimFrameFrame && g_config.aim_frame_stereo;
+        float aimRight[3]{};
+        if (aimFrameFrame)
+        {
+            aimRight[0] = aimFrame.forward[1] * aimFrame.up[2] - aimFrame.forward[2] * aimFrame.up[1];
+            aimRight[1] = aimFrame.forward[2] * aimFrame.up[0] - aimFrame.forward[0] * aimFrame.up[2];
+            aimRight[2] = aimFrame.forward[0] * aimFrame.up[1] - aimFrame.forward[1] * aimFrame.up[0];
+        }
+        bool aimFrameCapturedAll = true;
+        // The two eyes meet at the point the aim is on (the converged aim's smoothed range, from this same centre
+        // eye): it and the game's crosshair, drawn alike in both, sit at the frame's own depth. The frame is
+        // narrow, so turning each eye in has no keystone to speak of. No range: the eyes look parallel.
+        float aimFrameMeetWu = 0.0f;
+        const float aimFrameSpacing = aimFrameStereo ? g_config.aim_frame_3d_strength : 1.0f;
+        if (aimFrameStereo)
+        {
+            SightTrace trace{};
+            if (Sight_ReadTrace(GameTitle::Halo3, TitleAdapter_GetGeneration(GameTitle::Halo3), kSightFreshMs,
+                                trace))
+            {
+                const float range = trace.AimRangeWu();
+                if (std::isfinite(range) && range > 0.3f)
+                    aimFrameMeetWu = std::min(range, 2000.0f);
+            }
+        }
+        {
+            static bool loggedAimFrame3d = false;   // the render thread
+            if (!aimFrameStereo)
+                loggedAimFrame3d = false;
+            else if (!loggedAimFrame3d)
+            {
+                loggedAimFrame3d = true;
+                if (aimFrameMeetWu > 0.0f)
+                    LOG("Halo 3 Aim Frame Zoom 3D: the eyes %.1fx your eye spacing apart, meeting at the aimed point "
+                        "%.1f wu (%.0f m) out", aimFrameSpacing, aimFrameMeetWu, aimFrameMeetWu * 3.048f);
+                else
+                    LOG("Halo 3 Aim Frame Zoom 3D: the eyes %.1fx your eye spacing apart, looking parallel (no aim "
+                        "range yet)", aimFrameSpacing);
+            }
+        }
         float monoFov[4]{};
-        const bool monoFrame = VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) && !cutsceneTheater;
+        const bool monoFrame = !aimFrameFrame && VR_MonoRenderThisFrame(GameTitle::Halo3, monoFov) &&
+            !cutsceneTheater;
         bool monoCaptured = false;
         __try {
         const int firstEye = g_config.right_eye_first ? 1 : 0;
-        for (int pass = 0; pass < (monoFrame ? 1 : 2); ++pass)
+        for (int pass = 0; pass < (monoFrame || (aimFrameFrame && !aimFrameStereo) ? 1 : 2); ++pass)
         {
             const int eye = pass == 0 ? firstEye : 1 - firstEye;
             g_stereoEye = eye;
@@ -13300,11 +13683,21 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             float eyeOrientation[4]{};
             bool haveEyeView =
                 VR_GetEyeViewOffset(eye,eyePosition,eyeOrientation);
-            if (monoFrame)
+            if (monoFrame || (aimFrameFrame && !aimFrameStereo))
             {
-                // The midpoint of the eyes, looking the way the head looks.
+                // The midpoint of the eyes, looking the way the head looks (mono) or along the aim (the frame).
                 eyePosition[0] = eyePosition[1] = eyePosition[2] = 0.0f;
                 haveEyeView = false;
+            }
+            else if (aimFrameStereo)
+                haveEyeView = false;
+            const float* offsetRight = aimFrameFrame ? aimRight : right;
+            const float* offsetUp = aimFrameFrame ? aimFrame.up : up;
+            const float* offsetForward = aimFrameFrame ? aimFrame.forward : fwd;
+            if (aimFrameFrame)
+            {
+                memcpy(camera + 0x0C, aimFrame.forward, sizeof(aimFrame.forward));
+                memcpy(camera + 0x18, aimFrame.up, sizeof(aimFrame.up));
             }
             ApplyCutsceneTheaterEyeTransform(
                 cutsceneTheater,
@@ -13312,9 +13705,35 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 eyePosition, eyeOrientation);
             const float eyeScale=g_worldScale.load();
             for(int axis=0;axis<3;++axis)
-                pos[axis] += (right[axis]*eyePosition[0] +
-                              up[axis]*eyePosition[1] -
-                              fwd[axis]*eyePosition[2]) * eyeScale;
+                pos[axis] += (offsetRight[axis]*eyePosition[0] +
+                              offsetUp[axis]*eyePosition[1] -
+                              offsetForward[axis]*eyePosition[2]) * eyeScale * aimFrameSpacing;
+            if (aimFrameStereo && aimFrameMeetWu > 0.0f)
+            {
+                const float* centre = reinterpret_cast<const float*>(saved);
+                float toward[3]{};
+                for (int axis = 0; axis < 3; ++axis)
+                    toward[axis] = centre[axis] + aimFrame.forward[axis] * aimFrameMeetWu - pos[axis];
+                const float tl = sqrtf(toward[0] * toward[0] + toward[1] * toward[1] + toward[2] * toward[2]);
+                if (std::isfinite(tl) && tl > 1.0e-3f)
+                {
+                    for (float& v : toward)
+                        v /= tl;
+                    const float along = aimFrame.up[0] * toward[0] + aimFrame.up[1] * toward[1] +
+                        aimFrame.up[2] * toward[2];
+                    float eyeUp[3]{};
+                    for (int axis = 0; axis < 3; ++axis)
+                        eyeUp[axis] = aimFrame.up[axis] - along * toward[axis];
+                    const float ul = sqrtf(eyeUp[0] * eyeUp[0] + eyeUp[1] * eyeUp[1] + eyeUp[2] * eyeUp[2]);
+                    if (std::isfinite(ul) && ul > 0.05f)
+                    {
+                        for (float& v : eyeUp)
+                            v /= ul;
+                        memcpy(camera + 0x0C, toward, sizeof(toward));
+                        memcpy(camera + 0x18, eyeUp, sizeof(eyeUp));
+                    }
+                }
+            }
 
             // Cant: PSVR2 mounts each display angled outward a few degrees,
             // and the per-eye FOV OpenXR reports is measured around that
@@ -13356,7 +13775,12 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 float eyeFov[4];
                 float immersiveTangentX = tanf(1.07338f);
                 float immersiveTangentY = tanf(0.92502f);
-                if (monoFrame)
+                if (aimFrameFrame)
+                {
+                    immersiveTangentX = aimFrame.tanX;
+                    immersiveTangentY = aimFrame.tanY;
+                }
+                else if (monoFrame)
                 {
                     immersiveTangentX = tanf(monoFov[1]);
                     immersiveTangentY = tanf(monoFov[2]);
@@ -13530,19 +13954,29 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             // The draw routine consumes camera state uploaded to engine globals
             // by this per-view preparation stage, not the view structure
             // directly. Re-run it after each eye matrix rebuild.
+            g_halo3AimFramePass.store(aimFrameFrame, std::memory_order_release);
             if (g_prepareView)
                 g_prepareView(view, 0);
             g_origRenderView(view);
+            g_halo3AimFramePass.store(false, std::memory_order_release);
             g_eyeFpView.store(nullptr, std::memory_order_release);
             monoCaptured = VR_CaptureRenderedEye(eye);
+            aimFrameCapturedAll = aimFrameCapturedAll && monoCaptured;
             VR_EndRasterEye();
         }
         // A capture that missed keeps the last picture, mono or a pair, as it was.
-        if (monoFrame && monoCaptured)
+        if (aimFrameFrame)
+        {
+            if (aimFrameCapturedAll)
+                VR_NoteAimFrameRendered(GameTitle::Halo3, aimFrameStereo ? -1 : firstEye, aimFrame.tanX,
+                                        aimFrame.tanY, aimFrame.widthDeg);
+        }
+        else if (monoFrame && monoCaptured)
             VR_NoteMonoFrameRendered(GameTitle::Halo3, firstEye);
         else if (!monoFrame)
             VR_NoteStereoFrameRendered(GameTitle::Halo3);
         } __finally {
+            g_halo3AimFramePass.store(false, std::memory_order_release);
             EndHalo3AvatarPair();
             g_fpStereoSolveScope.armed = false;
         }
@@ -19410,7 +19844,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // The rejected early-helper-only detours remain inert. The new optional
         // path owns acquisition and downstream assist together, with its own
         // default-off setting and feature-only failure isolation.
-        (void)InstallHalo3DualAim(base,size,runtimeGeneration);
+        if(!InstallHalo3DualAim(base,size,runtimeGeneration))
+            (void)InstallHalo3ZoomReader(base,size,runtimeGeneration);
         InstallSteps::Mark("dual aim");
         // The evaluator's chase path, the start of a stock seat's crosshair line (seat_upstream_logic.h 4b): no hook,
         // so it is bound whether or not the lane above installed.
@@ -51719,6 +52154,10 @@ bool Game_HasScopeRenderer()
 #endif
     return false;
 }
+bool Game_AimFrameZoomOwnsZoom()
+{
+    return g_config.aim_frame_zoom && TitleAdapter_GetActiveTitle() == GameTitle::Halo3 && g_enabled.load();
+}
 bool Game_IsScopeRendering(){return g_scopeRenderActive.load(std::memory_order_acquire);}
 bool Game_SetScopeRendering(bool active){return g_scopeRenderActive.exchange(active,std::memory_order_acq_rel);}
 bool Game_IsCameraOnlyBringup()
@@ -52836,6 +53275,40 @@ bool Game_GetAppliedHudSafeFrame(float& horizontal, float& vertical, float* size
     vertical = readV;
     if (size)
         *size = readS;
+    return true;
+}
+
+bool Game_GetHalo3HudSafeFrameInEffect(float& horizontal, float& vertical, float* size)
+{
+    if (Game_GetAppliedHudSafeFrame(horizontal, vertical, size))
+        return true;
+    // Not written yet -- it is looked for seconds into each level -- so the game's own layout is what draws, the
+    // same both ways (g_halo3TitleSafeFrameBits). Only while the player's layout is a customised one: with a stock
+    // layout the title's own is the player's, and the capture stays as it was.
+    const bool stock = g_config.hud_size >= 0.8695f && g_config.hud_size <= 0.8705f &&
+        g_config.hud_aspect >= 0.9995f && g_config.hud_aspect <= 1.0005f &&
+        g_config.hud_curvature >= 0.4995f && g_config.hud_curvature <= 0.5005f;
+    if (stock || TitleAdapter_GetActiveTitle() != GameTitle::Halo3 || !(g_config.hud_size > 0.0f))
+        return false;
+    float own = 0.0f;
+    const uint32_t ownBits = g_halo3TitleSafeFrameBits.load(std::memory_order_relaxed);
+    memcpy(&own, &ownBits, sizeof(own));
+    if (!(own >= 0.8f && own <= 1.0f))
+    {
+        // Not read yet this session: what each host's own reads.
+        static const float hostDefault = []
+        {
+            wchar_t path[MAX_PATH]{};
+            GetModuleFileNameW(nullptr, path, MAX_PATH);
+            for (wchar_t& c : path)
+                c = towlower(c);
+            return wcsstr(path, L"\\project-reclaimer") ? 0.97f : 0.87f;
+        }();
+        own = hostDefault;
+    }
+    horizontal = vertical = own;
+    if (size)
+        *size = g_config.hud_size;
     return true;
 }
 

@@ -35,6 +35,9 @@ struct VrContactTrackingSnapshot
 static VrContactTrackingSnapshot tracking;
 static weapon_muzzle::Store g_halo3Muzzles;
 static thread_local bool g_legacyCollisionOwnedQuery=false;
+// Aim Frame Zoom's record of the game's zoom level (game.cpp); the lane only reports it.
+static int g_notedZoomLevel=-2;
+[[maybe_unused]] static void Halo3NoteGameZoomLevel(int16_t level,uint32_t){g_notedZoomLevel=level;}
 static alignas(8) unsigned char unitBytes[0x400]{},replacementBytes[0x400]{};
 static int32_t Player(int32_t){return int32_t(localUnit);}
 static bool Seated(int32_t){return seated;}

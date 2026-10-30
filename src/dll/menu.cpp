@@ -2186,6 +2186,46 @@ namespace
 
         if (CategorySection section{Cat_Scope}; section.visible)
         {
+        if (ImGui::CollapsingHeader("Aim Frame Zoom (Halo 3)##section", ImGuiTreeNodeFlags_None))
+        {
+        changed |= ImGui::Checkbox("Aim Frame Zoom##aimframe", &g_config.aim_frame_zoom);
+        ImGui::TextDisabled("While the game is zoomed, the headset shows the game's zoomed picture as a frame\n"
+                            "centred on your aim instead of the 3D view, like playing it on a flat screen. The\n"
+                            "zoom button reaches the game, so the lens below is not offered in Halo 3 while this\n"
+                            "is on. Halo 3 in MCC and Project Reclaimer. Off by default. Live.");
+        if (g_config.aim_frame_zoom)
+        {
+            ImGui::Indent();
+            changed |= ImGui::Checkbox("3D in the frame##aimframe", &g_config.aim_frame_stereo);
+            ImGui::TextDisabled("ON (default): each eye sees its own picture of the zoomed view. OFF: one flat\n"
+                                "picture for both eyes, drawn once.");
+            if (g_config.aim_frame_stereo)
+            {
+                changed |= vr_menu::SliderFloat("3D strength##aimframe", &g_config.aim_frame_3d_strength,
+                                              1.0f, 10.0f, "%.1fx");
+                ImGui::TextDisabled("The frame's eye spacing as a multiple of yours. Far targets show little depth\n"
+                                    "at 1x; what you aim at stays at the frame's depth, with the crosshair.");
+            }
+            changed |= vr_menu::SliderFloat("Frame size, first zoom (deg)##aimframe",
+                                          &g_config.aim_frame_size_deg[0], 10.0f, 120.0f, "%.0f");
+            changed |= vr_menu::SliderFloat("Frame size, second zoom (deg)##aimframe",
+                                          &g_config.aim_frame_size_deg[1], 10.0f, 120.0f, "%.0f");
+            changed |= vr_menu::SliderFloat("Zoom strength, first zoom##aimframe",
+                                          &g_config.aim_frame_strength[0], 0.5f, 4.0f, "%.2fx");
+            changed |= vr_menu::SliderFloat("Zoom strength, second zoom##aimframe",
+                                          &g_config.aim_frame_strength[1], 0.5f, 4.0f, "%.2fx");
+            ImGui::TextDisabled("Strength 1.00 shows the game's own zoom; higher narrows it further.\n"
+                                "A frame smaller than the game's zoomed view makes the zoom feel stronger.");
+            changed |= vr_menu::SliderFloat("Move time (s)##aimframe", &g_config.aim_frame_move_s,
+                                          0.0f, 1.0f, "%.2f");
+            ImGui::TextDisabled("How long the frame takes to grow out of the view and back. 0 = at once.");
+            changed |= vr_menu::SliderFloat("HUD width in the frame##aimframe", &g_config.aim_frame_hud_width,
+                                          0.8f, 1.25f, "%.3fx");
+            ImGui::TextDisabled("Widens (above 1) or narrows the game's HUD and zoom art inside the frame, if it\n"
+                                "looks squeezed. 1 is right in MCC.");
+            ImGui::Unindent();
+        }
+        }
         if (ImGui::CollapsingHeader("Gun-mounted circular zoom lens##section", ImGuiTreeNodeFlags_None))
         {
         ImGui::TextDisabled("Halo 2, Halo 3, ODST, Reach and Halo 4. CE uses native zoom.");

@@ -1075,6 +1075,9 @@ bool VR_MonoRenderThisFrame(GameTitle title, float coverFov[4]);
 void VR_NoteMonoFrameRendered(GameTitle title, int eye);
 // `title` drew a pair: the latest picture is two eyes' again.
 void VR_NoteStereoFrameRendered(GameTitle title);
+// Aim Frame Zoom: `title`'s frame was drawn along the aim at the half-angle tangents `tanX` and `tanY`, as one
+// pass captured as `eye`, or (eye -1) as a pair; the present shows it as a frame `widthDeg` wide on the aim.
+void VR_NoteAimFrameRendered(GameTitle title, int eye, float tanX, float tanY, float widthDeg);
 // `title`'s renderer turned a single pass down (its own checks on the frame failed, or it faulted). A run of them
 // is answered with a probe pair; single passes dropped where pairs are drawn leave the title in stereo.
 void VR_NoteMonoFrameRejected(GameTitle title);
