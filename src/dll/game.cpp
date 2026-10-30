@@ -51532,6 +51532,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 }
                 gameHooked = false;
                 g_hooked = false;
+                // The input bridge's reference on halo3.dll goes with the core, while MCC still owns the DLL.
+                NativeVrActions_Halo3CoreRetired();
                 // The next install must prove the level is running again.
                 g_halo3LevelLoadGate.Rearm();
                 // CamCopyHook can start executing again (a lingering detour,

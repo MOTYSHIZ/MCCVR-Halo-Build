@@ -237,9 +237,15 @@ void Poll() {
         if(!Retire()) return;
         LOG("Native VR action bridge H3: retired faulted optional hooks; transport routing retained");
     }
-    if(runtime.module && (active!=title || generation!=runtime.generation))
+    // THE REFERENCE ON halo3.dll IS HELD ONLY WHILE THE HALO 3 CORE IS INSTALLED (Game_IsHooked). The core holds none:
+    // it retires its hooks at a level's end while MCC still owns the DLL, so MCC's unload and reload for its menus
+    // gives the next game a fresh image. Held until the title or generation changed, this reference kept the old
+    // image instead, and a second match in one session started in a module whose shutdown had already run (it never
+    // loaded). The core also retires the bridge at once (NativeVrActions_Halo3CoreRetired).
+    const bool coreIn=Game_IsHooked();
+    if(runtime.module && (active!=title || generation!=runtime.generation || !coreIn))
         if(!Retire()) return;
-    if(active!=title || !generation || generation==blockedGeneration || !(g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()||g_config.two_handed_aim)) return;
+    if(active!=title || !generation || !coreIn || generation==blockedGeneration || !(g_config.vr_action_mapping||Config_GestureOnlyWeaponInput()||g_config.two_handed_aim)) return;
     if(!runtime.attempted) {
         // The preexisting read-only transport resolver must verify the reader
         // before MinHook changes its prologue. Retain that cache so optional

@@ -43,6 +43,8 @@ static void Check(bool value,const char* why) {
 }
 static bool supportPickupBlocked=false;
 bool Game_BlockHalo3SupportPickup() noexcept {return supportPickupBlocked;}
+static bool halo3CoreIn=true;
+bool Game_IsHooked() {return halo3CoreIn;}
 void Logf(const char*,...){}
 bool Game_ReadVrActionBindings(vr_mapping::Transports& out,uint64_t,unsigned){out.fill(0x4000);return fallbackVerified;}
 GameTitle TitleAdapter_GetActiveTitle(){
@@ -392,7 +394,20 @@ static void TestH3(){
     quiescent=true;NativeVrActions_Poll();Check(!native_h3::runtime.module,"H3 fault retirement frees only after quiescence");
     ++testGeneration;creates=0;failCreate=2;NativeVrActions_Poll();
     Check(!native_h3::runtime.module&&!native_h3::runtime.admitted,"H3 partial hook failure leaves transport fallback");
-    failCreate=0;testTitle=GameTitle::None;
+    // halo3.dll is held only while the Halo 3 core is installed: a level's end lets it go in the same title and
+    // generation, so MCC's reload gives the next game a fresh image.
+    failCreate=0;++testGeneration;NativeVrActions_Poll();
+    Check(native_h3::runtime.module&&native_h3::runtime.admitted,"H3 installs while the core is in");
+    const unsigned freedBefore=frees;
+    halo3CoreIn=false;NativeVrActions_Halo3CoreRetired();
+    Check(!native_h3::runtime.module&&frees==freedBefore+1,"H3 lets go of halo3.dll when the core retires");
+    NativeVrActions_Poll();
+    Check(!native_h3::runtime.module&&frees==freedBefore+1,"H3 takes no reference while the core is out");
+    halo3CoreIn=true;NativeVrActions_Poll();
+    Check(native_h3::runtime.module&&native_h3::runtime.admitted,"H3 installs again with the next core");
+    quiescent=true;testTitle=GameTitle::None;NativeVrActions_Poll();
+    Check(!native_h3::runtime.module,"H3 lets go when another title is active");
+    testTitle=GameTitle::None;
 }
 static void OdstPoll(uint32_t actions,bool direct,uint32_t blocked=0){
     ++clockNow;NativeVrActions_BeginPoll();NativeVrActions_Publish(raw,testTitle,clockNow,actions,direct,blocked);

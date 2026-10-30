@@ -324,6 +324,9 @@ bool NativeVrActions_GestureRouting(GameTitle requested,uint64_t now) noexcept {
     uint32_t actions=0;bool direct=false;
     return requested==title && Current() && ReadPublication(now,actions,direct) && direct;
 }
+void NativeVrActions_Halo3CoreRetired() {
+    native_h3::Poll();
+}
 void NativeVrActions_Poll() {
     native_ce::Poll();
     native_h3::Poll();
