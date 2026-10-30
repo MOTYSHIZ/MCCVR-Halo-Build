@@ -4,14 +4,16 @@
 // WHAT THIS DOES TO THE GAME: three `call rel32` instructions in the camera director (halo3+0x212074, +0x2127EF,
 // +0x212DCB) are pointed at a relay in memory of the mod's own, next to the module. The relay calls the function
 // those calls went to, unchanged, and for one unit -- the local player, seated, while the mod's own seat camera
-// owns the view -- answers "first person" where the game answered a settled "third person". No tag, no object
+// owns the view -- answers "first person" where the game answered a settled "third person"; and, the other way
+// round, for a seat that is first person in its own data while a chase camera of the mod's shows it, "third
+// person" where the game answered a settled "first person" (seat_view_logic.h, THE OTHER WAY ROUND). No tag, no object
 // field and no instruction on any path the simulation runs is written; the function itself is not hooked, so a
 // host that hooks it for its own camera modes keeps its hook and the relay calls through it.
 //
 // THREADS. Install, sync and remove run on the WaitThread and own g_halo3SeatView. A site's five bytes are
 // swapped with every other thread suspended and none of them inside the bytes (the freeze seat_aim_world_frame.inl
-// uses). The relay runs on whichever thread the director runs on; it reads one atomic (the armed unit), which the
-// camera thread writes from the seat sampler (halo3_native_seat_patch.inl).
+// uses). The relay runs on whichever thread the director runs on; it reads two atomics (the armed unit and the
+// chase unit), which the camera thread writes from the seat sampler (halo3_native_seat_patch.inl).
 //
 // LIFETIME. The relay holds the module's address, so it is built per module generation and retired with it. Two
 // rules hold on every path, teardown and a changed generation alike:
@@ -61,6 +63,7 @@ Halo3SeatViewState g_halo3SeatView;                     // WaitThread only
 Halo3SeatViewRetry g_halo3SeatViewRetry;                // WaitThread only
 std::atomic<bool> g_halo3SeatViewRedirected{false};     // every director site calls the relay
 std::atomic<int32_t> g_halo3SeatViewUnit{-1};           // the occupant the director is told is first person
+std::atomic<int32_t> g_halo3SeatViewChaseUnit{-1};      // ...and the one it is told is third person (a chase camera)
 volatile LONG g_halo3SeatViewInside = 0;                // threads inside the relay or below it (the relay counts)
 #if HALOMCCVR_DEV_DIAGNOSTICS
 std::atomic<uint32_t> g_halo3SeatViewAsked{0}, g_halo3SeatViewAnswered{0};   // the dev SEAT VIEW line
@@ -72,10 +75,10 @@ int Halo3SeatViewAdjust(int unit, const int* state, int result) noexcept
 #if HALOMCCVR_DEV_DIAGNOSTICS
     g_halo3SeatViewAsked.fetch_add(1, std::memory_order_relaxed);
 #endif
-    if (result != seat_view::kThirdPerson || !state)
+    if ((result != seat_view::kThirdPerson && result != seat_view::kFirstPerson) || !state)
         return result;
-    const int answer =
-        seat_view::Decide(result, *state, unit, g_halo3SeatViewUnit.load(std::memory_order_acquire));
+    const int answer = seat_view::Decide(result, *state, unit, g_halo3SeatViewUnit.load(std::memory_order_acquire),
+                                         g_halo3SeatViewChaseUnit.load(std::memory_order_acquire));
 #if HALOMCCVR_DEV_DIAGNOSTICS
     if (answer != result)
         g_halo3SeatViewAnswered.fetch_add(1, std::memory_order_relaxed);
@@ -422,6 +425,13 @@ void Halo3SeatViewArm(int32_t unit)
 void Halo3SeatViewDisarm()
 {
     g_halo3SeatViewUnit.store(-1, std::memory_order_release);
+    g_halo3SeatViewChaseUnit.store(-1, std::memory_order_release);
+}
+// A seat that is first person in its own data: its occupant is told "third person" while a chase camera shows it
+// (-1 = nobody).
+void Halo3SeatViewArmChase(int32_t unit)
+{
+    g_halo3SeatViewChaseUnit.store(unit, std::memory_order_release);
 }
 // DEV BUILDS ONLY: seat_view_tag_write = 1 puts back the write to the seat's tag flag, for an A/B in the headset.
 // A player build never writes it.
@@ -592,6 +602,21 @@ void Halo3SeatViewSync()
         const Halo3SeatViewRetry retry = g_halo3SeatViewRetry;
         (void)Halo3SeatViewInstall(retry.base, retry.size, retry.generation);
     }
+    // One line each way for a seat that is first person in its own data and shown from a chase camera.
+    static int32_t s_chaseLogged = -1;
+    const int32_t chase = g_halo3SeatViewChaseUnit.load(std::memory_order_relaxed);
+    if (chase != s_chaseLogged)
+    {
+        if (chase != -1)
+            LOG("Halo 3 seat view: a chase camera shows a seat that is first person in its own data, so the director "
+                "is told third person for unit 0x%08X: your character is drawn and the first-person arms and weapon "
+                "are not",
+                static_cast<uint32_t>(chase));
+        else
+            LOG("Halo 3 seat view: the director has the game's own answer again for unit 0x%08X",
+                static_cast<uint32_t>(s_chaseLogged));
+        s_chaseLogged = chase;
+    }
 #if HALOMCCVR_DEV_DIAGNOSTICS
     static uint64_t s_lastMs = 0;
     static uint32_t s_asked = 0, s_answered = 0;
@@ -602,9 +627,11 @@ void Halo3SeatViewSync()
     const uint32_t asked = g_halo3SeatViewAsked.load(std::memory_order_relaxed);
     const uint32_t answered = g_halo3SeatViewAnswered.load(std::memory_order_relaxed);
     if (answered != s_answered)
-        LOG("SEAT VIEW Halo 3 (dev): the director asked %u times in 5 s, %u answered first person for unit 0x%08X",
+        LOG("SEAT VIEW Halo 3 (dev): the director asked %u times in 5 s, %u answered otherwise than the game for "
+            "unit 0x%08X (first person) / 0x%08X (third person, a chase camera)",
             asked - s_asked, answered - s_answered,
-            static_cast<uint32_t>(g_halo3SeatViewUnit.load(std::memory_order_relaxed)));
+            static_cast<uint32_t>(g_halo3SeatViewUnit.load(std::memory_order_relaxed)),
+            static_cast<uint32_t>(g_halo3SeatViewChaseUnit.load(std::memory_order_relaxed)));
     s_asked = asked;
     s_answered = answered;
 #endif

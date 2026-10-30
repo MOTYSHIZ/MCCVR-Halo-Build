@@ -135,6 +135,20 @@
             g_halo3NativeSeatSerial.fetch_add(1, std::memory_order_release);
     }
 
+    // A seat that is first person in its own data (bit 4 clear, refused below and published in
+    // g_halo3SeatNativeNoThirdPerson): the director draws it first person, the arms and weapon at its camera. While a
+    // chase camera of the mod's own shows it, its occupant is told "third person" instead, so the game draws the
+    // character and not arms hanging in front of the chase camera (seat_view_logic.h, THE OTHER WAY ROUND). The
+    // director alone is answered; the tag is not written.
+    void Halo3ArmChaseForNativeFirstPersonSeat(uint32_t definitionIndex, int seatIndex, int32_t unit)
+    {
+        const bool native = g_halo3SeatNativeNoThirdPerson.load(std::memory_order_relaxed) ==
+            Halo3SeatNativeNoThirdPersonKey(definitionIndex, seatIndex);
+        Halo3SeatViewArmChase(native && unit != -1 && !Halo3SeatViewWritesTag() && Halo3SeatViewAvailable() &&
+                                      Halo3VehicleCameraThirdPerson()
+                                  ? unit : -1);
+    }
+
     // THE FIRST-PERSON SEAT. For as long as the VR vehicle camera owns the view, Halo is to treat the occupant as
     // first person, so it stops drawing the player's character model in the space the headset is looking out of.
     //
@@ -181,7 +195,10 @@
             g_halo3NativeSeatState.load(
                 std::memory_order_relaxed) ==
                 static_cast<uint32_t>(Halo3NativeSeatState::StockFallback))
+        {
+            Halo3ArmChaseForNativeFirstPersonSeat(definitionIndex, seatIndex, unit);
             return false;
+        }
 
         Halo3RestoreNativeSeatPatch();
         patch.generation = generation;
@@ -283,6 +300,7 @@
                 static_cast<uint32_t>(Halo3NativeSeatState::StockFallback),
                 std::memory_order_release);
             g_halo3NativeSeatSerial.fetch_add(1, std::memory_order_release);
+            Halo3ArmChaseForNativeFirstPersonSeat(definitionIndex, seatIndex, unit);
             return false;
         }
         g_halo3NativeAnchorCalibration = {};

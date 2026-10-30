@@ -88,6 +88,7 @@ bool Halo3SeatViewAvailable();
 bool Halo3SeatViewWritesTag();
 void Halo3SeatViewArm(int32_t unit);
 void Halo3SeatViewDisarm();
+void Halo3SeatViewArmChase(int32_t unit);
 
 #include "../src/dll/halo3_seat_view.inl"
 
@@ -171,6 +172,13 @@ struct Module
                 return false;
         return true;
     }
+    bool AnswersAll(int unit, int answer) const
+    {
+        for (size_t i = 0; i < seat_view::kDirectorSiteCount; ++i)
+            if (Ask(i, unit) != answer)
+                return false;
+        return true;
+    }
     bool AnswersStock() const
     {
         for (size_t i = 0; i < seat_view::kDirectorSiteCount; ++i)
@@ -206,6 +214,21 @@ static void TestInstallRedirectRestore()
     Check(m.AnswersFirstPerson(), "the armed occupant is answered first person at every site, nobody else");
     Halo3SeatViewDisarm();
     Check(m.AnswersStock(), "disarmed: the game's own answer again");
+    // A seat that is first person in its own data: the occupant shown from a chase camera is told third person.
+    m.base[seat_view::kHalo3ThirdPersonRva + 7] = 0;   // the fixture's test now answers first person (0)
+    FlushInstructionCache(GetCurrentProcess(), m.base, kModuleSize);
+    Check(m.AnswersAll(kUnit, seat_view::kFirstPerson), "a first-person seat: the game's own answer through the relay");
+    Halo3SeatViewArmChase(kUnit);
+    Check(m.AnswersAll(kUnit, seat_view::kThirdPerson) && m.AnswersAll(kOtherUnit, seat_view::kFirstPerson),
+          "the chase camera's occupant is answered third person at every site, nobody else");
+    Halo3SeatViewSync();
+    Check(Logged("told third person for unit"), "...and the log says so once");
+    Halo3SeatViewDisarm();
+    Check(m.AnswersAll(kUnit, seat_view::kFirstPerson), "disarmed: the game's first-person answer again");
+    Halo3SeatViewSync();
+    Check(Logged("the game's own answer again"), "...and the log says so");
+    m.base[seat_view::kHalo3ThirdPersonRva + 7] = 1;
+    FlushInstructionCache(GetCurrentProcess(), m.base, kModuleSize);
     Check(g_halo3SeatViewInside == 0, "no thread is counted inside the relay after its calls");
 
     // The setting.
