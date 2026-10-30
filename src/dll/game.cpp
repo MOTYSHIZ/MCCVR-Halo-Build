@@ -51289,6 +51289,16 @@ void Game_Init()
     CreateThread(nullptr, 0, WaitThread, nullptr, 0, nullptr);
 }
 
+bool Game_SecondaryShotsOwnLine(GameTitle title) noexcept
+{
+    if(title==GameTitle::Halo2)return Halo2Observer6Dof_SecondaryShotsOwnLine();
+    if(title!=GameTitle::Halo3||!g_halo3Dual.enabled.load(std::memory_order_acquire)||
+       g_halo3Dual.faulted.load(std::memory_order_acquire)||
+       g_halo3Dual.generation!=g_halo3RuntimeGeneration.load())return false;
+    return Sight_IndependentDualAim()||(Sight_GunBarrelAim()&&
+        g_halo3Muzzle.enabled.load(std::memory_order_acquire)&&!g_halo3Muzzle.faulted.load(std::memory_order_acquire));
+}
+
 bool Game_BlockHalo3SupportPickup() noexcept
 {
     if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo3||!g_config.two_handed_aim||

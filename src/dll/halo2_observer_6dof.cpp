@@ -7006,6 +7006,14 @@ bool Halo2Observer6Dof_Installed() noexcept
     return g_installed.load(std::memory_order_acquire);
 }
 
+bool Halo2Observer6Dof_SecondaryShotsOwnLine() noexcept
+{
+    if(!g_halo2Dual.enabled.load(std::memory_order_acquire)||g_halo2Dual.faulted.load(std::memory_order_acquire)||
+       g_halo2Dual.generation!=g_generation.load())return false;
+    return Sight_IndependentDualAim()||(Sight_GunBarrelAim()&&
+        g_halo2Muzzle.enabled.load(std::memory_order_acquire)&&!g_halo2Muzzle.faulted.load(std::memory_order_acquire));
+}
+
 std::atomic<bool>* Halo2Observer6Dof_TeardownRequested() noexcept
 {
     return &g_teardownRequested;
@@ -7600,6 +7608,7 @@ bool Halo2Observer6Dof_Poll(
 }
 
 bool Halo2Observer6Dof_Installed() noexcept { return false; }
+bool Halo2Observer6Dof_SecondaryShotsOwnLine() noexcept { return false; }
 void Halo2Observer6Dof_RequestRecovery(uint32_t) noexcept {}
 bool Halo2Observer6Dof_RecoveryPending() noexcept { return false; }
 bool Halo2Observer6Dof_Armed() noexcept { return false; }

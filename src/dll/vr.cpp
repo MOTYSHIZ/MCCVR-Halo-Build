@@ -19173,7 +19173,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             {secondaryP[0],secondaryP[1],secondaryP[2]}};
                         const bool dualReticles=dual_reticle::Eligible(reticleTitle,
                             SecondaryWeaponPresentationActive(),haveAim,secondaryTracked,
-                            g_config.crosshair,VR_HudHidden(),theaterPresentation) &&
+                            g_config.crosshair,VR_HudHidden(),theaterPresentation,
+                            Game_SecondaryShotsOwnLine(reticleTitle)) &&
                             PrepareDualReticleImage();
                         const uint64_t reticleSpace=g_contactSpaceEpoch.load(std::memory_order_acquire);
                         const uint32_t reticleGeneration=TitleAdapter_GetGeneration(reticleTitle);

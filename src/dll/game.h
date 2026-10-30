@@ -19,6 +19,10 @@ void Game_PublishAuthoredGrip(GameTitle title, uint32_t generation,
 
 // True only for a current, occupied support hand in Halo 3.
 bool Game_BlockHalo3SupportPickup() noexcept;
+// Whether a dual-wielded second gun's shots leave on a line of their own (Halo 2, Halo 3): independent dual aim,
+// or barrel aim through the muzzle lane, with the dual lane's hooks live. Otherwise both guns fire along the game's
+// one aim: a proof failure (Project Reclaimer's Halo 3), a fault, the co-op guard, or both options off.
+bool Game_SecondaryShotsOwnLine(GameTitle title) noexcept;
 
 // Read-only, generation-tagged controller bindings. No game memory is touched
 // on the caller's thread. False means there is no verified current snapshot.
