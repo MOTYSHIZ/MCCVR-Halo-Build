@@ -122,6 +122,30 @@ int main()
         DeleteFileW(path);
     }
 
+    // A file from before the 0.080 m grab-zone default keeps its side adjustment relative to the old 0.030 m
+    // default, even one outside the new range; nothing is written on load; a saved file is not shifted again.
+    const auto closeTo=[](float a,float b){return std::fabs(a-b)<.0001f;};
+    const auto loadZone=[&](const char* text) {
+        FILE* zone=nullptr;
+        _wfopen_s(&zone,path,L"wt");
+        Check(zone!=nullptr,"grab zone fixture opens");
+        if (zone) {std::fputs(text,zone);std::fclose(zone);}
+        ConfigLoad(path);
+    };
+    loadZone("two_hand_zone_right_m = 0.030\n");
+    Check(closeTo(g_config.two_hand_zone_right_m,.08f),"a file at the old grab zone default gets the new default");
+    FILE* zoneFile=nullptr;_wfopen_s(&zoneFile,path,L"rt");char zoneText[64]{};
+    if (zoneFile) {std::fread(zoneText,1,sizeof(zoneText)-1,zoneFile);std::fclose(zoneFile);}
+    Check(!std::strcmp(zoneText,"two_hand_zone_right_m = 0.030\n"),"loading an old grab zone file does not rewrite it");
+    loadZone("two_hand_zone_right_m = -0.050\n");
+    Check(closeTo(g_config.two_hand_zone_right_m,0.f),"an old grab zone adjustment is kept relative to the old default");
+    g_config.two_hand_zone_right_m=.1f;
+    ConfigSave();ConfigLoad(path);
+    Check(closeTo(g_config.two_hand_zone_right_m,.1f),"a saved grab zone is not shifted again");
+    loadZone("two_hand_zone_baseline_version = 1\ntwo_hand_zone_right_m = 0.030\n");
+    Check(closeTo(g_config.two_hand_zone_right_m,.03f),"a version 1 grab zone is read as written");
+    DeleteFileW(path);
+
     // Visible hand offsets (shared and per title) survive load, a title switch and reload.
     FILE* retired=nullptr;
     _wfopen_s(&retired,path,L"wt");

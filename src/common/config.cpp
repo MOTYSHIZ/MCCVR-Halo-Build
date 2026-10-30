@@ -1035,6 +1035,8 @@ void ConfigLoad(const wchar_t* path)
     bool flashlightMappingV2 = false;
     bool leftHandForwardResetV1 = false;
     bool loadedSharedLeftHandForward = false;
+    bool twoHandZoneBaselineV1 = false;
+    bool loadedTwoHandZoneRight = false;
     bool aimDirectDriveSeen = false;
     bool coopSafeShotsV2 = false;   // coop_safe_shots_version >= 2: a 1 in this file is a chosen "always"
     bool loadedLegacyVirtualStockStrength = false;
@@ -1079,6 +1081,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"bloom_defaults_version")) continue;
         if (!strcmp(key,"left_hand_forward_reset_version")) {leftHandForwardResetV1=atoi(val)>=1;continue;}
         if (!strcmp(key,"left_hand_forward_m")) loadedSharedLeftHandForward=true;
+        if (!strcmp(key,"two_hand_zone_baseline_version")) {twoHandZoneBaselineV1=atoi(val)>=1;continue;}
+        if (!strcmp(key,"two_hand_zone_right_m")) loadedTwoHandZoneRight=true;
         if (ParseWeaponAlignmentKey(key,val)||ParseTitleProfileKey(key, val))
             continue;
         bool vrBindingKey=false;
@@ -2148,6 +2152,13 @@ void ConfigLoad(const wchar_t* path)
             "choose Always on the Advanced page to keep it on everywhere");
     }
     Config_ApplyAimModes();
+    if (!twoHandZoneBaselineV1 && loadedTwoHandZoneRight) {
+        // The grab zone's default side offset moved from 0.030 m to 0.080 m, and every saved file holds the
+        // old default. Keep each saved adjustment relative to it (a file at the old default reads 0.080).
+        // Before Clamp, which applies the new range. In memory only: the next save writes it.
+        constexpr float kLegacyTwoHandZoneRight=0.03f,kTwoHandZoneRight=0.08f;
+        g_config.two_hand_zone_right_m+=kTwoHandZoneRight-kLegacyTwoHandZoneRight;
+    }
     Clamp();
     NormalizeVirtualStockProximityPair();
     NormalizeVirtualStockHybridSeatPair();
@@ -3638,6 +3649,8 @@ void ConfigSave()
     fprintf(f, "# Sideways nudge of the two-hand grab zone (+ = player's right), so the\n");
     fprintf(f, "# grab line sits on the visible barrel, in meters (absolute; menu zero = 0.080 m).\n");
     fprintf(f, "# (default %.3f, absolute range -0.02 to 0.18; menu -0.10 to 0.10)\n", d.two_hand_zone_right_m);
+    fprintf(f, "# 1 = two_hand_zone_right_m below is measured with the 0.080 m default.\n");
+    fprintf(f, "two_hand_zone_baseline_version = 1\n");
     fprintf(f, "two_hand_zone_right_m = %.3f\n\n", g_config.two_hand_zone_right_m);
     fprintf(f, "# Support-controller-to-palm depth for two-hand grab acquisition only, in meters.\n");
     fprintf(f, "# Does not change aim geometry, hand seating, or shots.\n");
