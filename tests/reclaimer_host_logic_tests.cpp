@@ -62,6 +62,22 @@ int main()
         CHECK(WithCenteredCrosshair("{\"centered_crosshair\": 1}", out) == CenteredCrosshairEdit::Unreadable);
         CHECK(WithCenteredCrosshair("[1, 2]", out) == CenteredCrosshairEdit::Unreadable);
     }
+    // The client's display mode: exclusive fullscreen becomes borderless, changing nothing else.
+    {
+        std::string out;
+        CHECK(WithoutExclusiveFullscreen("{\n    \"display_mode\": \"exclusive_fullscreen\",\n    \"fov\": 70\n}", out) ==
+                  DisplayModeEdit::MadeBorderless &&
+              out == "{\n    \"display_mode\": \"borderless\",\n    \"fov\": 70\n}");
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\" :\"exclusive_fullscreen\"}", out) ==
+                  DisplayModeEdit::MadeBorderless &&
+              out == "{\"display_mode\" :\"borderless\"}");
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": \"borderless\"}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": \"windowed\"}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": \"exclusive_fullscreen_x\"}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"fov\": 70}", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("", out) == DisplayModeEdit::Kept);
+        CHECK(WithoutExclusiveFullscreen("{\"display_mode\": 2}", out) == DisplayModeEdit::Unreadable);
+    }
     CHECK(IsClientExeName(L"project-reclaimer-client-v0.9.23.exe"));
     CHECK(IsClientExeName(L"project-reclaimer-client.exe"));
     CHECK(IsClientExeName(Leaf(L"D:\\Some Games\\Project Reclaimer\\0.9.23\\project-reclaimer-client-v0.9.23.exe")));
@@ -407,6 +423,53 @@ int main()
         CHECK(!FitNativeRenderSize(w, h));
         w = 20000; h = 100;                             // no size in range has that shape
         CHECK(!FitNativeRenderSize(w, h));
+    }
+    {
+        // The client's display mode as its settings state it.
+        CHECK(ReadClientDisplayMode("{\"display_mode\": \"windowed\"}") == ClientDisplayMode::Windowed);
+        CHECK(ReadClientDisplayMode("{\n  \"display_mode\" : \"borderless\"\n}") == ClientDisplayMode::Borderless);
+        CHECK(ReadClientDisplayMode("{\"display_mode\":\"exclusive_fullscreen\"}") ==
+              ClientDisplayMode::ExclusiveFullscreen);
+        CHECK(ReadClientDisplayMode("{\"fov\": 70}") == ClientDisplayMode::Borderless);
+        CHECK(ReadClientDisplayMode("") == ClientDisplayMode::Borderless);
+        CHECK(ReadClientDisplayMode("{\"display_mode\": 2}") == ClientDisplayMode::Unknown);
+        CHECK(ReadClientDisplayMode("{\"display_mode\": \"fullscreen\"}") == ClientDisplayMode::Unknown);
+    }
+    {
+        // What Native is answered: never a size larger than the display, and the real mode in exclusive fullscreen.
+        unsigned w = 0, h = 0;
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::Borderless, true, w, h) ==
+                  NativeAnswer::PanelWithinDisplay &&
+              w == 1996 && h == 1440);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 3840, 2160, ClientDisplayMode::Borderless, true, w, h) ==
+                  NativeAnswer::Panel &&
+              w == 2912 && h == 2100);
+        CHECK(AnswerNativeRenderSize(2184, 1576, 3840, 2160, ClientDisplayMode::Windowed, true, w, h) ==
+                  NativeAnswer::Panel &&
+              w == 2184 && h == 1576);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::ExclusiveFullscreen, true, w, h) ==
+                  NativeAnswer::Display &&
+              w == 2560 && h == 1440);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::Unknown, true, w, h) ==
+                  NativeAnswer::PanelWithinDisplay &&
+              w <= 2560 && h <= 1440);
+        CHECK(AnswerNativeRenderSize(4000, 1000, 2560, 1440, ClientDisplayMode::Borderless, true, w, h) ==
+                  NativeAnswer::PanelWithinDisplay &&
+              w == 2560 && h == 640);                   // too wide: the width is the limit
+        CHECK(AnswerNativeRenderSize(2912, 2100, 640, 480, ClientDisplayMode::Borderless, true, w, h) ==
+                  NativeAnswer::Display &&
+              w == 640 && h == 480);                    // scaled down it would be under 480 high
+        CHECK(AnswerNativeRenderSize(0, 2100, 2560, 1440, ClientDisplayMode::Borderless, true, w, h) ==
+                  NativeAnswer::Display &&
+              w == 2560 && h == 1440);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 0, 0, ClientDisplayMode::Borderless, true, w, h) == NativeAnswer::Display);
+        // Fitting turned off: the Picture panel's full size, larger than the display; exclusive still the real size.
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::Borderless, false, w, h) ==
+                  NativeAnswer::Panel &&
+              w == 2912 && h == 2100);
+        CHECK(AnswerNativeRenderSize(2912, 2100, 2560, 1440, ClientDisplayMode::ExclusiveFullscreen, false, w, h) ==
+                  NativeAnswer::Display &&
+              w == 2560 && h == 1440);
     }
 
     if (g_failed)

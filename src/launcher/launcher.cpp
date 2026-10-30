@@ -1182,15 +1182,16 @@ ClientInfo Describe(const std::filesystem::path& launcherDir, const std::wstring
 }
 } // namespace reclaimer_launch
 
-// Turn on the client's Centered crosshair (reclaimer_host::WithCenteredCrosshair) in its settings.json, under
-// Documents\My Games\Project Reclaimer, before it starts and reads it. Written through a temporary file, so the
-// player's settings are never left half written.
-static void ReclaimerEnsureCenteredCrosshair()
+// Prepare the client's settings.json, under Documents\My Games\Project Reclaimer, before it starts and reads it:
+// Centered crosshair on (reclaimer_host::WithCenteredCrosshair) and exclusive fullscreen made borderless
+// (reclaimer_host::WithoutExclusiveFullscreen). Written through a temporary file, so the player's settings are
+// never left half written.
+static void ReclaimerPrepareSettings()
 {
     PWSTR documents = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents)) || !documents)
     {
-        LauncherLog("Project Reclaimer's centered crosshair: the Documents folder is unknown; left as it is");
+        LauncherLog("Project Reclaimer's settings: the Documents folder is unknown; left as they are");
         return;
     }
     const std::filesystem::path folder = std::filesystem::path(documents) / L"My Games" / L"Project Reclaimer";
@@ -1208,20 +1209,33 @@ static void ReclaimerEnsureCenteredCrosshair()
             fclose(f);
         }
     }
-    std::string out;
-    const reclaimer_host::CenteredCrosshairEdit edit = reclaimer_host::WithCenteredCrosshair(text, out);
-    if (edit == reclaimer_host::CenteredCrosshairEdit::AlreadyOn)
-    {
+    bool changed = false;
+    std::string crosshairOut;
+    const reclaimer_host::CenteredCrosshairEdit crosshair = reclaimer_host::WithCenteredCrosshair(text, crosshairOut);
+    if (crosshair == reclaimer_host::CenteredCrosshairEdit::AlreadyOn)
         LauncherLog("Project Reclaimer's centered crosshair: already on");
-        return;
-    }
-    if (edit == reclaimer_host::CenteredCrosshairEdit::Unreadable)
-    {
+    else if (crosshair == reclaimer_host::CenteredCrosshairEdit::Unreadable)
         LauncherLog("Project Reclaimer's centered crosshair: %ls could not be read as its settings; left as it is. "
                     "Turn on Settings > HUD > Centered crosshair in the game, or the hand will not take over its aim",
                     file.c_str());
-        return;
+    else
+    {
+        text = crosshairOut;
+        changed = true;
     }
+    std::string displayOut;
+    const reclaimer_host::DisplayModeEdit display = reclaimer_host::WithoutExclusiveFullscreen(text, displayOut);
+    if (display == reclaimer_host::DisplayModeEdit::MadeBorderless)
+    {
+        text = displayOut;
+        changed = true;
+    }
+    else if (display == reclaimer_host::DisplayModeEdit::Unreadable)
+        LauncherLog("Project Reclaimer's display mode: could not be read in %ls; left as it is. If the game starts "
+                    "in exclusive fullscreen, choose Borderless or Windowed in its display settings",
+                    file.c_str());
+    if (!changed)
+        return;
     std::error_code ec;
     std::filesystem::create_directories(folder, ec);
     const std::filesystem::path temp = folder / L"settings.json.vr-launcher-tmp";
@@ -1229,18 +1243,24 @@ static void ReclaimerEnsureCenteredCrosshair()
     bool written = false;
     if (_wfopen_s(&f, temp.c_str(), L"wb") == 0 && f)
     {
-        written = fwrite(out.data(), 1, out.size(), f) == out.size();
+        written = fwrite(text.data(), 1, text.size(), f) == text.size();
         written = (fclose(f) == 0) && written;
     }
     if (!written || !MoveFileExW(temp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
     {
         DeleteFileW(temp.c_str());
-        LauncherLog("Project Reclaimer's centered crosshair: could not write %ls; left as it is", file.c_str());
+        LauncherLog("Project Reclaimer's settings: could not write %ls; left as they are", file.c_str());
         return;
     }
-    LauncherLog("Project Reclaimer's centered crosshair: turned on in %ls (%s)", file.c_str(),
-                edit == reclaimer_host::CenteredCrosshairEdit::Created ? "a new settings file"
-                                                                       : "nothing else in it changed");
+    if (crosshair == reclaimer_host::CenteredCrosshairEdit::TurnedOn ||
+        crosshair == reclaimer_host::CenteredCrosshairEdit::Created)
+        LauncherLog("Project Reclaimer's centered crosshair: turned on in %ls (%s)", file.c_str(),
+                    crosshair == reclaimer_host::CenteredCrosshairEdit::Created ? "a new settings file"
+                                                                                : "nothing else in it changed");
+    if (display == reclaimer_host::DisplayModeEdit::MadeBorderless)
+        LauncherLog("Project Reclaimer's display mode: exclusive fullscreen changed to borderless in %ls. In "
+                    "exclusive fullscreen the game slows to about 10 fps beside the headset and the graphics card is "
+                    "reset; the desktop window is only a mirror of the headset's picture", file.c_str());
 }
 
 static int LaunchReclaimer(const std::wstring& dir, const ReclaimerClient& client)
@@ -1308,7 +1328,7 @@ static int LaunchReclaimer(const std::wstring& dir, const ReclaimerClient& clien
                  L"starts.");
         return kExitFailed;
     }
-    ReclaimerEnsureCenteredCrosshair();
+    ReclaimerPrepareSettings();
     // The relay's log is this launch's: several processes append to it.
     {
         FILE* f = nullptr;

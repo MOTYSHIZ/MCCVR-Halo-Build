@@ -1746,6 +1746,16 @@ void ConfigLoad(const wchar_t* path)
             g_config.game_menu_pointer = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "allow_ofxr_bridge"))
+        {
+            g_config.allow_ofxr_bridge = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "reclaimer_fit_to_display"))
+        {
+            g_config.reclaimer_fit_to_display = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "config_version"))
         {
             char* end = nullptr;
@@ -2373,6 +2383,15 @@ void ConfigSave()
     fprintf(f, "# Aim the primary controller at MCC / pause menus; trigger clicks.\n");
     fprintf(f, "# Optional; requires MCC desktop focus. Does not affect gameplay or F1.\n");
     fprintf(f, "game_menu_pointer = %d\n\n", g_config.game_menu_pointer ? 1 : 0);
+    fprintf(f, "# Let OFXR Bridge (an OpenXR frame-generation layer) run in this game.\n");
+    fprintf(f, "# Off by default: OFXR has crashed the mod a few seconds in. Off keeps\n");
+    fprintf(f, "# OFXR out of this game only; other games still get it. Applies at launch.\n");
+    fprintf(f, "allow_ofxr_bridge = %d\n\n", g_config.allow_ofxr_bridge ? 1 : 0);
+    fprintf(f, "# Project Reclaimer: keep its picture no larger than your monitor (Display\n");
+    fprintf(f, "# mode Borderless, Render resolution Native). A picture larger than the\n");
+    fprintf(f, "# screen is suspected of stopping the graphics card on some PCs; 0 gives it\n");
+    fprintf(f, "# the Picture panel's full size. Applies at Project Reclaimer's next start.\n");
+    fprintf(f, "reclaimer_fit_to_display = %d\n\n", g_config.reclaimer_fit_to_display ? 1 : 0);
     fprintf(f, "# Show the welcome page by itself once at the start of each launch.\n");
     fprintf(f, "# Tick \"Don't show this again\" on that page to clear this. The page\n");
     fprintf(f, "# itself always stays in the F1 menu, so you can read it again later.\n");

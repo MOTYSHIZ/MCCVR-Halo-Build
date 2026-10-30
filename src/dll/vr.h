@@ -590,6 +590,8 @@ void VR_AfterPresent(IDXGISwapChain* swapchain, int64_t presentStartQpc,
                      int64_t presentEndQpc, HRESULT presentResult);
 bool VR_OnResizeBuffers(IDXGISwapChain* swapchain);
 void VR_AfterResizeBuffers(IDXGISwapChain* swapchain);
+// The D3D11 device the headset's session was made on, as an identity (null until there is a session). Any thread.
+ID3D11Device* VR_SessionDevice();
 
 // Existing title worker only: drains and formats completed transition traces.
 // Render, camera, and palette hooks only publish fixed-size POD records.
