@@ -1840,12 +1840,18 @@ namespace
                                 "Off whenever the game leaves first person (vehicle seats, turrets,\n"
                                 "third-person, death and Monitor cameras, cutscenes): your main hand\n"
                                 "aims alone. A grip held through it needs a fresh grip in first person.");
-            changed |= ImGui::Checkbox("Weapon sets one- or two-handed aim",
-                &g_config.two_hand_grip_zone_authority);
-            ImGui::TextDisabled(
-                "The weapon's grip zone decides, not how far apart your hands read each frame: a pistol-style\n"
-                "hold stays one-handed aim and a long gun stays two-handed, so a brief controller tracking\n"
-                "drop-out cannot switch it. Off: the distance between your hands decides every frame.");
+            ImGui::Text("While gripping, choose one- or two-handed aim by");
+            if (ImGui::RadioButton("Weapon##twohandaimby", g_config.two_hand_grip_zone_authority))
+            { g_config.two_hand_grip_zone_authority = true; changed = true; }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Distance between hands##twohandaimby", !g_config.two_hand_grip_zone_authority))
+            { g_config.two_hand_grip_zone_authority = false; changed = true; }
+            ImGui::TextDisabled(g_config.two_hand_grip_zone_authority
+                ? "Set once by the weapon's grip zone: pistol-style holds aim one-handed, long guns two-handed.\n"
+                  "It does not switch during play, so a brief controller tracking drop-out cannot change it."
+                : "Checked live: hands close together aim one-handed, hands further apart aim two-handed.\n"
+                  "A brief controller tracking drop-out can read as far apart and switch it for a moment.");
+            ImGui::Spacing();
             ImGui::Text("Grip mode");
             if (ImGui::RadioButton("Toggle (click grip)", g_config.two_hand_toggle))
             { g_config.two_hand_toggle = true; changed = true; }
