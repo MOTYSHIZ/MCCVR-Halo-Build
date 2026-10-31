@@ -328,6 +328,7 @@ void AimTraceDev_Flush();   // a seat's aim, poll by poll (defined beside the ai
 #endif
 void Halo3SeatViewArm(int32_t unit);
 void Halo3SeatViewDisarm();
+void Halo3SeatViewArmChase(int32_t unit);
 // The hook on Halo 4's type-13 pilot controller halo4+0xAA524 (the Broadsword; halo4_type13_drive.inl): the game's
 // own controller, then the hand's aim written to the direct drive's record. Installed and removed inside Halo 4's
 // camera core. Halo4FlightPilotLive: the input thread's word that this craft's pilot is being written.
