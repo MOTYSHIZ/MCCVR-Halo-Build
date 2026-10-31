@@ -552,6 +552,10 @@ struct Config
     // (reclaimer_host::AnswerNativeRenderSize). A picture larger than the screen is suspected of stopping the graphics
     // card on some PCs; off gives it the Picture panel's full size. Exclusive fullscreen always gets the real size.
     bool reclaimer_fit_to_display = true;
+    // Project Reclaimer: a title it starts after the first (ODST, after Halo 3's menu) gets the headset session's D3D11
+    // device instead of a new one, which the headset could not show (present_owner_logic.h DecideDeviceShare).
+    // Off: that title freezes in the headset, as before.
+    bool reclaimer_share_device = true;
 
     // Show the welcome page automatically, once, at the start of each launch.
     // The mod has no other way to tell a player anything before they play: the
@@ -653,8 +657,8 @@ struct Config
     // from your eye (fading over the last fifth, at most 5 m), 0 = no limit. Objective markers and flag, ball and
     // bomb carriers keep the game's own. Halo 3, in MCC and in Project Reclaimer. Read live, every HUD draw.
     bool player_tags_show = true;
-    float player_tags_scale = 1.0f;            // 0.25 to 2
-    float player_tags_opacity = 1.0f;          // 0 to 1
+    float player_tags_scale = 0.45f;           // 0.25 to 2
+    float player_tags_opacity = 0.15f;         // 0 to 1
     float player_tags_max_distance_m = 0.0f;   // 0 to 300
     // DEV BUILDS ONLY (parsed and saved there; a player build always has the default).
     // nav_marker_witness: 1 = report the pixel the game puts each marker on against the pixel the eye's own
@@ -1452,9 +1456,6 @@ struct Config
     float aim_frame_size_deg[2]{100.0f, 100.0f};
     float aim_frame_strength[2]{1.5f, 1.5f};
     float aim_frame_move_s = 0.12f;
-    // The width of the game's HUD and zoom art inside the frame, as a multiple of the shape that is right in
-    // MCC. A host whose HUD comes out narrower or wider there is trimmed with it. 0.8 to 1.25.
-    float aim_frame_hud_width = 1.0f;
     float scope_screen_width_m = 0.159f;
     float scope_screen_right_m = -0.058f;
     float scope_screen_up_m = 0.216f;

@@ -694,8 +694,6 @@ static void Clamp()
         ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 10.0f) : 6.0f;
     g_config.aim_frame_move_s = std::isfinite(g_config.aim_frame_move_s)
         ? std::clamp(g_config.aim_frame_move_s, 0.0f, 1.0f) : 0.12f;
-    g_config.aim_frame_hud_width = std::isfinite(g_config.aim_frame_hud_width)
-        ? std::clamp(g_config.aim_frame_hud_width, 0.8f, 1.25f) : 1.0f;
     g_config.scope_screen_width_m = std::clamp(g_config.scope_screen_width_m, 0.04f, 0.25f);
     g_config.scope_screen_right_m = std::clamp(g_config.scope_screen_right_m, -0.30f, 0.30f);
     g_config.scope_screen_up_m = std::clamp(g_config.scope_screen_up_m, -0.20f, 0.30f);
@@ -1453,7 +1451,6 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "aim_frame_strength_1")) { g_config.aim_frame_strength[0] = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_strength_2")) { g_config.aim_frame_strength[1] = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_move_s")) { g_config.aim_frame_move_s = (float)atof(val); continue; }
-        if (!strcmp(key, "aim_frame_hud_width")) { g_config.aim_frame_hud_width = (float)atof(val); continue; }
         if (!strcmp(key, "hook_cost_frames"))
         {
             const int frames = atoi(val);
@@ -1788,6 +1785,11 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "allow_ofxr_bridge"))
         {
             g_config.allow_ofxr_bridge = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "reclaimer_share_device"))
+        {
+            g_config.reclaimer_share_device = atoi(val) != 0;
             continue;
         }
         if (!strcmp(key, "reclaimer_fit_to_display"))
@@ -2431,6 +2433,9 @@ void ConfigSave()
     fprintf(f, "# screen is suspected of stopping the graphics card on some PCs; 0 gives it\n");
     fprintf(f, "# the Picture panel's full size. Applies at Project Reclaimer's next start.\n");
     fprintf(f, "reclaimer_fit_to_display = %d\n\n", g_config.reclaimer_fit_to_display ? 1 : 0);
+    fprintf(f, "# Project Reclaimer: show a game it starts after the first (ODST, after Halo 3's menu) in the\n");
+    fprintf(f, "# headset, by giving it the headset's graphics device. 0 = that game freezes in the headset.\n");
+    fprintf(f, "reclaimer_share_device = %d\n\n", g_config.reclaimer_share_device ? 1 : 0);
     fprintf(f, "# Show the welcome page by itself once at the start of each launch.\n");
     fprintf(f, "# Tick \"Don't show this again\" on that page to clear this. The page\n");
     fprintf(f, "# itself always stays in the F1 menu, so you can read it again later.\n");
@@ -3306,9 +3311,6 @@ void ConfigSave()
     fprintf(f, "# Seconds the frame takes to move between the normal view and the frame. 0 = at once.\n");
     fprintf(f, "# (default %.2f, range 0 to 1)\n", d.aim_frame_move_s);
     fprintf(f, "aim_frame_move_s = %.2f\n\n", g_config.aim_frame_move_s);
-    fprintf(f, "# The width of the HUD and zoom art inside the frame, as a multiple of MCC's shape. (default %.2f, range 0.8 to 1.25)\n",
-            d.aim_frame_hud_width);
-    fprintf(f, "aim_frame_hud_width = %.3f\n\n", g_config.aim_frame_hud_width);
     fprintf(f, "# Default experimental magnification used for every weapon.\n");
     fprintf(f, "# Initial zoom restored whenever R3 opens the scope; right-stick Y adjusts it.\n");
     fprintf(f, "# (default %.2f, range 6.0 to 24.0)\n", d.scope_zoom);

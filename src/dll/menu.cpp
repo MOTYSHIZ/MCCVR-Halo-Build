@@ -2219,10 +2219,6 @@ namespace
             changed |= vr_menu::SliderFloat("Move time (s)##aimframe", &g_config.aim_frame_move_s,
                                           0.0f, 1.0f, "%.2f");
             ImGui::TextDisabled("How long the frame takes to grow out of the view and back. 0 = at once.");
-            changed |= vr_menu::SliderFloat("HUD width in the frame##aimframe", &g_config.aim_frame_hud_width,
-                                          0.8f, 1.25f, "%.3fx");
-            ImGui::TextDisabled("Widens (above 1) or narrows the game's HUD and zoom art inside the frame, if it\n"
-                                "looks squeezed. 1 is right in MCC.");
             ImGui::Unindent();
         }
         }
@@ -2561,6 +2557,11 @@ namespace
         {
             // What its Native read is given: no larger than its display while fitting is on, and its display's own
             // size in exclusive fullscreen (d3d11_hook.cpp, HostEnumDisplaySettingsShim).
+            changed |= ImGui::Checkbox("Show later games in the headset",&g_config.reclaimer_share_device);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Lets a game Project Reclaimer starts after the first (ODST, after Halo 3's menu) "
+                                  "reach the headset, by giving it the headset's graphics device.\n"
+                                  "Off: that game freezes in the headset. Applies the next time a game starts.");
             changed |= ImGui::Checkbox("Fit to my monitor",&g_config.reclaimer_fit_to_display);
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("Keeps Project Reclaimer's picture no larger than your monitor. A picture larger\n"

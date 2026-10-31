@@ -1983,10 +1983,19 @@ static void CheckSessionDeviceHealth()
 // When the game's swapchain last presented (HostDeviceHook: a host's new device is its next engine's only then).
 static std::atomic<uint64_t> g_lastGamePresentMs{0};
 
+// A HOST'S SECOND DEVICE: a hand-over awaiting its first game frame (0 none), and that frame's arrival.
+static std::atomic<uint64_t> g_deviceSharedAtMs{0};
+static void DeviceShareProved(uint64_t now);
+
 static void NotePresentResult(IDXGISwapChain* sc, HRESULT hr, bool game)
 {
     if (game)
-        g_lastGamePresentMs.store(GetTickCount64(), std::memory_order_relaxed);
+    {
+        const uint64_t now = GetTickCount64();
+        g_lastGamePresentMs.store(now, std::memory_order_relaxed);
+        if (SUCCEEDED(hr) && g_deviceSharedAtMs.load(std::memory_order_relaxed))
+            DeviceShareProved(now);
+    }
     if (!FAILED(hr) || !sc)
         return;
     ID3D11Device* device = nullptr;
@@ -2034,13 +2043,19 @@ static HRESULT CreateSwapChainForHwndBody(IDXGIFactory2* self, IUnknown* device,
                                         restrictOut, ppSwapChain);
 }
 
+// After a hand-over the old engine's swapchain is on the device the new one uses, and a flip swapchain on a window
+// is refused until the old one's last use is flushed: clear and flush once, and ask again. False: not this case.
+static bool RetrySwapchainAfterDeviceShare(HRESULT hr);
+
 static HRESULT STDMETHODCALLTYPE CreateSwapChainForHwndHook(IDXGIFactory2* self, IUnknown* device,
     HWND hwnd, const DXGI_SWAP_CHAIN_DESC1* pDesc,
     const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* pFullscreen, IDXGIOutput* restrictOut,
     IDXGISwapChain1** ppSwapChain)
 {
     SwapchainsChanged();
-    const HRESULT hr = CreateSwapChainForHwndBody(self, device, hwnd, pDesc, pFullscreen, restrictOut, ppSwapChain);
+    HRESULT hr = CreateSwapChainForHwndBody(self, device, hwnd, pDesc, pFullscreen, restrictOut, ppSwapChain);
+    if (RetrySwapchainAfterDeviceShare(hr))
+        hr = CreateSwapChainForHwndBody(self, device, hwnd, pDesc, pFullscreen, restrictOut, ppSwapChain);
     SwapchainsChanged();
     return hr;
 }
@@ -2080,7 +2095,9 @@ static HRESULT STDMETHODCALLTYPE CreateSwapChainHook(IDXGIFactory* self, IUnknow
     DXGI_SWAP_CHAIN_DESC* pDesc, IDXGISwapChain** ppSwapChain)
 {
     SwapchainsChanged();
-    const HRESULT hr = CreateSwapChainBody(self, device, pDesc, ppSwapChain);
+    HRESULT hr = CreateSwapChainBody(self, device, pDesc, ppSwapChain);
+    if (RetrySwapchainAfterDeviceShare(hr))
+        hr = CreateSwapChainBody(self, device, pDesc, ppSwapChain);
     SwapchainsChanged();
     return hr;
 }
@@ -2098,6 +2115,82 @@ static bool CallerIsHostExe(void* returnAddress)
     return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                               static_cast<LPCWSTR>(returnAddress), &caller) &&
         caller == GetModuleHandleW(nullptr);
+}
+
+// Beside the log: written just before a hand-over, removed by its first game frame. Still there at the next launch,
+// the hand-over ended in a crash or at a frozen picture: that launch stands down, and the one after may try again.
+static bool DeviceShareMarkerPath(wchar_t* path, size_t capacity)
+{
+    const wchar_t* dir = LogDirectory();
+    return dir && *dir && _snwprintf_s(path, capacity, _TRUNCATE, L"%lsHaloMCCVR-device-share.pending", dir) > 0;
+}
+static std::atomic<bool> g_deviceShareStoodDown{false};
+static void ReadDeviceShareMarker()
+{
+    wchar_t path[MAX_PATH];
+    if (!DeviceShareMarkerPath(path, MAX_PATH) || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES)
+        return;
+    DeleteFileW(path);
+    g_deviceShareStoodDown.store(true, std::memory_order_relaxed);
+    LOG("host device: the last launch's hand-over never reached a game frame (it crashed or was closed at a frozen "
+        "picture); this launch leaves the host its own devices, and the next may try again");
+}
+static void WriteDeviceShareMarker()
+{
+    wchar_t path[MAX_PATH];
+    if (!DeviceShareMarkerPath(path, MAX_PATH))
+        return;
+    const HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE)
+        CloseHandle(file);
+}
+static void DeviceShareProved(uint64_t now)
+{
+    const uint64_t at = g_deviceSharedAtMs.exchange(0, std::memory_order_relaxed);
+    if (!at)
+        return;
+    wchar_t path[MAX_PATH];
+    if (DeviceShareMarkerPath(path, MAX_PATH))
+        DeleteFileW(path);
+    LOG("host device: the next engine's first frame on the session's device, %llu ms after the hand-over",
+        static_cast<unsigned long long>(now - at));
+}
+
+// Faults here are the old engine's teardown meeting the context: the caller then leaves the host its own device.
+static bool ClearContextForHandOver(ID3D11DeviceContext* context)
+{
+    __try
+    {
+        context->ClearState();
+        context->Flush();
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+}
+
+static bool RetrySwapchainAfterDeviceShare(HRESULT hr)
+{
+    static std::atomic<uint64_t> retriedFor{0};
+    const uint64_t at = g_deviceSharedAtMs.load(std::memory_order_relaxed);
+    if (SUCCEEDED(hr) || !at)
+        return false;
+    LOG("host device: a swapchain after the hand-over was refused (0x%08X)%s", static_cast<unsigned>(hr),
+        hr == E_ACCESSDENIED && retriedFor.load(std::memory_order_relaxed) != at ? "; clearing the context and asking "
+                                                                                   "once more" : "");
+    if (hr != E_ACCESSDENIED || retriedFor.exchange(at, std::memory_order_relaxed) == at)
+        return false;
+    ID3D11Device* const session = VR_SessionDevice();
+    ID3D11DeviceContext* context = nullptr;
+    if (session)
+        session->GetImmediateContext(&context);
+    if (!context)
+        return false;
+    const bool cleared = ClearContextForHandOver(context);
+    context->Release();
+    return cleared;
 }
 
 static bool SameAdapter(IDXGIAdapter* requested, ID3D11Device* session)
@@ -2133,9 +2226,16 @@ static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driv
     if (usable && levels)
         for (UINT i = 0; i < levelCount; ++i)
             levelAccepted = levelAccepted || levels[i] == session->GetFeatureLevel();
+    // One engine change, one thread. The same thread asking again is the host probing and then asking for real.
+    static std::atomic<DWORD> sharedThread{0};
+    static std::atomic<uint64_t> sharedAtMs{0};
+    const uint64_t sharedAt = sharedAtMs.load(std::memory_order_relaxed);
+    const bool anotherThreadHasIt = sharedAt && last <= sharedAt &&
+        sharedThread.load(std::memory_order_relaxed) != GetCurrentThreadId();
     present_owner::DeviceShare decision = present_owner::DecideDeviceShare(
         deviceOut != nullptr, CallerIsHostExe(_ReturnAddress()), session != nullptr, lost, quietMs,
-        usable && SameAdapter(adapter, session), flags, usable ? session->GetCreationFlags() : 0u, levelAccepted);
+        usable && SameAdapter(adapter, session), flags, usable ? session->GetCreationFlags() : 0u, levelAccepted,
+        g_config.reclaimer_share_device, g_deviceShareStoodDown.load(std::memory_order_relaxed), anotherThreadHasIt);
 
     ID3D11DeviceContext* context = nullptr;
     ID3D11Multithread* multithread = nullptr;
@@ -2144,7 +2244,18 @@ static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driv
         session->GetImmediateContext(&context);
         if (context && SUCCEEDED(context->QueryInterface(__uuidof(ID3D11Multithread),
                                                          reinterpret_cast<void**>(&multithread))))
+        {
             multithread->SetMultithreadProtected(TRUE);
+            WriteDeviceShareMarker();
+            if (!ClearContextForHandOver(context))
+            {
+                LOG("host device: clearing the context faulted; the host keeps its own device");
+                wchar_t path[MAX_PATH];
+                if (DeviceShareMarkerPath(path, MAX_PATH))
+                    DeleteFileW(path);
+                decision = present_owner::DeviceShare::SessionLost;
+            }
+        }
         else
             decision = present_owner::DeviceShare::SessionLost;
     }
@@ -2162,9 +2273,10 @@ static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driv
         return g_origD3D11CreateDevice(adapter, driverType, software, flags, levels, levelCount, sdkVersion, deviceOut,
                                        levelOut, contextOut);
     }
-    context->ClearState();
-    context->Flush();
     multithread->Release();
+    sharedThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
+    sharedAtMs.store(now, std::memory_order_relaxed);
+    g_deviceSharedAtMs.store(now, std::memory_order_relaxed);
     SwapchainsChanged();
     session->AddRef();
     *deviceOut = session;
@@ -3875,6 +3987,7 @@ bool InstallD3D11Hooks()
 
     if (g_hostIsProjectReclaimer)
     {
+        ReadDeviceShareMarker();
         void* const createDevice = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"d3d11.dll"),
                                                                           "D3D11CreateDevice"));
         if (!createDevice || MH_CreateHook(createDevice, reinterpret_cast<void*>(&HostDeviceHook),

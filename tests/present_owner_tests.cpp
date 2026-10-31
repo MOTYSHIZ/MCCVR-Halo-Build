@@ -72,7 +72,22 @@ int main()
     Check(share(true, true, true, false, 1000, false, 0u, true) == DeviceShare::OtherAdapter, "another GPU");
     Check(share(true, true, true, false, 1000, true, 0x2u, true) == DeviceShare::FlagsDiffer, "a flag it lacks");
     Check(share(true, true, true, false, 1000, true, 0u, false) == DeviceShare::FeatureLevelRefused, "a level refused");
-    for (DeviceShare decision : {DeviceShare::Share, DeviceShare::NotAsked, DeviceShare::NotHostsCall,
+    Check(DecideDeviceShare(true, true, true, false, 1000, true, 0u, 0x20u, true, false) == DeviceShare::SwitchedOff,
+          "switched off");
+    Check(DecideDeviceShare(false, true, true, false, 1000, true, 0u, 0x20u, true, false) == DeviceShare::NotAsked,
+          "a probe is no decision of the switch's");
+    Check(DecideDeviceShare(true, true, true, false, 1000, true, 0u, 0x20u, true, true, true) ==
+              DeviceShare::LastAttemptFailed,
+          "the last launch's hand-over never reached a frame");
+    Check(DecideDeviceShare(true, true, true, false, 1000, true, 0u, 0x20u, true, true, false, true) ==
+              DeviceShare::AnotherThreadHasIt,
+          "one engine change, one thread");
+    Check(DecideDeviceShare(true, true, true, false, 0, true, 0u, 0x20u, true, true, true, true) ==
+              DeviceShare::GameStillPresenting,
+          "while the game draws no hand-over is even considered");
+    for (DeviceShare decision : {DeviceShare::SwitchedOff, DeviceShare::LastAttemptFailed,
+                                 DeviceShare::AnotherThreadHasIt, DeviceShare::Share, DeviceShare::NotAsked,
+                                 DeviceShare::NotHostsCall,
                                  DeviceShare::NoSession, DeviceShare::SessionLost, DeviceShare::GameStillPresenting,
                                  DeviceShare::OtherAdapter, DeviceShare::FlagsDiffer,
                                  DeviceShare::FeatureLevelRefused})
