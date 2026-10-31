@@ -680,6 +680,7 @@ namespace
     // The frame's shape: the flat game's 16:9, whatever the render surface's (the camera's own tangents are
     // nearly square on this engine, measured 88.8 x 89.0 deg).
     constexpr float kAimFrameAspect = 16.0f / 9.0f;
+    constexpr float kAimFrameReclaimerHudWidth = 1.25f;
     // Whether the title's HUD layout last written in full was the frame's (1) or the player's (0); -1 none yet.
     // The layout follows the frame one present behind it (HudLayoutAutoTick), and the crosshair is taken from
     // the HUD as drawn: AimFrameCrosshairReadyForCapture holds the capture until the two agree.
@@ -4613,9 +4614,10 @@ namespace
                         horizontal = size * correction;
                 }
             }
-            const float width = g_config.aim_frame_hud_width;
-            if (isfinite(width) && width >= 0.8f && width <= 1.25f)
-                horizontal *= width;
+            // Project Reclaimer's HUD and zoom art come out narrower in the frame under that correction; this
+            // width was set by eye in a headset. MCC's are right without it.
+            if (g_hostIsProjectReclaimer)
+                horizontal *= kAimFrameReclaimerHudWidth;
             return;
         }
         size = g_config.hud_size;
@@ -53447,15 +53449,7 @@ bool Game_GetHalo3HudSafeFrameInEffect(float& horizontal, float& vertical, float
     if (!(own >= 0.8f && own <= 1.0f))
     {
         // Not read yet this session: what each host's own reads.
-        static const float hostDefault = []
-        {
-            wchar_t path[MAX_PATH]{};
-            GetModuleFileNameW(nullptr, path, MAX_PATH);
-            for (wchar_t& c : path)
-                c = towlower(c);
-            return wcsstr(path, L"\\project-reclaimer") ? 0.97f : 0.87f;
-        }();
-        own = hostDefault;
+        own = g_hostIsProjectReclaimer ? 0.97f : 0.87f;
     }
     horizontal = vertical = own;
     if (size)
