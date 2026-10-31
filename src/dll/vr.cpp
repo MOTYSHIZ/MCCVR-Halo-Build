@@ -20337,6 +20337,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         LOG("desktop mirror: %s; eye %d, window %ldx%ld, backbuffer %ux%u",
                             mirrored?"on":"not drawn; the window keeps what the game presents",mirrorEye,
                             mirrorClient.right-mirrorClient.left,mirrorClient.bottom-mirrorClient.top,bd.Width,bd.Height);
+                        // Which window this swapchain really shows, against the one on top of the monitor.
+                        DXGI_SWAP_CHAIN_DESC mirrorChain{};
+                        sc->GetDesc(&mirrorChain);
+                        RECT shown{};GetWindowRect(mirrorChain.OutputWindow,&shown);
+                        POINT middle{(shown.left+shown.right)/2,(shown.top+shown.bottom)/2};
+                        const HWND top=GetAncestor(WindowFromPoint(middle),GA_ROOT);
+                        char chainClass[64]{},topClass[64]{};
+                        GetClassNameA(mirrorChain.OutputWindow,chainClass,sizeof(chainClass));
+                        GetClassNameA(top,topClass,sizeof(topClass));
+                        LOG("desktop mirror: the swapchain shows window %p (%s), visible %d, the mod's game window %p; "
+                            "on top at its middle: %p (%s); foreground %p",
+                            static_cast<void*>(mirrorChain.OutputWindow),chainClass,
+                            IsWindowVisible(mirrorChain.OutputWindow)?1:0,static_cast<void*>(D3D_GameWindow()),
+                            static_cast<void*>(top),topClass,static_cast<void*>(GetForegroundWindow()));
                     }
                 }
 

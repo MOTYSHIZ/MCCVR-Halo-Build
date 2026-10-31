@@ -685,6 +685,8 @@ namespace
     // The frame's shape: the flat game's 16:9, whatever the render surface's (the camera's own tangents are
     // nearly square on this engine, measured 88.8 x 89.0 deg).
     constexpr float kAimFrameAspect = 16.0f / 9.0f;
+    // How much wider than the picture's half-width visibility looks, on both axes.
+    constexpr float kAimFrameCullingCover = 1.5f;
     constexpr float kAimFrameReclaimerHudWidth = 1.25f;
     // Whether the title's HUD layout last written in full was the frame's (1) or the player's (0); -1 none yet.
     // The layout follows the frame one present behind it (HudLayoutAutoTick), and the crosshair is taken from
@@ -13893,6 +13895,12 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                     : ExpandVisibilityTangent(theaterFrustum.cullingTangentX);
                 cameraTangents[1] = preserveAuthoredProjection ? theaterFrustum.cullingTangentY
                     : ExpandVisibilityTangent(theaterFrustum.cullingTangentY);
+                if (aimFrameFrame)
+                {
+                    // The frame is narrow and wide: objects at its edges were culled. Visibility gets a square
+                    // cover around it; the projection below is still exactly the picture.
+                    cameraTangents[0] = cameraTangents[1] = aimFrame.tanX * kAimFrameCullingCover;
+                }
                 g_buildViewport(camera, temporary);
                 g_buildMatrices(camera, temporary, reinterpret_cast<char*>(view) + 0x98, 0.0f);
                 const float* finalProjection = reinterpret_cast<const float*>(
@@ -17709,8 +17717,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
             const OdstHalo3FovMatch& fovMatch = eyeInputs[eye].fovMatch;
             if (!preserveAuthoredProjection)
             {
-                *reinterpret_cast<float*>(camera + layout.verticalFov) =
-                    fovMatch.compactVerticalInput;
+                *reinterpret_cast<float*>(camera + layout.verticalFov) = aimFrameFrame
+                    ? aimFrame.tanX * kAimFrameCullingCover
+                    : fovMatch.compactVerticalInput;
                 // The frame is the flat game's picture: ODST's reference field keeps the game's own value there, not
                 // the narrow frame's, since the game's HUD was drawn (counted) but did not show in the frame.
                 *reinterpret_cast<float*>(camera + layout.referenceFov) = aimFrameFrame

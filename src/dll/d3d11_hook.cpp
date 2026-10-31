@@ -1992,6 +1992,10 @@ static void NotePresentResult(IDXGISwapChain* sc, HRESULT hr, bool game)
     {
         const uint64_t now = GetTickCount64();
         g_lastGamePresentMs.store(now, std::memory_order_relaxed);
+        // A present Windows did not show: the window is covered or minimised.
+        static std::atomic<bool> loggedOccluded{false};
+        if (hr == DXGI_STATUS_OCCLUDED && !loggedOccluded.exchange(true, std::memory_order_relaxed))
+            LOG("present: Windows reports the game's window occluded; its presents do not reach the monitor");
         if (SUCCEEDED(hr) && g_deviceSharedAtMs.load(std::memory_order_relaxed))
             DeviceShareProved(now);
     }
