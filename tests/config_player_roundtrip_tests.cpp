@@ -78,6 +78,7 @@ int main()
     g_config.aim_frame_strength[0] = 2.0f;
     g_config.aim_frame_move_s = 0.3f;
     g_config.aim_frame_hud_width = 1.05f;
+    g_config.reclaimer_share_device = false;
     ConfigSave();
 
     g_unknownKeys.clear();
@@ -111,6 +112,7 @@ int main()
           "aim_frame_move_s is remembered");
     Check(g_config.aim_frame_hud_width > 1.049f && g_config.aim_frame_hud_width < 1.051f,
           "aim_frame_hud_width is remembered");
+    Check(!g_config.reclaimer_share_device, "reclaimer_share_device is remembered");
 
     // A pre-version-1 file keeps each saved adjustment relative to the old -0.063 m default,
     // including explicit title overrides; nothing is written on load; later edits survive.

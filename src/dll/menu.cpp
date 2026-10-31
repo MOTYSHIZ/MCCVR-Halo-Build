@@ -2561,6 +2561,11 @@ namespace
         {
             // What its Native read is given: no larger than its display while fitting is on, and its display's own
             // size in exclusive fullscreen (d3d11_hook.cpp, HostEnumDisplaySettingsShim).
+            changed |= ImGui::Checkbox("Show later games in the headset",&g_config.reclaimer_share_device);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Lets a game Project Reclaimer starts after the first (ODST, after Halo 3's menu) "
+                                  "reach the headset, by giving it the headset's graphics device.\n"
+                                  "Off: that game freezes in the headset. Applies the next time a game starts.");
             changed |= ImGui::Checkbox("Fit to my monitor",&g_config.reclaimer_fit_to_display);
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("Keeps Project Reclaimer's picture no larger than your monitor. A picture larger\n"

@@ -552,6 +552,10 @@ struct Config
     // (reclaimer_host::AnswerNativeRenderSize). A picture larger than the screen is suspected of stopping the graphics
     // card on some PCs; off gives it the Picture panel's full size. Exclusive fullscreen always gets the real size.
     bool reclaimer_fit_to_display = true;
+    // Project Reclaimer: a title it starts after the first (ODST, after Halo 3's menu) gets the headset session's D3D11
+    // device instead of a new one, which the headset could not show (present_owner_logic.h DecideDeviceShare).
+    // Off: that title freezes in the headset, as before.
+    bool reclaimer_share_device = true;
 
     // Show the welcome page automatically, once, at the start of each launch.
     // The mod has no other way to tell a player anything before they play: the

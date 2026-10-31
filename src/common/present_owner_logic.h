@@ -64,9 +64,17 @@ constexpr const char* Describe(Verdict verdict)
 //
 // Only the host's own call, only once its engine has stopped presenting (a call made while the game draws is some
 // other part of the host, which must keep its own device), and only when the device answers what was asked.
+//
+// Two things keep a failure from repeating. A hand-over that never reached a game frame (the host crashed, or was
+// closed at a frozen picture) stands the next launch's down, once. And one engine change hands the device to one
+// thread: another thread asking in the same quiet is another part of the host, and two users of one immediate context
+// would corrupt each other's state.
 enum class DeviceShare : uint8_t
 {
     Share = 0,
+    SwitchedOff,         // reclaimer_share_device = 0
+    LastAttemptFailed,   // the last launch's hand-over never reached a game frame
+    AnotherThreadHasIt,  // already handed over in this quiet, to another thread
     NotAsked,            // no device wanted: a capability probe
     NotHostsCall,        // another module's call (a runtime, an overlay)
     NoSession,           // the first device: the session will be made on it
@@ -82,10 +90,13 @@ constexpr uint64_t kEngineGoneQuietMs = 250;
 
 constexpr DeviceShare DecideDeviceShare(bool wantsDevice, bool hostsCall, bool session, bool sessionLost,
                                         uint64_t msSinceGamePresent, bool sameAdapter, uint32_t requestedFlags,
-                                        uint32_t sessionFlags, bool featureLevelAccepted)
+                                        uint32_t sessionFlags, bool featureLevelAccepted, bool enabled = true,
+                                        bool lastAttemptFailed = false, bool anotherThreadHasIt = false)
 {
     if (!wantsDevice)
         return DeviceShare::NotAsked;
+    if (!enabled)
+        return DeviceShare::SwitchedOff;
     if (!hostsCall)
         return DeviceShare::NotHostsCall;
     if (!session)
@@ -100,6 +111,10 @@ constexpr DeviceShare DecideDeviceShare(bool wantsDevice, bool hostsCall, bool s
         return DeviceShare::FlagsDiffer;
     if (!featureLevelAccepted)
         return DeviceShare::FeatureLevelRefused;
+    if (lastAttemptFailed)
+        return DeviceShare::LastAttemptFailed;
+    if (anotherThreadHasIt)
+        return DeviceShare::AnotherThreadHasIt;
     return DeviceShare::Share;
 }
 
@@ -108,6 +123,10 @@ constexpr const char* Describe(DeviceShare decision)
     switch (decision)
     {
     case DeviceShare::Share: return "answered with the headset session's device";
+    case DeviceShare::SwitchedOff: return "switched off (reclaimer_share_device = 0)";
+    case DeviceShare::LastAttemptFailed:
+        return "the last launch's hand-over never reached a game frame, so not this launch";
+    case DeviceShare::AnotherThreadHasIt: return "already handed to another thread for this engine";
     case DeviceShare::NotAsked: return "no device wanted (a probe)";
     case DeviceShare::NotHostsCall: return "not the host's own call";
     case DeviceShare::NoSession: return "no headset session yet";

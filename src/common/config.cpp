@@ -1790,6 +1790,11 @@ void ConfigLoad(const wchar_t* path)
             g_config.allow_ofxr_bridge = atoi(val) != 0;
             continue;
         }
+        if (!strcmp(key, "reclaimer_share_device"))
+        {
+            g_config.reclaimer_share_device = atoi(val) != 0;
+            continue;
+        }
         if (!strcmp(key, "reclaimer_fit_to_display"))
         {
             g_config.reclaimer_fit_to_display = atoi(val) != 0;
@@ -2431,6 +2436,9 @@ void ConfigSave()
     fprintf(f, "# screen is suspected of stopping the graphics card on some PCs; 0 gives it\n");
     fprintf(f, "# the Picture panel's full size. Applies at Project Reclaimer's next start.\n");
     fprintf(f, "reclaimer_fit_to_display = %d\n\n", g_config.reclaimer_fit_to_display ? 1 : 0);
+    fprintf(f, "# Project Reclaimer: show a game it starts after the first (ODST, after Halo 3's menu) in the\n");
+    fprintf(f, "# headset, by giving it the headset's graphics device. 0 = that game freezes in the headset.\n");
+    fprintf(f, "reclaimer_share_device = %d\n\n", g_config.reclaimer_share_device ? 1 : 0);
     fprintf(f, "# Show the welcome page by itself once at the start of each launch.\n");
     fprintf(f, "# Tick \"Don't show this again\" on that page to clear this. The page\n");
     fprintf(f, "# itself always stays in the F1 menu, so you can read it again later.\n");
