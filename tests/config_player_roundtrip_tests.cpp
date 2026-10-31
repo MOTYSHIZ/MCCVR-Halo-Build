@@ -77,7 +77,6 @@ int main()
     g_config.aim_frame_size_deg[1] = 70.0f;
     g_config.aim_frame_strength[0] = 2.0f;
     g_config.aim_frame_move_s = 0.3f;
-    g_config.aim_frame_hud_width = 1.05f;
     g_config.reclaimer_share_device = false;
     ConfigSave();
 
@@ -110,8 +109,6 @@ int main()
           "aim_frame_strength_1 is remembered");
     Check(g_config.aim_frame_move_s > 0.29f && g_config.aim_frame_move_s < 0.31f,
           "aim_frame_move_s is remembered");
-    Check(g_config.aim_frame_hud_width > 1.049f && g_config.aim_frame_hud_width < 1.051f,
-          "aim_frame_hud_width is remembered");
     Check(!g_config.reclaimer_share_device, "reclaimer_share_device is remembered");
 
     // A pre-version-1 file keeps each saved adjustment relative to the old -0.063 m default,

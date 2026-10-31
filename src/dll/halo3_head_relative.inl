@@ -677,6 +677,7 @@ void Halo3ListenerApplyHead(Halo3HeadAudioLane& lane)
 
 __declspec(noinline) void __fastcall Halo3ListenerUpdateDetour(bool flag)
 {
+    Halo3HookCalled(Halo3Hook::SoundListener);
     auto& lane = g_halo3HeadAudio;
     lane.callbacks.fetch_add(1, std::memory_order_acq_rel);
     __try
@@ -902,6 +903,8 @@ bool InstallHalo3HeadRelative(uintptr_t base, size_t size, uint32_t generation)
     audio.head = &lane.head;
     const bool listener = InstallHeadRelativeAudio(audio, base, size, generation,
                                                    reinterpret_cast<void*>(&Halo3ListenerUpdateDetour));
+    if (listener)
+        Halo3HookWatchInstalled(Halo3Hook::SoundListener, reinterpret_cast<uintptr_t>(audio.target));
     return tracker || listener;
 }
 

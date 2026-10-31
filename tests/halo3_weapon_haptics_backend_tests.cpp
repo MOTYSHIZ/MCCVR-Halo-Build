@@ -50,6 +50,7 @@ uint64_t clockMs = 1000;
 uint64_t MockNow() { return clockMs; }
 #define GetTickCount64 MockNow
 
+#include "../src/dll/halo3_hook_watch_mark.h"
 #include "../src/dll/halo3_weapon_haptics.inl"
 
 #undef __readgsqword

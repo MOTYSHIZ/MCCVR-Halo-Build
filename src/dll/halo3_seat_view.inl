@@ -73,6 +73,7 @@ std::atomic<uint32_t> g_halo3SeatViewAsked{0}, g_halo3SeatViewAnswered{0};   // 
 // The relay's second call, on the director's thread. Reads one atomic and the director's own local.
 int Halo3SeatViewAdjust(int unit, const int* state, int result) noexcept
 {
+    Halo3HookCalled(Halo3Hook::SeatView);
 #if HALOMCCVR_DEV_DIAGNOSTICS
     g_halo3SeatViewAsked.fetch_add(1, std::memory_order_relaxed);
 #endif
