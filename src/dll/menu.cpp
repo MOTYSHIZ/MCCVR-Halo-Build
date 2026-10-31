@@ -1853,24 +1853,27 @@ namespace
                     "Pistol-style weapons: it holds the gun, but your main hand aims alone.\n"
                     "This doesn't change while you're gripping, so a controller tracking drop-out can't switch it.");
             else
-            {
                 ImGui::TextDisabled(
                     "Hands far apart: your support hand steers the aim.\n"
                     "Hands close together: it holds the gun, but your main hand aims alone.\n"
                     "A controller tracking drop-out can make your hands read as far apart and switch this for a moment.");
-                float closeRangePercent = g_config.two_hand_close_range * 100.0f;
-                if (vr_menu::SliderFloat("Close-hands range", &closeRangePercent, 25.0f, 200.0f, "%.0f%%",
-                                         ImGuiSliderFlags_None))
-                {
-                    g_config.two_hand_close_range = closeRangePercent / 100.0f;
-                    changed = true;
-                }
-                const float closeRange = g_config.two_hand_close_range * 100.0f;
+            float oneHandRangeCm = g_config.two_hand_one_hand_range_m * 100.0f;
+            if (vr_menu::SliderFloat("One-handed aim range", &oneHandRangeCm, 6.0f, 48.0f, "%.0f cm",
+                                     ImGuiSliderFlags_None))
+            {
+                g_config.two_hand_one_hand_range_m = oneHandRangeCm / 100.0f;
+                changed = true;
+            }
+            if (g_config.two_hand_grip_zone_authority)
+                ImGui::TextDisabled(
+                    "A weapon counts as pistol-style when its grip is within this distance of your main hand.\n"
+                    "Raise it if a compact gun should aim one-handed; lower it if one should aim two-handed.");
+            else
                 ImGui::TextDisabled(
                     "Your main hand aims alone when your hands are within %.0f cm of each other, or your\n"
                     "support hand is within %.0f cm to the side, %.0f cm up or down and %.0f cm forward or back.",
-                    closeRange * 0.16f, closeRange * 0.24f, closeRange * 0.14f, closeRange * 0.12f);
-            }
+                    oneHandRangeCm * (0.16f / 0.24f), oneHandRangeCm, oneHandRangeCm * (0.14f / 0.24f),
+                    oneHandRangeCm * (0.12f / 0.24f));
             ImGui::Spacing();
             ImGui::Text("Grip mode");
             if (ImGui::RadioButton("Toggle (click grip)", g_config.two_hand_toggle))

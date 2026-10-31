@@ -92,12 +92,12 @@ int main(){
     assert(CloseHandAuthority({0,0,-.23f})==1);
     assert(CloseHandAuthority({0,0,-.35f})==1);
     // The range scales the whole volume.
-    assert(CloseHandAuthority({0,0,-.15f},.5f)==1);
-    assert(CloseHandAuthority({0,0,-.07f},.5f)==0);
-    assert(CloseHandAuthority({.11f,0,0},.5f)==0);
-    assert(CloseHandAuthority({.13f,0,0},.5f)==1);
-    assert(CloseHandAuthority({0,0,-.31f},2.f)==0);
-    assert(CloseHandAuthority({0,0,-.33f},2.f)==1);
+    assert(CloseHandAuthority({0,0,-.15f},.12f)==1);
+    assert(CloseHandAuthority({0,0,-.07f},.12f)==0);
+    assert(CloseHandAuthority({.11f,0,0},.12f)==0);
+    assert(CloseHandAuthority({.13f,0,0},.12f)==1);
+    assert(CloseHandAuthority({0,0,-.31f},.48f)==0);
+    assert(CloseHandAuthority({0,0,-.33f},.48f)==1);
     // The kind holds across a band around the boundary, and a clear reading settles it.
     assert(GripZoneKind(0,{0,0,-.23f})==2);
     assert(GripZoneKind(0,{0,0,-.25f})==1);
@@ -105,6 +105,10 @@ int main(){
     assert(GripZoneKind(1,{0,0,-.22f})==1);
     assert(GripZoneKind(2,{0,0,-.28f})==1);
     assert(GripZoneKind(1,{0,0,-.20f})==2);
+    // A wider range makes a compact gun pistol-style.
+    assert(GripZoneKind(0,{0,0,-.28f},.30f)==2);
+    assert(GripZoneKind(0,{0,0,-.28f},.24f)==1);
+    assert(GripZoneKind(2,{0,0,0},.24f)==2);
     // By the grip zone: where the hands read does not change the answer.
     assert(GripZoneAuthority(true,{0,0,-.05f})==0);
     assert(GripZoneAuthority(true,{0,0,-.60f})==0);

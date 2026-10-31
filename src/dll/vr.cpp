@@ -14060,7 +14060,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
         authored_grab::lastX.store(local[0]);authored_grab::lastY.store(local[1]);authored_grab::lastZ.store(local[2]);
         {
-            const int zoneKind=authored_grab::GripZoneKind(g_gripZoneKind.load(std::memory_order_relaxed),local);
+            const int zoneKind=authored_grab::GripZoneKind(g_gripZoneKind.load(std::memory_order_relaxed),local,
+                g_config.two_hand_one_hand_range_m);
             const int previousKind=g_gripZoneKind.exchange(zoneKind,std::memory_order_acq_rel);
             g_gripZoneKindMs.store(GetTickCount64(),std::memory_order_release);
             if(previousKind!=zoneKind)

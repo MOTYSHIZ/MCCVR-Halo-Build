@@ -65,9 +65,11 @@ inline bool Short(Point centre){return Valid(centre)&&Distance2(centre,{0,0,0})<
 inline bool ShortHit(Point p){return Valid(p)&&std::fabs(p[0])<=.22f&&p[1]>=-.19f&&p[1]<=.14f&&p[2]>=-.14f&&p[2]<=.12f;}
 // Binary exclusion: outside the close-hand volume, keep the user's full
 // configured influence. Physical grip separation ignores controller rotation.
-// `range` scales the whole volume (two_hand_close_range; 1 = these measures).
-inline float CloseHandAuthority(Point local,float range=1.f){
+// `rangeMetres` is the volume's side measure (two_hand_one_hand_range_m); the others scale with it.
+inline constexpr float kOneHandRangeDefaultMetres=.24f;
+inline float CloseHandAuthority(Point local,float rangeMetres=kOneHandRangeDefaultMetres){
     if(!Valid(local))return 0;
+    const float range=rangeMetres/kOneHandRangeDefaultMetres;
     const float close=.16f*range;
     const bool withinClose=Distance2(local,{0,0,0})<=close*close;
     const bool lateral=std::fabs(local[0])<=.24f*range&&
@@ -83,13 +85,15 @@ inline float GripZoneAuthority(bool shortZone,Point local){
     if(shortZone||!Valid(local))return 0;
     return Distance2(local,{0,0,0})<=kGripZoneNoLineMetres*kGripZoneNoLineMetres?0.f:1.f;
 }
-// Which kind a zone is for the aim: 2 short, 1 long. A band around Short's 24 cm, since a weapon whose animated grip
-// sits on it read as both within half a second (a weapon at 0.24 m, in play).
-inline int GripZoneKind(int previous,Point centre){
+// Which kind a zone is for the aim: 2 short, 1 long, by the player's range (two_hand_one_hand_range_m). A 3 cm band
+// around it, since a grip point passing the boundary read as both within half a second (at 0.24 m, in play).
+inline int GripZoneKind(int previous,Point centre,float rangeMetres=kOneHandRangeDefaultMetres){
+    if(!Valid(centre))return previous;
     const float d2=Distance2(centre,{0,0,0});
-    if(previous==2&&d2<=.27f*.27f)return 2;
-    if(previous==1&&d2>=.21f*.21f)return 1;
-    return Short(centre)?2:1;
+    const float low=rangeMetres-.03f,high=rangeMetres+.03f;
+    if(previous==2&&d2<=high*high)return 2;
+    if(previous==1&&d2>=low*low)return 1;
+    return d2<=rangeMetres*rangeMetres?2:1;
 }
 inline bool Hit(Point centre,Point sample){
     if(!Valid(centre)||!Valid(sample))return false;
