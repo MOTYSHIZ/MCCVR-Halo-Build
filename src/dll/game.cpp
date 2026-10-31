@@ -59527,6 +59527,10 @@ void Game_MapMoveStick(float& mx, float& my)
 
 bool Game_MoveStickIsLocomotion()
 {
+    // Project Reclaimer's menus are the host's own screen over a live level, so the mode below still says Gameplay. The
+    // stick is navigating that screen, and turned with the head it would reverse as the player looks away.
+    if (g_hostOwnsRenderSize && D3D_HostUiPanelIsScreen())
+        return false;
     if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
     {
         HaloCELocalPlayerState player{};
