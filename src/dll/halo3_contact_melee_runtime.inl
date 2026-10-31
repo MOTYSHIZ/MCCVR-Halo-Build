@@ -304,6 +304,7 @@ void Halo3DualShakeUnitTick(uint32_t unit) noexcept;
 
 __declspec(noinline) uint8_t __fastcall Halo3ContactUpdateDetour(uint32_t unit)
 {
+    Halo3HookCalled(Halo3Hook::ContactUpdate);
     g_halo3Contact.callbacks.fetch_add(1,std::memory_order_acq_rel);
     uint8_t result=0;
     __try
@@ -409,6 +410,7 @@ bool InstallHalo3ContactMelee(uintptr_t base,size_t size,uint32_t generation)
     g_halo3Contact.updateTarget=updateTarget;
     if(MCCVR_EnableHook(updateTarget)!=MH_OK)
     { LOG("Halo 3 contact melee unavailable: simulation hook enable failed; retained for cleanup"); return false; }
+    Halo3HookWatchInstalled(Halo3Hook::ContactUpdate,reinterpret_cast<uintptr_t>(updateTarget));
     // In a host that hooks the damage routine the lane stays disabled (Halo3ContactTick does nothing then);
     // the simulation hook is in for the aim trace alone.
     g_halo3Contact.enabled.store(!hostHooksDamage,std::memory_order_release);

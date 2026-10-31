@@ -127,6 +127,7 @@
 // Where the direct drives' code is in the loaded game DLL: the tables and their resolution, and the DLL's side.
 #include "../common/drive_sites.h"
 #include "drive_cascade.h"
+#include "halo3_hook_watch_mark.h"
 #include "install_search_cache.h"
 #include "drive_install.h"
 // THE FREE CAMERA WITH NO PLAYER UNIT (src/common/aim_no_unit_logic.h). Each servo title's own vehicle/seat
@@ -289,6 +290,8 @@ bool LegacyDriveInstall(GameTitle title, uintptr_t base, size_t size);
 bool LegacyDriveRemove(GameTitle title);
 bool LegacyDriveLive(GameTitle title);
 void LegacyDriveReport();
+// Halo 3's own hooks, each watched for "installed but never called" (halo3_hook_watch.inl). Cold worker, every loop.
+void Halo3HookWatchReport(uint64_t nowMs);
 // THE PLAYER IS IN CONTROL OF `title`, as the direct drives' hook watchdogs ask it (drive_cascade.h: HookWatch):
 // it is the active title, in the Gameplay runtime mode, and its camera hook's cinematic-control publication of
 // this generation, no older than a second, says the player has control (not an authored camera, not unread).
@@ -18339,6 +18342,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
 
     __declspec(noinline) void __fastcall GuardedObserverCameraEffectHook(int userIndex)
     {
+        Halo3HookCalled(Halo3Hook::ObserverEffect);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18355,6 +18359,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     __declspec(noinline) void __fastcall GuardedComposeBonesHook(void* model, int start, int count, BoneMatrix* output,
                                      void* source, void* defaults)
     {
+        Halo3HookCalled(Halo3Hook::ComposeBones);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18387,6 +18392,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     __declspec(noinline) bool __fastcall GuardedFpInterpolateHook(int view,int id,int slot,
                                       BoneMatrix** outBones,int* outCount)
     {
+        Halo3HookCalled(Halo3Hook::FpInterpolate);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18404,6 +18410,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
                                          BoneMatrix* destination, uintptr_t unused,
                                          const BoneMatrix* source, const int32_t* boneMap)
     {
+        Halo3HookCalled(Halo3Hook::FpVisiblePalette);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18419,6 +18426,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
 
     __declspec(noinline) void __fastcall GuardedFpCameraRebuildHook(void* view, unsigned char flag)
     {
+        Halo3HookCalled(Halo3Hook::FpCameraRebuild);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18478,6 +18486,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     __declspec(noinline) bool __fastcall GuardedHudAnchorBasisHook(int userIndex, void* drawWidgetData,
                                        int anchorType, void* basis)
     {
+        Halo3HookCalled(Halo3Hook::HudAnchorBasis);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18495,6 +18504,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         void* context, void* widgetDefinition, void* placementInput,
         void* placementOutput)
     {
+        Halo3HookCalled(Halo3Hook::HudPlace);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18510,6 +18520,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
 
     __declspec(noinline) bool __fastcall GuardedHudCrosshairVisibleHook(int userIndex)
     {
+        Halo3HookCalled(Halo3Hook::HudCrosshairVisible);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18528,6 +18539,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
                                       unsigned char useAlternatePath,
                                       void* drawState)
     {
+        Halo3HookCalled(Halo3Hook::HudDrawWidget);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18543,6 +18555,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
 
     __declspec(noinline) void __fastcall GuardedFpDriverHook(void* view, unsigned char flag)
     {
+        Halo3HookCalled(Halo3Hook::FpDriver);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18558,6 +18571,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
 
     __declspec(noinline) void __fastcall GuardedRenderViewHook(void* view)
     {
+        Halo3HookCalled(Halo3Hook::RenderView);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
@@ -18988,6 +19002,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
     {
         if (!runtimeGeneration)
             return false;
+        // A new install for the hook watch (halo3_hook_watch.inl): none of the core's hooks is in yet.
+        ++g_halo3HookWatchInstall;
+        g_halo3HookWatchBase = base;
+        for (auto& target : g_halo3HookTarget)
+            target = nullptr;
         LocateNativePauseFlag(base, size);
         LocateCinematicState(base, size);
         uintptr_t hit = sig::Find(base, size, kCamCopySig);
@@ -19083,7 +19102,10 @@ static constexpr bool kOdstMappedFpEnabled = false;
                     effectHooked = MH_QueueEnableHook(
                         reinterpret_cast<void*>(effectHit)) == MH_OK;
                 if (effectHooked)
+                {
                     RememberInstalledGameHook(reinterpret_cast<void*>(effectHit));
+                    Halo3HookWatchInstalled(Halo3Hook::ObserverEffect, effectHit);
+                }
                 if (!effectHooked && createStatus == MH_OK)
                 {
                     MH_RemoveHook(reinterpret_cast<void*>(effectHit));
@@ -19329,8 +19351,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
                               reinterpret_cast<void**>(&g_origComposeSpecialBones)) == MH_OK &&
                 MH_QueueEnableHook(reinterpret_cast<void*>(composeHit)) == MH_OK &&
                 MH_QueueEnableHook(reinterpret_cast<void*>(specialHit)) == MH_OK)
+            {
+                Halo3HookWatchInstalled(Halo3Hook::ComposeBones, composeHit);
                 LOG("M3: first-person marker/muzzle matrix hooks installed at halo3.dll+0x%llX/+0x%llX",
                     (unsigned long long)(composeHit-base),(unsigned long long)(specialHit-base));
+            }
             else
                 LOG("M3: FAILED to hook first-person hand/weapon matrix composers");
         }
@@ -19376,6 +19401,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         if (visiblePathOk)
         {
             g_fpInterpolatorHooked.store(true,std::memory_order_release);
+            Halo3HookWatchInstalled(Halo3Hook::FpInterpolate, interpolateHit);
+            Halo3HookWatchInstalled(Halo3Hook::FpVisiblePalette, visiblePaletteHit);
             LOG("M3: visible FP reconstruction hooked at halo3.dll+0x%llX -> +0x%llX "
                 "(interpolation identity + final palette root; gun/arms only)",
                 (unsigned long long)(interpolateHit-base),
@@ -19461,6 +19488,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         if (fpCameraOk)
         {
             g_fpCameraUpload=reinterpret_cast<FpCameraUploadFn>(fpUploadHit);
+            Halo3HookWatchInstalled(Halo3Hook::FpCameraRebuild, fpCamHit);
             LOG("M3: FP camera rebuild hooked at halo3.dll+0x%llX (uploader +0x%llX); "
                 "gun/HUD layer renders per-eye",
                 (unsigned long long)(fpCamHit-base),
@@ -19557,8 +19585,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
                     MH_RemoveHook(reinterpret_cast<void*>(anchorBasis));
             }
             if (anchorHookReady)
+            {
+                Halo3HookWatchInstalled(Halo3Hook::HudAnchorBasis, anchorBasis);
                 LOG("M3: HUD height anchor hook installed at halo3.dll+0x%llX",
                     (unsigned long long)(anchorBasis - base));
+            }
             else
                 LOG("M3: HUD height anchor signature missing/ambiguous or hook failed; "
                     "height remains stock");
@@ -19593,6 +19624,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
                     g_realHudPlace = nullptr;
                 }
             }
+            if (hudPlaceHookReady)
+                Halo3HookWatchInstalled(Halo3Hook::HudPlace, hudPlace);
             if (hudPlaceHookReady)
                 LOG("M3: authored CHUD colour-state output hooked at "
                     "halo3.dll+0x%llX", (unsigned long long)(hudPlace - base));
@@ -19681,6 +19714,10 @@ static constexpr bool kOdstMappedFpEnabled = false;
                                                       classGate, 2);
                                 DWORD ignored = 0;
                                 VirtualProtect(classGate, 2, oldProtect, &ignored);
+                                // The predicate is reached only with the gate open: watched from here on.
+                                Halo3HookWatchInstalled(Halo3Hook::HudCrosshairVisible, visibleTarget);
+                                if (drawHookReady)
+                                    Halo3HookWatchInstalled(Halo3Hook::HudDrawWidget, hudElem);
                                 if (drawHookReady)
                                     LOG("M3: authored CHUD crosshair redirect active "
                                         "at halo3.dll+0x%llX",
@@ -19907,8 +19944,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
                               reinterpret_cast<void*>(&GuardedFpDriverHook),
                               reinterpret_cast<void**>(&g_origFpDriver)) == MH_OK &&
                 MH_QueueEnableHook(reinterpret_cast<void*>(driverHit)) == MH_OK)
+            {
+                Halo3HookWatchInstalled(Halo3Hook::FpDriver, driverHit);
                 LOG("P0: FP driver hooked at halo3.dll+0x%llX",
                     (unsigned long long)(driverHit - base));
+            }
             else
                 LOG("P0: FP driver hook FAILED");
         }
@@ -19937,7 +19977,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 reinterpret_cast<void*>(&Halo3CollisionResolveDetour),
                 0x001FFD18,nullptr,false,0x001FD748,
                 kHalo3CollisionVectorSignature))
+        {
             RememberInstalledGameHook(g_halo3WorldCollision.target);
+            Halo3HookWatchInstalled(Halo3Hook::WorldCollision,
+                                    reinterpret_cast<uintptr_t>(g_halo3WorldCollision.target));
+        }
         InstallSteps::Mark("world collision");
         (void)InstallHalo3ContactMelee(base,size,runtimeGeneration);
         InstallSteps::Mark("contact melee and sight");
@@ -20034,6 +20078,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
             return true;
         }
         RememberInstalledGameHook(reinterpret_cast<void*>(renderHit));
+        Halo3HookWatchInstalled(Halo3Hook::RenderView, renderHit);
         g_renderHooked = true;
         LOG("M2: inner per-view double-render hook installed at halo3.dll+0x%llX",
             (unsigned long long)(renderHit - base));
@@ -50947,6 +50992,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
             Halo4SeatSightReport();   // SIGHT Halo 4 seat eye, SHOT Halo 4 seated
 #endif
             LegacyDriveReport();
+            Halo3HookWatchReport(pollNow);   // Halo 3 hook watch: a hook installed and never called, once per install
             Halo4FlightDriveReport();   // the Broadsword pilot's own line
             GunAimReport();   // DRIVE Halo 3 gun-slaved seat (the gun camera's offset), SEAT LIMIT Halo 3 gun band
             Halo3HeadRelativeReport();   // TRACKER HEAD Halo 3: the switch, by the head / the game's own
@@ -56411,6 +56457,7 @@ static bool ReachSeatAimFrameBindingInstalled()
 #include "seat_aim_world_frame.inl"
 #include "halo3_seat_view.inl"
 #include "legacy_direct_drive.inl"
+#include "halo3_hook_watch.inl"
 // The Halo 4 tracker lane's proof reference (declared with the legacy drive's other accessors, above): the yaw
 // the input thread last published for the direct drive to write. Only while the drive is LIVE (armed on its own
 // validated record and run within 150 ms): then the mod is writing this yaw into the game's aim, and the game's
