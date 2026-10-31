@@ -257,6 +257,18 @@ namespace install_search_cache
         return nullptr;
     }
 
+    // This build's entries are gone; every other build is kept. False: the file held none for it.
+    inline bool Drop(std::vector<Build>& builds, const Identity& identity)
+    {
+        for (size_t i = 0; i < builds.size(); ++i)
+            if (builds[i].identity == identity)
+            {
+                builds.erase(builds.begin() + static_cast<std::ptrdiff_t>(i));
+                return true;
+            }
+        return false;
+    }
+
     // This build's entries replace whatever the file held for it, and it becomes the newest; every other build is
     // kept, the oldest giving way past kMaxBuilds.
     inline void Put(std::vector<Build>& builds, const Build& build)

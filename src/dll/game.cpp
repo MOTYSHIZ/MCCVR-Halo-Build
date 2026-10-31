@@ -292,6 +292,8 @@ bool LegacyDriveLive(GameTitle title);
 void LegacyDriveReport();
 // Halo 3's own hooks, each watched for "installed but never called" (halo3_hook_watch.inl). Cold worker, every loop.
 void Halo3HookWatchReport(uint64_t nowMs);
+// After an install has gone live: what the searches made again after a hook was never called found.
+void Halo3HookWatchSearchedAgain();
 // THE PLAYER IS IN CONTROL OF `title`, as the direct drives' hook watchdogs ask it (drive_cascade.h: HookWatch):
 // it is the active title, in the Gameplay runtime mode, and its camera hook's cinematic-control publication of
 // this generation, no older than a second, says the player has control (not an authored camera, not unread).
@@ -18743,7 +18745,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     public:
         InstallSearches(const char* title, sig::ImageMemo& memo, uintptr_t base, size_t size, uint32_t generation,
                         SavedInstallSearches* saved = nullptr)
-            : title_(title), use_(g_config.install_search_memory != 0), check_(Checking()),
+            : title_(title), memo_(memo), use_(g_config.install_search_memory != 0), check_(Checking()),
               scope_(memo, base, size, generation, use_, check_)
         {
             QueryPerformanceCounter(&begun_);
@@ -18777,6 +18779,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
             const uint32_t made = counts.searched + counts.searchedAgain;
             if (!made && !finished_)
                 return;
+            memo_.lastKnown = counts.remembered + counts.fromSaved;
             LARGE_INTEGER frequency{}, ended{};
             QueryPerformanceFrequency(&frequency);
             QueryPerformanceCounter(&ended);
@@ -18826,6 +18829,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 : 0.0;
         }
         const char* title_;
+        sig::ImageMemo& memo_;
         bool use_;
         bool check_;
         bool finished_ = false;
@@ -52019,6 +52023,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
                         hookRefreshPending = false;
                         hookedBase = base;
                         // After the hooks are live, never ahead of them: a few milliseconds of file I/O.
+                        Halo3HookWatchSearchedAgain();
                         SaveInstallSearches("Halo 3", g_halo3InstallSearchMemo, g_halo3SavedInstallSearches);
                     }
                     else if (g_installedGameHookCount)

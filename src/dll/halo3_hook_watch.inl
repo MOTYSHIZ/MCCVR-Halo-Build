@@ -190,6 +190,33 @@ bool Halo3HookWatchInPlay(uint64_t nowMs, bool& seated)
 }
 } // namespace
 
+// A HOOK THAT IS NEVER CALLED: THE SEARCHES ARE NOT TRUSTED AGAIN. The address may be the wrong one for what the game
+// runs now though its bytes passed the compare in place (a match in data the build's identity does not cover), so
+// what the last install took without searching is forgotten, here and in the file, and the next install searches
+// for all of it and saves what it finds. Hooks are not put in again in play: that takes the game's threads and
+// retires hooks under a running level, so it waits for the install at the next level. A false alarm costs one
+// install's searches. An install that searched for everything has nothing to forget, so this cannot repeat within
+// a load. Cold worker.
+std::vector<sig::ImageMemo::Entry> g_halo3AnswersForgotten;
+
+void Halo3HookWatchForgetSearches()
+{
+    sig::ImageMemo& memo = g_halo3InstallSearchMemo;
+    if (!memo.lastKnown)
+        return;
+    const uint32_t known = memo.lastKnown;
+    g_halo3AnswersForgotten.assign(memo.entries, memo.entries + memo.count);
+    memo.lastKnown = 0;
+    memo.count = 0;
+    memo.changes = 0;
+    const char* why = nullptr;
+    const bool forgotten = !g_halo3SavedInstallSearches.identified ||
+        install_search_cache::Forget(g_halo3SavedInstallSearches.identity, why);
+    LOG("Halo 3 hook watch: a hook is never called, and the last install took %u answers without searching: the "
+        "next install searches for all of them%s%s", known, forgotten ? "" : "; the saved ones stay in the file: ",
+        forgotten ? "" : why);
+}
+
 // Cold worker, every loop, until the install's watches have all settled. A watch that has seen its hook called (or
 // has fired) is done for the install: its flag is no longer cleared, so its detour goes back to one relaxed load,
 // and once none is still waiting and the summary is said, the loop does nothing until the next install.
@@ -271,6 +298,7 @@ void Halo3HookWatchReport(uint64_t nowMs)
             snprintf(feature, sizeof(feature), "Halo 3 hook watch, %s", spec.name);
             drive_cascade::SayHookNeverCalled(feature, spec.what, rva, Halo3HookWhenSays(spec.when),
                                               spec.consequence);
+            Halo3HookWatchForgetSearches();
         }
     }
     if (g_halo3HookBoard.SummaryDue(inPlay, nowMs))
@@ -283,4 +311,26 @@ void Halo3HookWatchReport(uint64_t nowMs)
         g_halo3HookBoard.Summary("Halo 3", names, kHalo3HookWatchCount, summary, sizeof(summary));
         LOG("%s (once per install; a hook that is never called has its own line)", summary);
     }
+}
+
+// Whether searching again changed anything: the answer to whether the searches were at fault at all.
+void Halo3HookWatchSearchedAgain()
+{
+    if (g_halo3AnswersForgotten.empty())
+        return;
+    const sig::ImageMemo& memo = g_halo3InstallSearchMemo;
+    uint32_t compared = 0, differ = 0;
+    for (const sig::ImageMemo::Entry& old : g_halo3AnswersForgotten)
+        for (uint32_t i = 0; i < memo.count; ++i)
+            if (memo.entries[i].pattern == old.pattern && memo.entries[i].start == old.start &&
+                memo.entries[i].length == old.length)
+            {
+                ++compared;
+                differ += memo.entries[i].match != old.match ? 1u : 0u;
+                break;
+            }
+    LOG("Halo 3 hook watch: searched again after a hook was never called: %u of %u answers differ%s", differ,
+        compared, differ ? "" : "; the searches were not what kept that hook from running");
+    g_halo3AnswersForgotten.clear();
+    g_halo3AnswersForgotten.shrink_to_fit();
 }
