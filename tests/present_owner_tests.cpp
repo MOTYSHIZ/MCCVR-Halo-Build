@@ -5,6 +5,7 @@
 #include <cstring>
 #include <initializer_list>
 #include "../src/common/present_owner_logic.h"
+#include "../src/common/vr_desktop_mirror_logic.h"
 
 using namespace present_owner;
 
@@ -92,6 +93,21 @@ int main()
                                  DeviceShare::OtherAdapter, DeviceShare::FlagsDiffer,
                                  DeviceShare::FeatureLevelRefused})
         Check(Describe(decision) && std::strcmp(Describe(decision), "unknown") != 0, "every decision is described");
+
+    // One eye on the window: true proportions, centred, cropped on one axis.
+    float left = 0, top = 0, width = 0, height = 0;
+    const auto near = [](float a, float b) { return a - b < 0.01f && b - a < 0.01f; };
+    Check(vr_desktop_mirror::CropViewport(1.0f, 1.0f, 3840, 2160, 2912, 2100, left, top, width, height) &&
+              near(width, 2912.0f) && near(height, 2100.0f * 16.0f / 9.0f) && near(left, 0.0f) &&
+              near(top, (2100.0f - height) * 0.5f),
+          "a square eye on a wide window fills its width and crops top and bottom");
+    Check(vr_desktop_mirror::CropViewport(2.0f, 1.0f, 1000, 1000, 1000, 1000, left, top, width, height) &&
+              near(width, 2000.0f) && near(height, 1000.0f) && near(left, -500.0f) && near(top, 0.0f),
+          "a wide eye on a square window crops the sides");
+    Check(!vr_desktop_mirror::CropViewport(0.0f, 1.0f, 3840, 2160, 2912, 2100, left, top, width, height) &&
+              !vr_desktop_mirror::CropViewport(1.0f, 1.0f, 0, 2160, 2912, 2100, left, top, width, height) &&
+              !vr_desktop_mirror::CropViewport(1.0f, 1.0f, 3840, 2160, 0, 2100, left, top, width, height),
+          "nothing to place refuses");
 
     std::printf("present_owner: %u checks passed\n", g_checks);
     return 0;

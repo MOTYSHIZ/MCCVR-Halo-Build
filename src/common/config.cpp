@@ -688,7 +688,7 @@ static void Clamp()
         const float size = g_config.aim_frame_size_deg[level];
         g_config.aim_frame_size_deg[level] = std::isfinite(size) ? std::clamp(size, 10.0f, 120.0f) : 100.0f;
         const float strength = g_config.aim_frame_strength[level];
-        g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.5f;
+        g_config.aim_frame_strength[level] = std::isfinite(strength) ? std::clamp(strength, 0.5f, 4.0f) : 1.0f;
     }
     g_config.aim_frame_3d_strength = std::isfinite(g_config.aim_frame_3d_strength)
         ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 10.0f) : 6.0f;
@@ -1785,6 +1785,11 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "allow_ofxr_bridge"))
         {
             g_config.allow_ofxr_bridge = atoi(val) != 0;
+            continue;
+        }
+        if (!strcmp(key, "desktop_mirror"))
+        {
+            g_config.desktop_mirror = atoi(val) != 0;
             continue;
         }
         if (!strcmp(key, "reclaimer_share_device"))
@@ -3377,6 +3382,9 @@ void ConfigSave()
     fprintf(f, "# changing this, the same as resolution_scale.\n");
     fprintf(f, "# (V5 default %d)\n", d.fit_desktop_window ? 1 : 0);
     fprintf(f, "fit_desktop_window = %d\n\n", g_config.fit_desktop_window ? 1 : 0);
+    fprintf(f, "# Halo 3 and ODST: show one eye of the headset's picture on the monitor. 0 = the monitor stays on\n");
+    fprintf(f, "# its last flat frame while in VR. (default %d)\n", d.desktop_mirror ? 1 : 0);
+    fprintf(f, "desktop_mirror = %d\n\n", g_config.desktop_mirror ? 1 : 0);
     fprintf(f, "# Let the HEADSET set the frame rate, not your monitor. The VR frame\n");
     fprintf(f, "# is submitted inside MCC's desktop present, so MCC's V-Sync would\n");
     fprintf(f, "# pace your headset at your DESKTOP's refresh -- a 60 Hz desktop\n");

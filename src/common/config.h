@@ -1444,7 +1444,8 @@ struct Config
     // level (index 0: the first; 1: the second and higher): the frame's width in degrees, and a strength that
     // narrows the game's zoomed view further (1 = the game's own). The move time eases the frame in from, and back
     // out to, the game's own angles (0 = at once). game.cpp: AimFrameThisFrame; vr.cpp: the aim frame quad.
-    // On by default, with a 100 degree frame at strength 1.5 for both levels: the tester's settings (2026-10-30).
+    // On by default, with a 100 degree frame at strength 1 for both levels (the game's own zoomed view, which the tester
+    // found feels like the flat game's): the tester's settings (2026-10-30).
     bool aim_frame_zoom = true;
     // 3D inside the frame: the two eye passes are drawn along the aim and each eye sees its own picture in the
     // frame (the cost of the ordinary 3D view). 0 = one flat picture for both eyes.
@@ -1454,7 +1455,7 @@ struct Config
     // point you aim at, so it and the game's crosshair sit at the frame's own depth. 1 to 10.
     float aim_frame_3d_strength = 6.0f;
     float aim_frame_size_deg[2]{100.0f, 100.0f};
-    float aim_frame_strength[2]{1.5f, 1.5f};
+    float aim_frame_strength[2]{1.0f, 1.0f};
     float aim_frame_move_s = 0.12f;
     float scope_screen_width_m = 0.159f;
     float scope_screen_right_m = -0.058f;
@@ -1497,6 +1498,9 @@ struct Config
     // disabled the desktop window behaves exactly as it always has. Like
     // resolution_scale, this takes effect on the next game start.
     bool fit_desktop_window = true;
+    // Halo 3 and ODST: one eye of the headset's picture on the monitor while in VR, which otherwise stays on its last
+    // flat frame (for anyone watching or streaming the window). One extra full-screen draw a frame.
+    bool desktop_mirror = true;
 
     // The VR frame is submitted inside MCC's desktop Present, so MCC's own
     // V-Sync would pace the HEADSET at the DESKTOP monitor's refresh -- a 60 Hz

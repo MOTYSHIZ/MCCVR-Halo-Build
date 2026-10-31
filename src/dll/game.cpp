@@ -13451,10 +13451,6 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         int loggedOn = -1;
         bool loggedSettled = false;       // the game's view once its own zoom has finished moving
     };
-    // ODST's unzoomed view is narrower than the one Halo 3's compact camera reports (65.4 deg across against 88.8,
-    // both as logged), so one strength magnified ODST half as much again. The settings are shared, and are the
-    // tester's for Halo 3: ODST's picture is widened by the ratio of those tangents to look the same at them.
-    constexpr float kOdstAimFrameViewScale = 0.98f / 0.642f;
     AimFrameState g_aimFrameState;   // the render thread
 
     bool AimFrameAllowed(GameTitle title)
@@ -13564,8 +13560,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         if (!ok)
             return false;
         const float strength = g_config.aim_frame_strength[s.level];
-        const float viewScale = title == GameTitle::Halo3ODST ? kOdstAimFrameViewScale : 1.0f;
-        out.tanX = nativeX * viewScale / strength;
+        out.tanX = nativeX / strength;
         if (!s.loggedSettled && s.t >= 1.0f)
         {
             // The line above is the frame's first, at the start of the game's own zoom; this one is where it went.

@@ -2912,6 +2912,7 @@ namespace
     #include "vr_blit.inl"
 
     #include "haloce_desktop_mirror.inl"
+    #include "../common/vr_desktop_mirror_logic.h"
 
     // Image-quality pipeline. Compiles the resolve/AA/sharpen pixel shaders and
     // the params constant buffer once; reuses the blit VS/sampler/rasterizer/
@@ -20303,6 +20304,39 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         LOG("CE desktop mirror: %s; left eye %ux%u -> desktop %ux%u; XR pair unchanged",
                             mirrored?"one view":"copy failed; native output retained",
                             ceLease.pair.descriptor.Width,ceLease.pair.descriptor.Height,bd.Width,bd.Height);
+                    }
+                }
+
+                // HALO 3 AND ODST ON THE MONITOR (desktop_mirror): the world is drawn into the eye caches, so what the
+                // game presents stays as it was. One finished eye goes to the window, cropped to its shape. Not over
+                // a frame the host drew into (Project Reclaimer's menus): its drawing is the point of that frame. The
+                // view is let go at once: it would hold the backbuffer, which a host's next engine needs freed.
+                const GameTitle mirrorTitle=TitleAdapter_GetActiveTitle();
+                if (g_config.desktop_mirror&&stereoWorldFrame&&!D3D_HostDrawsOverFrame()&&
+                    (mirrorTitle==GameTitle::Halo3||mirrorTitle==GameTitle::Halo3ODST))
+                {
+                    const int mirrorEye=monoFrame?monoEye:0;
+                    float mirrorHalfX[2]{},mirrorHalfY[2]{};
+                    RECT mirrorClient{};
+                    D3D11_VIEWPORT mirrorViewport{};
+                    mirrorViewport.MaxDepth=1.0f;
+                    const bool mirrored=g_eyeCache[mirrorEye]&&g_eyeHasImage[mirrorEye]&&
+                        Game_GetRenderHalfFovs(g_preparedFrame.serial,mirrorHalfX,mirrorHalfY)&&
+                        GetClientRect(D3D_GameWindow(),&mirrorClient)&&
+                        vr_desktop_mirror::CropViewport(std::tan(mirrorHalfX[mirrorEye]),std::tan(mirrorHalfY[mirrorEye]),
+                            mirrorClient.right-mirrorClient.left,mirrorClient.bottom-mirrorClient.top,
+                            bd.Width,bd.Height,mirrorViewport.TopLeftX,mirrorViewport.TopLeftY,
+                            mirrorViewport.Width,mirrorViewport.Height)&&
+                        DrawEyeToDesktop(g_eyeCache[mirrorEye],g_eyeCacheDesc,backbuffer,bd,mirrorViewport);
+                    if (g_ceDesktopRtv) g_ceDesktopRtv->Release();
+                    g_ceDesktopRtv=nullptr;g_ceDesktopBuffer=nullptr;
+                    static int lastMirrorState=-1;
+                    if (lastMirrorState!=static_cast<int>(mirrored))
+                    {
+                        lastMirrorState=static_cast<int>(mirrored);
+                        LOG("desktop mirror: %s; eye %d, window %ldx%ld, backbuffer %ux%u",
+                            mirrored?"on":"not drawn; the window keeps what the game presents",mirrorEye,
+                            mirrorClient.right-mirrorClient.left,mirrorClient.bottom-mirrorClient.top,bd.Width,bd.Height);
                     }
                 }
 

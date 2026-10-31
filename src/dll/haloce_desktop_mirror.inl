@@ -57,14 +57,12 @@ bool CeDesktopViewport(const halo_ce::EyeCache::Completed& pair,
         viewport.TopLeftX>=-32768&&viewport.TopLeftY>=-32768;
 }
 
-bool MirrorCeDesktop(const halo_ce::EyeCache::Completed& pair,
-    ID3D11Texture2D* backbuffer,const D3D11_TEXTURE2D_DESC& descriptor)
+// One finished eye into the backbuffer, as `viewport` places it.
+bool DrawEyeToDesktop(ID3D11Texture2D* eye,const D3D11_TEXTURE2D_DESC& eyeDescriptor,
+    ID3D11Texture2D* backbuffer,const D3D11_TEXTURE2D_DESC& descriptor,const D3D11_VIEWPORT& viewport)
 {
-    D3D11_VIEWPORT viewport{};
-    if (!g_device||!g_context||!backbuffer||backbuffer==pair.eyes[0]||
-        backbuffer==pair.eyes[1]||!CeDesktopViewport(pair,descriptor,viewport)||
-        !EnsureBlitPipeline()) return false;
-    auto* source=AcquireSrcSrv(pair.eyes[0],pair.descriptor);
+    if (!g_device||!g_context||!backbuffer||!eye||backbuffer==eye||!EnsureBlitPipeline()) return false;
+    auto* source=AcquireSrcSrv(eye,eyeDescriptor);
     if (!source) return false;
     // Use the real typed view format, including TYPELESS -> UNORM, rather
     // than the OpenXR target format assumed by the ordinary world upload.
@@ -145,5 +143,13 @@ float4 encode(Varying i) : SV_Target {
     g_context->HSSetShader(hull.shader,hull.classes,hull.count);
     g_context->DSSetShader(domain.shader,domain.classes,domain.count);
     return true;
+}
+
+bool MirrorCeDesktop(const halo_ce::EyeCache::Completed& pair,
+    ID3D11Texture2D* backbuffer,const D3D11_TEXTURE2D_DESC& descriptor)
+{
+    D3D11_VIEWPORT viewport{};
+    if (!backbuffer||backbuffer==pair.eyes[1]||!CeDesktopViewport(pair,descriptor,viewport)) return false;
+    return DrawEyeToDesktop(pair.eyes[0],pair.descriptor,backbuffer,descriptor,viewport);
 }
 }

@@ -2745,6 +2745,11 @@ namespace
         {
         if (ImGui::CollapsingHeader("The window on your monitor##section", ImGuiTreeNodeFlags_None))
         {
+        changed |= ImGui::Checkbox("Show the headset's picture on my monitor",&g_config.desktop_mirror);
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("Halo 3 and ODST: one eye of the VR picture on the monitor, for streaming or anyone "
+                              "watching.\nOff saves one full-screen draw a frame; the monitor then stays on its last "
+                              "flat frame while in VR. Live.");
         if(ImGui::Checkbox("Fit desktop window to my monitor",&g_config.fit_desktop_window)) {
             changed=true;
             if(D3D_FitActive()) PostMessageW(D3D_GameWindow(),kFitGameWindowMsg,0,0);
