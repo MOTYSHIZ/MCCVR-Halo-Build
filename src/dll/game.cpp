@@ -17716,8 +17716,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
             {
                 *reinterpret_cast<float*>(camera + layout.verticalFov) =
                     fovMatch.compactVerticalInput;
-                *reinterpret_cast<float*>(camera + layout.referenceFov) =
-                    fovMatch.compactReferenceInput;
+                // The frame is the flat game's picture: ODST's reference field keeps the game's own value there, not
+                // the narrow frame's, since the game's HUD was drawn (counted) but did not show in the frame.
+                *reinterpret_cast<float*>(camera + layout.referenceFov) = aimFrameFrame
+                    ? *reinterpret_cast<const float*>(savedCompact + layout.referenceFov)
+                    : fovMatch.compactReferenceInput;
             }
 
             alignas(16) unsigned char temporary[0x40]{};

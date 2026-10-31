@@ -15446,8 +15446,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const bool pointerMode=g_config.game_menu_pointer&&!Menu_IsOpen()&&
             g_sessionState==XR_SESSION_STATE_FOCUSED&&valid&&
             NativeMenuPointer_ConsumesTrigger()&&
-            game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
-                VR_IsPausePresentation()&&VR_IsPausePresentationTarget())&&
+            // A host's screen on the panel is a menu with no menu mode of the game's own (NativeMenuPointer's Allowed
+            // takes it too). Left out here, the pad went on reaching the host beside the pointer's mouse.
+            (game_menu_pointer::MenuMode(TitleAdapter_GetRuntimeMode(),
+                VR_IsPausePresentation()&&VR_IsPausePresentationTarget())||D3D_HostUiPanelIsScreen())&&
             !VR_IsCutsceneTheaterActive();
         pad.exclusiveInput=pad.thumbrestDpad||pointerMode;
         exclusive_input::active.store(pad.exclusiveInput||Menu_IsOpen(),std::memory_order_release);
