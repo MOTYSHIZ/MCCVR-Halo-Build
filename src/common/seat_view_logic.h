@@ -32,9 +32,9 @@
 // THE OTHER WAY ROUND. A seat whose own data already lacks bit 4 (the campaign Pelican's troop seats, seats a host
 // or a map adds) is first person in the game itself: the director hides the occupant's character and draws the
 // first-person arms and weapon at its camera. A chase camera of the mod's own moves only the eye, so those arms
-// would hang in front of it with no body behind them. While such a camera shows the seat, the relay turns that
-// settled "first person" answer into "third person" for the one occupant, and the director draws the seat as it
-// draws every stock seat. The simulation still reads the seat's own flag, so the game's own camera for that unit
+// would hang in front of it with no body behind them. While such a camera shows a seat, the relay turns a settled
+// "first person" answer, whatever produced it, into "third person" for the one occupant, and the director draws the
+// seat as it draws every stock seat. The simulation still reads the seat's own flag, so the game's own camera for that unit
 // (the unit camera evaluator +0x212198, the firing assist, the acquisition) is the same as an unmodded peer's. The
 // director's chase path +0x2144C0 takes the seat's camera only for a seat flagged 0x15 and the unit's own
 // otherwise, and a camera with no tracks takes the globals' default, so a seat that was never meant to be seen

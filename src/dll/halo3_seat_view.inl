@@ -64,6 +64,7 @@ Halo3SeatViewRetry g_halo3SeatViewRetry;                // WaitThread only
 std::atomic<bool> g_halo3SeatViewRedirected{false};     // every director site calls the relay
 std::atomic<int32_t> g_halo3SeatViewUnit{-1};           // the occupant the director is told is first person
 std::atomic<int32_t> g_halo3SeatViewChaseUnit{-1};      // ...and the one it is told is third person (a chase camera)
+std::atomic<uint32_t> g_halo3SeatViewChaseAnswered{0};  // how often that changed the game's answer (the log's witness)
 volatile LONG g_halo3SeatViewInside = 0;                // threads inside the relay or below it (the relay counts)
 #if HALOMCCVR_DEV_DIAGNOSTICS
 std::atomic<uint32_t> g_halo3SeatViewAsked{0}, g_halo3SeatViewAnswered{0};   // the dev SEAT VIEW line
@@ -79,6 +80,8 @@ int Halo3SeatViewAdjust(int unit, const int* state, int result) noexcept
         return result;
     const int answer = seat_view::Decide(result, *state, unit, g_halo3SeatViewUnit.load(std::memory_order_acquire),
                                          g_halo3SeatViewChaseUnit.load(std::memory_order_acquire));
+    if (answer == seat_view::kThirdPerson && result == seat_view::kFirstPerson)
+        g_halo3SeatViewChaseAnswered.fetch_add(1, std::memory_order_relaxed);
 #if HALOMCCVR_DEV_DIAGNOSTICS
     if (answer != result)
         g_halo3SeatViewAnswered.fetch_add(1, std::memory_order_relaxed);
@@ -263,7 +266,8 @@ void Halo3SeatViewReleaseRelay(Halo3SeatViewState& s)
 // key), the game answers first person by itself and the sites stay stock.
 bool Halo3SeatViewWanted()
 {
-    return g_config.vehicle_first_person && g_config.vehicle_hide_body && !Halo3SeatViewWritesTag();
+    return g_config.vehicle_first_person && (g_config.vehicle_hide_body || g_config.vehicle_cameras) &&
+        !Halo3SeatViewWritesTag();
 }
 
 // Put every site that still holds this relay's redirect back to the game's own call. A site whose bytes are no
@@ -427,8 +431,7 @@ void Halo3SeatViewDisarm()
     g_halo3SeatViewUnit.store(-1, std::memory_order_release);
     g_halo3SeatViewChaseUnit.store(-1, std::memory_order_release);
 }
-// A seat that is first person in its own data: its occupant is told "third person" while a chase camera shows it
-// (-1 = nobody).
+// The occupant a chase camera of the mod's shows: a "first person" answer becomes "third person" (-1 = nobody).
 void Halo3SeatViewArmChase(int32_t unit)
 {
     g_halo3SeatViewChaseUnit.store(unit, std::memory_order_release);
@@ -602,21 +605,25 @@ void Halo3SeatViewSync()
         const Halo3SeatViewRetry retry = g_halo3SeatViewRetry;
         (void)Halo3SeatViewInstall(retry.base, retry.size, retry.generation);
     }
-    // One line each way for a seat that is first person in its own data and shown from a chase camera.
+    // One line each way, only once the game's own answer really was first person under a chase camera.
     static int32_t s_chaseLogged = -1;
+    static uint32_t s_chaseAnswered = 0;
     const int32_t chase = g_halo3SeatViewChaseUnit.load(std::memory_order_relaxed);
-    if (chase != s_chaseLogged)
+    const uint32_t chaseAnswered = g_halo3SeatViewChaseAnswered.load(std::memory_order_relaxed);
+    if (chase != -1 && chase != s_chaseLogged && chaseAnswered != s_chaseAnswered)
     {
-        if (chase != -1)
-            LOG("Halo 3 seat view: a chase camera shows a seat that is first person in its own data, so the director "
-                "is told third person for unit 0x%08X: your character is drawn and the first-person arms and weapon "
-                "are not",
-                static_cast<uint32_t>(chase));
-        else
-            LOG("Halo 3 seat view: the director has the game's own answer again for unit 0x%08X",
-                static_cast<uint32_t>(s_chaseLogged));
+        LOG("Halo 3 seat view: a chase camera shows a seat the game draws first person, so the director is told third "
+            "person for unit 0x%08X: your character is drawn and the first-person arms and weapon are not",
+            static_cast<uint32_t>(chase));
         s_chaseLogged = chase;
     }
+    else if (chase == -1 && s_chaseLogged != -1)
+    {
+        LOG("Halo 3 seat view: the director has the game's own answer again for unit 0x%08X",
+            static_cast<uint32_t>(s_chaseLogged));
+        s_chaseLogged = -1;
+    }
+    s_chaseAnswered = chaseAnswered;
 #if HALOMCCVR_DEV_DIAGNOSTICS
     static uint64_t s_lastMs = 0;
     static uint32_t s_asked = 0, s_answered = 0;

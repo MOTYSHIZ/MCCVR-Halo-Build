@@ -32,6 +32,7 @@ static struct
 {
     bool vehicle_first_person = true;
     bool vehicle_hide_body = true;
+    bool vehicle_cameras = false;
     int seat_view_tag_write = 0;
 } g_config;
 
@@ -191,6 +192,7 @@ struct Module
 static void ResetWorld()
 {
     g_config.vehicle_first_person = g_config.vehicle_hide_body = true;
+    g_config.vehicle_cameras = false;
     g_config.seat_view_tag_write = 0;
     g_generation = 7;
     g_freezeFails = false;
@@ -219,6 +221,8 @@ static void TestInstallRedirectRestore()
     FlushInstructionCache(GetCurrentProcess(), m.base, kModuleSize);
     Check(m.AnswersAll(kUnit, seat_view::kFirstPerson), "a first-person seat: the game's own answer through the relay");
     Halo3SeatViewArmChase(kUnit);
+    Halo3SeatViewSync();
+    Check(!Logged("told third person for unit"), "armed but nothing asked: the log does not claim it");
     Check(m.AnswersAll(kUnit, seat_view::kThirdPerson) && m.AnswersAll(kOtherUnit, seat_view::kFirstPerson),
           "the chase camera's occupant is answered third person at every site, nobody else");
     Halo3SeatViewSync();

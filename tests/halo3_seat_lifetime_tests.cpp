@@ -132,6 +132,12 @@ int main()
     g_viewAvailable=true;
     Check(!Halo3EnsureFirstPersonSeatFlag(4,1,generation,0x1234)&&g_chaseUnit==0x1234,"...until it is");
     Halo3RestoreNativeSeatPatch();Check(g_chaseUnit==-1,"...and leaving the seat ends it");
+    // The body setting off: no seat view to hold, a chase camera still answered, and never disarmed frame by frame.
+    g_config.vehicle_hide_body=false;
+    Check(!Halo3EnsureFirstPersonSeatFlag(4,1,generation,0x1234)&&*word==0x120&&g_chaseUnit==0x1234,
+        "the body setting off: a chase camera's occupant is still told third person");
+    Check(!Halo3EnsureFirstPersonSeatFlag(4,1,generation,0x1234)&&g_chaseUnit==0x1234,"...on every frame of it");
+    g_config.vehicle_hide_body=true;Halo3RestoreNativeSeatPatch();
     g_chaseCamera=false;g_writesTag=true;
     *word=0x130;
     reset();g_config.vehicle_hide_body=false;
@@ -151,7 +157,7 @@ int main()
     g_chaseCamera=true;
     Check(Halo3EnsureFirstPersonSeatFlag(4,1,generation,0x1234)&&*word==0x130&&g_armedUnit==-1&&g_halo3NativeSeatState==1,
         "a chase camera: the occupant is not armed for the director, and the seat stays Active with its flags as loaded");
-    Check(g_chaseUnit==-1,"...and a stock seat is not told third person by the mod: the game already says so");
+    Check(g_chaseUnit==0x1234,"...and its occupant is armed for a first-person answer, which a host's hook could give");
     Check(Halo3OccupiedSeatFlags()==0x130&&Halo3NativeSeatStillOwned(g_halo3NativeSeatPatch),"...its flags stay known and the lease holds");
     g_chaseCamera=false;
     Check(Halo3EnsureFirstPersonSeatFlag(4,1,generation,0x1234)&&g_armedUnit==0x1234,"...and back in the seat view the occupant is armed again");
