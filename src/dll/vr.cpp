@@ -22045,6 +22045,12 @@ namespace
 }
 #endif
 
+static std::atomic<bool> g_forgetEngineTargets{false};
+void VR_ForgetEngineTargets()
+{
+    g_forgetEngineTargets.store(true, std::memory_order_release);
+}
+
 void VR_BeforePresent(IDXGISwapChain* sc)
 {
     // Diagnostic-only frame-boundary marker (no gameplay effect).
@@ -22081,6 +22087,26 @@ void VR_BeforePresent(IDXGISwapChain* sc)
         }
     }
     g_gameSwapchain = sc;
+    // A host's next engine now draws on this device (d3d11_hook.cpp HostDeviceHook): what was learned of the last
+    // engine's targets names nothing it will bind, and while it stands nothing of this engine's would be learned.
+    if (g_forgetEngineTargets.exchange(false, std::memory_order_acq_rel))
+    {
+        ReleaseSourceViews();
+        ReleaseDlssResources();
+        if (g_sceneColorRtv)
+        {
+            g_sceneColorRtv->Release();
+            g_sceneColorRtv = nullptr;
+        }
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+        if (g_sceneColorResource)
+        {
+            g_sceneColorResource->Release();
+            g_sceneColorResource = nullptr;
+        }
+#endif
+        LOG("host device: the last engine's scene target is forgotten; this engine's is learned afresh");
+    }
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
     // This observation is intentionally before every OpenXR/session early
     // return. It rejects unrelated Presents with one raw engine-swapchain
@@ -23917,6 +23943,10 @@ bool VR_BeginNativeHudEyeDraw(int eye)
 {
     auto& route = g_nativeHudEyeRoute;
     if (!g_context || eye < 0 || eye > 1 || !g_eyeCacheRtvs[eye] || route.active)
+        return false;
+    // With no scene target learned the eye's image is copied from the backbuffer over the eye cache, and a HUD routed
+    // into the cache would be lost with it. Left alone it reaches the backbuffer, and comes along in that copy.
+    if (!g_sceneColorRtv)
         return false;
 
     g_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT,

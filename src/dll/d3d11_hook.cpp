@@ -2277,6 +2277,7 @@ static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driv
     sharedThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
     sharedAtMs.store(now, std::memory_order_relaxed);
     g_deviceSharedAtMs.store(now, std::memory_order_relaxed);
+    VR_ForgetEngineTargets();
     SwapchainsChanged();
     session->AddRef();
     *deviceOut = session;
