@@ -1840,7 +1840,7 @@ namespace
                                 "Off whenever the game leaves first person (vehicle seats, turrets,\n"
                                 "third-person, death and Monitor cameras, cutscenes): your main hand\n"
                                 "aims alone. A grip held through it needs a fresh grip in first person.");
-            changed |= ImGui::Checkbox("Two-handed aim follows the grip zone",
+            changed |= ImGui::Checkbox("Weapon sets one- or two-handed aim",
                 &g_config.two_hand_grip_zone_authority);
             ImGui::TextDisabled(
                 "The weapon's grip zone decides, not how far apart your hands read each frame: a pistol-style\n"
