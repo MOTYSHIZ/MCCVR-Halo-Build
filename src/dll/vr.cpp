@@ -15758,6 +15758,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     void UpdateNativeMenuPointer(const XrCompositionLayerQuad& quad, bool hostPanelScreen = false)
     {
         static bool pressed = false;
+        static game_menu_pointer::ClickLock clickLock;
         const bool headLocked = quad.space == g_viewSpace;
         if (!g_config.game_menu_pointer || Menu_IsOpen() || g_padState.thumbrestDpad) {
             NativeMenuPointer_FrameStatus("disabled-F1-or-Dpad"); pressed=false; return;
@@ -15776,6 +15777,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         else if (g_nativePointerTrigger <= 0.35f) pressed = false;
         float u=0,v=0;
         const bool hit=game_menu_pointer::RayHit(quad,g_rightAimPose,g_headPose,headLocked,u,v);
+        if (hit) clickLock.Apply(g_nativePointerTrigger,u,v);
+        else clickLock.Reset();
         g_nativePointerFrame = {hit, pressed, u, v};
         NativeMenuPointer_FrameStatus(hit ? "hit" : "ray-miss");
     }

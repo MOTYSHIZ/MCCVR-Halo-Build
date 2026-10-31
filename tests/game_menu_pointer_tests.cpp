@@ -176,6 +176,23 @@ int main()
     Check(!queued.load(),"retry drains normally");
     Frame(true,true); g_config.game_menu_pointer=false; Watchdog(nullptr,0,0,0);
     Check(!mouseDown,"toggle off releases");
+    {
+        // A click holds where it was aimed; a hand that goes on moving is a drag.
+        game_menu_pointer::ClickLock lock;
+        float u=.5f,v=.5f;lock.Apply(.1f,u,v);
+        Check(u==.5f&&v==.5f,"no pull: the point is the ray's");
+        u=.5f;v=.5f;lock.Apply(.2f,u,v);
+        u=.51f;v=.49f;lock.Apply(.7f,u,v);
+        Check(u==.5f&&v==.5f,"a pull's jolt does not move the point");
+        u=.6f;v=.5f;lock.Apply(.7f,u,v);
+        Check(u==.6f,"past the drag distance the point follows");
+        u=.5f;v=.5f;lock.Apply(.7f,u,v);
+        Check(u==.5f,"and keeps following for the rest of the pull");
+        lock.Apply(0.f,u,v);
+        u=.7f;v=.7f;lock.Apply(.2f,u,v);
+        u=.71f;lock.Apply(.2f,u,v);
+        Check(u==.7f,"the next pull locks afresh");
+    }
     std::printf("%d checks, %d failures\n",checks,failures);
     return failures ? 1 : 0;
 }

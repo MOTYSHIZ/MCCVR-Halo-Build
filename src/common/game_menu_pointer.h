@@ -30,6 +30,25 @@ inline bool FreshActive(uint64_t packet, uint32_t now) noexcept
     return (packet & (1ull << 31)) && uint32_t(now - uint32_t(packet >> 32)) <= 200;
 }
 
+// A trigger pull moves the hand: measured in play, a click's press and release landed up to 35 pixels apart on a
+// 3840-wide window, and buttons took several clicks. From the first of the pull the point holds where it was aimed,
+// until the trigger is let go. A hand that goes on moving means a drag (a slider, a scrollbar), and then it follows.
+class ClickLock {
+    bool locked = false, dragging = false;
+    float u = 0, v = 0;
+public:
+    static constexpr float kPullStarted = 0.15f, kDragDistance = 0.03f;
+    void Reset() noexcept { locked = dragging = false; }
+    void Apply(float trigger, float& pointU, float& pointV) noexcept
+    {
+        if (trigger < kPullStarted) { Reset(); return; }
+        if (!locked) { locked = true; u = pointU; v = pointV; }
+        const float du = pointU - u, dv = pointV - v;
+        dragging = dragging || du*du + dv*dv > kDragDistance*kDragDistance;
+        if (!dragging) { pointU = u; pointV = v; }
+    }
+};
+
 struct Result { bool move = false, pressed = false; int x = 0, y = 0; };
 class Pointer {
     bool armed = false, hadHit = false;
