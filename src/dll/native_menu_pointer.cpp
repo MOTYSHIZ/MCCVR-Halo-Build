@@ -90,8 +90,13 @@ void Apply()
         std::abs(actual.x-target.x)>2 || std::abs(actual.y-target.y)>2) {
         Cancel(); Fault(); return;
     }
+    const bool wasDown = mouseDown;
     if (!Button(result.pressed)) { Cancel(); Fault(); }
     else {
+        // Each click and where it landed, to set beside what the player says it did not press.
+        if (mouseDown != wasDown)
+            LOG("game menu pointer: %s at %d,%d of %dx%d", mouseDown ? "press" : "release", int(result.x),
+                int(result.y), int(client.right-client.left), int(client.bottom-client.top));
         moveCount.fetch_add(1, std::memory_order_relaxed);
         deliveryStatus.store("delivered");
         visual.store(game_menu_pointer::Pack(GetTickCount(), true,
