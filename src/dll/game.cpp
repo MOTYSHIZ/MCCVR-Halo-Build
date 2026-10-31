@@ -2321,6 +2321,10 @@ namespace
 
     OdstCameraRuntimeState g_odstCamera;
     std::atomic<uint32_t> g_odstRuntimeGeneration{0};
+    // Why the camera copy did or did not count as the core's heartbeat: every call, those on our slot-0 camera, those
+    // with the single-user tail valid too, and those with an active source too. Read by the worker's heartbeat line.
+    std::atomic<uint64_t> g_odstCopyCalls{0}, g_odstCopyPrimary{0}, g_odstCopySingleUser{0}, g_odstCopyActive{0};
+    std::atomic<uintptr_t> g_odstCopyLastDestination{0};
     thread_local bool g_odstPreparingEyeHud = false;
     std::atomic<uintptr_t> g_odstNativePauseFlag{0};
     std::atomic<float> g_odstRenderHalfFovX[2] = {{1.07338f}, {1.07338f}};
@@ -16251,6 +16255,14 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             g_odstCamera.installed.load(std::memory_order_acquire) &&
             singleUserPath &&
             OdstSourceCameraIsActive(source);
+        g_odstCopyCalls.fetch_add(1, std::memory_order_relaxed);
+        g_odstCopyLastDestination.store(reinterpret_cast<uintptr_t>(destination), std::memory_order_relaxed);
+        if (ownsPrimaryCamera)
+            g_odstCopyPrimary.fetch_add(1, std::memory_order_relaxed);
+        if (singleUserPath)
+            g_odstCopySingleUser.fetch_add(1, std::memory_order_relaxed);
+        if (ownsActiveCamera)
+            g_odstCopyActive.fetch_add(1, std::memory_order_relaxed);
         // Halo 3 applies headset ownership to every active observer camera,
         // including vehicles, death, and cinematics. Do the same for ODST: a
         // blend-0 active camera still owns both head look and continuous aim.
@@ -51711,6 +51723,23 @@ static constexpr bool kOdstMappedFpEnabled = false;
                         g_odstCamera.gunCameraArray);
                 const OdstHeartbeatAction heartbeat = EvaluateOdstHeartbeat(
                     now, installedAt, last, sawCamera, cameraReady);
+                if (heartbeat != OdstHeartbeatAction::None)
+                    LOG("ODST camera heartbeat failed (action %d): installed %llu ms ago, saw a camera %d, last %llu "
+                        "ms ago, array ready now %d, armed %d. Camera copies since install: %llu calls, %llu on our "
+                        "slot-0 camera, %llu with the single-user tail valid, %llu with an active source; last "
+                        "destination %p, our slot-0 camera %p",
+                        static_cast<int>(heartbeat), static_cast<unsigned long long>(now - installedAt),
+                        sawCamera ? 1 : 0, static_cast<unsigned long long>(last && now >= last ? now - last : 0),
+                        cameraReady ? 1 : 0, g_odstCamera.armed.load(std::memory_order_acquire) ? 1 : 0,
+                        static_cast<unsigned long long>(g_odstCopyCalls.exchange(0, std::memory_order_relaxed)),
+                        static_cast<unsigned long long>(g_odstCopyPrimary.exchange(0, std::memory_order_relaxed)),
+                        static_cast<unsigned long long>(g_odstCopySingleUser.exchange(0, std::memory_order_relaxed)),
+                        static_cast<unsigned long long>(g_odstCopyActive.exchange(0, std::memory_order_relaxed)),
+                        reinterpret_cast<void*>(g_odstCopyLastDestination.load(std::memory_order_relaxed)),
+                        reinterpret_cast<void*>(g_odstCamera.gunCameraArray
+                                                    ? g_odstCamera.gunCameraArray +
+                                                          kOdstCameraProfile.layout.rootCurrentCompact
+                                                    : 0));
                 if (heartbeat == OdstHeartbeatAction::LevelUnloaded)
                     OdstRequestFallback(OdstFallbackReason::LevelUnloaded);
                 else if (heartbeat == OdstHeartbeatAction::NoFirstHeartbeat)
@@ -51853,6 +51882,19 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 odstRearmGate.Observe(true, ready);
                 odstPauseRearmGate.Observe(
                     pollNow, true, odstPauseKnown && odstPaused, ready);
+                // What the gate is waiting on, while it waits: the camera seen not ready, then ready.
+                static uint64_t rearmReportMs = 0;
+                static uint32_t rearmReady = 0, rearmNotReady = 0;
+                ++(ready ? rearmReady : rearmNotReady);
+                if (pollNow - rearmReportMs >= 2000)
+                {
+                    rearmReportMs = pollNow;
+                    LOG("ODST rearm gate waiting: reload gate blocked %d, pause gate blocked %d, paused %d; the camera "
+                        "array read ready %u and not ready %u times since the last line",
+                        odstRearmGate.IsBlocked() ? 1 : 0, odstPauseRearmGate.IsBlocked() ? 1 : 0,
+                        odstPauseKnown && odstPaused ? 1 : 0, rearmReady, rearmNotReady);
+                    rearmReady = rearmNotReady = 0;
+                }
                 if (odstRearmGate.CanAttemptInstall() &&
                     odstPauseRearmGate.CanAttemptInstall())
                 {
