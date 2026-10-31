@@ -29,6 +29,7 @@
 //
 // CO-OP. A HUD line is presentation, but it lives in the game's own state; in a shared co-op simulation the mod
 // leaves that state as the game keeps it (Sight_FireTimeChangesAllowed false) and shows the note on its panel.
+// Project Reclaimer asks its simulation type instead (hud_note::SessionAllows).
 
 using Halo3HudMessageFn = void(__fastcall*)(int32_t user, const wchar_t* text, int32_t type);
 
@@ -143,6 +144,12 @@ void RemoveHalo3HudNote()
 
 namespace
 {
+bool Halo3HudNoteSessionAllows()
+{
+    return hud_note::SessionAllows(Sight_FireTimeChangesAllowed(), g_hostIsProjectReclaimer,
+                                   Sight_SessionType(GameTitle::Halo3));
+}
+
 // The calling thread holds the HUD block, the game clock and a campaign or multiplayer game: 0. Otherwise the first
 // thing missing (Halo3HudNoteNotReadyText). Guarded: no C++ object here.
 int Halo3HudNoteThreadReady(const uint32_t* tlsIndex)
@@ -207,7 +214,7 @@ void Halo3HudNotePost()
     if (note.wanted.load(std::memory_order_acquire) == shown)
         return;
     const Halo3HudMessageFn post = note.post.load(std::memory_order_acquire);
-    if (!post || !Sight_FireTimeChangesAllowed())
+    if (!post || !Halo3HudNoteSessionAllows())
         return; // the cold worker's fallback shows it on the panel
     wchar_t text[hud_note::kMaxChars + 1];
     uint32_t serial = 0;
@@ -243,7 +250,7 @@ void Halo3VehicleNoteShow(const std::wstring& text, float seconds)
     const bool hudReady = note.post.load(std::memory_order_acquire) &&
                           g_halo3HeadAudio.ready.load(std::memory_order_acquire);
     const hud_note::Route route =
-        hud_note::Choose(g_config.vehicle_camera_note, hudReady, Sight_FireTimeChangesAllowed());
+        hud_note::Choose(g_config.vehicle_camera_note, hudReady, Halo3HudNoteSessionAllows());
     if (route != hud_note::Route::GameHud)
     {
         // A note still waiting for the game is older than this one: neither side shows it now.

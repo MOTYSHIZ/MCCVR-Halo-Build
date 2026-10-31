@@ -41,6 +41,18 @@ inline Route Choose(int mode, bool hudReady, bool sessionAllows) noexcept
     return Route::GameHud;
 }
 
+// Whether this session takes a line in the game's own HUD. `oneMachineChangesAllowed` is the co-op switch's answer
+// (Sight_FireTimeChangesAllowed). Project Reclaimer enlarges the game's player tables, so the player count that answer
+// needs reads "not read" there and the switch stays closed in a game the player is alone in. There the simulation
+// type decides: only a synchronous client (2) is known to share its simulation, and an unread type (-1) is no game.
+// A HUD line is text for one local user's HUD, which no two machines hold alike in the first place.
+inline bool SessionAllows(bool oneMachineChangesAllowed, bool hostIsProjectReclaimer, int simulationType) noexcept
+{
+    return oneMachineChangesAllowed ||
+        (hostIsProjectReclaimer && (simulationType == 1 || simulationType == 3 || simulationType == 4 ||
+                                    simulationType == 5));
+}
+
 // The note as the HUD's font draws it: the separator " \u00B7 " as " - ", anything else outside printable ASCII as
 // '?', no more than kMaxChars (a longer note ends in "..."), no spaces at either end.
 inline std::wstring ForGameHud(const std::wstring& note)
