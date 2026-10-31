@@ -100,6 +100,9 @@ static int32_t LegacyCollisionIgnoredObject(GameTitle){return -1;}
 static thread_local int8_t t_odstFire=shot_lag::kFireNone;
 static thread_local uintptr_t caller{};
 #define _ReturnAddress() reinterpret_cast<void*>(::caller)
+// Aim Frame Zoom's record of the game's zoom level (game.cpp); the lane only reports it.
+static int g_notedZoomLevel=-2;
+static void NoteGameZoomLevel(GameTitle,int16_t level,uint32_t){g_notedZoomLevel=level;}
 #include "../src/dll/odst_muzzle_shots.inl"
 #include "../src/dll/odst_independent_publication.inl"
 #undef _ReturnAddress
@@ -250,6 +253,14 @@ static void ShotTests()
     Reset();float dir[3]{0,1,0},control[3]{};uint8_t nativeTarget[0x28]{};g_odstMuzzleQueryContext={};
     OdstMuzzleQueryDetour(2,0,dir,3,control,nativeTarget);Check(g_odstMuzzleQueryContext.unit==owner&&g_odstMuzzleQueryContext.inputUser==2,"ordinary native query captures its real owner and input user");
     g_odstMuzzleQueryContext={};OdstMuzzleQueryDetour(2,1,dir,3,control,nativeTarget);Check(!g_odstMuzzleQueryContext.sampleMs,"lead-only fallback does not replace ordinary context");
+    // Aim Frame Zoom: the local player's ordinary query reports the game's zoom level; nobody else's, and never ours.
+    g_notedZoomLevel=-2;OdstMuzzleQueryDetour(2,0,dir,3,control,nativeTarget);Check(g_notedZoomLevel==-2,"another player's query is not the zoom level");
+    g_odstMuzzle.queryOriginal=nullptr;   // the native stand-in insists on the owner's user and zoom
+    OdstMuzzleQueryDetour(0,1,dir,1,control,nativeTarget);Check(g_notedZoomLevel==-2,"a lead-only query is not the zoom level");
+    g_legacyCollisionOwnedQuery=true;OdstMuzzleQueryDetour(0,0,dir,1,control,nativeTarget);g_legacyCollisionOwnedQuery=false;Check(g_notedZoomLevel==-2,"our own query is not the zoom level");
+    OdstMuzzleQueryDetour(0,0,dir,1,control,nativeTarget);Check(g_notedZoomLevel==1,"the local player's query is");
+    OdstMuzzleQueryDetour(0,0,dir,-1,control,nativeTarget);Check(g_notedZoomLevel==-1,"not zoomed is -1");
+    g_odstMuzzle.queryOriginal=NativeQuery;g_odstMuzzleQueryContext={};
     Reset();std::thread isolated([]{Check(!g_odstMuzzleQueryContext.sampleMs&&!g_odstMuzzleRequest.lease,"native query and firing scope are thread local");});isolated.join();
 }
 static void PublicationTests()

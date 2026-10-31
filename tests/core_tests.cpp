@@ -7238,6 +7238,14 @@ int main()
             "ODST reproduces the live Halo 3 projection scales");
         Check(!ComputeOdstHalo3FovMatch(0.0f, 0.9f, matchedFov),
             "ODST rejects an invalid headset FOV pair");
+        float odstNativeX = 0.0f, odstNativeY = 0.0f;
+        Check(OdstNativeTangentsFromProjection(2.5f, -4.0f, odstNativeX, odstNativeY) &&
+                  std::fabs(odstNativeX - 0.4f) < 0.0001f &&
+                  std::fabs(odstNativeY - 0.25f) < 0.0001f,
+            "ODST reads the game's own view from a projection's scales");
+        Check(!OdstNativeTangentsFromProjection(0.0f, 1.0f, odstNativeX, odstNativeY) &&
+                  !OdstNativeTangentsFromProjection(1.0f, NAN, odstNativeX, odstNativeY),
+            "ODST refuses a projection that names no view");
 
         for (int count : {41, 42, 43, 45, 46})
         {

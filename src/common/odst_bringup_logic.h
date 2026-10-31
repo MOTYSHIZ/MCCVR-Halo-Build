@@ -111,6 +111,19 @@ inline bool ComputeOdstHalo3FovMatch(
     return true;
 }
 
+// The half-angle tangents of the view a projection's two scales were built for: while the game is zoomed, of its own
+// zoomed view (Aim Frame Zoom). ODST's two compact fields have their own stock semantics, so this is the record of it.
+inline bool OdstNativeTangentsFromProjection(
+    float scaleX, float scaleY, float& tanX, float& tanY)
+{
+    if (!std::isfinite(scaleX) || !std::isfinite(scaleY) ||
+        std::fabs(scaleX) < 0.2f || std::fabs(scaleY) < 0.2f)
+        return false;
+    tanX = 1.0f / std::fabs(scaleX);
+    tanY = 1.0f / std::fabs(scaleY);
+    return tanX > 1.0e-3f && tanY > 1.0e-3f;
+}
+
 struct OdstHalo3LookAngles
 {
     float yaw = 0.0f;

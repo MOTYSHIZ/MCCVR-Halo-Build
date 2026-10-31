@@ -1433,13 +1433,13 @@ struct Config
     // (the hand's point lies past the stop the gun is held at). (default 1)
     int scope_converge = 1;
     float scope_zoom = 24.0f;
-    // AIM FRAME ZOOM (opt-in, live; F1 > Scope; Halo 3, in MCC and in Project Reclaimer). While the game itself is
+    // AIM FRAME ZOOM (live; F1 > Scope; Halo 3, in MCC and in Project Reclaimer, and ODST). While the game itself is
     // zoomed -- its own zoom level, never the button -- the headset shows one flat picture the game draws along the
     // aim at its own zoomed field of view, as a frame centred on the aim, in place of the immersive view. The zoom
-    // button then reaches the game, so the gun-mounted lens is not offered in Halo 3 while this is on. Per zoom
+    // button then reaches the game, so the gun-mounted lens is not offered there while this is on. Per zoom
     // level (index 0: the first; 1: the second and higher): the frame's width in degrees, and a strength that
     // narrows the game's zoomed view further (1 = the game's own). The move time eases the frame in from, and back
-    // out to, the game's own angles (0 = at once). game.cpp: Halo3AimFrameThisFrame; vr.cpp: the aim frame quad.
+    // out to, the game's own angles (0 = at once). game.cpp: AimFrameThisFrame; vr.cpp: the aim frame quad.
     // On by default, with a 100 degree frame at strength 1.5 for both levels: the tester's settings (2026-10-30).
     bool aim_frame_zoom = true;
     // 3D inside the frame: the two eye passes are drawn along the aim and each eye sees its own picture in the
