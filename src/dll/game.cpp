@@ -14037,8 +14037,6 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
     }
 
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
-    constexpr float kOdstWorldUnitsPerMeter = 1.0f / 3.048f;
-
     // A camera gets first-person aim/control ownership when its blend is at
     // least this close to 1. On-foot and vehicle views use that path and the
     // internal scene-color target. The blend-0 death camera remains a distinct
@@ -53487,7 +53485,10 @@ void Game_AutoVrTick()
              (titleRuntime.runtime.owner == GameTitle::Halo3ODST &&
               titleRuntime.runtime.qualifyingOwnerCount == 1)) &&
             !g_odstCamera.teardownRequested.load(std::memory_order_acquire);
-        VR_SetScopeActive(false);
+        // The zoom lens closes only while ODST cannot draw it. This runs every Present, so closing it
+        // unconditionally swallowed each zoom toggle before the lens pass ever saw it.
+        if (!odstTitleActive || !g_odstCamera.armed.load(std::memory_order_acquire))
+            VR_SetScopeActive(false);
         // Cutscene-facing confirmation for ODST: OdstApplyHeadLook bumps the
         // shared rebase serial at each authored cut. Log the transition here (a
         // cold worker-side path), mirroring the Halo 3 report, so the headset
