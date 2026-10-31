@@ -56,4 +56,67 @@ constexpr const char* Describe(Verdict verdict)
     }
     return "unknown";
 }
+
+// A HOST'S SECOND DEVICE. Project Reclaimer creates a new D3D11 device when it starts another title's engine (Halo 3's
+// menu, then ODST). The headset session and everything the mod made is bound to the first, so the second engine's
+// frames could never reach the headset. MCC keeps one device for every title, and the mod's title switch is built on
+// that: so the host's call is answered with the session's device, and the second engine runs as a title switch does.
+//
+// Only the host's own call, only once its engine has stopped presenting (a call made while the game draws is some
+// other part of the host, which must keep its own device), and only when the device answers what was asked.
+enum class DeviceShare : uint8_t
+{
+    Share = 0,
+    NotAsked,            // no device wanted: a capability probe
+    NotHostsCall,        // another module's call (a runtime, an overlay)
+    NoSession,           // the first device: the session will be made on it
+    SessionLost,         // the session's device was removed
+    GameStillPresenting, // not the end of an engine
+    OtherAdapter,        // another GPU was asked for
+    FlagsDiffer,         // creation flags the session's device lacks
+    FeatureLevelRefused, // none of the requested levels is the session device's
+};
+
+// How long the game has not presented before a host's new device can be the next engine's.
+constexpr uint64_t kEngineGoneQuietMs = 250;
+
+constexpr DeviceShare DecideDeviceShare(bool wantsDevice, bool hostsCall, bool session, bool sessionLost,
+                                        uint64_t msSinceGamePresent, bool sameAdapter, uint32_t requestedFlags,
+                                        uint32_t sessionFlags, bool featureLevelAccepted)
+{
+    if (!wantsDevice)
+        return DeviceShare::NotAsked;
+    if (!hostsCall)
+        return DeviceShare::NotHostsCall;
+    if (!session)
+        return DeviceShare::NoSession;
+    if (sessionLost)
+        return DeviceShare::SessionLost;
+    if (msSinceGamePresent < kEngineGoneQuietMs)
+        return DeviceShare::GameStillPresenting;
+    if (!sameAdapter)
+        return DeviceShare::OtherAdapter;
+    if (requestedFlags & ~sessionFlags)
+        return DeviceShare::FlagsDiffer;
+    if (!featureLevelAccepted)
+        return DeviceShare::FeatureLevelRefused;
+    return DeviceShare::Share;
+}
+
+constexpr const char* Describe(DeviceShare decision)
+{
+    switch (decision)
+    {
+    case DeviceShare::Share: return "answered with the headset session's device";
+    case DeviceShare::NotAsked: return "no device wanted (a probe)";
+    case DeviceShare::NotHostsCall: return "not the host's own call";
+    case DeviceShare::NoSession: return "no headset session yet";
+    case DeviceShare::SessionLost: return "the session's device is lost";
+    case DeviceShare::GameStillPresenting: return "the game is still presenting, so this is not its next engine";
+    case DeviceShare::OtherAdapter: return "another GPU was asked for";
+    case DeviceShare::FlagsDiffer: return "creation flags the session's device lacks";
+    case DeviceShare::FeatureLevelRefused: return "none of the requested feature levels is the session device's";
+    }
+    return "unknown";
+}
 } // namespace present_owner
