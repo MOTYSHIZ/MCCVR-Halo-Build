@@ -91,6 +91,13 @@ int main(){
     assert(CloseHandAuthority({0,0,-.17f})==1);
     assert(CloseHandAuthority({0,0,-.23f})==1);
     assert(CloseHandAuthority({0,0,-.35f})==1);
+    // The range scales the whole volume.
+    assert(CloseHandAuthority({0,0,-.15f},.5f)==1);
+    assert(CloseHandAuthority({0,0,-.07f},.5f)==0);
+    assert(CloseHandAuthority({.11f,0,0},.5f)==0);
+    assert(CloseHandAuthority({.13f,0,0},.5f)==1);
+    assert(CloseHandAuthority({0,0,-.31f},2.f)==0);
+    assert(CloseHandAuthority({0,0,-.33f},2.f)==1);
     // By the grip zone: where the hands read does not change the answer.
     assert(GripZoneAuthority(true,{0,0,-.05f})==0);
     assert(GripZoneAuthority(true,{0,0,-.60f})==0);

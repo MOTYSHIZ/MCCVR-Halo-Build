@@ -692,6 +692,8 @@ static void Clamp()
     }
     g_config.aim_frame_3d_strength = std::isfinite(g_config.aim_frame_3d_strength)
         ? std::clamp(g_config.aim_frame_3d_strength, 1.0f, 10.0f) : 6.0f;
+    g_config.two_hand_close_range = std::isfinite(g_config.two_hand_close_range)
+        ? std::clamp(g_config.two_hand_close_range, 0.25f, 2.0f) : 1.0f;
     g_config.aim_frame_move_s = std::isfinite(g_config.aim_frame_move_s)
         ? std::clamp(g_config.aim_frame_move_s, 0.0f, 1.0f) : 0.12f;
     g_config.scope_screen_width_m = std::clamp(g_config.scope_screen_width_m, 0.04f, 0.25f);
@@ -1285,6 +1287,11 @@ void ConfigLoad(const wchar_t* path)
             // historical files load quietly, but the value is dormant and is
             // never resolved by any product or telemetry path.
             ParseBoolSetting(key, val, g_config.two_hand_transition_smoothing);
+            continue;
+        }
+        if(!strcmp(key,"two_hand_close_range"))
+        {
+            ParseFloatSetting(key, val, g_config.two_hand_close_range);
             continue;
         }
         if(!strcmp(key,"two_hand_grip_zone_authority"))
@@ -3743,6 +3750,11 @@ void ConfigSave()
     fprintf(f, "# does, so a tracking drop-out cannot switch it. 0 = decided by how far apart the hands read each\n");
     fprintf(f, "# frame. (default %d)\n", d.two_hand_grip_zone_authority ? 1 : 0);
     fprintf(f, "two_hand_grip_zone_authority = %d\n\n", g_config.two_hand_grip_zone_authority ? 1 : 0);
+    fprintf(f, "# With that 0: how close the hands must be for the main hand to aim alone. 1 = 16 cm apart, or 24 cm to\n");
+    fprintf(f, "# the side, 14 cm up or down, 12 cm forward or back; the rest scale with it. (default %.2f, range 0.25\n",
+            d.two_hand_close_range);
+    fprintf(f, "# to 2)\n");
+    fprintf(f, "two_hand_close_range = %.2f\n\n", g_config.two_hand_close_range);
     fprintf(f, "# Main weapon, aim and trigger on the physical left controller.\n");
     fprintf(f, "# Movement, turning and face buttons keep their physical bindings.\n");
     fprintf(f, "left_handed = %d\n\n", g_config.left_handed ? 1 : 0);

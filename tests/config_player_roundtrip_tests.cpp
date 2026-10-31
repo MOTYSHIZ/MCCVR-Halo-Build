@@ -79,6 +79,7 @@ int main()
     g_config.aim_frame_move_s = 0.3f;
     g_config.reclaimer_share_device = false;
     g_config.desktop_mirror = false;
+    g_config.two_hand_close_range = 1.5f;
     ConfigSave();
 
     g_unknownKeys.clear();
@@ -112,6 +113,8 @@ int main()
           "aim_frame_move_s is remembered");
     Check(!g_config.reclaimer_share_device, "reclaimer_share_device is remembered");
     Check(!g_config.desktop_mirror, "desktop_mirror is remembered");
+    Check(g_config.two_hand_close_range > 1.49f && g_config.two_hand_close_range < 1.51f,
+          "two_hand_close_range is remembered");
 
     // A pre-version-1 file keeps each saved adjustment relative to the old -0.063 m default,
     // including explicit title overrides; nothing is written on load; later edits survive.

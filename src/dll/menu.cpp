@@ -1840,17 +1840,37 @@ namespace
                                 "Off whenever the game leaves first person (vehicle seats, turrets,\n"
                                 "third-person, death and Monitor cameras, cutscenes): your main hand\n"
                                 "aims alone. A grip held through it needs a fresh grip in first person.");
-            ImGui::Text("While gripping, choose one- or two-handed aim by");
-            if (ImGui::RadioButton("Weapon##twohandaimby", g_config.two_hand_grip_zone_authority))
+            ImGui::Text("When gripping, your support hand steers the aim:");
+            if (ImGui::RadioButton("Based on the weapon##twohandaimby", g_config.two_hand_grip_zone_authority))
             { g_config.two_hand_grip_zone_authority = true; changed = true; }
             ImGui::SameLine();
-            if (ImGui::RadioButton("Distance between hands##twohandaimby", !g_config.two_hand_grip_zone_authority))
+            if (ImGui::RadioButton("Based on how far apart your hands are##twohandaimby",
+                                   !g_config.two_hand_grip_zone_authority))
             { g_config.two_hand_grip_zone_authority = false; changed = true; }
-            ImGui::TextDisabled(g_config.two_hand_grip_zone_authority
-                ? "Set once by the weapon's grip zone: pistol-style holds aim one-handed, long guns two-handed.\n"
-                  "It does not switch during play, so a brief controller tracking drop-out cannot change it."
-                : "Checked live: hands close together aim one-handed, hands further apart aim two-handed.\n"
-                  "A brief controller tracking drop-out can read as far apart and switch it for a moment.");
+            if (g_config.two_hand_grip_zone_authority)
+                ImGui::TextDisabled(
+                    "Long guns: your support hand steers the aim.\n"
+                    "Pistol-style weapons: it holds the gun, but your main hand aims alone.\n"
+                    "This doesn't change while you're gripping, so a controller tracking drop-out can't switch it.");
+            else
+            {
+                ImGui::TextDisabled(
+                    "Hands far apart: your support hand steers the aim.\n"
+                    "Hands close together: it holds the gun, but your main hand aims alone.\n"
+                    "A controller tracking drop-out can make your hands read as far apart and switch this for a moment.");
+                float closeRangePercent = g_config.two_hand_close_range * 100.0f;
+                if (vr_menu::SliderFloat("Close-hands range", &closeRangePercent, 25.0f, 200.0f, "%.0f%%",
+                                         ImGuiSliderFlags_None))
+                {
+                    g_config.two_hand_close_range = closeRangePercent / 100.0f;
+                    changed = true;
+                }
+                const float closeRange = g_config.two_hand_close_range * 100.0f;
+                ImGui::TextDisabled(
+                    "Your main hand aims alone when your hands are within %.0f cm of each other, or your\n"
+                    "support hand is within %.0f cm to the side, %.0f cm up or down and %.0f cm forward or back.",
+                    closeRange * 0.16f, closeRange * 0.24f, closeRange * 0.14f, closeRange * 0.12f);
+            }
             ImGui::Spacing();
             ImGui::Text("Grip mode");
             if (ImGui::RadioButton("Toggle (click grip)", g_config.two_hand_toggle))

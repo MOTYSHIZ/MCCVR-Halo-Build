@@ -65,12 +65,14 @@ inline bool Short(Point centre){return Valid(centre)&&Distance2(centre,{0,0,0})<
 inline bool ShortHit(Point p){return Valid(p)&&std::fabs(p[0])<=.22f&&p[1]>=-.19f&&p[1]<=.14f&&p[2]>=-.14f&&p[2]<=.12f;}
 // Binary exclusion: outside the close-hand volume, keep the user's full
 // configured influence. Physical grip separation ignores controller rotation.
-inline float CloseHandAuthority(Point local){
+// `range` scales the whole volume (two_hand_close_range; 1 = these measures).
+inline float CloseHandAuthority(Point local,float range=1.f){
     if(!Valid(local))return 0;
-    const bool close=Distance2(local,{0,0,0})<=.16f*.16f;
-    const bool lateral=std::fabs(local[0])<=.24f&&
-        std::fabs(local[1])<=.14f&&std::fabs(local[2])<=.12f;
-    return close||lateral?0.f:1.f;
+    const float close=.16f*range;
+    const bool withinClose=Distance2(local,{0,0,0})<=close*close;
+    const bool lateral=std::fabs(local[0])<=.24f*range&&
+        std::fabs(local[1])<=.14f*range&&std::fabs(local[2])<=.12f*range;
+    return withinClose||lateral?0.f:1.f;
 }
 // Decided by the weapon's grip zone and not by where the hands are (two_hand_grip_zone_authority). A brief tracking
 // drop-out of an occluded support controller reads as the hand far away, which on a pistol hold switched the aim to
