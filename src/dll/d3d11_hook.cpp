@@ -3,6 +3,7 @@
 #include <shlobj.h>
 #include <d3d11.h>
 #include <d3d11_1.h>
+#include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <dxgi1_5.h>
 #include <algorithm>
@@ -1979,8 +1980,13 @@ static void CheckSessionDeviceHealth()
         D3D_NoteDeviceLoss("the headset session's device, asked at a present,", reason, device);
 }
 
+// When the game's swapchain last presented (HostDeviceHook: a host's new device is its next engine's only then).
+static std::atomic<uint64_t> g_lastGamePresentMs{0};
+
 static void NotePresentResult(IDXGISwapChain* sc, HRESULT hr, bool game)
 {
+    if (game)
+        g_lastGamePresentMs.store(GetTickCount64(), std::memory_order_relaxed);
     if (!FAILED(hr) || !sc)
         return;
     ID3D11Device* device = nullptr;
@@ -2077,6 +2083,98 @@ static HRESULT STDMETHODCALLTYPE CreateSwapChainHook(IDXGIFactory* self, IUnknow
     const HRESULT hr = CreateSwapChainBody(self, device, pDesc, ppSwapChain);
     SwapchainsChanged();
     return hr;
+}
+
+// A HOST'S SECOND DEVICE (present_owner_logic.h DecideDeviceShare says when): the host's next engine is given the
+// headset session's device, as MCC's titles all share one. The old engine's work on the context is over by then, but
+// its teardown may still be running on another thread: the context is made safe for that first, and handed over clean.
+using D3D11CreateDeviceFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*,
+                                             UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+static D3D11CreateDeviceFn g_origD3D11CreateDevice = nullptr;
+
+static bool CallerIsHostExe(void* returnAddress)
+{
+    HMODULE caller = nullptr;
+    return GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              static_cast<LPCWSTR>(returnAddress), &caller) &&
+        caller == GetModuleHandleW(nullptr);
+}
+
+static bool SameAdapter(IDXGIAdapter* requested, ID3D11Device* session)
+{
+    if (!requested)
+        return true;
+    IDXGIDevice* dxgi = nullptr;
+    IDXGIAdapter* adapter = nullptr;
+    DXGI_ADAPTER_DESC a{}, b{};
+    bool same = false;
+    if (SUCCEEDED(session->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi))) &&
+        SUCCEEDED(dxgi->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetDesc(&a)) && SUCCEEDED(requested->GetDesc(&b)))
+        same = a.AdapterLuid.LowPart == b.AdapterLuid.LowPart && a.AdapterLuid.HighPart == b.AdapterLuid.HighPart;
+    if (adapter)
+        adapter->Release();
+    if (dxgi)
+        dxgi->Release();
+    return same;
+}
+
+static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driverType, HMODULE software, UINT flags,
+                                     const D3D_FEATURE_LEVEL* levels, UINT levelCount, UINT sdkVersion,
+                                     ID3D11Device** deviceOut, D3D_FEATURE_LEVEL* levelOut,
+                                     ID3D11DeviceContext** contextOut)
+{
+    ID3D11Device* const session = VR_SessionDevice();
+    const uint64_t now = GetTickCount64();
+    const uint64_t last = g_lastGamePresentMs.load(std::memory_order_relaxed);
+    const uint64_t quietMs = last && now >= last ? now - last : 0;
+    const bool lost = session && FAILED(session->GetDeviceRemovedReason());
+    const bool usable = session && !lost;
+    bool levelAccepted = !levels || !levelCount;
+    if (usable && levels)
+        for (UINT i = 0; i < levelCount; ++i)
+            levelAccepted = levelAccepted || levels[i] == session->GetFeatureLevel();
+    present_owner::DeviceShare decision = present_owner::DecideDeviceShare(
+        deviceOut != nullptr, CallerIsHostExe(_ReturnAddress()), session != nullptr, lost, quietMs,
+        usable && SameAdapter(adapter, session), flags, usable ? session->GetCreationFlags() : 0u, levelAccepted);
+
+    ID3D11DeviceContext* context = nullptr;
+    ID3D11Multithread* multithread = nullptr;
+    if (decision == present_owner::DeviceShare::Share)
+    {
+        session->GetImmediateContext(&context);
+        if (context && SUCCEEDED(context->QueryInterface(__uuidof(ID3D11Multithread),
+                                                         reinterpret_cast<void**>(&multithread))))
+            multithread->SetMultithreadProtected(TRUE);
+        else
+            decision = present_owner::DeviceShare::SessionLost;
+    }
+    static std::atomic<uint32_t> logged{0};
+    if (logged.fetch_add(1, std::memory_order_relaxed) < 16)
+        LOG("host device: D3D11CreateDevice on thread %lu, adapter %p, flags 0x%X, game last presented %llu ms ago: %s",
+            GetCurrentThreadId(), static_cast<void*>(adapter), flags, static_cast<unsigned long long>(quietMs),
+            present_owner::Describe(decision));
+    if (decision != present_owner::DeviceShare::Share)
+    {
+        if (multithread)
+            multithread->Release();
+        if (context)
+            context->Release();
+        return g_origD3D11CreateDevice(adapter, driverType, software, flags, levels, levelCount, sdkVersion, deviceOut,
+                                       levelOut, contextOut);
+    }
+    context->ClearState();
+    context->Flush();
+    multithread->Release();
+    SwapchainsChanged();
+    session->AddRef();
+    *deviceOut = session;
+    if (levelOut)
+        *levelOut = session->GetFeatureLevel();
+    if (contextOut)
+        *contextOut = context;
+    else
+        context->Release();
+    return S_OK;
 }
 
 // Broad probe paths deliberately NOT installed here; each was retired after
@@ -3773,6 +3871,15 @@ bool InstallD3D11Hooks()
         if (MH_CreateHook(vtbl1[22], (void*)&Present1Hook, (void**)&g_origPresent1) != MH_OK)
             LOG("warning: Present1 hook failed; flip-model swapchains may not be captured");
         sc1->Release();
+    }
+
+    if (g_hostIsProjectReclaimer)
+    {
+        void* const createDevice = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"d3d11.dll"),
+                                                                          "D3D11CreateDevice"));
+        if (!createDevice || MH_CreateHook(createDevice, reinterpret_cast<void*>(&HostDeviceHook),
+                                           reinterpret_cast<void**>(&g_origD3D11CreateDevice)) != MH_OK)
+            LOG("warning: D3D11CreateDevice hook failed; a second engine in this host will not reach the headset");
     }
 
     {

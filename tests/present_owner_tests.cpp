@@ -55,6 +55,29 @@ int main()
     for (Verdict verdict : {Verdict::Game, Verdict::NotD3D11, Verdict::TokenSurface, Verdict::OtherDevice})
         Check(Describe(verdict) && std::strcmp(Describe(verdict), "unknown") != 0, "every verdict is described");
 
+    // A host's second device: the session's device answers its next engine's call, and nobody else's.
+    const auto share = [](bool wants, bool host, bool session, bool lost, uint64_t quiet, bool adapter, uint32_t flags,
+                          bool level) {
+        return DecideDeviceShare(wants, host, session, lost, quiet, adapter, flags, 0x20u, level);
+    };
+    Check(share(true, true, true, false, 1000, true, 0x20u, true) == DeviceShare::Share, "the next engine's device");
+    Check(share(true, true, true, false, kEngineGoneQuietMs, true, 0u, true) == DeviceShare::Share,
+          "fewer flags than the session's device has");
+    Check(share(false, true, true, false, 1000, true, 0u, true) == DeviceShare::NotAsked, "a capability probe");
+    Check(share(true, false, true, false, 1000, true, 0u, true) == DeviceShare::NotHostsCall, "a runtime's own call");
+    Check(share(true, true, false, false, 1000, true, 0u, true) == DeviceShare::NoSession, "the first device");
+    Check(share(true, true, true, true, 1000, true, 0u, true) == DeviceShare::SessionLost, "a lost device");
+    Check(share(true, true, true, false, kEngineGoneQuietMs - 1, true, 0u, true) == DeviceShare::GameStillPresenting,
+          "the host's other screens while the game draws");
+    Check(share(true, true, true, false, 1000, false, 0u, true) == DeviceShare::OtherAdapter, "another GPU");
+    Check(share(true, true, true, false, 1000, true, 0x2u, true) == DeviceShare::FlagsDiffer, "a flag it lacks");
+    Check(share(true, true, true, false, 1000, true, 0u, false) == DeviceShare::FeatureLevelRefused, "a level refused");
+    for (DeviceShare decision : {DeviceShare::Share, DeviceShare::NotAsked, DeviceShare::NotHostsCall,
+                                 DeviceShare::NoSession, DeviceShare::SessionLost, DeviceShare::GameStillPresenting,
+                                 DeviceShare::OtherAdapter, DeviceShare::FlagsDiffer,
+                                 DeviceShare::FeatureLevelRefused})
+        Check(Describe(decision) && std::strcmp(Describe(decision), "unknown") != 0, "every decision is described");
+
     std::printf("present_owner: %u checks passed\n", g_checks);
     return 0;
 }
