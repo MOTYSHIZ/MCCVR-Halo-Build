@@ -11050,6 +11050,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // multi-call aim getter). `active` mirrors it for the menu indicator.
     std::atomic<bool> g_twoHandLatched{false};
     std::atomic<bool> g_twoHandActive{false};
+    // The current weapon's grip zone as last read by the frame thread (AuthoredSupportGrabHit), for the pose inputs,
+    // which other threads build too: 0 none, 1 long, 2 short; and when, so a read lost for a moment holds the answer.
+    std::atomic<int> g_gripZoneKind{0};
+    std::atomic<uint64_t> g_gripZoneKindMs{0};
     HybridDiagnosticOverrideState g_hybridDiagnosticOverride;
     VirtualStockTestProfileState g_virtualStockTestProfile;
     weapon_interaction::State g_weaponInteraction;
@@ -14055,6 +14059,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             return authored_grab::publication.Owns(key);
         }
         authored_grab::lastX.store(local[0]);authored_grab::lastY.store(local[1]);authored_grab::lastZ.store(local[2]);
+        {
+            const int zoneKind=authored_grab::Short(local)?2:1;
+            const int previousKind=g_gripZoneKind.exchange(zoneKind,std::memory_order_acq_rel);
+            g_gripZoneKindMs.store(GetTickCount64(),std::memory_order_release);
+            if(previousKind!=zoneKind)
+                LOG("two-handed aim: this weapon's grip zone is %s (%.2f m from the main hand)",
+                    zoneKind==2?"short: one-handed aim while gripped":"long: two-handed aim while gripped",
+                    std::sqrt(local[0]*local[0]+local[1]*local[1]+local[2]*local[2]));
+        }
         const auto primaryPoint=g_primaryGripPoseValid?g_primaryGripPosePosition:primary.position;
         const auto supportPoint=g_supportGripPoseValid?g_supportGripPosePosition:support.position;
         const XrQuaternionf inverse{-primary.orientation.x,-primary.orientation.y,-primary.orientation.z,primary.orientation.w};

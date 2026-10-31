@@ -256,8 +256,12 @@
                 -right.orientation.z, right.orientation.w};
             const auto local = Rotate(
                 inverse, {q.x - p.x, q.y - p.y, q.z - p.z});
-            inputs.closeGripAuthority = authored_grab::CloseHandAuthority(
-                {local.x, local.y, local.z});
+            const int gripZone = g_config.two_hand_grip_zone_authority
+                ? g_gripZoneKind.load(std::memory_order_acquire) : 0;
+            const uint64_t gripZoneMs = g_gripZoneKindMs.load(std::memory_order_acquire);
+            inputs.closeGripAuthority = gripZone && GetTickCount64() - gripZoneMs <= 2000
+                ? authored_grab::GripZoneAuthority(gripZone == 2, {local.x, local.y, local.z})
+                : authored_grab::CloseHandAuthority({local.x, local.y, local.z});
         }
         // Persistent support grip (F14): qualify this invocation against the
         // durable relationship BEFORE the support-capable raw aim can be
