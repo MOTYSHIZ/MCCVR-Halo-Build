@@ -42,9 +42,9 @@ inline Route Choose(int mode, bool hudReady, bool sessionAllows) noexcept
 }
 
 // Whether this session takes a line in the game's own HUD. `oneMachineChangesAllowed` is the co-op switch's answer
-// (Sight_FireTimeChangesAllowed). Project Reclaimer enlarges the game's player tables, so the player count that answer
-// needs reads "not read" there and the switch stays closed in a game the player is alone in. There the simulation
-// type decides: only a synchronous client (2) is known to share its simulation, and an unread type (-1) is no game.
+// (Sight_FireTimeChangesAllowed). In Project Reclaimer the player count that answer needs reads "not read" (every log so
+// far), so the switch stays closed in a synchronous game the player may be alone in. There the simulation type
+// decides: only a synchronous client (2) is known to share its simulation, and an unread type (-1) is no game.
 // A HUD line is text for one local user's HUD, which no two machines hold alike in the first place.
 inline bool SessionAllows(bool oneMachineChangesAllowed, bool hostIsProjectReclaimer, int simulationType) noexcept
 {
