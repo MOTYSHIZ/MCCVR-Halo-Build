@@ -701,6 +701,8 @@ namespace
     bool AimFrameAllowed(GameTitle title);
     bool GameZoomed(GameTitle title, int& level);
     std::atomic<bool> g_aimFramePass{false};
+    // What the frame's passes actually drew: HUD widgets, and how many of those were the crosshair's predicate asking.
+    std::atomic<uint32_t> g_aimFrameWidgets{0}, g_aimFrameCrosshairAsks{0};
     std::atomic<uint64_t> g_gameZoomMs{0};
     std::atomic<uint32_t> g_gameZoomGeneration{0};
     const char* AimFrameTitleName(GameTitle title) { return title == GameTitle::Halo3ODST ? "ODST" : "Halo 3"; }
@@ -3225,6 +3227,8 @@ namespace
         // every native CHUD widget out of the magnified world-only picture.
         if (g_scopeRenderActive.load(std::memory_order_acquire))
             return;
+        if (g_aimFramePass.load(std::memory_order_acquire))
+            g_aimFrameWidgets.fetch_add(1, std::memory_order_relaxed);
         const bool previousInside = g_insideHudDrawWidget;
         const bool previousCapture = g_authoredReticleCaptureStarted;
         g_insideHudDrawWidget = true;
@@ -3273,7 +3277,10 @@ namespace
             // AIM FRAME ZOOM: the frame is the flat game's picture, so the game draws its own crosshair and zoom
             // reticle into it where it always does, at the centre; the lifted crosshair is not shown meanwhile.
             if (g_aimFramePass.load(std::memory_order_acquire))
+            {
+                g_aimFrameCrosshairAsks.fetch_add(1, std::memory_order_relaxed);
                 return true;
+            }
             // Just out of the frame the HUD is still at the frame's layout for a present, and the crosshair is
             // still leaving its zoomed look: a picture taken now would be of either. The quad keeps the art it
             // holds meanwhile, the one from before the zoom.
@@ -13442,7 +13449,12 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         uint64_t lastUs = 0;
         int level = 0;
         int loggedOn = -1;
+        bool loggedSettled = false;       // the game's view once its own zoom has finished moving
     };
+    // ODST's unzoomed view is narrower than the one Halo 3's compact camera reports (65.4 deg across against 88.8,
+    // both as logged), so one strength magnified ODST half as much again. The settings are shared, and are the
+    // tester's for Halo 3: ODST's picture is widened by the ratio of those tangents to look the same at them.
+    constexpr float kOdstAimFrameViewScale = 0.98f / 0.642f;
     AimFrameState g_aimFrameState;   // the render thread
 
     bool AimFrameAllowed(GameTitle title)
@@ -13543,12 +13555,33 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                     AimFrameTitleName(title), s.level + 1, 2.0f * atanf(nativeX) * 57.29578f, 2.0f * atanf(nativeY) * 57.29578f,
                     g_config.aim_frame_size_deg[s.level], g_config.aim_frame_strength[s.level]);
             else
-                LOG("%s Aim Frame Zoom: off; the immersive view is back", AimFrameTitleName(title));
+                LOG("%s Aim Frame Zoom: off; the immersive view is back. Its passes drew %u HUD widgets and asked "
+                    "about the crosshair %u times",
+                    AimFrameTitleName(title), g_aimFrameWidgets.exchange(0, std::memory_order_relaxed),
+                    g_aimFrameCrosshairAsks.exchange(0, std::memory_order_relaxed));
+            s.loggedSettled = false;
         }
         if (!ok)
             return false;
         const float strength = g_config.aim_frame_strength[s.level];
-        out.tanX = nativeX / strength;
+        const float viewScale = title == GameTitle::Halo3ODST ? kOdstAimFrameViewScale : 1.0f;
+        out.tanX = nativeX * viewScale / strength;
+        if (!s.loggedSettled && s.t >= 1.0f)
+        {
+            // The line above is the frame's first, at the start of the game's own zoom; this one is where it went.
+            static uint64_t onSinceUs = 0;
+            if (!onSinceUs)
+                onSinceUs = nowUs;
+            if (nowUs - onSinceUs >= 750000)
+            {
+                onSinceUs = 0;
+                s.loggedSettled = true;
+                LOG("%s Aim Frame Zoom: the game's zoomed view has settled at %.1f deg across; the picture is %.1f "
+                    "deg across, shown %.0f deg wide",
+                    AimFrameTitleName(title), 2.0f * atanf(nativeX) * 57.29578f, 2.0f * atanf(out.tanX) * 57.29578f,
+                    g_config.aim_frame_size_deg[s.level]);
+            }
+        }
         out.tanY = out.tanX / kAimFrameAspect;
         memcpy(out.forward, forward, sizeof(forward));
         memcpy(out.up, up, sizeof(up));
@@ -17755,16 +17788,6 @@ static constexpr bool kOdstMappedFpEnabled = false;
                    layout.compactSize);
             memcpy(bytes + layout.rootSecondaryDerived,
                    bytes + layout.rootCurrentDerived, layout.derivedSize);
-            if (aimFrameFrame)
-            {
-                // Off the head's axis, as the zoom lens's view is: the nested camera goes along with it.
-                memcpy(bytes + layout.nestedCurrentCompact, camera, layout.compactSize);
-                memcpy(bytes + layout.nestedCurrentDerived,
-                       bytes + layout.rootCurrentDerived, layout.derivedSize);
-                memcpy(bytes + layout.nestedSecondaryCompact, camera, layout.compactSize);
-                memcpy(bytes + layout.nestedSecondaryDerived,
-                       bytes + layout.rootCurrentDerived, layout.derivedSize);
-            }
             if (g_odstCamera.fpCameraUpload)
                 g_odstCamera.fpCameraUpload(
                     bytes + layout.rootSecondaryCompact,
@@ -54609,7 +54632,19 @@ void Game_AutoVrTick()
     bool pauseKnown = haloTitleActive && ReadEnginePaused(enginePaused);
     if (haloTitleActive && g_hostOwnsRenderSize)
     {
-        enginePaused = hostScreenFlat || (pauseKnown && g_enginePauseValidated.load() && enginePaused);
+        // Back at Project Reclaimer's menu from a later title its engine draws nothing: no eye passes come, and the
+        // stereo picture would be black while the monitor shows the menu. The flat picture carries that screen.
+        const bool hostEngineQuiet = D3D_HostEngineQuiet();
+        static bool loggedHostEngineQuiet = false;
+        if (hostEngineQuiet != loggedHostEngineQuiet)
+        {
+            loggedHostEngineQuiet = hostEngineQuiet;
+            LOG("host screen: the engine %s", hostEngineQuiet ? "has stopped drawing; the flat picture carries what "
+                                                                "the host presents"
+                                                              : "is drawing again");
+        }
+        enginePaused = hostScreenFlat || hostEngineQuiet ||
+            (pauseKnown && g_enginePauseValidated.load() && enginePaused);
         pauseKnown = true;
     }
     if (pauseKnown)

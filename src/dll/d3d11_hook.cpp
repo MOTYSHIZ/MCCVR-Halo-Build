@@ -3018,10 +3018,20 @@ bool D3D_HostDrawsOverFrame()
     const ULONGLONG now = GetTickCount64();
     return at && now >= at && now - at <= 200;
 }
+// When a frame last drew like a game engine does (a level draws thousands; a host's own screen a handful).
+static std::atomic<uint64_t> g_lastEngineDrawMs{0};
 uint32_t D3D_TakeFrameDrawCalls(uint32_t& smallDraws)
 {
     smallDraws = g_frameSmallDraws.exchange(0, std::memory_order_relaxed);
-    return g_frameDraws.exchange(0, std::memory_order_relaxed);
+    const uint32_t draws = g_frameDraws.exchange(0, std::memory_order_relaxed);
+    if (draws >= 64)
+        g_lastEngineDrawMs.store(GetTickCount64(), std::memory_order_relaxed);
+    return draws;
+}
+bool D3D_HostEngineQuiet()
+{
+    const uint64_t last = g_lastEngineDrawMs.load(std::memory_order_relaxed);
+    return g_hostOwnsRenderSize && GetTickCount64() - last >= 1000;
 }
 bool D3D_HostUiPicture(D3DHostUiPicture& out)
 {

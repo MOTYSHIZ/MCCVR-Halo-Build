@@ -15,6 +15,9 @@ void D3D_NoteDeviceLoss(const char* where, long result, ID3D11Device* device);
 // The game's Draw / DrawIndexed calls since this was last asked (once a present), and in `smallDraws` those of at
 // most 96 elements: text, HUD widgets and other quads. 0 where the draw hooks are not installed.
 uint32_t D3D_TakeFrameDrawCalls(uint32_t& smallDraws);
+// A host that owns the render size, and no frame for a second has drawn like a game engine: what it presents is its
+// own screen, with no eye pass to show. Always false in MCC.
+bool D3D_HostEngineQuiet();
 // True while the host itself is drawing over the game's frame: a screen of its own (a menu, a loading screen)
 // or an overlay during play. Always false in MCC. See HostScreenNoteBind in d3d11_hook.cpp; which of the two it
 // is, reclaimer_host::ScreenRule decides.
