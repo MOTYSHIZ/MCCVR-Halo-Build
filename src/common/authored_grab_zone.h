@@ -72,6 +72,15 @@ inline float CloseHandAuthority(Point local){
         std::fabs(local[1])<=.14f&&std::fabs(local[2])<=.12f;
     return close||lateral?0.f:1.f;
 }
+// Decided by the weapon's grip zone and not by where the hands are (two_hand_grip_zone_authority). A brief tracking
+// drop-out of an occluded support controller reads as the hand far away, which on a pistol hold switched the aim to
+// two-handed for those frames. A short grip zone (a side-by-side hold) never steers; a long one always does, except
+// with the hands almost together, where the line between them has no usable direction.
+inline constexpr float kGripZoneNoLineMetres=.08f;
+inline float GripZoneAuthority(bool shortZone,Point local){
+    if(shortZone||!Valid(local))return 0;
+    return Distance2(local,{0,0,0})<=kGripZoneNoLineMetres*kGripZoneNoLineMetres?0.f:1.f;
+}
 inline bool Hit(Point centre,Point sample){
     if(!Valid(centre)||!Valid(sample))return false;
     // 22cm segment plus 12cm rounded ends: 46cm total. OpenXR forward

@@ -1740,6 +1740,9 @@ struct Config
     // becomes grippable again through the normal spatial admission without
     // releasing the grip button.
     bool two_hand_switch_inherit = false;
+    // Two-handed aim follows the weapon's grip zone instead of how far apart the hands read each frame, so it does not
+    // switch during play (authored_grab::GripZoneAuthority). Weapons with no grip zone keep the distance test.
+    bool two_hand_grip_zone_authority = true;
     // Two-hand engage style: true = toggle (click left grip on/off), false =
     // hold (engaged only while the left grip is held).
     bool two_hand_toggle = true;

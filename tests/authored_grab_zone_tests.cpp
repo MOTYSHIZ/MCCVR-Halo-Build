@@ -91,4 +91,11 @@ int main(){
     assert(CloseHandAuthority({0,0,-.17f})==1);
     assert(CloseHandAuthority({0,0,-.23f})==1);
     assert(CloseHandAuthority({0,0,-.35f})==1);
+    // By the grip zone: where the hands read does not change the answer.
+    assert(GripZoneAuthority(true,{0,0,-.05f})==0);
+    assert(GripZoneAuthority(true,{0,0,-.60f})==0);
+    assert(GripZoneAuthority(false,{0,0,-.15f})==1);
+    assert(GripZoneAuthority(false,{.22f,.05f,-.05f})==1);
+    assert(GripZoneAuthority(false,{0,0,-.60f})==1);
+    assert(GripZoneAuthority(false,{0,0,-.07f})==0);
 }

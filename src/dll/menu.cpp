@@ -1840,6 +1840,12 @@ namespace
                                 "Off whenever the game leaves first person (vehicle seats, turrets,\n"
                                 "third-person, death and Monitor cameras, cutscenes): your main hand\n"
                                 "aims alone. A grip held through it needs a fresh grip in first person.");
+            changed |= ImGui::Checkbox("Two-handed aim follows the grip zone",
+                &g_config.two_hand_grip_zone_authority);
+            ImGui::TextDisabled(
+                "The weapon's grip zone decides, not how far apart your hands read each frame: a pistol-style\n"
+                "hold stays one-handed aim and a long gun stays two-handed, so a brief controller tracking\n"
+                "drop-out cannot switch it. Off: the distance between your hands decides every frame.");
             ImGui::Text("Grip mode");
             if (ImGui::RadioButton("Toggle (click grip)", g_config.two_hand_toggle))
             { g_config.two_hand_toggle = true; changed = true; }

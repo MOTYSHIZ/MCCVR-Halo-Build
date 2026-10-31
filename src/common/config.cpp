@@ -1287,6 +1287,11 @@ void ConfigLoad(const wchar_t* path)
             ParseBoolSetting(key, val, g_config.two_hand_transition_smoothing);
             continue;
         }
+        if(!strcmp(key,"two_hand_grip_zone_authority"))
+        {
+            ParseBoolSetting(key, val, g_config.two_hand_grip_zone_authority);
+            continue;
+        }
         if(!strcmp(key,"two_hand_switch_inherit"))
         {
             ParseBoolSetting(key, val, g_config.two_hand_switch_inherit);
@@ -3734,6 +3739,10 @@ void ConfigSave()
     fprintf(f, "# 0 = grip the new weapon normally; the grip button need not be released.\n");
     fprintf(f, "# (default %d)\n", d.two_hand_switch_inherit ? 1 : 0);
     fprintf(f, "two_hand_switch_inherit = %d\n\n", g_config.two_hand_switch_inherit ? 1 : 0);
+    fprintf(f, "# Two-handed aim follows the weapon's grip zone: a pistol-style hold never steers, a long gun always\n");
+    fprintf(f, "# does, so a tracking drop-out cannot switch it. 0 = decided by how far apart the hands read each\n");
+    fprintf(f, "# frame. (default %d)\n", d.two_hand_grip_zone_authority ? 1 : 0);
+    fprintf(f, "two_hand_grip_zone_authority = %d\n\n", g_config.two_hand_grip_zone_authority ? 1 : 0);
     fprintf(f, "# Main weapon, aim and trigger on the physical left controller.\n");
     fprintf(f, "# Movement, turning and face buttons keep their physical bindings.\n");
     fprintf(f, "left_handed = %d\n\n", g_config.left_handed ? 1 : 0);
