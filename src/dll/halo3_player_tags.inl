@@ -239,28 +239,32 @@ void Halo3PlayerTagsRestore(Halo3PlayerTagsLane& lane, uint8_t* navpoints, const
 }
 
 // The body both titles' detours run.
-void PlayerTagsDraw(Halo3PlayerTagsLane& lane, uint8_t* navpoints, int user)
+// The hook itself, one instantiation per title's lane. It must be a function with a stack frame: retiring the hook asks
+// the unwind data where the detour's code lies, and a forwarding stub that only jumps here has none, so that check could
+// never pass and the title's whole teardown would retry for good (InstallPlayerTags refuses such a detour).
+template <Halo3PlayerTagsLane& Lane>
+__declspec(noinline) void __fastcall PlayerTagsDetour(uint8_t* navpoints, int user)
 {
-    lane.callbacks.fetch_add(1, std::memory_order_acq_rel);
+    Lane.callbacks.fetch_add(1, std::memory_order_acq_rel);
     __try
     {
         const halo3_player_tags::Settings settings = Halo3PlayerTagsSettings();
-        const bool apply = navpoints && lane.ready.load(std::memory_order_acquire) &&
-                           !halo3_player_tags::IsStock(settings) && Halo3PlayerTagsLiveProof(lane);
+        const bool apply = navpoints && Lane.ready.load(std::memory_order_acquire) &&
+                           !halo3_player_tags::IsStock(settings) && Halo3PlayerTagsLiveProof(Lane);
         Halo3PlayerTagsSaved saved;
         if (apply)
         {
-            Halo3PlayerTagsApply(lane, navpoints, settings, saved);
-            lane.appliedFingerprint.store(halo3_player_tags::Fingerprint(settings), std::memory_order_relaxed);
+            Halo3PlayerTagsApply(Lane, navpoints, settings, saved);
+            Lane.appliedFingerprint.store(halo3_player_tags::Fingerprint(settings), std::memory_order_relaxed);
         }
-        if (lane.original)
-            CallNativeWithSpareSlots(lane.original, navpoints, user);
+        if (Lane.original)
+            CallNativeWithSpareSlots(Lane.original, navpoints, user);
         if (apply)
-            Halo3PlayerTagsRestore(lane, navpoints, saved);
+            Halo3PlayerTagsRestore(Lane, navpoints, saved);
     }
     __finally
     {
-        lane.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+        Lane.callbacks.fetch_sub(1, std::memory_order_acq_rel);
     }
 }
 
@@ -305,6 +309,13 @@ bool InstallPlayerTags(Halo3PlayerTagsLane& lane, const halo3_player_tags::DrawP
     for (auto& kind : lane.kinds)
         kind.store(0, std::memory_order_relaxed);
     lane.reportedKinds = 0;
+    // Retirement finds the detour's code through its unwind entry: without one the hook could never be taken out again.
+    DWORD64 detourImage = 0;
+    if (!RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(detour), &detourImage, nullptr))
+    {
+        LOG("PLAYER TAGS %s: StockFallback: the detour has no unwind entry, so it could not be retired", p.title);
+        return false;
+    }
     void* const target = reinterpret_cast<void*>(draw);
     if (MH_CreateHook(target, detour, reinterpret_cast<void**>(&lane.original)) != MH_OK)
     {
@@ -347,11 +358,10 @@ bool RemovePlayerTags(Halo3PlayerTagsLane& lane, void* detour)
         LOG("PLAYER TAGS %s CleanupRequired: the navpoint hook did not disable (%d)", title, static_cast<int>(status));
         return false;
     }
-    // The title's detour and the body it calls: a thread that has entered the body but not yet counted itself in
-    // `callbacks` is still found by where it stands.
-    const void* functions[]{detour, reinterpret_cast<const void*>(&PlayerTagsDraw)};
-    const void* trampolines[]{reinterpret_cast<const void*>(lane.original), nullptr};
-    if (!WaitForNativeDetourQuiescence(functions, trampolines, 2, lane.callbacks))
+    // A thread that has entered the detour but not yet counted itself in `callbacks` is still found by where it stands.
+    const void* functions[]{detour};
+    const void* trampolines[]{reinterpret_cast<const void*>(lane.original)};
+    if (!WaitForNativeDetourQuiescence(functions, trampolines, 1, lane.callbacks))
     {
         LOG("PLAYER TAGS %s CleanupRequired: the navpoint detour is busy", title);
         return false;
@@ -399,23 +409,14 @@ void ReportPlayerTags(Halo3PlayerTagsLane& lane)
 }
 } // namespace
 
-__declspec(noinline) void __fastcall Halo3NavpointsDrawDetour(uint8_t* navpoints, int user)
-{
-    PlayerTagsDraw(g_halo3PlayerTags, navpoints, user);
-}
-__declspec(noinline) void __fastcall OdstNavpointsDrawDetour(uint8_t* navpoints, int user)
-{
-    PlayerTagsDraw(g_odstPlayerTags, navpoints, user);
-}
-
 bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation)
 {
     return InstallPlayerTags(g_halo3PlayerTags, halo3_player_tags::kHalo3Draw,
-                             reinterpret_cast<void*>(&Halo3NavpointsDrawDetour), base, size, generation);
+                             reinterpret_cast<void*>(&PlayerTagsDetour<g_halo3PlayerTags>), base, size, generation);
 }
 bool RemoveHalo3PlayerTags()
 {
-    return RemovePlayerTags(g_halo3PlayerTags, reinterpret_cast<void*>(&Halo3NavpointsDrawDetour));
+    return RemovePlayerTags(g_halo3PlayerTags, reinterpret_cast<void*>(&PlayerTagsDetour<g_halo3PlayerTags>));
 }
 void ReportHalo3PlayerTags()
 {
@@ -424,11 +425,11 @@ void ReportHalo3PlayerTags()
 bool InstallOdstPlayerTags(uintptr_t base, size_t size, uint32_t generation)
 {
     return InstallPlayerTags(g_odstPlayerTags, halo3_player_tags::kOdstDraw,
-                             reinterpret_cast<void*>(&OdstNavpointsDrawDetour), base, size, generation);
+                             reinterpret_cast<void*>(&PlayerTagsDetour<g_odstPlayerTags>), base, size, generation);
 }
 bool RemoveOdstPlayerTags()
 {
-    return RemovePlayerTags(g_odstPlayerTags, reinterpret_cast<void*>(&OdstNavpointsDrawDetour));
+    return RemovePlayerTags(g_odstPlayerTags, reinterpret_cast<void*>(&PlayerTagsDetour<g_odstPlayerTags>));
 }
 void ReportOdstPlayerTags()
 {
