@@ -14060,7 +14060,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
         authored_grab::lastX.store(local[0]);authored_grab::lastY.store(local[1]);authored_grab::lastZ.store(local[2]);
         {
-            const int zoneKind=authored_grab::Short(local)?2:1;
+            const int zoneKind=authored_grab::GripZoneKind(g_gripZoneKind.load(std::memory_order_relaxed),local);
             const int previousKind=g_gripZoneKind.exchange(zoneKind,std::memory_order_acq_rel);
             g_gripZoneKindMs.store(GetTickCount64(),std::memory_order_release);
             if(previousKind!=zoneKind)
@@ -20322,10 +20322,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
                 // HALO 3 AND ODST ON THE MONITOR (desktop_mirror): the world is drawn into the eye caches, so what the
                 // game presents stays as it was. One finished eye goes to the window, cropped to its shape. Not over
-                // a frame the host drew into (Project Reclaimer's menus): its drawing is the point of that frame. The
-                // view is let go at once: it would hold the backbuffer, which a host's next engine needs freed.
+                // a menu of the host's on the panel (Project Reclaimer): its drawing is the point of that frame. Any
+                // other host drawing is not held for: under ODST it draws into every frame. The view is let go at
+                // once: it would hold the backbuffer, which a host's next engine needs freed.
                 const GameTitle mirrorTitle=TitleAdapter_GetActiveTitle();
-                if (g_config.desktop_mirror&&stereoWorldFrame&&!D3D_HostDrawsOverFrame()&&
+                if (g_config.desktop_mirror&&stereoWorldFrame&&!D3D_HostUiPanelIsScreen()&&
                     (mirrorTitle==GameTitle::Halo3||mirrorTitle==GameTitle::Halo3ODST))
                 {
                     const int mirrorEye=monoFrame?monoEye:0;

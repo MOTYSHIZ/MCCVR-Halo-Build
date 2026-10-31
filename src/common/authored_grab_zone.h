@@ -83,6 +83,14 @@ inline float GripZoneAuthority(bool shortZone,Point local){
     if(shortZone||!Valid(local))return 0;
     return Distance2(local,{0,0,0})<=kGripZoneNoLineMetres*kGripZoneNoLineMetres?0.f:1.f;
 }
+// Which kind a zone is for the aim: 2 short, 1 long. A band around Short's 24 cm, since a weapon whose animated grip
+// sits on it read as both within half a second (a weapon at 0.24 m, in play).
+inline int GripZoneKind(int previous,Point centre){
+    const float d2=Distance2(centre,{0,0,0});
+    if(previous==2&&d2<=.27f*.27f)return 2;
+    if(previous==1&&d2>=.21f*.21f)return 1;
+    return Short(centre)?2:1;
+}
 inline bool Hit(Point centre,Point sample){
     if(!Valid(centre)||!Valid(sample))return false;
     // 22cm segment plus 12cm rounded ends: 46cm total. OpenXR forward
