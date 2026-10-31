@@ -3,7 +3,6 @@
 #include <shlobj.h>
 #include <d3d11.h>
 #include <d3d11_1.h>
-#include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <dxgi1_5.h>
 #include <algorithm>
@@ -2103,8 +2102,9 @@ static HRESULT STDMETHODCALLTYPE CreateSwapChainHook(IDXGIFactory* self, IUnknow
 }
 
 // A HOST'S SECOND DEVICE (present_owner_logic.h DecideDeviceShare says when): the host's next engine is given the
-// headset session's device, as MCC's titles all share one. The old engine's work on the context is over by then, but
-// its teardown may still be running on another thread: the context is made safe for that first, and handed over clean.
+// headset session's device, as MCC's titles all share one. The old engine's work on the context is over by then, and it
+// is handed over clean. Not made multithread protected: in the run that did, the mod's draw count fell from 1340 a frame
+// to 4 at the hand-over while the game went on drawing, so the context's calls had stopped reaching the mod's hooks.
 using D3D11CreateDeviceFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*,
                                              UINT, UINT, ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
 static D3D11CreateDeviceFn g_origD3D11CreateDevice = nullptr;
@@ -2238,14 +2238,11 @@ static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driv
         g_config.reclaimer_share_device, g_deviceShareStoodDown.load(std::memory_order_relaxed), anotherThreadHasIt);
 
     ID3D11DeviceContext* context = nullptr;
-    ID3D11Multithread* multithread = nullptr;
     if (decision == present_owner::DeviceShare::Share)
     {
         session->GetImmediateContext(&context);
-        if (context && SUCCEEDED(context->QueryInterface(__uuidof(ID3D11Multithread),
-                                                         reinterpret_cast<void**>(&multithread))))
+        if (context)
         {
-            multithread->SetMultithreadProtected(TRUE);
             WriteDeviceShareMarker();
             if (!ClearContextForHandOver(context))
             {
@@ -2266,14 +2263,11 @@ static HRESULT WINAPI HostDeviceHook(IDXGIAdapter* adapter, D3D_DRIVER_TYPE driv
             present_owner::Describe(decision));
     if (decision != present_owner::DeviceShare::Share)
     {
-        if (multithread)
-            multithread->Release();
         if (context)
             context->Release();
         return g_origD3D11CreateDevice(adapter, driverType, software, flags, levels, levelCount, sdkVersion, deviceOut,
                                        levelOut, contextOut);
     }
-    multithread->Release();
     sharedThread.store(GetCurrentThreadId(), std::memory_order_relaxed);
     sharedAtMs.store(now, std::memory_order_relaxed);
     g_deviceSharedAtMs.store(now, std::memory_order_relaxed);
