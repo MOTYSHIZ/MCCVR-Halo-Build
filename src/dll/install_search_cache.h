@@ -60,5 +60,9 @@ namespace install_search_cache
     // memo.changes to 0. False, with the reason, when nothing was written.
     bool Save(const Identity& identity, sig::ImageMemo& memo, const char*& why, double& ms);
 
+    // Takes this build's answers out of the file, keeping every other build: the next launch searches for them.
+    // True when the file no longer holds them (it may never have). False, with the reason, when it still does.
+    bool Forget(const Identity& identity, const char*& why);
+
     const char* Describe(LoadResult result);
 }

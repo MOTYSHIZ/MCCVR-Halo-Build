@@ -412,6 +412,32 @@ bool Save(const Identity& identity, sig::ImageMemo& memo, const char*& why, doub
     return true;
 }
 
+bool Forget(const Identity& identity, const char*& why)
+{
+    why = nullptr;
+    if (!g_path[0])
+        return true;
+    std::vector<uint8_t> bytes;
+    bool absent = false;
+    if (!ReadFileWhole(bytes, absent))
+    {
+        if (absent)
+            return true;
+        why = "the file is there and could not be read, so it is left as it is";
+        return false;
+    }
+    std::vector<Build> builds;
+    // A file that is not whole gives nothing to the next launch either.
+    if (!Parse(bytes.data(), bytes.size(), builds) || !Drop(builds, identity))
+        return true;
+    if (!WriteFileWhole(Serialize(builds)))
+    {
+        why = "it could not be written";
+        return false;
+    }
+    return true;
+}
+
 const char* Describe(LoadResult result)
 {
     switch (result)

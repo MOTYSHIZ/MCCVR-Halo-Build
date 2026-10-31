@@ -136,6 +136,7 @@ namespace sig
         uint32_t count = 0;
         uint32_t changes = 0;        // entries added or corrected by a search since the memo was emptied or saved
         bool savedLoaded = false;    // an earlier launch's answers were looked for in this load of the image
+        uint32_t lastKnown = 0;      // answers the last install took without a search (the caller keeps this)
         Entry entries[kCapacity]{};
     };
     struct ImageMemoCounts

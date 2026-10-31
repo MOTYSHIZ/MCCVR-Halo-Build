@@ -315,6 +315,25 @@ void LaunchTests()
         Check(l8.loaded.result == LoadResult::Loaded && l8.counts.fromSaved == 6, "corrupt: whole again after");
     }
 
+    // Forgetting a build (a hook of it was never called): the next launch searches for everything and saves it
+    // again; another build's answers stay.
+    {
+        static sig::ImageMemo mine, others, after, again;
+        const Launch kept = RunLaunch(mine, base, 1);
+        image[kText + 0x2F00] ^= 0x01;
+        const Launch other = RunLaunch(others, base, 1);
+        image[kText + 0x2F00] ^= 0x01;
+        Check(kept.identified && other.identified && other.identity != kept.identity, "forget: two builds");
+        const char* why = nullptr;
+        Check(Forget(kept.identity, why) && !why, "forget: done");
+        const Launch l = RunLaunch(after, base, 1);
+        Check(l.loaded.result == LoadResult::NoEntry && l.loaded.builds == 1, "forget: only the other build is left");
+        Check(l.counts.fromSaved == 0 && l.counts.searched == 7 && l.saved, "forget: every search made, and saved");
+        const Launch m = RunLaunch(again, base, 1);
+        Check(m.loaded.result == LoadResult::Loaded && m.counts.fromSaved == 6 && m.loaded.builds == 2,
+              "forget: the launch after has it back");
+    }
+
     // A file that cannot be read (another program holds it): nothing taken, nothing written over it.
     {
         HANDLE held = CreateFileW(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
