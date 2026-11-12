@@ -3480,13 +3480,8 @@ namespace
         ImGui::Spacing();
         {
         SettingGroup shape("HUD size, width, curvature and height", SettingGroup::kNameOnly);
-        const bool reclaimerOdstHud = Config_ReclaimerOdstHud();
         ImGui::Text("Adjusting HUD size, width, curvature and height for: %s",
-                    reclaimerOdstHud ? "Halo 3: ODST on Project Reclaimer"
-                                     : Config_TitleProfileName(Config_ShownTitleProfile()));
-        if (reclaimerOdstHud)
-            ImGui::TextDisabled("ODST's levels on Project Reclaimer keep a HUD layout of their own,\n"
-                                "apart from Halo 3's and from MCC's ODST.");
+                    Config_TitleProfileName(Config_ShownTitleProfile()));
         if (Config_ActiveTitleProfile() < 0)
             ImGui::TextDisabled("No game is running, so %s's are shown.\n"
                                 "Each game keeps its own: be in a game to adjust that game's HUD.",
@@ -3514,7 +3509,7 @@ namespace
         // defaults, so "reset" left the HUD somewhere the config file could not
         // describe and disagreed with the global "Reset ALL settings".
         // The shown game's own defaults (kHudStarts): what Reset restores.
-        const HudStart& hudDefaults = kHudStarts[reclaimerOdstHud ? 0 : Config_ShownTitleProfile()];
+        const HudStart& hudDefaults = kHudStarts[Config_ShownTitleProfile()];
         if (ImGui::SmallButton("Reset HUD layout##sf"))
         {
             g_config.hud_size = hudDefaults.size;
