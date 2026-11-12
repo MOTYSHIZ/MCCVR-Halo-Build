@@ -42,6 +42,10 @@ Config::Config()
         title_profiles[profile].hud_curvature = kHudStarts[profile].curvature;
         title_profiles[profile].hud_vertical_offset = kHudStarts[profile].vertical_offset;
     }
+    reclaimer_odst_hud.hud_size = kHudStarts[0].size;
+    reclaimer_odst_hud.hud_aspect = kHudStarts[0].aspect;
+    reclaimer_odst_hud.hud_curvature = kHudStarts[0].curvature;
+    reclaimer_odst_hud.hud_vertical_offset = kHudStarts[0].vertical_offset;
     for (const ConfigShippedSeatTrim& trim : kConfigShippedSeatTrims)
     {
         const int slot = ConfigSeatTrimSlot(
@@ -847,6 +851,16 @@ const char* const kTitleProfileTitles[kTitleProfileCount] = {
 
 bool g_profileFieldSet[kTitleProfileCount][kTunableFieldCount]{};
 std::atomic<int> g_activeTitleProfile{-1};
+// Config::reclaimer_odst_hud: in use (Config_SetReclaimerOdstHud), and which of its fields the cfg named.
+std::atomic<bool> g_reclaimerOdstHud{false};
+bool g_reclaimerOdstHudFieldSet[kTunableFieldCount]{};
+constexpr char kReclaimerOdstHudPrefix[] = "reclaimer_odst_";
+
+bool IsHudLayoutField(const TunableField& descriptor)
+{
+    return descriptor.member == &TitleTunables::hud_size || descriptor.member == &TitleTunables::hud_aspect ||
+        descriptor.member == &TitleTunables::hud_curvature || descriptor.member == &TitleTunables::hud_vertical_offset;
+}
 
 // What a profile field the cfg did not name starts from: the shared value, but for a crosshair size or opacity,
 // or a HUD layout value, of a game whose own start is not the shared default (kCrosshairStarts, kHudStarts),
@@ -885,6 +899,8 @@ float ProfileSeed(int profile, const TunableField& descriptor, float shared)
 // Where a field's live value comes from, and where an edit of it goes, for the active profile (-1 = no game).
 TitleTunables& ProfileFor(int active, const TunableField& descriptor)
 {
+    if (g_reclaimerOdstHud.load(std::memory_order_acquire) && IsHudLayoutField(descriptor))
+        return g_config.reclaimer_odst_hud;
     if (active >= 0 && active < kTitleProfileCount)
         return g_config.title_profiles[active];
     if (descriptor.noGameProfile >= 0 && descriptor.noGameProfile < kTitleProfileCount)
@@ -898,11 +914,26 @@ void ResetTitleProfileTracking()
     for (int profile = 0; profile < kTitleProfileCount; ++profile)
         for (int field = 0; field < kTunableFieldCount; ++field)
             g_profileFieldSet[profile][field] = false;
+    for (int field = 0; field < kTunableFieldCount; ++field)
+        g_reclaimerOdstHudFieldSet[field] = false;
 }
 
 // A halo3_gun_scale-style key. Returns true when consumed.
 bool ParseTitleProfileKey(const char* key, const char* val)
 {
+    if (strncmp(key, kReclaimerOdstHudPrefix, sizeof(kReclaimerOdstHudPrefix) - 1) == 0)
+    {
+        const char* suffix = key + sizeof(kReclaimerOdstHudPrefix) - 1;
+        for (int field = 0; field < kTunableFieldCount; ++field)
+        {
+            if (!IsHudLayoutField(kTunableFields[field]) || strcmp(suffix, kTunableFields[field].suffix) != 0)
+                continue;
+            ParseFloatSetting(key, val, g_config.reclaimer_odst_hud.*kTunableFields[field].member);
+            g_reclaimerOdstHudFieldSet[field] = true;
+            return true;
+        }
+        return false;
+    }
     for (int profile = 0; profile < kTitleProfileCount; ++profile)
     {
         const char* prefix = kTitleProfilePrefixes[profile];
@@ -944,6 +975,17 @@ void ResolveTitleProfiles()
                 value = ProfileSeed(profile, descriptor, g_config.base_tunables.*descriptor.member);
             value = std::clamp(value, descriptor.minimum, descriptor.maximum);
         }
+    }
+    // Project Reclaimer's ODST levels: a HUD field the cfg did not name starts from Halo 3's, which those levels used.
+    for (int field = 0; field < kTunableFieldCount; ++field)
+    {
+        const TunableField& descriptor = kTunableFields[field];
+        if (!IsHudLayoutField(descriptor))
+            continue;
+        float& value = g_config.reclaimer_odst_hud.*descriptor.member;
+        if (!g_reclaimerOdstHudFieldSet[field] || !std::isfinite(value))
+            value = g_config.title_profiles[0].*descriptor.member;
+        value = std::clamp(value, descriptor.minimum, descriptor.maximum);
     }
     // The live fields follow the active profile; with no game running, a field with a profile of its own for
     // that case follows it, and the rest keep the shared defaults just parsed into them.
@@ -995,6 +1037,26 @@ void Config_ApplyTitleProfile(int profile)
             ProfileFor(profile, kTunableFields[field]).*kTunableFields[field].member;
     LOG("config: weapon and hand tunables now follow %s; the crosshair and the HUD layout follow %s",
         Config_TitleProfileName(profile), Config_TitleProfileName(Config_ShownTitleProfile()));
+}
+
+void Config_SetReclaimerOdstHud(bool on)
+{
+    if (g_reclaimerOdstHud.load(std::memory_order_acquire) == on)
+        return;
+    const std::lock_guard lock(g_profileMutex);
+    if (g_reclaimerOdstHud.exchange(on, std::memory_order_acq_rel) == on)
+        return;
+    const int active = g_activeTitleProfile.load(std::memory_order_acquire);
+    for (int field = 0; field < kTunableFieldCount; ++field)
+        if (IsHudLayoutField(kTunableFields[field]))
+            g_config.*kTunableFields[field].live = ProfileFor(active, kTunableFields[field]).*kTunableFields[field].member;
+    LOG("config: the HUD layout follows %s", on ? "Project Reclaimer's ODST levels' own (reclaimer_odst_hud_*)"
+                                                : Config_TitleProfileName(Config_ShownTitleProfile()));
+}
+
+bool Config_ReclaimerOdstHud()
+{
+    return g_reclaimerOdstHud.load(std::memory_order_acquire);
 }
 
 void Config_StoreLiveTunables()
@@ -4228,6 +4290,13 @@ void ConfigSave()
         }
         fprintf(f, "\n");
     }
+    fprintf(f, "# Project Reclaimer: Halo 3: ODST's levels. Their own HUD layout, which the F1 HUD sliders edit while\n");
+    fprintf(f, "# one runs. Reclaimer runs them in its Halo 3 engine; with none of these named they start from Halo 3's.\n");
+    for (int field = 0; field < kTunableFieldCount; ++field)
+        if (IsHudLayoutField(kTunableFields[field]))
+            fprintf(f, "%s%s = %.4f\n", kReclaimerOdstHudPrefix, kTunableFields[field].suffix,
+                    static_cast<double>(g_config.reclaimer_odst_hud.*kTunableFields[field].member));
+    fprintf(f, "\n");
     fprintf(f,"# Optional per-gun alignment; unknown models retain title settings.\n");
     fprintf(f,"per_gun_alignment = %d\n",g_config.per_gun_alignment?1:0);
     for(const auto& profile:g_weaponProfiles)

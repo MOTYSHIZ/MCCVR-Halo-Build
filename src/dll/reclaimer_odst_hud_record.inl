@@ -362,11 +362,12 @@ static void ReclaimerOdstHudTick(uint32_t generation, uint64_t now, float horizo
     const bool found = (g_reclaimerOdstHud.record.load(std::memory_order_relaxed) ||
                         g_reclaimerOdstHud.table.load(std::memory_order_relaxed)) &&
         g_reclaimerOdstHud.generation.load(std::memory_order_acquire) == generation;
-    g_reclaimerOdstLevel.store(
-        found ||
-            g_reclaimerOdstHudMarkerGeneration.load(std::memory_order_relaxed) == generation ||
-            Halo3LoadedScenarioIsOdst(),
-        std::memory_order_relaxed);
+    const bool onOdstLevel = found ||
+        g_reclaimerOdstHudMarkerGeneration.load(std::memory_order_relaxed) == generation ||
+        Halo3LoadedScenarioIsOdst();
+    g_reclaimerOdstLevel.store(onOdstLevel, std::memory_order_relaxed);
+    // ODST's levels keep a HUD layout of their own (Config::reclaimer_odst_hud): the next tick draws with it.
+    Config_SetReclaimerOdstHud(onOdstLevel);
     if (found)
     {
         static uint64_t s_lastApplyMs = 0, s_lastReadbackMs = 0;
