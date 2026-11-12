@@ -1994,6 +1994,12 @@ struct Config
     // halomccvr.cfg as halo3_/odst_/reach_/halo4_/halo2a_/halo2c_ keys.
     TitleTunables base_tunables{};
     TitleTunables title_profiles[kTitleProfileCount]{};
+    // PROJECT RECLAIMER'S ODST LEVELS: their own HUD layout (its four HUD fields only; cfg keys reclaimer_odst_hud_*).
+    // Reclaimer runs ODST's levels in its Halo 3 engine, so they would otherwise take Halo 3's layout, and ODST's HUD
+    // art drawn there is laid out apart from both MCC's ODST and Halo 3. While such a level runs
+    // (Config_SetReclaimerOdstHud), the four live HUD fields come from here and the F1 sliders edit these. A cfg that
+    // names none starts from the Halo 3 profile's, so nothing moves until the player tunes them.
+    TitleTunables reclaimer_odst_hud{};
     bool per_gun_alignment = false;
 };
 
@@ -2212,6 +2218,10 @@ int Config_ActiveTitleProfile();
 // running game's, or Reach's while no game is running.
 int Config_ShownTitleProfile();
 void Config_ApplyTitleProfile(int profile);
+// Whether the HUD layout's four fields follow Project Reclaimer's ODST levels' own (Config::reclaimer_odst_hud) instead
+// of the active profile's. Set from the game thread when such a level starts or ends; cheap when unchanged.
+void Config_SetReclaimerOdstHud(bool on);
+bool Config_ReclaimerOdstHud();
 void Config_StoreLiveTunables();
 // The other way: the live fields take the active game's profile again, after something (a controls preset) wrote it.
 void Config_RefreshLiveTunables();

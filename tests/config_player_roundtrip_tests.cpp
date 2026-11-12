@@ -260,6 +260,44 @@ int main()
     }
     Config_ApplyTitleProfile(-1);DeleteFileW(path);
 
+    // Project Reclaimer's ODST levels keep a HUD layout of their own: unnamed it starts from Halo 3's, it swaps in
+    // while such a level runs, edits there stay its own, and it survives save and reload.
+    {
+        FILE* fixture=nullptr;
+        _wfopen_s(&fixture,path,L"wt");
+        Check(fixture!=nullptr,"Reclaimer ODST HUD fixture opens");
+        if (fixture) {
+            std::fputs("halo3_hud_size = .41\nhalo3_hud_aspect = 1.1\nreclaimer_odst_hud_aspect = .9\n",fixture);
+            std::fclose(fixture);
+            g_unknownKeys.clear();
+            ConfigLoad(path);
+            Check(g_unknownKeys.empty(),"a reclaimer_odst_hud_* key is a known key");
+            Check(std::fabs(g_config.reclaimer_odst_hud.hud_size-.41f)<.0001f &&
+                      std::fabs(g_config.reclaimer_odst_hud.hud_aspect-.9f)<.0001f &&
+                      g_config.reclaimer_odst_hud.hud_curvature==g_config.title_profiles[0].hud_curvature,
+                  "an unnamed Reclaimer ODST HUD value starts from Halo 3's, a named one is its own");
+            Config_ApplyTitleProfile(0);
+            Check(std::fabs(g_config.hud_aspect-1.1f)<.0001f,"Halo 3's level shows Halo 3's HUD width");
+            Config_SetReclaimerOdstHud(true);
+            Check(Config_ReclaimerOdstHud() && std::fabs(g_config.hud_aspect-.9f)<.0001f &&
+                      std::fabs(g_config.hud_size-.41f)<.0001f,
+                  "an ODST level on Project Reclaimer shows its own HUD layout");
+            g_config.hud_aspect=.8f;
+            g_config.gun_scale=1.5f;
+            Config_StoreLiveTunables();
+            Config_SetReclaimerOdstHud(false);
+            Check(std::fabs(g_config.hud_aspect-1.1f)<.0001f && g_config.title_profiles[0].gun_scale==1.5f,
+                  "an edit there stays ODST's HUD layout's; the weapon tunables stay Halo 3's");
+            ConfigSave();
+            Config_ApplyTitleProfile(-1);
+            ConfigLoad(path);
+            Check(std::fabs(g_config.reclaimer_odst_hud.hud_aspect-.8f)<.0001f &&
+                      std::fabs(g_config.title_profiles[0].hud_aspect-1.1f)<.0001f,
+                  "both layouts survive save and reload");
+            DeleteFileW(path);
+        }
+    }
+
     if (failures)
         std::printf("%d check(s) failed\n", failures);
     else
