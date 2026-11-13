@@ -196,15 +196,6 @@ bool Readable(const void* address, size_t size)
     return reinterpret_cast<uintptr_t>(address) + size <= end;
 }
 
-std::wstring EngineCodePath()
-{
-    wchar_t buffer[1024]{};
-    if (GetEnvironmentVariableW(L"HALOMCCVR_RECLAIMER_ENGINE_CODE", buffer, 1024) && buffer[0])
-        return buffer;
-    if (!GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, 1024))
-        return {};
-    return std::wstring(buffer) + L"\\ProjectReclaimer\\Cache\\native\\retail-engine\\engine.code";
-}
 
 bool LoadFile(const std::wstring& path, std::vector<uint8_t>& data)
 {
@@ -301,6 +292,31 @@ std::string LoadText(const std::wstring& path)
 {
     std::vector<uint8_t> data;
     return LoadFile(path, data) ? std::string(data.begin(), data.end()) : std::string();
+}
+
+std::wstring Variable(const wchar_t* name)
+{
+    wchar_t buffer[1024]{};
+    const DWORD length = GetEnvironmentVariableW(name, buffer, 1024);
+    return length && length < 1024 ? std::wstring(buffer, length) : std::wstring();
+}
+
+// Every place engine.code may be, the likeliest first: HALOMCCVR_RECLAIMER_ENGINE_CODE names the file outright;
+// otherwise the client's own cache folder rules (reclaimer_host::EngineCodeCandidates).
+std::vector<std::wstring> EngineCodePaths()
+{
+    const std::wstring named = Variable(L"HALOMCCVR_RECLAIMER_ENGINE_CODE");
+    if (!named.empty())
+        return {named};
+    std::wstring player = Variable(L"RECLAIMER_PROFILE_DIR");
+    if (player.empty())
+    {
+        const std::wstring local = Variable(L"LOCALAPPDATA");
+        if (!local.empty())
+            player = local + L"\\ProjectReclaimer";
+    }
+    const std::wstring note = player.empty() ? std::wstring() : Widen(LoadText(player + L"\\cache-folder.txt"));
+    return reclaimer_host::EngineCodeCandidates(Variable(L"RECLAIMER_CACHE_DIR"), note, player);
 }
 
 // One place halo3.dll may lie, and what said so.
@@ -985,7 +1001,32 @@ bool Poll()
         return false; // not linked yet (or a client that still loads halo3.dll)
 
     AcquireSRWLockExclusive(&g_lock);
-    const std::wstring path = EngineCodePath();
+    // The client writes engine.code on its first start after an update, and the player may have moved its cache
+    // (Settings > Folders): look wherever the client may keep it, every second until it is there.
+    const std::vector<std::wstring> paths = EngineCodePaths();
+    std::wstring path;
+    for (const auto& candidate : paths)
+        if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            path = candidate;
+            break;
+        }
+    if (path.empty())
+    {
+        static bool reported = false;
+        if (!reported)
+        {
+            std::wstring looked;
+            for (const auto& candidate : paths)
+                looked += (looked.empty() ? L"" : L"; ") + candidate;
+            LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table "
+                "(engine.code) is not in %ls; looking again every second, and Halo 3 stays flat until it is found "
+                "(said once)", reinterpret_cast<void*>(guest), looked.empty() ? L"any known folder" : looked.c_str());
+        }
+        reported = true;
+        ReleaseSRWLockExclusive(&g_lock);
+        return false;
+    }
     std::vector<uint8_t> file;
     lifted_engine::Table table;
     lifted_engine::ParseResult parsed = lifted_engine::ParseResult::NotEngineCode;
