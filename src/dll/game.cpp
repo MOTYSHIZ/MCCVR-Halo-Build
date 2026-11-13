@@ -9,6 +9,7 @@
 #include "contact_melee_queue.h"
 #include "../common/reach_wind_replay.h"
 #include "native_reload_policy.h"
+#include "hand_tracks.h"
 #include "native_vr_actions.h"
 #include "seat_exit_witness.h"
 #include "native_vehicle_first_person.h"
@@ -5871,7 +5872,8 @@ namespace
     // firing origin or an authored muzzle marker. The firing helper projects
     // and collision-adjusts an origin later; this probe cannot measure it.
     bool DesiredWristWorld(bool left, BoneMatrix& out, float& meshScale,
-                           float* collisionCorrection = nullptr, BoneMatrix* neutralVisual = nullptr); // defined below
+                           float* collisionCorrection = nullptr, BoneMatrix* neutralVisual = nullptr,
+                           float* aimBasis = nullptr); // defined below
     void ProbeBulletOrigin()
     {
         if (!g_config.bullet_probe) return;
@@ -7889,11 +7891,15 @@ namespace
     // right hand carries the weapon mount trim + forward standoff; the left
     // hand mirrors the yaw/roll trim and receives the shared mirrored offsets.
     bool DesiredWristWorld(bool left, BoneMatrix& out, float& meshScale,
-                           float* collisionCorrection, BoneMatrix* neutralVisual)
+                           float* collisionCorrection, BoneMatrix* neutralVisual,
+                           float* aimBasis)
     {
         float basisC[9], posC[3];
         if (!ControllerWorldPoseEx(left, basisC, posC, meshScale))
             return false;
+        // The controller's own frame (forward along the aim ray, left, up): the
+        // gun's frame for support-hand track keys (hand_track_logic.h).
+        if (aimBasis) memcpy(aimBasis, basisC, sizeof(basisC));
         float mounted[9];
         // Begin with the controller basis. Automatic authored-barrel alignment
         // establishes the zero-slider pose first; user trim is applied later.
@@ -8006,6 +8012,63 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             gripOwner?context.gripUnit:context.muzzleUnit,gripOwner?context.gripWeapon:context.muzzleWeapon,
             &source[context.wrist],&source[context.lWrist],
             &desired,basis,g_worldScale.load(),attached);
+    }
+
+    // SUPPORT-HAND TRACKS (Halo 3 / ODST, docs/PLAYER-IK-PARITY-GAP-2026-11-13.md):
+    // while a track plays, move the support hand's IK target from its
+    // controller onto the track's point on the gun, by the track's weight.
+    // `authored` is the game's own support wrist carried by the same rigid
+    // delta that seats the gun hand on its controller (the gun is scaled about
+    // that wrist, so the grip offset scales with it). Lock-free and
+    // allocation-free; returns false and leaves `desiredLeft` untouched when no
+    // track plays or any input is unusable.
+    bool ApplySupportHandTrack(const BoneMatrix& armRoot,const BoneMatrix& stockRightWrist,
+                               const BoneMatrix& stockLeftWrist,const BoneMatrix& desiredRight,
+                               const float rightAimBasis[9],float meshScale,BoneMatrix& desiredLeft)
+    {
+        hand_track::Sampled sample{};
+        if (!HandTracks_Current(sample)) return false;
+        hand_track::Frames frames{};
+        frames.unitsPerMetre=g_worldScale.load(std::memory_order_relaxed);
+        memcpy(frames.gun.basis,rightAimBasis,sizeof(frames.gun.basis));
+        memcpy(frames.gun.position,desiredRight.translation,sizeof(frames.gun.position));
+        memcpy(frames.controller.basis,desiredLeft.rotation,sizeof(frames.controller.basis));
+        memcpy(frames.controller.position,desiredLeft.translation,sizeof(frames.controller.position));
+        frames.controllerValid=true;
+        BoneMatrix authored{};
+        if (ReachBuildRigidCarriedSupportEndpoint(armRoot,stockRightWrist,desiredRight,
+                stockLeftWrist,authored,
+                [](const BoneMatrix& a,const BoneMatrix& b,BoneMatrix& out){
+                    return ComposeBoneMatrices(a,b,out); },
+                [](const BoneMatrix& value,BoneMatrix& out){
+                    return InvertBoneMatrix(value,out); }))
+        {
+            const float s=isfinite(meshScale)&&meshScale>0.0f?meshScale:1.0f;
+            for (int j=0;j<3;++j)
+                frames.authored.position[j]=desiredRight.translation[j]+
+                    (authored.translation[j]-desiredRight.translation[j])*s;
+            // A carried record may hold its authored scale; keep only the rotation.
+            float basis[9];
+            memcpy(basis,authored.rotation,sizeof(basis));
+            bool ok=true;
+            for (int c=0;c<3&&ok;++c)
+            {
+                const float n=sqrtf(basis[c*3]*basis[c*3]+basis[c*3+1]*basis[c*3+1]+basis[c*3+2]*basis[c*3+2]);
+                ok=isfinite(n)&&n>1e-4f;
+                if (ok) for (int r=0;r<3;++r) basis[c*3+r]/=n;
+            }
+            if (ok)
+            {
+                memcpy(frames.authored.basis,basis,sizeof(basis));
+                frames.authoredValid=hand_track::Finite(frames.authored);
+            }
+        }
+        hand_track::Pose target{};
+        if (!hand_track::Target(sample,frames,target)) return false;
+        memcpy(desiredLeft.rotation,target.basis,sizeof(target.basis));
+        memcpy(desiredLeft.translation,target.position,sizeof(target.position));
+        HandTracks_NoteApplied();
+        return true;
     }
 
     bool ReconstructVisiblePaletteSource(uint16_t tag,
@@ -8173,6 +8236,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         float meshScale=1.0f;
         BoneMatrix desiredWristWorld{};
         bool haveDesiredWrist=false;
+        float rightAimBasis[9]={};
         if (explicitTargets)
         {
             if (dual && explicitTargets->leftWristValid)
@@ -8191,7 +8255,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         else
         {
             haveDesiredWrist=DesiredWristWorld(
-                dual,desiredWristWorld,meshScale,g_fpPaletteCollisionCorrection[dual ? 0 : 1]);
+                dual,desiredWristWorld,meshScale,g_fpPaletteCollisionCorrection[dual ? 0 : 1],
+                nullptr,rightAimBasis);
         }
         if (!haveDesiredWrist)
         {
@@ -8551,8 +8616,14 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                             leftScale=explicitTargets->leftScale;
                         }
                         else
+                        {
                             leftTargetValid=
                                 loadLeftWristTarget(desiredLeft,leftScale);
+                            if (leftTargetValid && !explicitTargets)
+                                (void)ApplySupportHandTrack(armRoot,unmod[context.wrist],
+                                    unmod[context.lWrist],desiredWristWorld,rightAimBasis,
+                                    meshScale,desiredLeft);
+                        }
                         if (leftTargetValid)
                         {
                             static std::atomic<bool> loggedLeft{false};
@@ -53136,6 +53207,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
                     notice==1?"enabled":notice==2?"original boolean values restored":
                     "guarded access failed; optional switch disabled, VR retained");
             VR_ReportWeaponInteractions(pollNow);
+            HandTracks_Poll(pollNow);
             NativeReloadPolicy_Poll();
             NativeSubtitles_Poll(activeLevelRunning);
             NativeVehicleFirstPerson_Poll();

@@ -36,6 +36,7 @@
 #include "menu_stick_scroll.h"
 #include "../common/log.h"
 #include "../common/config.h"
+#include "hand_tracks.h"
 #include "../common/input_preset.h"
 #include "../common/default_controls.h"
 #include "../common/menu_mirror.h"
@@ -3313,6 +3314,37 @@ namespace
             changed |= ImGui::Checkbox("Hide lower body", &g_config.body_ik_hide_lower);
             ImGui::TextWrapped("Lower-body hiding requires separate leg geometry. Unsupported rigs retain first-person hands. Halo 3 Elite/Arbiter full avatars currently require this option off.");
         }
+        }
+        if (SectionHeader("Hand animations##section", ImGuiTreeNodeFlags_None))
+        {
+        changed |= ImGui::Checkbox("Animate the support hand on the gun", &g_config.support_hand_tracks);
+        ImGui::TextWrapped("Halo 3 and ODST. After a gesture reload, your support hand moves along the gun the way the "
+                           "game animates it, then returns to your controller. Needs Arm IK on, and your support hand "
+                           "off the gun.");
+#if HALOMCCVR_SETTINGS_WINDOW
+        ImGui::TextDisabled("The animations are in halomccvr_hand_tracks.txt beside halomccvr.cfg. "
+                            "Preview them in the headset (F1).");
+#else
+        HandTracksStatus tracks{};
+        HandTracks_GetStatus(tracks);
+        if (!tracks.loaded)
+            ImGui::TextDisabled("Hand animations are not loaded yet.");
+        else if (tracks.fromFile)
+            ImGui::TextDisabled("%u animations from halomccvr_hand_tracks.txt (beside halomccvr.cfg).", tracks.tracks);
+        else
+            ImGui::TextDisabled("%u built-in animations (halomccvr_hand_tracks.txt not found).", tracks.tracks);
+        if (tracks.errors)
+            ImGui::TextWrapped("%u animation(s) in the file were skipped. First problem, line %u: %s",
+                               tracks.dropped, tracks.firstErrorLine, tracks.firstError);
+        ImGui::BeginDisabled(!g_config.support_hand_tracks);
+        if (ImGui::Button("Preview hand animation"))
+            HandTracks_Request(HandTrackRequest::Preview);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Plays the \"preview\" animation on your support hand. Hold your gun hand still and keep "
+                           "the support hand off the gun to watch it. Edit the file and it reloads by itself.");
+        if (tracks.playing)
+            ImGui::Text("Playing: %s (%s)", tracks.playingName, tracks.playingWeapon);
+#endif
         }
         }
 

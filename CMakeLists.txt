@@ -303,6 +303,7 @@ add_library(halo3xr SHARED
     src/dll/vr.cpp
     src/dll/weapon_accessory_renderer.cpp
     src/dll/native_reload_policy.cpp
+    src/dll/hand_tracks.cpp
     src/dll/host_unload_gate.cpp
     src/dll/native_vehicle_first_person.cpp
     src/dll/menu.cpp
@@ -1794,6 +1795,16 @@ if(BUILD_TESTING)
     target_include_directories(hand_track_logic_tests PRIVATE src/common)
     target_compile_options(hand_track_logic_tests PRIVATE /W4 /EHsc)
     add_test(NAME hand_track_logic COMMAND hand_track_logic_tests)
+    add_executable(hand_tracks_runtime_tests
+        tests/hand_tracks_runtime_tests.cpp
+        src/dll/hand_tracks.cpp
+        src/common/config.cpp
+        src/common/log.cpp
+        src/common/input_logic.cpp
+        src/common/title_registry.cpp)
+    target_include_directories(hand_tracks_runtime_tests PRIVATE src/common src/dll)
+    target_compile_definitions(hand_tracks_runtime_tests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME hand_tracks_runtime COMMAND hand_tracks_runtime_tests)
     add_test(NAME halomccvr_halo3_weapon_haptics_tests COMMAND halomccvr_halo3_weapon_haptics_tests)
     add_executable(halomccvr_halo3_weapon_haptics_backend_tests tests/halo3_weapon_haptics_backend_tests.cpp)
     target_compile_definitions(halomccvr_halo3_weapon_haptics_backend_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

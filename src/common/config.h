@@ -1849,6 +1849,9 @@ struct Config
     // Separate opt-in tracked avatar; unsupported rigs retain first-person hands.
     bool experimental_body_ik = false;
     bool body_ik_hide_lower = false;
+    // Halo 3 / ODST support-hand tracks (halomccvr_hand_tracks.txt): after a gesture reload the support hand
+    // is moved along the gun by the weapon's `reload` track, then handed back to the controller.
+    bool support_hand_tracks = true;
 
     // VRIK arm IK: bend the first-person arm (shoulder planted, elbow solved,
     // hand+gun to the controller) instead of rigid-parenting the whole

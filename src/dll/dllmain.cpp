@@ -15,6 +15,7 @@
 #include "dev_pad.h"
 #include "drive_cascade.h"
 #include "install_search_cache.h"
+#include "hand_tracks.h"
 #include "lifted_engine.h"
 #include "title_adapter.h"
 #include "telemetry_recorder.h"
@@ -177,6 +178,8 @@ static DWORD WINAPI InitThread(LPVOID)
     drive_cascade::SetCacheFolder(dir.c_str());
     // A title install's searches, saved per build of its DLL, live there too (install_search_cache.h).
     install_search_cache::SetFolder(dir.c_str());
+    // Support-hand tracks (Halo 3 / ODST) are read from halomccvr_hand_tracks.txt beside the settings.
+    HandTracks_SetFolder(dir.c_str());
     // What a drive resolved in a module is remembered for that image of it only: the title adapter's module
     // generation changes when MCC unloads a game DLL and loads it again, even at the same base.
     drive_cascade::SetModuleGenerationSource(&TitleAdapter_GetGeneration);

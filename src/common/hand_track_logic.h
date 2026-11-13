@@ -60,10 +60,24 @@ struct Track
     Key keys[kMaxKeys]{};
 };
 
+// Finger curls for each hand shape, in the order index, middle, ring, pinky,
+// thumb. 0 is the rig's own relaxed (bind) shape, 1 fully closed; small
+// negative values open a finger past it. Modelled on the Campaign Evolved VR
+// mod's per-finger curl poses.
+inline constexpr unsigned kFingers=5;
+inline constexpr float kMinCurl=-0.25f, kMaxCurl=1.0f;
+inline constexpr const char* kFingerNames[kFingers]{"index","middle","ring","pinky","thumb"};
+struct PoseTable
+{
+    float curls[unsigned(Shape::Count)][kFingers]{};
+    bool set[unsigned(Shape::Count)]{};
+};
+
 struct Library
 {
     unsigned count{};
     Track tracks[kMaxTracks]{};
+    PoseTable poses{};
 };
 
 // ---------------------------------------------------------------------------
@@ -132,6 +146,29 @@ inline Sampled Evaluate(const Track& track,float seconds) noexcept
     out.weight=Clamp01(in*fade*keyWeight);
     out.active=true;
     return out;
+}
+
+// The fingers a playing track asks for: the controller's own curls moved
+// toward the hand shapes its keys name, by the track's weight. False when
+// neither key in play names a shape the table defines (the caller keeps its
+// ordinary finger input).
+inline bool Curls(const PoseTable& table,const Sampled& sample,const float controller[kFingers],
+                  float out[kFingers]) noexcept
+{
+    if(!sample.active||sample.weight<=0) return false;
+    const unsigned a=unsigned(sample.a.shape),b=unsigned(sample.b.shape);
+    const bool haveA=a&&a<unsigned(Shape::Count)&&table.set[a];
+    const bool haveB=b&&b<unsigned(Shape::Count)&&table.set[b];
+    if(!haveA&&!haveB) return false;
+    for(unsigned f=0;f<kFingers;++f)
+    {
+        if(!std::isfinite(controller[f])) return false;
+        const float from=haveA?table.curls[a][f]:controller[f];
+        const float to=haveB?table.curls[b][f]:controller[f];
+        const float onPath=from+(to-from)*sample.u;
+        out[f]=controller[f]+(onPath-controller[f])*sample.weight;
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +306,8 @@ inline bool Target(const Sampled& sample,const Frames& frames,Pose& out) noexcep
 // ---------------------------------------------------------------------------
 // Text format. One item per line; '#' starts a comment.
 //
+//   pose <shape> <index> <middle> <ring> <pinky> <thumb>   (finger curls, -0.25 to 1)
+//
 //   track <name> <weapon or *>
 //     blend_in <seconds>        (optional, default 0.10)
 //     blend_out <seconds>       (optional, default 0.15)
@@ -327,6 +366,7 @@ inline ParseReport Parse(char* text,Library& out) noexcept
 {
     ParseReport report{};
     out.count=0;
+    out.poses=PoseTable{};
     Track current{};bool open=false,currentBad=false;unsigned openLine=0;
     unsigned lineNumber=0;
     char* cursor=text;
@@ -344,6 +384,18 @@ inline ParseReport Parse(char* text,Library& out) noexcept
             current=Track{};open=true;currentBad=false;openLine=lineNumber;
             if(n!=3||!detail::Copy(current.name,t[1])||!detail::Copy(current.weapon,t[2]))
             { detail::Error(report,lineNumber,"track needs a name and a weapon (or *)");currentBad=true; }
+            continue;
+        }
+        if(!open&&std::strcmp(t[0],"pose")==0)
+        {
+            unsigned s=1;
+            if(n>1) while(s<unsigned(Shape::Count)&&std::strcmp(kShapeNames[s],t[1])!=0) ++s;
+            float curls[kFingers]{};bool ok=n==2+kFingers&&s<unsigned(Shape::Count);
+            for(unsigned f=0;ok&&f<kFingers;++f)
+                ok=detail::Number(t[2+f],curls[f])&&detail::InRange(curls[f],kMinCurl,kMaxCurl);
+            if(!ok) { detail::Error(report,lineNumber,"pose needs a shape name and 5 curls from -0.25 to 1");continue; }
+            for(unsigned f=0;f<kFingers;++f) out.poses.curls[s][f]=curls[f];
+            out.poses.set[s]=true;
             continue;
         }
         if(!open) { detail::Error(report,lineNumber,"line outside a track");continue; }
@@ -431,7 +483,22 @@ inline constexpr const char* kDefaultText=
 "# weight 0 = stay on the controller, 1 = fully on this key.\n"
 "# shape (optional): rest index fist thumbsup point pointdown ok magazine handle\n"
 "#\n"
+"#   pose <shape> <index> <middle> <ring> <pinky> <thumb>\n"
+"# sets how far each finger curls for a shape: 0 = relaxed, 1 = closed,\n"
+"# down to -0.25 to open past relaxed. A key's shape uses these (ODST only:\n"
+"# Halo 3's first-person fingers are not posed yet).\n"
+"#\n"
 "# Tracks the mod plays: reload (after a gesture reload), preview (F1 button).\n"
+"\n"
+"pose rest       0.10 0.15 0.20 0.25 0.10\n"
+"pose index      0.55 0.15 0.20 0.25 0.10\n"
+"pose fist       1.00 1.00 1.00 1.00 1.00\n"
+"pose thumbsup   1.00 1.00 1.00 1.00 -0.20\n"
+"pose point      0.00 1.00 1.00 1.00 1.00\n"
+"pose pointdown  0.00 1.00 1.00 1.00 0.30\n"
+"pose ok         0.60 0.10 0.10 0.10 0.60\n"
+"pose magazine   0.45 0.50 0.55 0.60 0.35\n"
+"pose handle     0.75 0.85 0.90 0.90 0.60\n"
 "\n"
 "track reload *\n"
 "  blend_in 0.12\n"

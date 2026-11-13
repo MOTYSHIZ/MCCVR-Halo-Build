@@ -1,4 +1,5 @@
 #include "../common/legacy_weapon_visual_defaults.h"
+#include "hand_tracks.h"
 #include "../common/reach_weapon_defaults.h"
 #include "../common/halo4_weapon_visual_defaults.h"
 #include "../common/authored_grab_zone.h"
@@ -15954,6 +15955,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             if(weaponGesture.reloadRequested)
             {
                 g_weaponReloadRequests.fetch_add(1,std::memory_order_relaxed);
+                // The support hand follows the weapon's reload track along the gun (Halo 3 / ODST).
+                if(!weapon_interaction::NeedleWeapon(sample.title,sample.weaponGraph))
+                    HandTracks_Request(HandTrackRequest::Reload);
                 if(!weapon_interaction::NeedleWeapon(sample.title,sample.weaponGraph))
                     (sample.receiverValid?g_authoredInsertionRequests:g_fallbackInsertionRequests)
                         .fetch_add(1,std::memory_order_relaxed);
@@ -15967,6 +15971,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
             g_weaponAccessory={};
             g_weaponGestureReadyMs.store(0,std::memory_order_release);
+        }
+        {
+            // Support-hand tracks advance once per input frame; the palette hook only samples them.
+            const GameTitle trackTitle=TitleAdapter_GetActiveTitle();
+            const bool trackTitleOk=g_config.support_hand_tracks&&
+                (trackTitle==GameTitle::Halo3||trackTitle==GameTitle::Halo3ODST);
+            const uint64_t trackWeapon=trackTitleOk?VR_GetWeaponModelIdentity(trackTitle,
+                TitleAdapter_GetGeneration(trackTitle),g_contactSpaceEpoch.load(std::memory_order_acquire),inputNow):0;
+            HandTracks_Update(inputNow,trackTitle,trackWeapon,trackTitleOk&&SecondaryWeaponPresentationActive());
         }
         g_scopeZoomStickY.store(pad.valid?pad.turnY:0.0f,
                                 std::memory_order_release);

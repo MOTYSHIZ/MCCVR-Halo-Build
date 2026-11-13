@@ -37,6 +37,39 @@ void Defaults()
     Check(Find(library,"missing","fp_assault_rifle")==nullptr,"absent track name finds nothing");
 }
 
+void Poses()
+{
+    ParseReport report{};
+    Library library=Load(kDefaultText,&report);
+    unsigned set=0;for(unsigned s=1;s<unsigned(Shape::Count);++s)set+=library.poses.set[s]?1:0;
+    Check(set==9&&!library.poses.set[0],"every named shape has a built-in pose");
+    Check(library.poses.curls[unsigned(Shape::Fist)][0]==1&&library.poses.curls[unsigned(Shape::Point)][0]==0,
+        "fist closes and point opens the index finger");
+    library=Load("pose fist 0.5 0.5 0.5 0.5 0.5\npose claw 1 1 1 1 1\npose ok 1 1 1 1\npose none 0 0 0 0 0\n"
+                 "pose rest 2 0 0 0 0\npose magazine -0.25 0 0 0 1\n",&report);
+    Check(report.errors==4,"unknown, short, none and out-of-range poses rejected");
+    Check(library.poses.set[unsigned(Shape::Fist)]&&library.poses.set[unsigned(Shape::Magazine)]&&
+          !library.poses.set[unsigned(Shape::Rest)],"good poses kept");
+
+    PoseTable table=library.poses;
+    const float controller[kFingers]{0.2f,0.3f,0.3f,0.3f,0.1f};
+    float out[kFingers]{};
+    Sampled s{};s.active=true;s.weight=1;
+    Check(!Curls(table,s,controller,out),"no shape keeps the controller's fingers");
+    s.a.shape=s.b.shape=Shape::Fist;
+    Check(Curls(table,s,controller,out)&&Near(out[0],0.5f)&&Near(out[4],0.5f),"full weight takes the shape");
+    s.weight=0.5f;
+    Check(Curls(table,s,controller,out)&&Near(out[0],0.35f),"half weight is half way from the controller");
+    s.weight=1;s.b.shape=Shape::Magazine;s.u=0.5f;
+    Check(Curls(table,s,controller,out)&&Near(out[0],(0.5f-0.25f)/2)&&Near(out[4],0.75f),"shapes blend between keys");
+    s.b.shape=Shape::None;
+    Check(Curls(table,s,controller,out)&&Near(out[0],(0.5f+0.2f)/2),"a key without a shape blends to the controller");
+    s.a.shape=s.b.shape=Shape::Rest;
+    Check(!Curls(table,s,controller,out),"a shape the file does not define keeps the controller's fingers");
+    s.a.shape=Shape::Fist;s.active=false;
+    Check(!Curls(table,s,controller,out),"inactive track keeps the controller's fingers");
+}
+
 void WeaponMatching()
 {
     const Library library=Load(
@@ -200,7 +233,7 @@ void Targets()
 
 int main()
 {
-    Defaults();WeaponMatching();ParseErrors();Sampling();Resolving();Targets();
+    Defaults();Poses();WeaponMatching();ParseErrors();Sampling();Resolving();Targets();
     std::printf("hand_track_logic_tests: %u checks, %u failures\n",checks,failures);
     return failures?1:0;
 }

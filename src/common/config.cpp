@@ -1209,6 +1209,7 @@ void ConfigLoad(const wchar_t* path)
         if(vrBindingKey) continue;
         if(!strcmp(key,"experimental_body_ik")) {g_config.experimental_body_ik=atoi(val)!=0;continue;}
         if(!strcmp(key,"body_ik_hide_lower")) {g_config.body_ik_hide_lower=atoi(val)!=0;continue;}
+        if(!strcmp(key,"support_hand_tracks")) {g_config.support_hand_tracks=atoi(val)!=0;continue;}
         if(!strcmp(key,"physical_running")) {g_config.physical_running=atoi(val)!=0;continue;}
         if(!strcmp(key,"physical_running_speed")) {
             ParseFloatSetting(key,val,g_config.physical_running_speed);
@@ -4171,6 +4172,9 @@ void ConfigSave()
     fprintf(f, "experimental_body_ik = %d\n", g_config.experimental_body_ik ? 1 : 0);
     fprintf(f, "# Hide separate lower-body regions; H3 Elite/Arbiter require this off.\n");
     fprintf(f, "body_ik_hide_lower = %d\n\n", g_config.body_ik_hide_lower ? 1 : 0);
+    fprintf(f, "# Halo 3 / ODST: after a gesture reload, move the support hand along the gun using the\n");
+    fprintf(f, "# weapon's reload track from halomccvr_hand_tracks.txt. (default %d)\n", d.support_hand_tracks ? 1 : 0);
+    fprintf(f, "support_hand_tracks = %d\n\n", g_config.support_hand_tracks ? 1 : 0);
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  DEVELOPMENT DIAGNOSTICS\n");
     fprintf(f, "#  Leave these off unless a developer asks you to enable one.\n");
