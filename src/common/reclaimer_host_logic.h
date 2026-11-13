@@ -397,6 +397,40 @@ inline std::wstring SettingsFolder(bool recompiledEngine, const std::wstring& do
     return documents.empty() ? std::wstring() : documents + L"\\My Games\\Project Reclaimer";
 }
 
+// Where 0.10 and later may keep the engine's translated code (native\retail-engine\engine.code in its cache folder),
+// likeliest first, as the client picks its cache folder: RECLAIMER_CACHE_DIR when it is set; then the folder the
+// player chose under Settings > Folders > Cache folder (the first line of cache-folder.txt in the player folder),
+// holding the cache itself or a Cache folder; then the player folder's own Cache (RECLAIMER_PROFILE_DIR, else
+// %LOCALAPPDATA%\ProjectReclaimer), where the client keeps it by default and while a chosen folder is missing.
+inline std::vector<std::wstring> EngineCodeCandidates(std::wstring_view cacheDirVariable,
+                                                      std::wstring_view cacheFolderNote,
+                                                      std::wstring_view playerFolder)
+{
+    const auto folder = [](std::wstring_view text) {
+        std::wstring tidy = TidyPath(text.substr(0, text.find_first_of(L"\r\n")));
+        while (!tidy.empty() && (tidy.back() == L'\\' || tidy.back() == L'/'))
+            tidy.pop_back();
+        return tidy;
+    };
+    std::vector<std::wstring> list;
+    const auto add = [&](const std::wstring& cache) {
+        if (cache.empty())
+            return;
+        std::wstring path = cache + L"\\native\\retail-engine\\engine.code";
+        for (const auto& had : list)
+            if (Lower(had) == Lower(path))
+                return;
+        list.push_back(std::move(path));
+    };
+    add(folder(cacheDirVariable));
+    const std::wstring chosen = folder(cacheFolderNote);
+    add(chosen);
+    add(chosen.empty() ? chosen : chosen + L"\\Cache");
+    const std::wstring player = folder(playerFolder);
+    add(player.empty() ? player : player + L"\\Cache");
+    return list;
+}
+
 // Which client process gets the mod: up to 0.9, the engine worker with the player's window; from 0.10, the client
 // itself (a process started without a worker's or a server's arguments).
 inline bool TakesMod(Role role, bool recompiledEngine)

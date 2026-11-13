@@ -285,6 +285,22 @@ int main()
           L"C:\\Users\\p\\AppData\\Local\\ProjectReclaimer");
     CHECK(SettingsFolder(true, L"F:\\Docs", L"").empty() && SettingsFolder(false, L"", L"C:\\L").empty());
 
+    // The engine's translated code: in the default cache, or wherever the player moved Reclaimer's cache.
+    {
+        const std::wstring tail = L"\\native\\retail-engine\\engine.code";
+        const std::wstring player = L"C:\\Users\\p\\AppData\\Local\\ProjectReclaimer";
+        auto list = EngineCodeCandidates(L"", L"", player);
+        CHECK(list.size() == 1 && list[0] == player + L"\\Cache" + tail);
+        list = EngineCodeCandidates(L"", L"\xFEFF" L"A:\\Reclaimer Cache\\\r\nsecond line", player);
+        CHECK(list.size() == 3 && list[0] == L"A:\\Reclaimer Cache" + tail &&
+              list[1] == L"A:\\Reclaimer Cache\\Cache" + tail && list[2] == player + L"\\Cache" + tail);
+        list = EngineCodeCandidates(L"D:\\RC", L"A:\\Moved", player);
+        CHECK(list.size() == 4 && list[0] == L"D:\\RC" + tail && list[1] == L"A:\\Moved" + tail);
+        // The same folder named twice, in any case, is looked in once.
+        CHECK(EngineCodeCandidates(L"", L"c:\\users\\p\\appdata\\local\\projectreclaimer", player).size() == 2);
+        CHECK(EngineCodeCandidates(L"", L"", L"").empty());
+    }
+
     // The version resource, read without version.dll: VS_FIXEDFILEINFO by its signature.
     {
         uint8_t resource[160]{};
