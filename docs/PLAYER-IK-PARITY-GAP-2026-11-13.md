@@ -66,9 +66,8 @@ the fingers do.
      poses, and nothing is per weapon.
    - **Halo 3 first person:** **no finger posing at all.** Halo 3's fingers
      are only posed on the separate full-world avatar. The first-person model
-     (`masterchief/fp`, 37 nodes) needs its own H3EK node export before any
-     finger can be touched. H3EK is not installed on this machine, and the
-     ODST layout is not proof for Halo 3.
+     needs its own H3EK evidence; the ODST layout is not proof for Halo 3.
+     That evidence now exists (see "Halo 3 first-person hand evidence" below).
 2. **Configuring.** Weapon carry is per title, with optional per-gun overrides,
    all in `halomccvr.cfg` and the F1 menu (*Weapon & Aim › Visual gun
    alignment*, *Visible hand positioning*). There are no pose or animation
@@ -113,10 +112,10 @@ the fingers do.
    grip curls the rest" with CampE's named poses (per-finger curl values from
    the same file), eased the same way. A track key can name a held shape
    (e.g. magazine) to use while the key is active.
-5. **Halo 3 first-person fingers** (blocked). Needs an H3EK export of
-   `masterchief/fp` (node names, parents, bind pose), the same way ODST's
-   fixture was made. Then the ODST pose code can be reused on its own
-   evidence.
+5. **Halo 3 first-person fingers** (unblocked, not built). The H3EK export
+   of `masterchief/fp` is done (below). What is left is runtime wiring: a
+   Halo 3 bind fixture generated from that export, accepting Halo 3's own
+   model checksum, and calling the finger solve from Halo 3's palette hook.
 6. **In-headset capture of anchors** (later). CampE's "freeze and align"
    capture of a hold on the gun, saved to the tracks file, so a player can
    author a mag-well or charging-handle key with their own hand instead of
@@ -173,6 +172,34 @@ Reloading on this:
 - Units there: holds in cm plus an xyzw quaternion; zones and radii in metres.
   This file uses metres and degrees throughout.
 
+## Halo 3 first-person hand evidence (2026-11-13)
+
+H3EK is installed at `D:\SteamLibrary\steamapps\common\H3EK` (not the
+`N:\SteamLibrary` path in older notes), with its tags still packed in
+`H3EK.7z`. Selective extraction of one tag, then the kit's own exporter:
+
+    7z x D:\...\H3EK\H3EK.7z -oout\h3ek-fp tags\objects\characters\masterchief\fp\fp.render_model
+    (cwd out\h3ek-fp, with an empty data\ folder)
+    D:\...\H3EK\tool.exe export-tag-to-xml <that tag> h3_masterchief_fp_fp.render_model.xml
+
+Export SHA-256 `b85a4960c113e0a1b69287dbef38ed559342ae98f7277e0a46d50e6e38a54f99`
+(kept in the ignored `out/h3ek-fp`, regenerate with the steps above).
+Runtime import info checksum `504041493`.
+
+Findings:
+
+- 37 nodes: `base`, left/right upper arm, forearm, hand, then five fingers
+  per hand (index, middle, pinky, ring, thumb) at low, mid and tip. Names,
+  order and parents are **identical to ODST's recon/ONI first-person
+  models**, so the ODST `Parents` and `Chains` tables describe Halo 3 too,
+  now on Halo 3's own evidence.
+- Default bind pose: 36 of 37 nodes match ODST's fixture to within 1e-5.
+  The one difference is node 16, `r_thumb_low` (largest field difference
+  0.059). A Halo 3 fixture must use Halo 3's own values, not ODST's.
+- Still to prove at runtime: that the palette Halo 3's hook edits is this
+  model with these indices, and what checksum the game reports for it (the
+  tag's import checksum is not proof of the runtime value).
+
 ## Headset test (Halo 3 regression and ODST check)
 
 Settings needed: *Body & Hands › Body (VRIK) › Arm IK* on; *Controls ›
@@ -216,8 +243,8 @@ What to send back: which steps looked right, anything that looked wrong
 `HaloMCCVR.log`. The log's `Hand tracks:` lines show each track start and
 how many arm solves it moved.
 
-**Known limits.** Halo 3's fingers do not move (no evidence for its
-first-person finger bones yet). A track does nothing while your support hand
+**Known limits.** Halo 3's fingers do not move yet (the evidence exists,
+the runtime wiring is not built). A track does nothing while your support hand
 is gripping the gun or while dual wielding. If the game's own reload is
 shortened by the mod's reload settings, the `reload` track follows that
 shorter motion and then holds the hand at the game's grip until the track
