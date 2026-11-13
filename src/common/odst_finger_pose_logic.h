@@ -15,10 +15,26 @@ inline constexpr int16_t Parents[Count]{-1,0,0,1,2,3,4,5,5,5,5,5,6,6,6,6,6,
 inline constexpr unsigned Chains[2][5][3]{
     {{7,17,27},{8,18,28},{9,19,29},{10,20,30},{11,21,31}},
     {{12,22,32},{13,23,33},{14,24,34},{15,25,35},{16,26,36}}};
+// Optional per-finger curls (a support-hand track's hand shape), in the
+// track file's order: index, middle, ring, pinky, thumb. When set they replace
+// the trigger/grip curls for that side; 0 is the bind shape, 1 closed.
+inline constexpr float kMinCurl=-0.25f,kMaxCurl=1.0f;
+// Chains[side][finger] digit order is index, middle, pinky, ring, thumb.
+inline constexpr unsigned kChainToCurl[5]{0,1,3,2,4};
 struct Request {
     uint32_t checksum{};unsigned count{};
     bool allowed[2]{};ControllerFingerInput fingers[2]{}; // anatomical sides
+    bool curlsValid[2]{};float curls[2][5]{};
 };
+inline bool SetSupportCurls(Request& request,const float (&curls)[5]) noexcept {
+    for(const float c:curls)if(!std::isfinite(c)||c<kMinCurl||c>kMaxCurl)return false;
+    for(unsigned side=0;side<2;++side)if(request.allowed[side]) {
+        request.curlsValid[side]=true;
+        for(unsigned f=0;f<5;++f)request.curls[side][f]=curls[f];
+        return true;
+    }
+    return false;
+}
 inline bool Describe(uint32_t checksum,unsigned count,unsigned side,finger_joint::Inventory& out) noexcept {
     if(side>1||count!=Count)return false;
     AnatomicalPalmMarkers markers{};if(!OdstAnatomicalPalmMarkers(checksum,int(count),markers))return false;
@@ -95,7 +111,11 @@ inline bool Solve(const Pose& source,const Pose& inverseBind,const Request& requ
                 candidate[chain[2]].translation[2]-candidate[chain[0]].translation[2]};
             float axis[3]{};Cross(direction,down,axis);
             if(!Normalize(axis))return false;
-            const float curl=finger==0?raw.trigger:raw.grip;
+            float curl=finger==0?raw.trigger:raw.grip;
+            if(request.curlsValid[side]) {
+                curl=request.curls[side][kChainToCurl[finger]];
+                if(!std::isfinite(curl)||curl<kMinCurl||curl>kMaxCurl)return false;
+            }
             constexpr float flex[3]{.42f,.60f,.74f};
             for(unsigned joint=0;joint<3;++joint)if(!RotateJoint(candidate,inventory.FindNative(finger,joint)->paletteIndex,axis,curl*flex[joint]))return false;
         }

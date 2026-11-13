@@ -29,6 +29,10 @@ void HandTracks_Poll(uint64_t nowMs);
 void HandTracks_Request(HandTrackRequest request);
 void HandTracks_Update(uint64_t nowMs, GameTitle title, uint64_t weaponIdentity, bool dualWield);
 bool HandTracks_Current(hand_track::Sampled& out);
+// Palette hook: the finger curls (index, middle, ring, pinky, thumb) the playing
+// track's hand shapes ask for, blended from `controller`. False: keep the
+// ordinary finger input.
+bool HandTracks_CurrentCurls(const float controller[hand_track::kFingers], float out[hand_track::kFingers]);
 // Palette hook: the track moved the support hand this solve (a counter, for the log).
 void HandTracks_NoteApplied();
 void HandTracks_GetStatus(HandTracksStatus& out);

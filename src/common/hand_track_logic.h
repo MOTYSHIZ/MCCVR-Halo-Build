@@ -511,7 +511,7 @@ inline constexpr const char* kDefaultText=
 "  blend_in 0.15\n"
 "  blend_out 0.25\n"
 "  key 0.00 authored 0 0 0  0 0 0  1\n"
-"  key 0.60 authored 0 0 -0.08  0 0 0  1\n"
+"  key 0.60 authored 0 0 -0.08  0 0 0  1  magazine\n"
 "  key 1.20 authored 0 0 0  0 0 0  1\n"
 "  key 1.60 authored 0 0 0  0 0 0  1\n"
 "end\n";

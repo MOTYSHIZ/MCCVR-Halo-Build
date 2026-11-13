@@ -33,7 +33,9 @@ void Defaults()
     Check(library.count==2&&report.tracks==2,"built-in reload and preview tracks");
     const Track* reload=Find(library,"reload","fp_assault_rifle");
     Check(reload&&reload->keyCount==2&&reload->keys[0].frame==Frame::Authored,"reload follows the game's own hand");
-    Check(Find(library,"preview",nullptr)!=nullptr,"preview serves an unknown weapon");
+    const Track* preview=Find(library,"preview",nullptr);
+    Check(preview!=nullptr,"preview serves an unknown weapon");
+    Check(preview&&preview->keyCount==4&&preview->keys[1].shape==Shape::Magazine,"preview shows the magazine hand shape");
     Check(Find(library,"missing","fp_assault_rifle")==nullptr,"absent track name finds nothing");
 }
 

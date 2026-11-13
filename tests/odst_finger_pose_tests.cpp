@@ -57,6 +57,35 @@ int main() {
         Check(!ConfigureFreeSupport(request,side==1,true,false,{true,1,1})&&std::memcmp(&request,&untouched,sizeof(request))==0,"secondary weapon preserves authored support grip");
         Check(!ConfigureFreeSupport(request,side==1,false,true,{true,1,1})&&std::memcmp(&request,&untouched,sizeof(request))==0,"persistent/two-hand attachment preserves authored fingers");
         Check(!ConfigureFreeSupport(request,side==1,false,false,{})&&std::memcmp(&request,&untouched,sizeof(request))==0,"unavailable raw input preserves current native shape");
+        {
+            // A track's hand shape replaces trigger/grip with per-finger curls.
+            Request shaped=request;shaped.fingers[side]={true,0,0};
+            const float fistCurls[5]{1,1,1,1,1};
+            Check(SetSupportCurls(shaped,fistCurls)&&shaped.curlsValid[side]&&!shaped.curlsValid[1-side],
+                "hand shape curls go to the free support hand only");
+            Pose shapedFist{};Check(Solve(original,inverse,shaped,shapedFist),"shaped fist solves");
+            Check(std::memcmp(&shapedFist,&fist,sizeof(fist))==0,"all-closed shape equals the trigger-and-grip fist");
+            const float openCurls[5]{0,0,0,0,0};
+            Request open=request;open.fingers[side]={true,1,1};
+            Check(SetSupportCurls(open,openCurls),"open shape accepted");
+            Pose shapedOpen{};Check(Solve(original,inverse,open,shapedOpen),"shaped open hand solves");
+            for(unsigned node=0;node<Count;++node)Check(Near(shapedOpen[node],original[node]),"zero shape is the bind hand whatever the controller says");
+            const float indexOnly[5]{1,0,0,0,0};
+            Request point=request;point.fingers[side]={true,0,0};
+            Check(SetSupportCurls(point,indexOnly),"index-only shape accepted");
+            Pose shapedIndex{};Check(Solve(original,inverse,point,shapedIndex),"index-only shape solves");
+            Check(!Near(shapedIndex[Chains[side][0][1]],original[Chains[side][0][1]])&&
+                  Near(shapedIndex[Chains[side][1][1]],original[Chains[side][1][1]]),"curl order: first value is the index finger");
+            const float ringOnly[5]{0,0,1,0,0};
+            Check(SetSupportCurls(point,ringOnly)&&Solve(original,inverse,point,shapedIndex),"ring-only shape solves");
+            Check(!Near(shapedIndex[Chains[side][3][1]],original[Chains[side][3][1]])&&
+                  Near(shapedIndex[Chains[side][2][1]],original[Chains[side][2][1]]),"third value is the ring finger, not the pinky");
+            const float tooFar[5]{0,0,2,0,0};
+            Request rejected=request;
+            Check(!SetSupportCurls(rejected,tooFar)&&!rejected.curlsValid[side],"out-of-range shape rejected");
+            Request none=request;none.allowed[0]=none.allowed[1]=false;
+            Check(!SetSupportCurls(none,fistCurls),"no free support hand, no shape");
+        }
         auto native=original;request.fingers[side]={true,.4f,.7f};
         Check(Apply(native.data(),inverse,request)==Result::Applied,"production committed-palette transaction applies");
         for(unsigned node=0;node<Count;++node)if(!IsFinger(node,side))Check(std::memcmp(&native[node],&original[node],sizeof(Matrix))==0,"transaction only writes free finger descendants");

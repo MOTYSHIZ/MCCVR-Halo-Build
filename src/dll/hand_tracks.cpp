@@ -36,6 +36,7 @@ unsigned g_loggedPlays = 0;
 // --- playback (VR thread owns these) --------------------------------------
 std::atomic<uint32_t> g_request{0};
 hand_track::Track g_slots[kSlots];
+hand_track::PoseTable g_slotPoses[kSlots];
 unsigned g_slotNext = 0, g_playSlot = 0;
 bool g_playing = false;
 uint64_t g_startMs = 0;
@@ -133,6 +134,7 @@ bool Start(const char* name, GameTitle title, uint64_t identity, uint64_t nowMs)
     if (!track) return false;
     const unsigned slot = g_slotNext;
     g_slots[slot] = *track;
+    g_slotPoses[slot] = library.poses;
     if (g_libraryVersion.load(std::memory_order_acquire) != before) return false;
     g_slotNext = (g_slotNext + 1) % kSlots;
     g_playSlot = slot;
@@ -263,6 +265,18 @@ bool HandTracks_Current(hand_track::Sampled& out)
     memcpy(&elapsed, &bits, sizeof(elapsed));
     out = hand_track::Evaluate(g_slots[slot], elapsed);
     return out.active;
+}
+
+bool HandTracks_CurrentCurls(const float controller[hand_track::kFingers], float out[hand_track::kFingers])
+{
+    const uint64_t value = g_published.load(std::memory_order_acquire);
+    if (!(value >> 63)) return false;
+    const unsigned slot = unsigned(value >> 32) & 3u;
+    const uint32_t bits = uint32_t(value);
+    float elapsed = 0;
+    memcpy(&elapsed, &bits, sizeof(elapsed));
+    const auto sample = hand_track::Evaluate(g_slots[slot], elapsed);
+    return hand_track::Curls(g_slotPoses[slot], sample, controller, out);
 }
 
 void HandTracks_NoteApplied()

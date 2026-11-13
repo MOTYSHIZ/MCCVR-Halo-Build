@@ -37,6 +37,14 @@ bool Prepare(uint16_t tag,const FpInterpolationContext& context,uint32_t generat
         support.unit==unit&&support.weapon==weapons[0];
     if(!odst_fingers::ConfigureFreeSupport(request,tracking.handAlignment,weapons[1]!=UINT32_MAX,
         attached||tracking.twoHandAimActive||g_fpStereoSolveScope.twoHandAimActive,tracking.controllerFingers[0]))return false;
+    {
+        // A support-hand track's hand shape (halomccvr_hand_tracks.txt) takes over
+        // the fingers while it plays; trigger curls the index, grip the rest.
+        const auto& raw=tracking.controllerFingers[0];
+        const float controller[hand_track::kFingers]{raw.trigger,raw.grip,raw.grip,raw.grip,raw.grip};
+        float curls[hand_track::kFingers]{};
+        if(HandTracks_CurrentCurls(controller,curls))(void)odst_fingers::SetSupportCurls(request,curls);
+    }
     const auto* base=g_odstTagDataBase?static_cast<const uint8_t*>(*g_odstTagDataBase):nullptr;
     uint32_t address=0;std::memcpy(&address,model+kOdstRenderModelNodesDataOffset,4);
     if(!base||!address)return false;
