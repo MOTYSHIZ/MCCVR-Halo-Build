@@ -7876,6 +7876,8 @@ int main()
                 ", the build lifted (b209d8454b12dc77)\r\n[engine] next\r\n";
             Check(LiftedDllFromClientLog(log) == dll && LiftedDllFromClientLog("[engine] nothing here\n").empty(),
                 "the client's log: the last halo3.dll it lifted");
+            Check(LiftedDllFromClientLog("15:25:42.607 [engine] halo3.dll: " + dll + ", the build lifted (b209)\n") == dll,
+                "from 0.10.3 the client's log starts each line with the time");
             const std::string vdf = std::string("\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"") +
                 R"(C:\\Program Files (x86)\\Steam)" + "\"\n\t\t\"label\"\t\t\"\"\n\t}\n\t\"1\"\n\t{\n\t\t\"path\"\t\t\"" +
                 R"(G:\\SteamLibrary)" + "\"\n\t}\n}\n";

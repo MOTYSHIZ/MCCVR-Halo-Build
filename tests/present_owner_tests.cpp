@@ -52,8 +52,26 @@ int main()
     Check(Classify(false, false, true, 2912, 2100, kGameDevice, 0) == Verdict::NotD3D11, "not a D3D11 swapchain");
     Check(Classify(true, false, true, 2912, 2100, 0, 0) == Verdict::NotD3D11, "no device at all");
 
+    // Project Reclaimer's loading screen after an update: a BGRA swapchain on a device of its own, presenting first.
+    // Before the session it is not the game's, so the session is made on the engine's (R8G8B8A8) swapchain instead.
+    Check(Classify(true, true, true, 2912, 2100, kOtherDevice, 0, true, 87) == Verdict::HostScreen,
+          "Reclaimer's loading screen (B8G8R8A8) is not the game's, before the session");
+    Check(Classify(true, true, true, 2912, 2100, kOtherDevice, 0, true, 91) == Verdict::HostScreen,
+          "nor in its sRGB form");
+    Check(Classify(true, true, true, 2912, 2100, kGameDevice, 0, true, 28) == Verdict::Game,
+          "Reclaimer's engine (R8G8B8A8) is the game's");
+    Check(Classify(true, true, true, 2912, 2100, kGameDevice, kGameDevice, true, 87) == Verdict::HostScreen,
+          "a BGRA screen on the session's own device is still the host's");
+    Check(Classify(true, false, true, 2912, 2100, kGameDevice, 0, false, 87) == Verdict::Game,
+          "MCC keeps every format it draws in");
+    Check(Classify(true, true, false, 0, 0, kGameDevice, 0, true, 87) == Verdict::Game,
+          "an unread description is not taken for the host's screen");
+    Check(IsHostScreenFormat(87) && IsHostScreenFormat(91) && !IsHostScreenFormat(28) && !IsHostScreenFormat(29),
+          "BGRA is the host's; RGBA the engine's");
+
     Check(IsTokenSurface(1, 1) && !IsTokenSurface(kTokenSurface, kTokenSurface), "the token bound");
-    for (Verdict verdict : {Verdict::Game, Verdict::NotD3D11, Verdict::TokenSurface, Verdict::OtherDevice})
+    for (Verdict verdict : {Verdict::Game, Verdict::NotD3D11, Verdict::TokenSurface, Verdict::OtherDevice,
+                            Verdict::HostScreen})
         Check(Describe(verdict) && std::strcmp(Describe(verdict), "unknown") != 0, "every verdict is described");
 
     // A host's second device: the session's device answers its next engine's call, and nobody else's.
