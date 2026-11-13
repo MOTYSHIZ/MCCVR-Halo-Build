@@ -2114,7 +2114,8 @@ static bool IsGameSwapchain(IDXGISwapChain* sc)
     const bool described = SUCCEEDED(sc->GetDesc(&desc));
     const present_owner::Verdict verdict = present_owner::Classify(
         d3d11, g_hostOwnsRenderSize, described, desc.BufferDesc.Width, desc.BufferDesc.Height,
-        reinterpret_cast<uintptr_t>(device), reinterpret_cast<uintptr_t>(session));
+        reinterpret_cast<uintptr_t>(device), reinterpret_cast<uintptr_t>(session), g_hostIsProjectReclaimer,
+        static_cast<uint32_t>(desc.BufferDesc.Format));
     if (device)
         device->Release();
     cached = {sc, epoch, session, verdict == present_owner::Verdict::Game};

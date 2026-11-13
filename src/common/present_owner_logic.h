@@ -25,7 +25,20 @@ enum class Verdict : uint8_t
     NotD3D11,     // its device is not a D3D11 device
     TokenSurface, // a host's swapchain too small to be the game's picture
     OtherDevice,  // made on another device than the headset session's
+    HostScreen,   // a host's own screen in a format the game's engine never draws in
 };
+
+// PROJECT RECLAIMER'S LOADING SCREEN. After it updates itself, Reclaimer 0.10's first launch shows "Loading Asset
+// Library" from a device and a BGRA swapchain of its own before its engine starts. The headset session was made on
+// that device, the engine's device came while the screen still presented (so it was not handed the session's, see
+// DecideDeviceShare), and the headset kept the loading screen for good while the monitor showed the menu
+// (2026-11-11 after 0.10.2, 2026-11-13 after 0.10.3). Its engine draws R8G8B8A8 (DXGI format 28) in every run logged;
+// the loading screen B8G8R8A8 (87). A host's swapchain in a BGRA format is not the game's: the session waits for the
+// engine's.
+constexpr bool IsHostScreenFormat(uint32_t dxgiFormat)
+{
+    return dxgiFormat == 87 || dxgiFormat == 91; // DXGI_FORMAT_B8G8R8A8_UNORM, its _SRGB
+}
 
 constexpr bool IsTokenSurface(uint32_t width, uint32_t height)
 {
@@ -33,11 +46,14 @@ constexpr bool IsTokenSurface(uint32_t width, uint32_t height)
 }
 
 // `described`: the swapchain's size was read. `device` / `sessionDevice` are identities (0 = none yet).
+// `hostScreens`: the host draws screens of its own with D3D11 (Project Reclaimer); `format` is the swapchain's.
 constexpr Verdict Classify(bool d3d11, bool hostOwnsRenderSize, bool described, uint32_t width, uint32_t height,
-                           uintptr_t device, uintptr_t sessionDevice)
+                           uintptr_t device, uintptr_t sessionDevice, bool hostScreens = false, uint32_t format = 0)
 {
     if (!d3d11 || !device)
         return Verdict::NotD3D11;
+    if (hostScreens && described && IsHostScreenFormat(format))
+        return Verdict::HostScreen;
     if (hostOwnsRenderSize && described && IsTokenSurface(width, height))
         return Verdict::TokenSurface;
     if (sessionDevice && device != sessionDevice)
@@ -53,6 +69,7 @@ constexpr const char* Describe(Verdict verdict)
     case Verdict::NotD3D11: return "not on a D3D11 device";
     case Verdict::TokenSurface: return "too small to be the game's picture (a host's own surface)";
     case Verdict::OtherDevice: return "on another device than the headset session's";
+    case Verdict::HostScreen: return "the host's own screen (its BGRA loading screen), not the game's engine";
     }
     return "unknown";
 }
