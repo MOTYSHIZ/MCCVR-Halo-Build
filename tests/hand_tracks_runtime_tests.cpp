@@ -82,6 +82,31 @@ int main()
     Check(!HandTracks_Current(sample),"the setting turns tracks off");
     g_config.support_hand_tracks=true;
 
+    // Finger gestures: picked and eased on the VR thread, one word for the palette hook.
+    {
+        g_config.hand_gestures=true;
+        hand_gesture::Input in[2]{};
+        for(auto& hand:in){hand.valid=true;hand.touchKnown=true;}
+        in[0].grip=1;in[0].triggerTouch=true;in[0].thumbTouch=true;   // support: fist
+        in[1].grip=1;                                                // gun hand: point
+        float curls[hand_track::kFingers]{};
+        HandTracks_UpdateGestures(1000000000,GameTitle::Halo3,in);
+        Check(HandTracks_GestureCurls(0,curls)&&curls[0]>0.97f&&curls[4]>0.97f,"the support hand makes a fist");
+        Check(HandTracks_GestureCurls(1,curls)&&curls[0]<0.02f&&curls[1]>0.97f,"the gun hand points");
+        HandTracksStatus gestures{};HandTracks_GetStatus(gestures);
+        Check(gestures.gestureTouch[0]&&gestures.gestureTouch[1]&&gestures.gesture[0]==hand_track::Shape::Fist&&
+              gestures.gesture[1]==hand_track::Shape::Point,"status names each hand's gesture");
+        in[1].touchKnown=false;
+        HandTracks_UpdateGestures(1011000000,GameTitle::Halo3ODST,in);
+        Check(HandTracks_GestureCurls(0,curls)&&!HandTracks_GestureCurls(1,curls),"a hand without touch sensors has no gesture");
+        HandTracks_UpdateGestures(1022000000,GameTitle::HaloReach,in);
+        Check(!HandTracks_GestureCurls(0,curls),"other titles have no gestures");
+        g_config.hand_gestures=false;
+        HandTracks_UpdateGestures(1033000000,GameTitle::Halo3,in);
+        Check(!HandTracks_GestureCurls(0,curls),"the setting turns gestures off");
+        g_config.hand_gestures=true;
+    }
+
     // An edited file reloads by itself; a broken track is reported and skipped.
     WriteAll(FilePath(folder),
         "track reload *\nkey 0 weapon 0.1 0 0 0 0 0 1\nkey 0.5 weapon 0.1 0 0 0 0 0 1\nend\n"
@@ -90,6 +115,12 @@ int main()
     HandTracks_Poll(20000);
     HandTracks_GetStatus(status);
     Check(status.fromFile&&status.tracks==2&&status.dropped==1&&status.firstErrorLine==9,"edited file reloads and reports its problem line");
+    {
+        hand_gesture::Input in[2]{};in[0].valid=in[0].touchKnown=true;in[0].grip=1;
+        float curls[hand_track::kFingers]{};
+        HandTracks_UpdateGestures(2000000000,GameTitle::Halo3,in);
+        Check(!HandTracks_GestureCurls(0,curls),"a file without pose lines has no gestures (plain curl instead)");
+    }
     HandTracks_Request(HandTrackRequest::Reload);
     HandTracks_Update(21000,GameTitle::Halo3,0x0000000013120D11ull,false);
     Check(HandTracks_Current(sample)&&sample.a.offset[0]==0.2f,"the assault rifle uses its own reload track");

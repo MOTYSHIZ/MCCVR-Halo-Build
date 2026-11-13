@@ -27,7 +27,8 @@ namespace
 unsigned checks{},failures{},attachCalls{},spaceCalls{},queryCalls{};
 uintptr_t nextHandle=10;
 bool failOptionalAction{},failGripAction{},failLeftGripSpace{},failRightGripSpace{};
-bool rejectGripBinding{},rejectThumbrestBinding{},rejectCombinedBinding{};
+bool rejectGripBinding{},rejectThumbrestBinding{},rejectCombinedBinding{},rejectFingerBinding{};
+bool fixtureStowed{};
 bool rejectPro{},g_touchProProfileEnabled{};
 XrResult queryResult=XR_SUCCESS;
 XrBool32 queryActive=XR_TRUE,queryValue=XR_TRUE;
@@ -40,6 +41,7 @@ XrPath g_rightHandPath=XR_NULL_PATH,g_leftHandPath=XR_NULL_PATH;
 XrAction g_rightAimAction{},g_leftAimAction{},g_supportGripPoseAction{},g_hapticAction{},g_actMove{},g_actTurn{};
 XrAction g_actTrigL{},g_actTrigR{},g_actGripL{},g_actGripR{},g_actA{},g_actB{},g_actX{},g_actY{};
 XrAction g_actClickL{},g_actClickR{},g_actMenu{},g_actLeftThumbrest{};
+XrAction g_actTriggerTouchL{},g_actTriggerTouchR{},g_actThumbTouchL{},g_actThumbTouchR{};
 XrAction g_actFacePadL{},g_actFacePadR{},g_actFaceClickL{},g_actFaceClickR{};
 vr_mapping::Transports fixtureNativeBindings{};
 uint32_t Game_VrActionTransport(vr_mapping::Action action,uint64_t) {return fixtureNativeBindings[action];}
@@ -79,6 +81,8 @@ bool HasThumbrest(const Suggestion& value)
 { return std::any_of(value.bindings.begin(),value.bindings.end(),[](const Binding& b){return b.action=="left_thumbrest_touch";}); }
 bool HasGripPose(const Suggestion& value)
 { return std::any_of(value.bindings.begin(),value.bindings.end(),[](const Binding& b){return b.action=="two_hand_grip_pose";}); }
+size_t FingerBindings(const Suggestion& value)
+{ return size_t(std::count_if(value.bindings.begin(),value.bindings.end(),[](const Binding& b){return b.action.rfind("finger_",0)==0;})); }
 }
 
 extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrCreateActionSet(
@@ -107,7 +111,8 @@ extern "C" XRAPI_ATTR XrResult XRAPI_CALL xrSuggestInteractionProfileBindings(
         value.bindings.push_back({actions.at(binding.action).name,PathName(binding.binding)});
     }
     const bool hasGrip=HasGripPose(value),hasThumb=HasThumbrest(value);
-    const bool rejected=(hasGrip&&rejectGripBinding)||(hasThumb&&rejectThumbrestBinding)||
+    const bool rejected=(FingerBindings(value)&&rejectFingerBinding)||
+        (hasGrip&&rejectGripBinding)||(hasThumb&&rejectThumbrestBinding)||
         (hasGrip&&hasThumb&&rejectCombinedBinding)||(rejectPro&&value.profile==pro);
     value.accepted=!rejected;
     suggestions.push_back(std::move(value));return rejected?XR_ERROR_PATH_UNSUPPORTED:XR_SUCCESS;
@@ -143,6 +148,7 @@ bool Menu_IsOpen() { return fixtureMenu; }
 bool fixtureNativePointer = false;
 bool NativeMenuPointer_ConsumesTrigger() { return fixtureNativePointer; }
 uint64_t VR_GetWeaponModelIdentity(GameTitle,uint32_t,uint64_t,uint64_t) noexcept { return fixtureWeaponGraph; }
+bool VR_WeaponStowed(GameTitle,uint32_t) noexcept { return fixtureStowed; }
 bool VR_IsStereoEnabled() { return fixtureStereo; }
 bool VR_IsPausePresentation() { return fixturePause; }
 bool VR_IsPausePresentationTarget() { return fixturePauseTarget; }
@@ -157,8 +163,9 @@ namespace
 {
 void Reset(bool failAction=false,bool rejectGrip=false,bool rejectThumb=false,
     bool rejectCombined=false,bool enablePro=false,bool unsupportedPro=false,
-    bool failGrip=false,bool failLeftSpace=false,bool failRightSpace=false)
+    bool failGrip=false,bool failLeftSpace=false,bool failRightSpace=false,bool rejectFingers=false)
 {
+    rejectFingerBinding=rejectFingers;fixtureStowed=false;
     actions.clear();paths.clear();suggestions.clear();attachCalls=spaceCalls=queryCalls=0;nextHandle=10;
     failOptionalAction=failAction;rejectGripBinding=rejectGrip;
     rejectThumbrestBinding=rejectThumb;rejectCombinedBinding=rejectCombined;
@@ -171,6 +178,7 @@ void Reset(bool failAction=false,bool rejectGrip=false,bool rejectThumb=false,
     for (XrAction* value:{&g_rightAimAction,&g_leftAimAction,&g_supportGripPoseAction,&g_hapticAction,&g_actMove,&g_actTurn,
         &g_actTrigL,&g_actTrigR,&g_actGripL,&g_actGripR,&g_actA,&g_actB,&g_actX,&g_actY,
         &g_actClickL,&g_actClickR,&g_actMenu,&g_actLeftThumbrest,
+        &g_actTriggerTouchL,&g_actTriggerTouchR,&g_actThumbTouchL,&g_actThumbTouchR,
         &g_actFacePadL,&g_actFacePadR,&g_actFaceClickL,&g_actFaceClickR}) *value=XR_NULL_HANDLE;
 }
 void CheckTouch(const Suggestion& actual)
@@ -186,8 +194,22 @@ void CheckTouch(const Suggestion& actual)
         {"menu","/user/hand/left/input/menu/click"},{"menu","/user/hand/right/input/system/click"},
         {"game_haptics","/user/hand/left/output/haptic"},{"game_haptics","/user/hand/right/output/haptic"}};
     const bool hasGrip=HasGripPose(actual),hasThumb=HasThumbrest(actual);
-    Check(actual.bindings.size()==std::size(original)+(hasGrip?2:0)+(hasThumb?1:0),
+    const size_t fingers=FingerBindings(actual);
+    Check(fingers==0||fingers==10,"Finger-gesture touch bindings are all present or all absent");
+    Check(actual.bindings.size()==std::size(original)+(hasGrip?2:0)+(hasThumb?1:0)+fingers,
         "Every Touch suggestion contains the complete original list, never optional-only bindings");
+    if(fingers)
+        for(const Binding& required:std::vector<Binding>{
+            {"finger_trigger_touch_l","/user/hand/left/input/trigger/touch"},
+            {"finger_trigger_touch_r","/user/hand/right/input/trigger/touch"},
+            {"finger_thumb_touch_l","/user/hand/left/input/x/touch"},{"finger_thumb_touch_l","/user/hand/left/input/y/touch"},
+            {"finger_thumb_touch_l","/user/hand/left/input/thumbstick/touch"},
+            {"finger_thumb_touch_l","/user/hand/left/input/thumbrest/touch"},
+            {"finger_thumb_touch_r","/user/hand/right/input/a/touch"},{"finger_thumb_touch_r","/user/hand/right/input/b/touch"},
+            {"finger_thumb_touch_r","/user/hand/right/input/thumbstick/touch"},
+            {"finger_thumb_touch_r","/user/hand/right/input/thumbrest/touch"}})
+            Check(std::count_if(actual.bindings.begin(),actual.bindings.end(),[&](const Binding& b){
+                return b.action==required.action&&b.path==required.path;})==1,"Touch finger gestures bind each physical touch sensor to its own hand");
     for (const auto& expected:original)
         Check(std::count_if(actual.bindings.begin(),actual.bindings.end(),[&](const Binding& b){
             return b.action==expected.action&&b.path==expected.path;})==1,"Every original Touch pose/button/stick/motor binding survives optional setup");
@@ -222,7 +244,10 @@ void CheckProfiles(unsigned touchCalls,unsigned proCalls,
             Check(!HasThumbrest(suggestion),"Optional Touch sensor is never added to unrelated interaction profiles");
             const size_t expected=suggestion.profile=="/interaction_profiles/khr/simple_controller"?6:17;
             const bool hasGrip=HasGripPose(suggestion);
-            Check(suggestion.bindings.size()==expected+(hasGrip?2:0),
+            const size_t fingers=FingerBindings(suggestion);
+            Check(fingers==0||(fingers==10&&suggestion.profile=="/interaction_profiles/valve/index_controller"),
+                "Finger-gesture touch bindings go only to the Index profile among the others, all ten together");
+            Check(suggestion.bindings.size()==expected+(hasGrip?2:0)+fingers,
                 "Other controller profiles retain their complete baseline binding count, supported pad face zones and optional grip poses only when present");
             if(suggestion.profile=="/interaction_profiles/htc/vive_controller"||
                suggestion.profile=="/interaction_profiles/microsoft/motion_controller")
@@ -250,7 +275,8 @@ void CheckProfiles(unsigned touchCalls,unsigned proCalls,
         "Profile acceptance/fallback leaves all existing controller profiles reachable");
     if (finalTouch)
         Check(HasThumbrest(*finalTouch)==expectedTouchThumb &&
-            HasGripPose(*finalTouch)==expectedTouchGrip,
+            HasGripPose(*finalTouch)==expectedTouchGrip &&
+            (FingerBindings(*finalTouch)!=0)==!rejectFingerBinding,
             "Final Touch suggestion preserves exactly the independently negotiated optional bindings");
     const bool gripActionAvailable=g_supportGripPoseAction!=XR_NULL_HANDLE;
     Check(attachCalls==1&&spaceCalls==(gripActionAvailable?4u:2u)&&
@@ -267,6 +293,7 @@ void CheckProfiles(unsigned touchCalls,unsigned proCalls,
 int main()
 {
     g_config.vr_action_mapping=false; // Existing legacy snapshot cases below.
+    g_config.weapon_stow=false; // The legacy weapon-option snapshots below predate the stow bit.
     Reset(true);Check(CreateControllerActions(),"Optional thumb-rest action creation failure is nonfatal");CheckProfiles(1,0,false,true);
     Check(g_actLeftThumbrest==XR_NULL_HANDLE&&!ReadLeftThumbrestTouched()&&queryCalls==0,"Absent optional action is neutral without querying XR");
     Reset(false,true);Check(CreateControllerActions(),"Grip binding rejection is nonfatal");CheckProfiles(1,0,true,false);
@@ -297,6 +324,25 @@ int main()
     CheckProfiles(1,0,true,true);
     Reset(false,false,false,false,true,true);Check(CreateControllerActions(),"Unsupported Touch Pro profile cannot prevent other controller setup");CheckProfiles(1,0,true,true);
     Reset(false,false,false,false,true);Check(CreateControllerActions(),"Touch Pro and Oculus receive independent complete optional lists");CheckProfiles(1,1,true,true);
+    {
+        // Finger-gesture touch: rejected anywhere, every profile keeps exactly its earlier bindings.
+        Reset(false,false,false,false,false,false,false,false,false,true);
+        Check(CreateControllerActions(),"Finger touch binding rejection is nonfatal");
+        CheckProfiles(1,0,true,true);
+        bool indexWithout=false;
+        for(const auto& suggestion:suggestions)
+            if(suggestion.accepted&&suggestion.profile=="/interaction_profiles/valve/index_controller")
+                indexWithout=FingerBindings(suggestion)==0;
+        Check(indexWithout,"Index falls back to its earlier complete list without finger touch");
+        Reset();Check(CreateControllerActions(),"Finger touch accepted");
+        bool indexWith=false;
+        for(const auto& suggestion:suggestions)
+            if(suggestion.accepted&&suggestion.profile=="/interaction_profiles/valve/index_controller")
+                indexWith=FingerBindings(suggestion)==10;
+        Check(indexWith,"Index gets the ten finger touch bindings when accepted");
+        Check(actions.at(g_actThumbTouchL).type==XR_ACTION_TYPE_BOOLEAN_INPUT&&
+              actions.at(g_actTriggerTouchR).type==XR_ACTION_TYPE_BOOLEAN_INPUT,"Finger touch actions are boolean inputs");
+    }
     InitializeCriticalSection(&g_headCs);g_headCsInit=true;
     g_config.quest_thumbrest_dpad=true;
     g_padState.valid=true;g_padState.moveX=0.4f;g_padState.b=true;
@@ -417,6 +463,13 @@ int main()
     g_padState.trigR=0; VR_GetPadState(needle);
     g_padState.trigR=0.8f; VR_GetPadState(needle);
     Check(needle.trigR==0.8f,"fresh gameplay trigger is unchanged after release");
+    fixtureStowed=true;VR_GetPadState(needle);
+    Check(needle.trigR==0,"a stowed gun does not fire: the gun hand's trigger is not the game's");
+    Check(g_padState.trigR==0.8f,"stowing keeps the physical trigger sample for the finger gesture");
+    fixtureMenu=true;VR_GetPadState(needle);
+    Check(needle.trigR==0.8f,"the menu still gets the trigger while the gun is stowed");
+    fixtureMenu=false;fixtureStowed=false;VR_GetPadState(needle);
+    Check(needle.trigR==0.8f,"the drawn gun fires again");
     g_headCsInit=false;VrPadState absent{};absent.valid=true;absent.thumbrestDpad=true;
     VR_GetPadState(absent);Check(!absent.valid&&!absent.thumbrestDpad&&!absent.dpadX&&!absent.dpadY,
         "An unavailable controller snapshot cannot retain D-pad input");

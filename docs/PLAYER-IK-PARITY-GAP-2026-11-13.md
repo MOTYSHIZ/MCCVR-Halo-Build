@@ -112,10 +112,9 @@ the fingers do.
    grip curls the rest" with CampE's named poses (per-finger curl values from
    the same file), eased the same way. A track key can name a held shape
    (e.g. magazine) to use while the key is active.
-5. **Halo 3 first-person fingers** (unblocked, not built). The H3EK export
-   of `masterchief/fp` is done (below). What is left is runtime wiring: a
-   Halo 3 bind fixture generated from that export, accepting Halo 3's own
-   model checksum, and calling the finger solve from Halo 3's palette hook.
+5. **Halo 3 first-person fingers** (built, second round below). The H3EK
+   export of `masterchief/fp` is done (below); the ODST finger solve now
+   accepts Halo 3's own model and runs from Halo 3's palette hook.
 6. **In-headset capture of anchors** (later). CampE's "freeze and align"
    capture of a hold on the gun, saved to the tracks file, so a player can
    author a mag-well or charging-handle key with their own hand instead of
@@ -124,7 +123,7 @@ the fingers do.
    actions from the animated palette (CampE's ActionWatch) and play the
    `authored` track for melee and grenade too, without a gesture.
 
-8. **Empty-hand finger gestures** (not built). CampE's free hands make
+8. **Empty-hand finger gestures** (built, second round below). CampE's free hands make
    gestures from the controller (`pose_for_inputs` and `pa_gesture` in CampE):
 
    | Grip | Trigger | Thumb | Pose |
@@ -154,6 +153,13 @@ the fingers do.
      already reads (add `thumbsup`, `pointdown` and `ok` to the defaults);
    - the gun hand's fingers, when it holds no weapon, for ODST and Halo 3
      (the ODST finger solve covers only the free support hand today).
+9. **Stowing the gun at the other shoulder** (built, second round below).
+   CampE's left shoulder (and right hip) is an "emote mode" toggle: the
+   weapon is hidden, its fire swallowed, the two-handed hold stood down, and
+   the gun hand gestures like the other. Its right shoulder swaps weapons and
+   also ends emote mode. Here the stow spot is defined without naming a
+   side: it is the holster spot mirrored to the other side of the body, so it
+   is the shoulder (or hip) away from the gun hand for either handedness.
 
 ## What this branch does not change
 
@@ -181,9 +187,8 @@ Differences from CampE, on purpose:
 - Finger poses are one curl per finger. CampE also has per-segment curl and
   rotation trims and three thumb extras. Those can be added to the same
   `pose` line later without breaking old files.
-- Poses are not picked from finger *touch* (trigger touch, thumb rest). The
-  mod's controller actions have no touch inputs today, and adding them changes
-  the shared input bindings for every title. ODST keeps "trigger curls the
+- (First round only; the second round below adds touch-picked gestures.)
+  Poses were not picked from finger *touch*. ODST kept "trigger curls the
   index, grip the rest", and a track's shape overrides it while it plays.
 - The track file is plain text in the style of the cfg, not JSON. The mod has
   no JSON reader, and the file is meant to be edited by hand.
@@ -202,6 +207,103 @@ Reloading on this:
   Count a shot by the game's ammo count falling, never by the trigger.
 - Units there: holds in cm plus an xyzw quaternion; zones and radii in metres.
   This file uses metres and degrees throughout.
+
+## Second round (2026-11-13, unaccepted): gestures, Halo 3 fingers, stowing
+
+**Finger gestures** (gap 8). `src/common/hand_gesture_logic.h` is CampE's
+`pose_for_inputs` table (above) with the same 45 ms ease, the grip read
+with the weapon gestures' 0.55 / 0.35 hysteresis, and "trigger" meaning
+the touch sensor or a pull past 0.10. The shapes are the `pose` lines of
+`halomccvr_hand_tracks.txt` (the built-in file already had all seven).
+
+- New optional touch actions, per hand: trigger touch, and one thumb action
+  bound to every thumb sensor (Touch / Touch Pro: X/Y or A/B touch, stick
+  touch, thumb rest; Index: A/B touch, stick touch, track pad touch). They
+  are negotiated like the thumb-rest D-pad: a runtime that rejects them
+  keeps exactly the earlier complete binding list (tested in
+  `dpad_action_tests`). A hand counts as "touch known" only when both its
+  touch actions are active; otherwise there is no gesture and the plain
+  curl (trigger closes the index, grip the rest) is kept, as CampE does
+  without sensors.
+- The VR input thread picks and eases both hands and publishes them in one
+  atomic word (6 bits per finger); the palette hook only unpacks it.
+- A playing support-hand track still wins: its shape blends from the
+  gesture instead of from the plain curl.
+- *Body & Hands › Hand animations › Finger gestures* (`hand_gestures`,
+  default on). Finger posing used to need *Tracked full-body IK*; it now runs
+  with either switch on.
+
+**Halo 3 fingers** (gap 5). The ODST finger solve accepts Halo 3's
+`masterchief/fp` (checksum 504041493, 37 nodes, the model the avatar and
+palm markers already read at run time) and runs from Halo 3's palette hook
+after the native palette, the same transaction as ODST (complete candidate
+before any write, rollback on a fault). The bind pose comes from Halo 3's own
+loaded render-model tag, like ODST's. The unit test uses Halo 3's own bind,
+generated by `tools/re/generate_halo3_finger_fixture.py` from the pinned
+H3EK export; it checks that the chain tables name Halo 3's bones. Not on the
+Arbiter (a 31-node rig), in vehicles, during cutscenes, or while dual
+wielding.
+
+**Stowing the gun** (gap 9). *Controls › Reload and holsters › Stow the gun
+at the other shoulder* (`weapon_stow`, default on, saved in Controls
+presets). Halo 3 and ODST.
+
+- Where: the holster spot (*Holster location*, including a custom spot)
+  mirrored across the body. Right-handed with the default over-the-shoulder
+  spot, that is over the left shoulder, as in CampE. Same grab radius as the
+  holster.
+- Put away: a fresh squeeze of the weapon grip there. The squeeze is the
+  mod's until it is let go. The gun's own palette sources collapse to their
+  joints (the same scale lever floating hands uses; arms and hands stay),
+  the gun hand's trigger reaches the game as zero (not in the F1 menu), the
+  two-handed hold is let go, no reserve magazine is picked up, and the gun
+  hand's fingers follow the gestures.
+- Brought back: the same squeeze there again; reaching into the holster
+  (which also switches guns, as CampE's right shoulder does); a different
+  gun in hand (switch button or pick-up); dual wielding; a new game session
+  or space reset; switching the setting off; or a lost controller sample.
+  A pause or the F1 menu keeps it put away.
+- The log says `Weapon stow: the gun is stowed ...` / `... in hand`.
+
+What the game still does while the gun is put away: it still holds the gun
+(aim, HUD, crosshair, ammo), and buttons other than the gun hand's trigger
+still work (grenades, melee, reload button). Only what you see and the
+trigger change.
+
+### Headset test for the second round
+
+Settings: *Controls › Reload and holsters › Stow the gun at the other
+shoulder* on (default); *Body & Hands › Hand animations › Finger gestures*
+on (default). Touch controllers.
+
+1. **Halo 3 regression first.** Play with the assault rifle as usual: aim,
+   shoot, two-hand grip, holster switch. Nothing should differ, except that
+   your support hand's fingers now move when it is off the gun.
+2. **Support-hand gestures (Halo 3, then ODST).** Hold your support hand
+   off the gun in front of you. Try: grip only (point), grip with your thumb
+   on a button (point down), grip and trigger (thumbs-up), everything
+   (fist), trigger only (index finger), trigger with thumb on a button (OK),
+   nothing (relaxed). Each should change within a blink, smoothly.
+3. **Stow.** Reach your gun hand over your *other* shoulder and squeeze the
+   grip. The gun should disappear, the controller should buzz, and that
+   hand should now make the same gestures. Pull the trigger: nothing fires.
+4. Squeeze again over the same shoulder: the gun comes back and fires.
+5. Stow again, then reach into your normal holster: the gun comes back as
+   your other gun. Stow again and press the switch-weapon button: the gun
+   also comes back.
+6. Left-handed (*Controls* left-handed on): the stow spot should be over
+   your right shoulder.
+
+Send back: what each gesture looked like, whether stowing and drawing worked
+and whether any part of the gun stayed visible, the MCC edition, and
+`HaloMCCVR.log` (`Finger gestures:`, `Halo 3 controller fingers:`,
+`ODST controller fingers:` and `Weapon stow:` lines).
+
+Known limits of this round: gestures need touch sensors (Touch, Touch Pro,
+Index); other controllers keep the plain curl. Fingers ease between gestures
+but snap when the gun is stowed or drawn (the gun vanishes at the same
+moment). A modded gun whose parts the mod cannot classify stays visible when
+stowed.
 
 ## Halo 3 first-person hand evidence (2026-11-13)
 

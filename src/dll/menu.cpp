@@ -2461,6 +2461,13 @@ namespace
         }
         ImGui::TextDisabled("Reach over your weapon-side shoulder and squeeze the weapon grip to switch weapons, in every "
                             "game. Off puts the holster back on its defaults. Your switch-weapon button still works.");
+        SettingGap();
+        changed |= ImGui::Checkbox("Stow the gun at the other shoulder", &g_config.weapon_stow);
+        ImGui::TextDisabled("Halo 3 and ODST. Reach your gun hand across to the other side of your body, to the holster "
+                            "spot mirrored (the left shoulder for a right-handed player), and squeeze the weapon grip: "
+                            "the gun is put away and that hand is free to make gestures. Its trigger does nothing "
+                            "while the gun is away. Squeeze there again, or reach into the holster to switch guns, to "
+                            "bring it back. Picking up or switching to another gun also brings it back.");
         // Holsters turned off, or moved off Custom, while armed: the button that cancels it is no longer shown.
         if ((!g_config.weapon_holsters || g_config.weapon_holster_location != 3) && VR_HolsterCaptureArmed())
             VR_HolsterCaptureArm(false);
@@ -3317,6 +3324,16 @@ namespace
         }
         if (SectionHeader("Hand animations##section", ImGuiTreeNodeFlags_None))
         {
+        changed |= ImGui::Checkbox("Finger gestures", &g_config.hand_gestures);
+        ImGui::TextWrapped("Halo 3 and ODST. A free hand makes a gesture from your fingers on the controller "
+                           "(\"thumb on\" = resting on a button, the stick or the thumb rest):");
+        ImGui::TextDisabled("Grip: point (thumb on: point down).  Grip + trigger: thumbs-up (thumb on: fist).\n"
+                            "Trigger: index finger (thumb on: OK sign).  Nothing: relaxed hand.");
+        ImGui::TextWrapped("Your support hand when it is off the gun; your gun hand while the gun is stowed "
+                           "(Controls > Reload and holsters). The shapes are the pose lines in "
+                           "halomccvr_hand_tracks.txt. Controllers without thumb sensors curl the fingers from the "
+                           "trigger and grip instead.");
+        ImGui::Spacing();
         changed |= ImGui::Checkbox("Animate the support hand on the gun", &g_config.support_hand_tracks);
         ImGui::TextWrapped("Halo 3 and ODST. After a gesture reload, your support hand moves along the gun the way the "
                            "game animates it, then returns to your controller. Needs Arm IK on, and your support hand "

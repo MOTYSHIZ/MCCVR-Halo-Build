@@ -33,6 +33,7 @@ struct Rig
     Output GrabHolster(){s.primary=holster;s.primaryGrip=1;return Step();}
     Output DrawHolster()
     {s.primary={c.leftHanded?-0.2f:0.2f,1.25f,-0.55f};Step(80);return Step(80);}
+    void Wait() {for(int i=0;i<4;++i)Step(150);} // past a gesture's cooldown, without a tracking gap
 };
 
 int main()
@@ -90,7 +91,7 @@ int main()
         // The gesture works there like at any other spot.
         rig.c.holsterClick=true;rig.c.holsterSlide=false;rig.c.swapButton=0x8000;
         rig.s.primaryGrip=0;rig.s.supportGrip=0;rig.Step();
-        rig.s.primary=rig.holster;rig.Step();rig.s.primaryGrip=1;
+        rig.s.primary=rig.holster;rig.Wait();rig.s.primaryGrip=1;
         Check(rig.Step().swapRequested,"a squeeze at the custom spot switches weapons");
         // A hand far away, or a bad pose, is kept within the limit or refused.
         Check(HolsterOffsetOfHand(rig.s.head,Quat{},rig.s.head+Vec{3,-2,5},left,spot)&&
@@ -559,6 +560,84 @@ int main()
                 "only Halo 3 changes in Project Reclaimer");
         Check(!ReloadButton(GameTitle::Halo3,-1,true)&&!ReloadButton(GameTitle::Halo3,8,true),
             "an out-of-range setting presses nothing, as before");
+    }
+    // STOWING THE GUN at the other shoulder (Campaign Evolved's left-shoulder "emote mode").
+    for(bool left:{false,true})for(int location:{0,1,2,3})
+    {
+        Rig rig(GameTitle::Halo3,left,location);
+        rig.c.stow=true;rig.c.holsterClick=true;rig.c.holsterSlide=false;rig.c.swapButton=0x8000;
+        rig.s.weaponGraph=0x1234;rig.s.primaryGrip=0;rig.s.supportGrip=0;rig.Step();
+        Vec stow{};
+        Check(StowZone(rig.s,rig.c,stow),"the stow spot is placed");
+        // Mirror of the holster across the body: same height and depth, the other side.
+        const Vec h=rig.holster-rig.s.head,m=stow-rig.s.head;
+        Check(std::fabs(h.x+m.x)<.0001f&&std::fabs(h.y-m.y)<.0001f&&std::fabs(h.z-m.z)<.0001f,
+            "the stow spot is the holster spot mirrored to the other side");
+        const float side=left?-1.f:1.f;
+        if(location!=3) Check(m.x*side<0,"which is away from the gun hand, whichever hand that is");
+        // Reach across with the gun hand and squeeze: the gun goes away.
+        rig.s.primary=stow+Vec{.03f,.02f,-.03f};rig.Step();
+        rig.s.primaryGrip=1;const Output put=rig.Step();
+        Check(put.stowToggled&&put.stowed&&rig.state.Stowed(),"a squeeze at the other shoulder stows the gun");
+        Check(put.consumePrimary&&!put.swapRequested&&!put.buttons,"the squeeze is not the game's, and switches nothing");
+        Check(put.releaseTwoHand,"a stowed gun lets go of the two-handed hold");
+        const Output still=rig.Step();
+        Check(still.stowed&&!still.stowToggled&&still.consumePrimary,"holding the grip does not toggle again");
+        rig.s.primaryGrip=0;rig.Step();
+        rig.s.primary={side*.22f,1.25f,-.45f};
+        const Output away=rig.Step();
+        Check(away.stowed&&away.releaseTwoHand&&!away.consumePrimary,"it stays away with the hand in front, grip free");
+        // No magazine is picked up for a gun that is put away.
+        rig.s.support=rig.pouch;rig.s.supportGrip=1;
+        Check(!rig.Step().pickedMagazine,"no reload pouch while the gun is stowed");
+        rig.s.supportGrip=0;rig.s.support={-side*.25f,1.20f,-.40f};rig.Step();
+        // The same squeeze there again brings it back.
+        rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;
+        const Output back=rig.Step();
+        Check(back.stowToggled&&!back.stowed&&!rig.state.Stowed(),"a second squeeze there brings the gun back");
+        rig.s.primaryGrip=0;rig.Step();
+        // Stowed, then the holster: switching guns also brings the hands back to a gun.
+        rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;rig.Step();rig.s.primaryGrip=0;rig.Step();
+        Check(rig.state.Stowed(),"stowed again");
+        rig.s.primary=rig.holster;rig.Wait();rig.s.primaryGrip=1;
+        const Output swap=rig.Step();
+        Check(swap.swapRequested&&swap.stowToggled&&!swap.stowed&&!rig.state.Stowed(),
+            "reaching into the holster switches guns and ends the stow");
+        rig.s.primaryGrip=0;rig.Step();
+        // A different gun in hand (a pick-up or the switch button) is never drawn hidden.
+        rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;rig.Step();rig.s.primaryGrip=0;rig.Step();
+        rig.s.weaponGraph=0;
+        Check(rig.Step().stowed,"a moment with no gun identity keeps it stowed");
+        rig.s.weaponGraph=0x5678;
+        const Output changed=rig.Step();
+        Check(changed.stowToggled&&!changed.stowed,"a different gun in hand ends the stow");
+        // Switching stowing off brings it back.
+        rig.s.weaponGraph=0x1234;rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;rig.Step();rig.s.primaryGrip=0;rig.Step();
+        Check(rig.state.Stowed(),"stowed once more");
+        rig.c.stow=false;
+        Check(!rig.Step().stowed&&!rig.state.Stowed(),"switching stowing off brings the gun back");
+        // Off, the stow spot is just a place.
+        rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;
+        const Output off=rig.Step();
+        Check(!off.stowToggled&&!off.consumePrimary,"with stowing off the squeeze there is the game's");
+        Check(rig.state.PrimaryNearHolster()==false||location==3,"no melee veto from an unused stow spot");
+    }
+    {
+        // A pause keeps it stowed; a new game or a space reset brings the gun back.
+        Rig rig(GameTitle::Halo3ODST,false,0);
+        rig.c.stow=true;rig.s.weaponGraph=7;rig.s.primaryGrip=0;rig.s.supportGrip=0;rig.Step();
+        Vec stow{};StowZone(rig.s,rig.c,stow);
+        rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;rig.Step();rig.s.primaryGrip=0;rig.Step();
+        Check(rig.state.Stowed()&&rig.state.PrimaryNearHolster(),"stowed in ODST; the hand at the spot vetoes a punch");
+        rig.s.ready=false;rig.Step(500);rig.s.ready=true;rig.Step();rig.Step();
+        Check(rig.state.Stowed(),"a pause keeps the gun stowed");
+        rig.s.generation=4;
+        Check(rig.Step().stowToggled&&!rig.state.Stowed(),"a new game session brings it back");
+        rig.s.primary=stow;rig.Wait();rig.s.primaryGrip=1;rig.Step();rig.s.primaryGrip=0;rig.Step();
+        Check(rig.state.Stowed(),"stowed after the new session");
+        rig.state.Cancel();
+        Check(!rig.state.Stowed(),"a cancelled sample (menu, tracking loss) does not leave it hidden forever");
+        rig.s.dualWield=false;
     }
     std::printf("Weapon interactions: %u checks, %u failures\n",checks,failures);
     return failures?1:0;

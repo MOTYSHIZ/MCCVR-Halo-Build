@@ -6,6 +6,9 @@
 
 // H3ODSTEK's recon/ONI FP graphs, independently exported. These are the
 // render-model palette's own indices, not combined-animation weapon indices.
+// Halo 3's masterchief/fp (H3EK export, docs/PLAYER-IK-PARITY-GAP-2026-11-13.md)
+// has the same 37 nodes, names, order and parents, so the same tables serve it;
+// each title's bind pose comes from its own loaded tag at run time.
 namespace odst_fingers {
 using Matrix=Halo4FloatingTransform; // shared math value; no H4 binding
 constexpr unsigned Count=37;
@@ -26,6 +29,24 @@ struct Request {
     bool allowed[2]{};ControllerFingerInput fingers[2]{}; // anatomical sides
     bool curlsValid[2]{};float curls[2][5]{};
 };
+// The rigs this solve knows: ODST's recon and ONI first-person models, and
+// Halo 3's masterchief/fp (checksum 504041493, 37 nodes).
+inline bool PalmMarkers(uint32_t checksum,unsigned count,AnatomicalPalmMarkers& markers) noexcept {
+    if(count!=Count)return false;
+    if(OdstAnatomicalPalmMarkers(checksum,int(count),markers))return true;
+    return checksum==504041493u&&Halo3AnatomicalPalmMarkers(checksum,int(count),markers);
+}
+inline GameTitle RigTitle(uint32_t checksum) noexcept
+{ return checksum==504041493u?GameTitle::Halo3:GameTitle::Halo3ODST; }
+// Per-finger curls for one anatomical side (a hand shape, a gesture). The side
+// must already be allowed.
+inline bool SetSideCurls(Request& request,unsigned side,const float (&curls)[5]) noexcept {
+    if(side>1||!request.allowed[side])return false;
+    for(const float c:curls)if(!std::isfinite(c)||c<kMinCurl||c>kMaxCurl)return false;
+    request.curlsValid[side]=true;
+    for(unsigned f=0;f<5;++f)request.curls[side][f]=curls[f];
+    return true;
+}
 inline bool SetSupportCurls(Request& request,const float (&curls)[5]) noexcept {
     for(const float c:curls)if(!std::isfinite(c)||c<kMinCurl||c>kMaxCurl)return false;
     for(unsigned side=0;side<2;++side)if(request.allowed[side]) {
@@ -37,10 +58,10 @@ inline bool SetSupportCurls(Request& request,const float (&curls)[5]) noexcept {
 }
 inline bool Describe(uint32_t checksum,unsigned count,unsigned side,finger_joint::Inventory& out) noexcept {
     if(side>1||count!=Count)return false;
-    AnatomicalPalmMarkers markers{};if(!OdstAnatomicalPalmMarkers(checksum,int(count),markers))return false;
+    AnatomicalPalmMarkers markers{};if(!PalmMarkers(checksum,count,markers))return false;
     const unsigned lengths[5]{3,3,3,3,3};
     using D=finger_joint::Digit;const D digits[5]{D::Index,D::Middle,D::Pinky,D::Ring,D::Thumb};
-    return finger_joint::Build({GameTitle::Halo3ODST,checksum,Count,finger_joint::Palette::FirstPerson},
+    return finger_joint::Build({RigTitle(checksum),checksum,Count,finger_joint::Palette::FirstPerson},
         side,side+5,Parents,Chains[side],lengths,digits,out);
 }
 inline bool ConfigureFreeSupport(Request& request,bool handAlignment,bool secondaryPresent,
@@ -50,6 +71,15 @@ inline bool ConfigureFreeSupport(Request& request,bool handAlignment,bool second
     Request candidate=request;candidate.allowed[0]=candidate.allowed[1]=false;
     const unsigned side=FingerAnatomicalSupportSide(handAlignment);
     candidate.allowed[side]=true;candidate.fingers[side]=input;request=candidate;return true;
+}
+// The gun hand, while the gun is stowed (put away): its fingers are free too.
+// Adds that side without touching the support side's request.
+inline bool ConfigureStowedPrimary(Request& request,bool handAlignment,const ControllerFingerInput& input) noexcept {
+    if(!input.valid||!std::isfinite(input.trigger)||!std::isfinite(input.grip)||
+       input.trigger<0||input.trigger>1||input.grip<0||input.grip>1)return false;
+    const unsigned side=1u-FingerAnatomicalSupportSide(handAlignment);
+    request.allowed[side]=true;request.fingers[side]=input;request.curlsValid[side]=false;
+    return true;
 }
 inline bool Descendant(unsigned node,unsigned root) noexcept {
     for(unsigned steps=0;node<Count&&steps<Count;++steps) {
@@ -82,7 +112,7 @@ inline bool RotateJoint(Pose& candidate,unsigned joint,const float* axis,float a
 }
 inline bool Solve(const Pose& source,const Pose& inverseBind,const Request& request,Pose& output) noexcept {
     AnatomicalPalmMarkers markers{};
-    if(!OdstAnatomicalPalmMarkers(request.checksum,int(request.count),markers)||request.count!=Count)return false;
+    if(!PalmMarkers(request.checksum,request.count,markers))return false;
     Pose candidate=source;bool any=false;
     for(unsigned side=0;side<2;++side) {
         if(!request.allowed[side])continue;

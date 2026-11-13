@@ -1691,6 +1691,10 @@ struct Config
     bool manual_reload_skip_animations = false;
     bool manual_reload_shortened_animation = false;
     bool weapon_holsters = true;
+    // Stow the gun at the other shoulder: the weapon hand reaches to the holster spot mirrored to the other side
+    // of the body and squeezes; the gun is put away (hidden, its trigger ignored) until the same squeeze there
+    // again, or the holster. The Halo: Campaign Evolved VR mod's left-shoulder "emote mode". Halo 3 and ODST.
+    bool weapon_stow = true;
     float weapon_pouch_down_m = 0.50f;
     int weapon_pouch_location = 0; // 0 support-side front hip, 1 behind support shoulder
     float weapon_pouch_offset_x_m = 0.0f;
@@ -1852,6 +1856,10 @@ struct Config
     // Halo 3 / ODST support-hand tracks (halomccvr_hand_tracks.txt): after a gesture reload the support hand
     // is moved along the gun by the weapon's `reload` track, then handed back to the controller.
     bool support_hand_tracks = true;
+    // Halo 3 / ODST finger gestures: a free hand's grip, trigger touch and thumb touch pick a hand shape from
+    // halomccvr_hand_tracks.txt (fist, thumbs-up, point, ...), as in the Campaign Evolved VR mod. The support hand
+    // when it is off the gun, the gun hand while the gun is stowed.
+    bool hand_gestures = true;
 
     // VRIK arm IK: bend the first-person arm (shoulder planted, elbow solved,
     // hand+gun to the controller) instead of rigid-parenting the whole

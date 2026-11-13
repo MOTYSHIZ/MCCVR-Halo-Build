@@ -7,6 +7,7 @@
 #include <limits>
 #include "../src/dll/odst_finger_pose_backend.inl"
 #include "odst_finger_bind_fixture.h"
+#include "halo3_finger_bind_fixture.h"
 namespace {
 using namespace odst_fingers;
 unsigned checks=0,failures=0;
@@ -29,8 +30,94 @@ void Build(Pose& source,Pose& inverse) {
     }
 }
 }
+namespace {
+void BuildFrom(const float (*local)[7],Pose& source,Pose& inverse) {
+    Pose bind{};Matrix world{};world.translation[0]=-2;world.translation[1]=5;world.translation[2]=0.6f;
+    for(unsigned node=0;node<Count;++node) {
+        Matrix l{};std::memcpy(l.translation,local[node],12);
+        Check(Halo4QuaternionToBlamBasis(local[node]+3,l.rotation),"own default quaternion");
+        if(Parents[node]>=0)Check(Halo4ComposeFloatingTransforms(bind[Parents[node]],l,bind[node]),"local bind graph composed");
+        else bind[node]=l;
+        Check(Halo4InvertFloatingTransform(bind[node],inverse[node]),"model default inverse derived");
+        Check(Halo4ComposeFloatingTransforms(world,bind[node],source[node]),"committed world palette");
+    }
+}
+int RunHalo3AndStowed() {
+    using namespace odst_fingers;
+    {
+        // HALO 3: masterchief/fp, from its own H3EK export (tools/re/generate_halo3_finger_fixture.py).
+        Check(std::memcmp(Halo3FpBindParents,OdstFpBindParents,sizeof(Halo3FpBindParents))==0&&
+              std::memcmp(Halo3FpBindParents,Parents,sizeof(Parents))==0,"Halo 3's own parent graph is the shared 37-node one");
+        Check(!std::strcmp(Halo3FpBindNames[5],"l_hand")&&!std::strcmp(Halo3FpBindNames[6],"r_hand")&&
+              !std::strcmp(Halo3FpBindNames[Chains[0][0][0]],"l_index_low")&&!std::strcmp(Halo3FpBindNames[Chains[0][2][0]],"l_pinky_low")&&
+              !std::strcmp(Halo3FpBindNames[Chains[0][3][2]],"l_ring_tip")&&!std::strcmp(Halo3FpBindNames[Chains[1][4][1]],"r_thumb_mid"),
+              "the chain tables name Halo 3's own bones");
+        unsigned differing=0,which=0;
+        for(unsigned node=0;node<Count;++node) {
+            float d=0;for(unsigned i=0;i<7;++i)d=std::fmax(d,std::fabs(Halo3FpBindLocal[node][i]-OdstFpBindLocal[node][i]));
+            if(d>1e-5f){++differing;which=node;}
+        }
+        Check(differing==1&&which==16,"only r_thumb_low's bind differs from ODST's, so Halo 3 needs its own");
+        AnatomicalPalmMarkers markers{};
+        Check(PalmMarkers(504041493u,Count,markers)&&RigTitle(504041493u)==GameTitle::Halo3,"Halo 3's Chief rig is accepted");
+        Check(!PalmMarkers(504041493u,31,markers)&&!PalmMarkers(269159697u,31,markers),"other Halo 3 rigs (31-node) are not");
+        Check(RigTitle(286525724u)==GameTitle::Halo3ODST,"ODST stays ODST");
+        Pose source{},inverse{};BuildFrom(Halo3FpBindLocal,source,inverse);
+        for(unsigned side=0;side<2;++side) {
+            finger_joint::Inventory inventory{};
+            Check(Describe(504041493u,Count,side,inventory),"Halo 3 finger inventory");
+            Request request{};request.checksum=504041493u;request.count=Count;
+            Check(ConfigureFreeSupport(request,side==1,false,false,{true,0,0}),"Halo 3 free support hand");
+            Pose open{};Check(Solve(source,inverse,request,open),"Halo 3 open-hand solve");
+            for(unsigned node=0;node<Count;++node)Check(Near(open[node],source[node]),"zero curl is Halo 3's own bind");
+            request.fingers[side]={true,1,1};Pose fist{};
+            Check(Solve(source,inverse,request,fist),"Halo 3 fist");
+            for(unsigned node=0;node<Count;++node)
+                if(IsFinger(node,side))Check(!Near(fist[node],source[node]),"every Halo 3 finger joint responds");
+                else Check(std::memcmp(&fist[node],&source[node],sizeof(Matrix))==0,"Halo 3 wrists, arms and the other hand untouched");
+            auto palette=source;
+            Check(Apply(palette.data(),inverse,request)==Result::Applied,"Halo 3 transaction applies");
+        }
+    }
+    {
+        // THE STOWED GUN: the gun hand's fingers are free too.
+        Pose original{},inverse{};BuildFrom(OdstFpBindLocal,original,inverse);
+        for(bool alignment:{false,true}) {
+            const unsigned support=FingerAnatomicalSupportSide(alignment),primary=1u-support;
+            Request request{};request.checksum=286525724u;request.count=Count;
+            Check(ConfigureFreeSupport(request,alignment,false,false,{true,0,0}),"support free");
+            Check(ConfigureStowedPrimary(request,alignment,{true,1,1})&&request.allowed[0]&&request.allowed[1],
+                "the stowed gun hand joins the support hand");
+            Pose both{};Check(Solve(original,inverse,request,both),"both hands solve");
+            Check(Near(both[Chains[support][1][1]],original[Chains[support][1][1]]),"support hand open (its own input)");
+            Check(!Near(both[Chains[primary][1][1]],original[Chains[primary][1][1]]),"gun hand closed (its own input)");
+            const float point[5]{0,1,1,1,1};
+            Check(SetSideCurls(request,primary,point)&&request.curlsValid[primary]&&!request.curlsValid[support],
+                "a gesture shapes the gun hand only");
+            Pose pointing{};Check(Solve(original,inverse,request,pointing),"pointing gun hand solves");
+            Check(Near(pointing[Chains[primary][0][1]],original[Chains[primary][0][1]])&&
+                  !Near(pointing[Chains[primary][1][1]],original[Chains[primary][1][1]]),"the gun hand points");
+            // The support hand on the gun (two-handed): only the stowed gun hand is free.
+            Request alone{};alone.checksum=286525724u;alone.count=Count;
+            Check(!ConfigureFreeSupport(alone,alignment,false,true,{true,1,1}),"support attached keeps its grip");
+            Check(ConfigureStowedPrimary(alone,alignment,{true,1,1})&&!alone.allowed[support]&&alone.allowed[primary],
+                "the gun hand alone");
+            auto palette=original;
+            Check(Apply(palette.data(),inverse,alone)==Result::Applied,"gun hand alone applies");
+            for(unsigned node=0;node<Count;++node)
+                if(!IsFinger(node,primary))Check(std::memcmp(&palette[node],&original[node],sizeof(Matrix))==0,
+                    "nothing but the gun hand's fingers is written");
+            Request none{};none.checksum=286525724u;none.count=Count;
+            Check(!ConfigureStowedPrimary(none,alignment,{})&&!none.allowed[0]&&!none.allowed[1],"no input, no gun hand");
+            Check(!SetSideCurls(none,primary,point)&&!SetSideCurls(request,2,point),"curls need an allowed side");
+        }
+    }
+    return 0;
+}
+}
 int main() {
     using namespace odst_fingers;
+    RunHalo3AndStowed();
     Pose original{},inverse{};Build(original,inverse);
     for(uint32_t checksum:{286525724u,403178001u})for(unsigned side=0;side<2;++side) {
         Request request{};request.checksum=checksum;request.count=Count;

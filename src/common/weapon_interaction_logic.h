@@ -85,6 +85,12 @@ struct Settings
     // same level frame as the other spots (the way the head faces, flattened). The caller supplies it from
     // the configuration; this default (the over-the-shoulder spot) is only what a bare Settings holds.
     Vec holsterCustom{kOverShoulderSide,-kOverShoulderDown,-kOverShoulderBack};
+    // STOWING THE GUN (the Halo: Campaign Evolved VR mod's left-shoulder "emote mode"): a fresh squeeze of the
+    // weapon grip at the stow spot puts the gun away (hidden, its trigger ignored, the two-handed hold let go,
+    // the gun hand free); the same squeeze there again brings it back. The stow spot is the holster spot
+    // mirrored to the other side of the body, so it is the shoulder (or hip) away from the gun hand whichever
+    // hand that is.
+    bool stow{};
     uint32_t reloadButton{0x4000}, swapButton{0x8000};
 };
 struct Sample
@@ -115,6 +121,8 @@ struct Output
 {
     bool consumePrimary{}, consumeSupport{}, releaseTwoHand{};
     bool reloadRequested{}, swapRequested{}, pickedMagazine{}, grabbedHolster{};
+    bool stowed{};                 // the gun is put away this frame
+    bool stowToggled{};            // a squeeze at the stow spot put it away or brought it back this frame
     bool holdingMagazine{};
     float primaryHaptic{}, supportHaptic{};
     uint32_t buttons{};
@@ -191,6 +199,14 @@ private:
     uint64_t armedAt_{};
 };
 
+inline bool Zones(const Sample& s,const Settings& c,Vec& pouch,Vec& holster) noexcept;
+// The stow spot: the holster spot mirrored across the body (the other shoulder or hip from the gun hand).
+inline bool StowZone(const Sample& s,const Settings& c,Vec& stow) noexcept
+{
+    Settings mirrored=c;mirrored.leftHanded=!c.leftHanded;
+    Vec unusedPouch{};
+    return Zones(s,mirrored,unusedPouch,stow);
+}
 inline bool Zones(const Sample& s,const Settings& c,Vec& pouch,Vec& holster) noexcept
 {
     if(!Finite(s.head)||!Finite(s.primary)||!Finite(s.support)||
@@ -288,10 +304,12 @@ class State
 public:
     void Reset() noexcept { *this=State{}; }
     void Cancel() noexcept
-    { phase_=0;pulseUntil_=0;pulse_=0;armedP_=armedS_=false;available_=false;last_=0;singleShake_.Reset(); }
+    { phase_=0;pulseUntil_=0;pulse_=0;armedP_=armedS_=false;available_=false;last_=0;singleShake_.Reset();
+      stowed_=false;stowGraph_=0; }
     bool HasClaimedGrip() const noexcept { return ownedP_||ownedS_; }
     // A fast hand here is on its way to a gesture, not a punch (gesture_melee_logic.h).
-    bool PrimaryNearHolster() const noexcept { return nearHolster_; }
+    bool PrimaryNearHolster() const noexcept { return nearHolster_||nearStow_; }
+    bool Stowed() const noexcept { return stowed_; }
     bool SupportNearPouch() const noexcept { return nearPouch_; }
     bool HoldingMagazine() const noexcept { return phase_==1; }
     Output Update(const Sample& s,const Settings& c) noexcept
@@ -311,14 +329,23 @@ public:
             pouchLocation_!=c.pouchLocation||pouchOffset_.x!=c.pouchOffset.x||
             pouchOffset_.y!=c.pouchOffset.y||pouchOffset_.z!=c.pouchOffset.z||
             holsterCustom_.x!=c.holsterCustom.x||holsterCustom_.y!=c.holsterCustom.y||
-            holsterCustom_.z!=c.holsterCustom.z;
+            holsterCustom_.z!=c.holsterCustom.z||stow_!=c.stow;
         const bool gap=!last_||s.now<last_||s.now-last_>200;
         const bool ready=s.ready&&s.now&&s.space&&s.generation&&TitleIndex(s.title)>=0&&
-            (c.reload||c.holsters)&&!s.dualWield&&
+            (c.reload||c.holsters||c.stow)&&!s.dualWield&&
             validP&&validS;
-        Vec pouch{},holster{};
-        const bool poses=Zones(s,c,pouch,holster);
-        nearHolster_=poses&&c.holsters&&Near(s.primary,holster,Setting(c.holsterRadius,0.08f,0.40f,0.20f));
+        Vec pouch{},holster{},stowSpot{};
+        const bool poses=Zones(s,c,pouch,holster)&&StowZone(s,c,stowSpot);
+        const float holsterRadius=Setting(c.holsterRadius,0.08f,0.40f,0.20f);
+        nearHolster_=poses&&c.holsters&&Near(s.primary,holster,holsterRadius);
+        nearStow_=poses&&c.stow&&Near(s.primary,stowSpot,holsterRadius);
+        // The stowed gun comes back when the game changes, the space is reset, stowing is switched off, a
+        // second gun is picked up, or the gun in hand changes (a switch or a pick-up): a different gun is never
+        // drawn hidden. A pause or the menu keeps it put away.
+        if(stowed_&&(title_!=s.title||generation_!=s.generation||space_!=s.space||!c.stow||s.dualWield||
+            (s.weaponGraph&&stowGraph_&&s.weaponGraph!=stowGraph_)))
+        { stowed_=false;stowGraph_=0;out.stowToggled=true; }
+        if(stowed_&&!stowGraph_) stowGraph_=s.weaponGraph;
         nearPouch_=poses&&c.reload&&Near(s.support,pouch,Setting(c.zoneRadius,0.08f,0.40f,0.20f));
         const bool resumed=ready&&poses&&!available_;
         if(identity||gap||!ready||!poses||resumed)
@@ -334,7 +361,7 @@ public:
         reload_=c.reload;holsters_=c.holsters;reloadButton_=c.reloadButton;
         swapButton_=c.swapButton;location_=c.holsterLocation;last_=s.now;
         pouchLocation_=c.pouchLocation;pouchOffset_=c.pouchOffset;holsterCustom_=c.holsterCustom;
-        slide_=c.holsterSlide;click_=c.holsterClick;
+        slide_=c.holsterSlide;click_=c.holsterClick;stow_=c.stow;
         shake_=c.needleShake;weaponGraph_=s.weaponGraph;
         available_=ready&&poses;
         if(releasedP) armedP_=true;
@@ -344,7 +371,10 @@ public:
         out.consumePrimary=ownedP_;out.consumeSupport=ownedS_;
         if(releasedP) ownedP_=false;
         if(releasedS) ownedS_=false;
+        out.stowed=stowed_;
         if(!ready||!poses||identity||gap||resumed) return out;
+        // A put-away gun is not held in two hands.
+        if(stowed_) out.releaseTwoHand=true;
 
         const bool occupied=phase_!=0||ownedP_||ownedS_;
         // A magazine is held until grip release; incidental trigger/button
@@ -430,8 +460,10 @@ public:
         {
             const float radius=Setting(c.zoneRadius,0.08f,0.40f,0.20f);
             if(c.holsters&&(c.holsterSlide||c.holsterClick)&&c.swapButton&&armedP_&&heldP&&
-                Near(s.primary,holster,Setting(c.holsterRadius,0.08f,0.40f,0.20f)))
+                Near(s.primary,holster,holsterRadius))
             {
+                // Reaching for the other gun brings the hands back to a gun, as in Campaign Evolved.
+                if(stowed_) { stowed_=false;stowGraph_=0;out.stowToggled=true;out.stowed=false; }
                 phase_=2;started_=s.now;grabbedAt_=s.primary;ownedP_=true;
                 out.consumePrimary=true;out.releaseTwoHand=true;
                 out.grabbedHolster=true;out.primaryHaptic=0.20f;
@@ -443,7 +475,16 @@ public:
                     out.swapRequested=true;out.primaryHaptic=0.45f;
                 }
             }
-            else if(c.reload&&c.reloadButton&&armedS_&&heldS&&Near(s.support,pouch,radius))
+            else if(c.stow&&armedP_&&heldP&&nearStow_)
+            {
+                // A fresh squeeze at the stow spot puts the gun away, or brings it back. The squeeze is the
+                // mod's until it is let go, so the game never sees it as a grenade or a pick-up.
+                stowed_=!stowed_;stowGraph_=stowed_?s.weaponGraph:0;
+                ownedP_=true;cooldown_=s.now+400;
+                out.consumePrimary=true;out.stowToggled=true;out.stowed=stowed_;
+                out.releaseTwoHand=true;out.primaryHaptic=stowed_?0.45f:0.30f;
+            }
+            else if(c.reload&&c.reloadButton&&armedS_&&heldS&&!stowed_&&Near(s.support,pouch,radius))
             {
                 phase_=1;started_=s.now;leftPouch_=false;ownedS_=true;grabbedAt_=s.support;
                 out.consumeSupport=true;out.releaseTwoHand=true;
@@ -486,7 +527,9 @@ private:
     int phase_{},location_{},pouchLocation_{};
     Vec pouchOffset_{},holsterCustom_{};
     bool left_{},reload_{},holsters_{},armedP_{},armedS_{},ownedP_{},ownedS_{},leftPouch_{},available_{};
-    bool nearHolster_{},nearPouch_{};
+    bool nearHolster_{},nearPouch_{},nearStow_{};
+    bool stow_{},stowed_{};
+    uint64_t stowGraph_{};
     bool slide_{true},click_{};
     bool shake_{};
     uint64_t weaponGraph_{},shakeAt_{};

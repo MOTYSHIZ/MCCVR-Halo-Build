@@ -1210,6 +1210,7 @@ void ConfigLoad(const wchar_t* path)
         if(!strcmp(key,"experimental_body_ik")) {g_config.experimental_body_ik=atoi(val)!=0;continue;}
         if(!strcmp(key,"body_ik_hide_lower")) {g_config.body_ik_hide_lower=atoi(val)!=0;continue;}
         if(!strcmp(key,"support_hand_tracks")) {g_config.support_hand_tracks=atoi(val)!=0;continue;}
+        if(!strcmp(key,"hand_gestures")) {g_config.hand_gestures=atoi(val)!=0;continue;}
         if(!strcmp(key,"physical_running")) {g_config.physical_running=atoi(val)!=0;continue;}
         if(!strcmp(key,"physical_running_speed")) {
             ParseFloatSetting(key,val,g_config.physical_running_speed);
@@ -1451,6 +1452,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"manual_reload_skip_animations")) { g_config.manual_reload_skip_animations=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_shortened_animation")) { g_config.manual_reload_shortened_animation=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
+        if (!strcmp(key,"weapon_stow")) { g_config.weapon_stow=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
         if (!strcmp(key,"gesture_only_weapon_input")) { g_config.gesture_only_weapon_input=atoi(val)!=0;continue; }
@@ -3748,6 +3750,10 @@ void ConfigSave()
     fprintf(f, "# Optional pouch-to-gun reload (off by default) and the holster's reserve-weapon draw (on by\n");
     fprintf(f, "# default); native ammo, reload animation and inventory rules remain.\n");
     fprintf(f, "manual_reload = %d\nweapon_holsters = %d\n",g_config.manual_reload?1:0,g_config.weapon_holsters?1:0);
+    fprintf(f, "# Halo 3 / ODST: squeeze the weapon grip at the holster spot mirrored to the other side of your body\n");
+    fprintf(f, "# to put the gun away; squeeze there again (or use the holster) to bring it back. (default %d)\n",
+        d.weapon_stow ? 1 : 0);
+    fprintf(f, "weapon_stow = %d\n", g_config.weapon_stow?1:0);
     fprintf(f, "# 1 = while manual reload or holsters are on, the game's reload and weapon-switch buttons do nothing; gestures only.\n");
     fprintf(f, "gesture_only_weapon_input = %d\n", g_config.gesture_only_weapon_input?1:0);
     fprintf(f, "manual_reload_disable_auto = %d\nmanual_reload_skip_animations = %d\n",
@@ -4175,6 +4181,10 @@ void ConfigSave()
     fprintf(f, "# Halo 3 / ODST: after a gesture reload, move the support hand along the gun using the\n");
     fprintf(f, "# weapon's reload track from halomccvr_hand_tracks.txt. (default %d)\n", d.support_hand_tracks ? 1 : 0);
     fprintf(f, "support_hand_tracks = %d\n\n", g_config.support_hand_tracks ? 1 : 0);
+    fprintf(f, "# Halo 3 / ODST: a free hand's grip, trigger touch and thumb touch pick a finger gesture\n");
+    fprintf(f, "# (fist, thumbs-up, point, ok, ...) from the pose lines of halomccvr_hand_tracks.txt. (default %d)\n",
+        d.hand_gestures ? 1 : 0);
+    fprintf(f, "hand_gestures = %d\n\n", g_config.hand_gestures ? 1 : 0);
     fprintf(f, "# -------------------------------------------------------------------\n");
     fprintf(f, "#  DEVELOPMENT DIAGNOSTICS\n");
     fprintf(f, "#  Leave these off unless a developer asks you to enable one.\n");

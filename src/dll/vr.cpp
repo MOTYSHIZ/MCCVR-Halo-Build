@@ -184,6 +184,14 @@ namespace
     XrAction g_hapticAction = XR_NULL_HANDLE;
     XrAction g_actMenu = XR_NULL_HANDLE;
     XrAction g_actLeftThumbrest = XR_NULL_HANDLE;
+    // Finger gestures (hand_gesture_logic.h): trigger touch and any thumb sensor, per hand. Optional bindings,
+    // negotiated per profile so a runtime that rejects them keeps the complete original controls.
+    XrAction g_actTriggerTouchL = XR_NULL_HANDLE, g_actTriggerTouchR = XR_NULL_HANDLE;
+    // The stowed gun (weapon_interaction): title in bits 32..39 and the title generation in the low 32 bits
+    // while stowed; 0 otherwise. Written by the VR input thread, read by the palette hooks and the pad.
+    std::atomic<uint64_t> g_weaponStowedWord{0};
+    std::atomic<unsigned> g_weaponStowToggles{0};
+    XrAction g_actThumbTouchL = XR_NULL_HANDLE, g_actThumbTouchR = XR_NULL_HANDLE;
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // SEATEXIT witness only (dev builds): capacitive touch, logged, never acted on. Bound for the Touch
     // profiles as a separate optional suggestion that falls back to the complete original controls.
@@ -10930,6 +10938,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             "left_thumbrest_touch", "Left Thumb Rest Touch (D-pad)");
         if (g_actLeftThumbrest == XR_NULL_HANDLE)
             LOG("D-pad thumb rest: optional touch action unavailable; head gesture and normal input retained");
+        makeAction(g_actTriggerTouchL, XR_ACTION_TYPE_BOOLEAN_INPUT, "finger_trigger_touch_l", "Left Trigger Touch (finger gestures)");
+        makeAction(g_actTriggerTouchR, XR_ACTION_TYPE_BOOLEAN_INPUT, "finger_trigger_touch_r", "Right Trigger Touch (finger gestures)");
+        makeAction(g_actThumbTouchL, XR_ACTION_TYPE_BOOLEAN_INPUT, "finger_thumb_touch_l", "Left Thumb Touch (finger gestures)");
+        makeAction(g_actThumbTouchR, XR_ACTION_TYPE_BOOLEAN_INPUT, "finger_thumb_touch_r", "Right Thumb Touch (finger gestures)");
 #if HALOMCCVR_DEV_DIAGNOSTICS
         makeAction(g_actDevThumbrestR, XR_ACTION_TYPE_BOOLEAN_INPUT,
             "dev_thumbrest_touch_r", "DEV Right Thumb Rest Touch (diagnostic)");
@@ -11107,6 +11119,38 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     LOG("D-pad thumb rest: optional binding rejected for %s; preserving complete original controls", profile);
                 }
             }
+            {
+                // Finger gestures: trigger touch, and every thumb sensor (face buttons, stick, thumb rest).
+                std::vector<Bind> withFingers = preservedBaseline;
+                const Bind fingers[] = {
+                    {g_actTriggerTouchL, "/user/hand/left/input/trigger/touch"},
+                    {g_actTriggerTouchR, "/user/hand/right/input/trigger/touch"},
+                    {g_actThumbTouchL, "/user/hand/left/input/x/touch"},
+                    {g_actThumbTouchL, "/user/hand/left/input/y/touch"},
+                    {g_actThumbTouchL, "/user/hand/left/input/thumbstick/touch"},
+                    {g_actThumbTouchL, "/user/hand/left/input/thumbrest/touch"},
+                    {g_actThumbTouchR, "/user/hand/right/input/a/touch"},
+                    {g_actThumbTouchR, "/user/hand/right/input/b/touch"},
+                    {g_actThumbTouchR, "/user/hand/right/input/thumbstick/touch"},
+                    {g_actThumbTouchR, "/user/hand/right/input/thumbrest/touch"},
+                };
+                for (const Bind& bind : fingers)
+                    if (bind.action != XR_NULL_HANDLE) withFingers.push_back(bind);
+                if (withFingers.size() != preservedBaseline.size())
+                {
+                    if (suggest(profile, withFingers.data(), withFingers.size()))
+                    {
+                        preservedBaseline = std::move(withFingers);
+                        baselineSuggested = true;
+                        LOG("Finger gestures: touch bindings accepted for %s", profile);
+                    }
+                    else
+                    {
+                        baselineSuggested = false;
+                        LOG("Finger gestures: touch bindings rejected for %s; complete original controls preserved", profile);
+                    }
+                }
+            }
 #if HALOMCCVR_DEV_DIAGNOSTICS
             {
                 // SEATEXIT witness: touch sensors, negotiated exactly like the thumb rest above. A
@@ -11158,7 +11202,43 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (g_touchProProfileEnabled)
             accepted += suggestTouch("/interaction_profiles/facebook/touch_controller_pro");
         accepted += suggestTouch("/interaction_profiles/oculus/touch_controller");
-        accepted += suggestWithGripFallback("/interaction_profiles/valve/index_controller", index, _countof(index));
+        {
+            // Index: the same finger-touch sensors (its thumb sensors are the face buttons, the stick and the
+            // track pad). Rejected, the profile falls back to exactly its earlier bindings.
+            constexpr const char* indexProfile = "/interaction_profiles/valve/index_controller";
+            std::vector<Bind> withFingers(std::begin(index), std::end(index));
+            const size_t base = withFingers.size();
+            const Bind fingers[] = {
+                {g_actTriggerTouchL, "/user/hand/left/input/trigger/touch"},
+                {g_actTriggerTouchR, "/user/hand/right/input/trigger/touch"},
+                {g_actThumbTouchL, "/user/hand/left/input/a/touch"},
+                {g_actThumbTouchL, "/user/hand/left/input/b/touch"},
+                {g_actThumbTouchL, "/user/hand/left/input/thumbstick/touch"},
+                {g_actThumbTouchL, "/user/hand/left/input/trackpad/touch"},
+                {g_actThumbTouchR, "/user/hand/right/input/a/touch"},
+                {g_actThumbTouchR, "/user/hand/right/input/b/touch"},
+                {g_actThumbTouchR, "/user/hand/right/input/thumbstick/touch"},
+                {g_actThumbTouchR, "/user/hand/right/input/trackpad/touch"},
+            };
+            for (const Bind& bind : fingers)
+                if (bind.action != XR_NULL_HANDLE) withFingers.push_back(bind);
+            bool done = false;
+            if (withFingers.size() != base)
+            {
+                if (g_supportGripPoseAction != XR_NULL_HANDLE)
+                {
+                    std::vector<Bind> withGrip = withFingers;
+                    addGripPoseBindings(withGrip);
+                    done = suggest(indexProfile, withGrip.data(), withGrip.size());
+                    if (done) LOG("Two-hand support grip pose: optional grip-pose bindings accepted for %s", indexProfile);
+                }
+                if (!done) done = suggest(indexProfile, withFingers.data(), withFingers.size());
+                LOG(done ? "Finger gestures: touch bindings accepted for %s"
+                         : "Finger gestures: touch bindings rejected for %s; complete original controls preserved",
+                    indexProfile);
+            }
+            accepted += done ? 1u : (suggestWithGripFallback(indexProfile, index, _countof(index)) ? 1u : 0u);
+        }
         accepted += suggestWithGripFallback("/interaction_profiles/microsoft/motion_controller", wmr, _countof(wmr));
         accepted += suggestWithGripFallback("/interaction_profiles/htc/vive_controller", vive, _countof(vive));
         accepted += suggestWithGripFallback("/interaction_profiles/khr/simple_controller", simple, _countof(simple));
@@ -15117,6 +15197,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         exclusive_input::active.store(false,std::memory_order_release);
         g_weaponAccessory={};
         g_weaponInteraction.Cancel();
+        g_weaponStowedWord.store(0,std::memory_order_release);
         g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
         g_weaponGestureReadyMs.store(0,std::memory_order_release);
         EnterCriticalSection(&g_headCs);
@@ -15606,6 +15687,36 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_contactSpaceEpoch.load(std::memory_order_acquire),leftHanded,
             {MakeControllerFingerInput(physicalLeftTriggerActive,pad.trigL,supportGripActive,pad.gripL),
              MakeControllerFingerInput(physicalRightTriggerActive,pad.trigR,primaryGripActive,pad.gripR)}};
+        {
+            // Finger gestures: physical left and right, then support (0) and gun hand (1).
+            auto touch = [&](XrAction action, bool& state) {
+                state = false;
+                if (action == XR_NULL_HANDLE) return false;
+                XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
+                gi.action = action;
+                XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
+                if (!XR_SUCCEEDED(xrGetActionStateBoolean(g_session, &gi, &st)) || !st.isActive) return false;
+                state = st.currentState == XR_TRUE;
+                return true;
+            };
+            hand_gesture::Input physical[2]{};
+            const bool triggerActive[2]{physicalLeftTriggerActive, physicalRightTriggerActive};
+            const bool gripActive[2]{supportGripActive, primaryGripActive};
+            const float trigger[2]{pad.trigL, pad.trigR}, grip[2]{pad.gripL, pad.gripR};
+            const XrAction triggerTouch[2]{g_actTriggerTouchL, g_actTriggerTouchR};
+            const XrAction thumbTouch[2]{g_actThumbTouchL, g_actThumbTouchR};
+            for (unsigned hand = 0; hand < 2; ++hand)
+            {
+                auto& in = physical[hand];
+                in.valid = triggerActive[hand] && gripActive[hand];
+                in.trigger = trigger[hand]; in.grip = grip[hand];
+                const bool knownTrigger = touch(triggerTouch[hand], in.triggerTouch);
+                const bool knownThumb = touch(thumbTouch[hand], in.thumbTouch);
+                in.touchKnown = knownTrigger && knownThumb;
+            }
+            const hand_gesture::Input semantic[2]{physical[leftHanded ? 1 : 0], physical[leftHanded ? 0 : 1]};
+            HandTracks_UpdateGestures(time, TitleAdapter_GetActiveTitle(), semantic);
+        }
         if (leftHanded)
         {
             std::swap(pad.trigL, pad.trigR);
@@ -15781,7 +15892,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if(f1Chord) pad.clickL=pad.clickR=true;
         const float rawSupportGrip=pad.gripL;
         weapon_interaction::Output weaponGesture{};
-        if(g_config.dual_wield_shake_reload || g_config.manual_reload || g_config.weapon_holsters || g_weaponInteraction.HasClaimedGrip() ||
+        if(g_config.dual_wield_shake_reload || g_config.manual_reload || g_config.weapon_holsters || g_config.weapon_stow ||
+           g_weaponInteraction.HasClaimedGrip() || g_weaponInteraction.Stowed() ||
            g_holsterCapture.ConsumesGrip() || g_holsterCaptureRequest.load(std::memory_order_acquire))
         {
             // Use the same predicted-time head and controller space. This
@@ -15920,10 +16032,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             settings.holsterLocation=g_config.weapon_holster_location;
             settings.holsterCustom={g_config.weapon_holster_custom_x_m,g_config.weapon_holster_custom_y_m,
                 g_config.weapon_holster_custom_z_m};
+            // Stowing hides the first-person gun through the Halo 3 / ODST palette hooks only.
+            settings.stow=g_config.weapon_stow&&
+                (sample.title==GameTitle::Halo3||sample.title==GameTitle::Halo3ODST);
             const int index=weapon_interaction::TitleIndex(sample.title);
             settings.reloadButton=WeaponGestureBinding(sample.title,vr_mapping::Reload,inputNow);
             settings.swapButton=WeaponGestureBinding(sample.title,vr_mapping::SwitchWeapon,inputNow);
             weaponGesture=g_weaponInteraction.Update(sample,settings);
+            g_weaponStowedWord.store(weaponGesture.stowed&&sample.generation
+                ?(uint64_t(unsigned(sample.title)&0xFFu)<<32)|sample.generation:0,std::memory_order_release);
+            if(weaponGesture.stowToggled) g_weaponStowToggles.fetch_add(1,std::memory_order_relaxed);
             const auto& supportQ=leftLocation.pose.orientation;
             g_weaponAccessory=weapon_accessory::Build(sample,settings,weaponGesture,
                 {supportQ.x,supportQ.y,supportQ.z,supportQ.w});
@@ -15939,7 +16057,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             pad.weaponGraph=sample.weaponGraph;
             pad.weaponOptions=(settings.reload?1u:0u)|(settings.holsters?2u:0u)|(leftHanded?4u:0u)|
                 (!settings.holsterSlide?8u:0u)|(settings.holsterClick?16u:0u)|(settings.needleShake?32u:0u)|
-                (g_config.dual_wield_shake_reload?64u:0u);
+                (g_config.dual_wield_shake_reload?64u:0u)|(g_config.weapon_stow?128u:0u);
             pad.weaponReloadBinding=settings.reloadButton;pad.weaponSwitchBinding=settings.swapButton;
             pad.weaponConsumePrimary=weaponGesture.consumePrimary;
             pad.weaponConsumeSupport=weaponGesture.consumeSupport;
@@ -15968,6 +16086,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         else
         {
             g_weaponInteraction.Reset();
+            g_weaponStowedWord.store(0,std::memory_order_release);
             g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
             g_weaponAccessory={};
             g_weaponGestureReadyMs.store(0,std::memory_order_release);
@@ -25644,10 +25763,12 @@ void VR_GetPadState(VrPadState& out)
     if (nativeMenuTriggerHeld.load()) out.trigR = 0;
     const uint64_t now = GetTickCount64();
     const GameTitle weaponTitle=TitleAdapter_GetActiveTitle();
+    // A stowed gun does not fire: the gun hand's trigger is the free hand's, as in Campaign Evolved.
+    if (!Menu_IsOpen() && VR_WeaponStowed(weaponTitle, TitleAdapter_GetGeneration(weaponTitle))) out.trigR = 0;
     const int weaponIndex=weapon_interaction::TitleIndex(weaponTitle);
     const unsigned weaponOptions=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u)|
         (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u)|
-        (g_config.dual_wield_shake_reload?64u:0u);
+        (g_config.dual_wield_shake_reload?64u:0u)|(g_config.weapon_stow?128u:0u);
     if(out.weaponOptions!=weaponOptions||out.weaponSpace!=g_contactSpaceEpoch.load(std::memory_order_acquire)||
         weaponIndex<0||out.weaponReloadBinding!=WeaponGestureBinding(weaponTitle,vr_mapping::Reload,now)||
         out.weaponSwitchBinding!=WeaponGestureBinding(weaponTitle,vr_mapping::SwitchWeapon,now)||
@@ -25804,7 +25925,7 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
     const int index=weapon_interaction::TitleIndex(title);
     const unsigned options=(g_config.manual_reload?1u:0u)|(g_config.weapon_holsters?2u:0u)|(g_config.left_handed?4u:0u)|
         (!g_config.weapon_holster_slide?8u:0u)|(g_config.weapon_holster_click?16u:0u)|(g_config.weapon_needler_shake?32u:0u)|
-        (g_config.dual_wield_shake_reload?64u:0u);
+        (g_config.dual_wield_shake_reload?64u:0u)|(g_config.weapon_stow?128u:0u);
     const uint32_t reloadBinding=WeaponGestureBinding(title,vr_mapping::Reload,nowMs);
     const uint32_t switchBinding=WeaponGestureBinding(title,vr_mapping::SwitchWeapon,nowMs);
     const uint64_t bindings=uint64_t(reloadBinding)|(uint64_t(switchBinding)<<32);
@@ -25847,6 +25968,18 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
             g_config.weapon_holster_slide?1u:0u,g_config.weapon_holster_click?1u:0u,
             g_config.weapon_body_zone_radius_m,g_config.weapon_insert_radius_m,
             g_config.weapon_holster_radius_m,g_config.weapon_holster_draw_m,g_config.weapon_needler_shake?1u:0u);
+    {
+        static unsigned previousToggles=0;
+        const unsigned toggles=g_weaponStowToggles.load(std::memory_order_relaxed);
+        if(toggles!=previousToggles)
+        {
+            previousToggles=toggles;
+            LOG("Weapon stow: the gun is %s (%u toggles; title=%s, other-shoulder stow %s)",
+                VR_WeaponStowed(title,TitleAdapter_GetGeneration(title))?"stowed: hidden, trigger ignored, gun hand free":
+                    "in hand",toggles,index>=0?weapon_interaction::kTitleNames[index]:"none",
+                g_config.weapon_stow?"on":"off");
+        }
+    }
     previousOptions=options;previousTitle=title;previousBindings=bindings;previousReady=ready;
     previousGrabs=grabs;previousReloads=reloads;previousSwaps=swaps;lastReport=nowMs;
 }
@@ -26603,6 +26736,13 @@ bool VR_ReadSupportGripOwnerEvidence(GameTitle title,
     // release, and it can never bind an acquisition.
     return ReadSupportGripOwnerEvidenceInternal(title, expectedGeneration, owner,
         evidence, revision);
+}
+
+bool VR_WeaponStowed(GameTitle title, uint32_t generation) noexcept
+{
+    const uint64_t word = g_weaponStowedWord.load(std::memory_order_acquire);
+    return word && generation && (title == GameTitle::Halo3 || title == GameTitle::Halo3ODST) &&
+        uint32_t(word) == generation && unsigned((word >> 32) & 0xFFu) == unsigned(title);
 }
 
 bool VR_GetSupportGripRelationship(

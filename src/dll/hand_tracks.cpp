@@ -47,6 +47,16 @@ std::atomic<bool> g_playingFlag{false};
 std::atomic<unsigned> g_appliedSolves{0};
 bool g_loggedPlaying = false;
 
+// --- finger gestures (VR thread computes, palette hook reads one word) ----
+hand_gesture::Hand g_gestureHands[2];
+hand_track::PoseTable g_gesturePoses{};
+uint32_t g_gesturePosesVersion = ~0u;
+int64_t g_gestureLastNs = 0;
+std::atomic<uint64_t> g_gestureWord{0};
+std::atomic<uint32_t> g_gestureState{0}; // per hand: bit 7 touch known, low 4 bits the shape
+std::atomic<unsigned> g_gestureApplied[2]{};
+unsigned g_loggedGestureTouch = ~0u;
+
 void Publish(hand_track::Library& source, bool fromFile, const hand_track::ParseReport& report)
 {
     const unsigned target = 1u - g_activeLibrary.load(std::memory_order_acquire);
@@ -169,6 +179,27 @@ void HandTracks_SetFolder(const wchar_t* folder)
 
 void HandTracks_Poll(uint64_t nowMs)
 {
+    {
+        const uint32_t state = g_gestureState.load(std::memory_order_relaxed);
+        const unsigned touch = ((state >> 7) & 1u) | (((state >> 15) & 1u) << 1);
+        if (g_config.hand_gestures && state && touch != g_loggedGestureTouch)
+        {
+            g_loggedGestureTouch = touch;
+            LOG("Finger gestures: support hand %s, gun hand %s (thumb and trigger touch)",
+                (touch & 1u) ? "has touch sensors" : "has no touch sensors (plain curl)",
+                (touch & 2u) ? "has touch sensors" : "has no touch sensors (plain curl)");
+        }
+        static uint64_t nextReportMs = 0;
+        if (nowMs >= nextReportMs)
+        {
+            nextReportMs = nowMs + 30000;
+            const unsigned support = g_gestureApplied[0].exchange(0, std::memory_order_relaxed);
+            const unsigned gun = g_gestureApplied[1].exchange(0, std::memory_order_relaxed);
+            if (support || gun)
+                LOG("Finger gestures: shaped the support hand in %u and the gun hand in %u palette solves (30 s)",
+                    support, gun);
+        }
+    }
     const unsigned plays = g_plays.load(std::memory_order_acquire);
     if (plays != g_loggedPlays)
     {
@@ -279,6 +310,55 @@ bool HandTracks_CurrentCurls(const float controller[hand_track::kFingers], float
     return hand_track::Curls(g_slotPoses[slot], sample, controller, out);
 }
 
+void HandTracks_UpdateGestures(int64_t timeNs, GameTitle title, const hand_gesture::Input inputs[2])
+{
+    const bool allowed = g_config.hand_gestures && inputs &&
+        (title == GameTitle::Halo3 || title == GameTitle::Halo3ODST) && g_libraryReady.load(std::memory_order_acquire);
+    if (!allowed)
+    {
+        g_gestureHands[0].Reset(); g_gestureHands[1].Reset();
+        g_gestureWord.store(0, std::memory_order_release);
+        g_gestureState.store(0, std::memory_order_relaxed);
+        g_gestureLastNs = 0;
+        return;
+    }
+    // The shapes: a copy of the library's table, refreshed only when the library changes.
+    const uint32_t version = g_libraryVersion.load(std::memory_order_acquire);
+    if (!(version & 1u) && version != g_gesturePosesVersion)
+    {
+        const hand_track::PoseTable poses = g_libraries[g_activeLibrary.load(std::memory_order_acquire)].poses;
+        if (g_libraryVersion.load(std::memory_order_acquire) == version)
+        {
+            g_gesturePoses = poses;
+            g_gesturePosesVersion = version;
+        }
+    }
+    const float dt = g_gestureLastNs && timeNs > g_gestureLastNs ? float(timeNs - g_gestureLastNs) * 1e-9f : -1.0f;
+    g_gestureLastNs = timeNs;
+    bool set[2]{};
+    float curls[2][hand_track::kFingers]{};
+    uint32_t state = 0;
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        set[side] = g_gestureHands[side].Update(g_gesturePoses, inputs[side], dt);
+        if (set[side])
+            memcpy(curls[side], g_gestureHands[side].Curls(), sizeof(curls[side]));
+        state |= ((inputs[side].touchKnown ? 0x80u : 0u) | (uint32_t(g_gestureHands[side].Current()) & 0xFu)) << (side * 8);
+    }
+    g_gestureWord.store(hand_gesture::Pack(set, curls), std::memory_order_release);
+    g_gestureState.store(state, std::memory_order_relaxed);
+}
+
+bool HandTracks_GestureCurls(unsigned side, float out[hand_track::kFingers])
+{
+    return hand_gesture::Unpack(g_gestureWord.load(std::memory_order_acquire), side, out);
+}
+
+void HandTracks_NoteGestureApplied(unsigned side)
+{
+    if (side < 2) g_gestureApplied[side].fetch_add(1, std::memory_order_relaxed);
+}
+
 void HandTracks_NoteApplied()
 {
     g_appliedSolves.fetch_add(1, std::memory_order_relaxed);
@@ -291,4 +371,11 @@ void HandTracks_GetStatus(HandTracksStatus& out)
     ReleaseSRWLockShared(&g_statusLock);
     out.playing = g_playingFlag.load(std::memory_order_relaxed);
     out.plays = g_plays.load(std::memory_order_relaxed);
+    const uint32_t state = g_gestureState.load(std::memory_order_relaxed);
+    for (unsigned side = 0; side < 2; ++side)
+    {
+        const uint32_t hand = (state >> (side * 8)) & 0xFFu;
+        out.gestureTouch[side] = (hand & 0x80u) != 0;
+        out.gesture[side] = hand_track::Shape(hand & 0xFu);
+    }
 }

@@ -2576,6 +2576,8 @@ namespace
     void ReportOdstWeaponHaptics();
     void OdstApplyControllerFingers(uint16_t tag,const FpInterpolationContext& context,
         BoneMatrix* destination,uint32_t generation) noexcept;
+    void Halo3ApplyControllerFingers(uint16_t tag,const FpInterpolationContext& context,
+        BoneMatrix* destination,uint32_t generation) noexcept;
     void ReportOdstControllerFingers();
     void ReportOdstMuzzle();
     weapon_muzzle::Store g_reachBarrelMuzzles;
@@ -9123,6 +9125,18 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                     g_fpPaletteScratch[i].scale=0.0001f; // collapse to the joint
         }
 
+        // THE STOWED GUN (Controls > Reload and holsters > Stow the gun at the other shoulder): the held model's
+        // own sources collapse to their joints, the same proven scale lever as floating hands; arms and hands
+        // stay. Only while we own the scratch palette, so an engine buffer is never touched.
+        if (reconstructed && context.valid && selectedSource==g_fpPaletteScratch &&
+            context.count>0 && context.count<=64 &&
+            VR_WeaponStowed(GameTitle::Halo3,collisionGeneration))
+        {
+            for (int i=0;i<context.count;++i)
+                if (FpSourceIndexIsHeldObject(i,context.count,-1,context.heldSources))
+                    g_fpPaletteScratch[i].scale=0.0001f;
+        }
+
         // The scope is a magnified world view, not a second first-person view.
         // Let Halo finish the normal FP submission path, but feed its final
         // palette a private zero-scale copy so gun, hands, and arms contribute
@@ -9145,6 +9159,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             Halo3ApplySecondaryWeaponAlignment(tag,context,destination,boneMap);
             Halo3PublishMuzzlePalette(tag,context,destination,collisionGeneration);
             LegacyApplyVisualHandOffsets(GameTitle::Halo3,tag,boneMap,context,destination);
+            Halo3ApplyControllerFingers(tag,context,destination,collisionGeneration);
 #if HALOMCCVR_DEV_DIAGNOSTICS
             CaptureH3DualAnimation(tag,context,g_fpUnmodifiedInterpolations[context.slot],
                 selectedSource,root,destination,boneMap);
@@ -18322,6 +18337,15 @@ static constexpr bool kOdstMappedFpEnabled = false;
             for (int i = 0; i < context.count; ++i)
                 if (!(keep & (uint64_t{1} << i)) &&
                     !FpSourceIndexIsHeldObject(i,context.count,context.heldObjectStart,context.heldSources))
+                    g_fpPaletteScratch[i].scale = 0.0001f;
+        }
+        // The stowed gun: the held model's sources collapse (see the Halo 3 hook).
+        if (reconstructed && context.valid && selectedSource == g_fpPaletteScratch &&
+            context.count > 0 && context.count <= 64 &&
+            VR_WeaponStowed(GameTitle::Halo3ODST, collisionGeneration))
+        {
+            for (int i = 0; i < context.count; ++i)
+                if (FpSourceIndexIsHeldObject(i,context.count,context.heldObjectStart,context.heldSources))
                     g_fpPaletteScratch[i].scale = 0.0001f;
         }
         if (g_scopeRenderActive.load(std::memory_order_acquire) &&
@@ -30516,7 +30540,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); }
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportOdstControllerFingers(); }
         if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "

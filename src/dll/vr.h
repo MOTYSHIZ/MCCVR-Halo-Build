@@ -1030,6 +1030,10 @@ bool VR_ReadSupportGripOwnerEvidence(GameTitle title,
 // Coherent read of the durable relationship. False means the snapshot could not
 // be proven coherent (or was never published); an unavailable snapshot must
 // fail closed, never be read as a disengaged relationship.
+// The gun is stowed (put away at the other shoulder, Controls > Reload and holsters) in this title's current
+// session. Lock-free; read by the palette hooks (hide the gun, free the gun hand's fingers) and the pad.
+bool VR_WeaponStowed(GameTitle title, uint32_t generation) noexcept;
+
 bool VR_GetSupportGripRelationship(
     SupportGripRelationshipSnapshot& snapshot) noexcept;
 

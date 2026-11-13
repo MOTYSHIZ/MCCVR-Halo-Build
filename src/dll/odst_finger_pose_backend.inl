@@ -6,7 +6,7 @@ enum class Result {NotApplicable,Applied,Refused,Faulted};
 __declspec(noinline) Result Apply(Matrix* destination,const Pose& inverseBind,const Request& request) noexcept {
     AnatomicalPalmMarkers markers{};
     if(!destination||request.count!=Count||
-       !OdstAnatomicalPalmMarkers(request.checksum,int(request.count),markers))return Result::NotApplicable;
+       !PalmMarkers(request.checksum,request.count,markers))return Result::NotApplicable;
     Pose original{},candidate{};volatile bool fault=false,writing=false;bool solved=false;
     __try {
         std::memcpy(original.data(),destination,sizeof(original));
