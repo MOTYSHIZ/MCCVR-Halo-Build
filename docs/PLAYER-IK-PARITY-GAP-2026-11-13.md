@@ -130,3 +130,95 @@ the fingers do.
 The solver, the shoulders, the right hand and the gun, two-handed aiming, and
 everything in Reach, Halo 4, Halo 2 and CE. A track only ever moves the
 **support hand's IK target**, and only while one is playing.
+
+## What was built (2026-11-13, unaccepted)
+
+| Commit | Change |
+| --- | --- |
+| `8e2a78c4` | This document; `src/common/hand_track_logic.h` (tracks, sampling, blending, text format) and its tests. No runtime effect. |
+| `52d9582b` | Gaps 1-3: `halomccvr_hand_tracks.txt` (written on first run, reloaded when edited, rewritten when deleted); the support hand plays the weapon's `reload` track after a gesture reload; *Body & Hands › Hand animations › Animate the support hand on the gun* (`support_hand_tracks`, default on) and a *Preview hand animation* button. |
+| `3dfa40c4` | Gap 4, the data half: `pose` lines give each hand shape its finger curls; a key's shape sets ODST's free support-hand fingers while the track plays. |
+
+How it runs: the worker thread reads the file; the VR input thread starts
+and advances the track; the palette hook only samples it (no locks, no
+allocation, no logging). The log says `Hand tracks: playing 'reload' ...`
+when a track starts and `Hand tracks: finished; ... in N arm solves` when it
+ends. `N = 0` means the arm solver never took the track (arm IK off, the
+support hand gripping the gun, or no first-person arms at that moment).
+
+Differences from CampE, on purpose:
+
+- Finger poses are one curl per finger. CampE also has per-segment curl and
+  rotation trims and three thumb extras. Those can be added to the same
+  `pose` line later without breaking old files.
+- Poses are not picked from finger *touch* (trigger touch, thumb rest). The
+  mod's controller actions have no touch inputs today, and adding them changes
+  the shared input bindings for every title. ODST keeps "trigger curls the
+  index, grip the rest", and a track's shape overrides it while it plays.
+- The track file is plain text in the style of the cfg, not JSON. The mod has
+  no JSON reader, and the file is meant to be edited by hand.
+
+Advice from the CampE manual-reloading session, for whoever builds Manual
+Reloading on this:
+
+- An absolute hand position on the gun, in a frame guessed from one weapon,
+  was 50 cm off on another weapon. Prefer moves relative to a hand that is
+  already right: `authored` (the game's own hand) or `controller` keys.
+  `weapon` keys are for points measured on that specific weapon.
+- Keep CampE's names when the reload state machine arrives: states `Idle`,
+  `MagOut`, `MagHeld`; hand places 0 controller, 1 pump/foregrip,
+  2 charging handle, 3 shell port, 4 magazine into the well. A grab counts
+  when the grip *closes* inside a zone, never when it is already closed.
+  Count a shot by the game's ammo count falling, never by the trigger.
+- Units there: holds in cm plus an xyzw quaternion; zones and radii in metres.
+  This file uses metres and degrees throughout.
+
+## Headset test (Halo 3 regression and ODST check)
+
+Settings needed: *Body & Hands › Body (VRIK) › Arm IK* on; *Controls ›
+Reload and holsters › Manual Reload* on; and *Controls › Reload and holsters ›
+Skip reload and weapon-ready animations* **off** (the default reload track
+follows the game's own reload motion, so it needs that motion to play).
+*Body & Hands › Hand animations › Animate the support hand on the gun* is on
+by default.
+
+**Halo 3, regression first.** Play a campaign mission with the assault rifle.
+
+1. Aim, shoot, two-hand grip, holster and swap as usual. Nothing should look
+   or feel different from the last build: the gun hand, the aim, the
+   two-handed grip, the shoulders.
+2. Let go of the gun with your support hand. It should follow your
+   controller exactly as before.
+
+**Halo 3, the new part.**
+
+3. Reload by gesture (grab a magazine at the pouch, bring it to the gun).
+   When the reload goes in, your support hand should leave your controller,
+   move along the gun the way the game's own reload moves it, and come back
+   to your controller after about one and a half seconds.
+4. Open F1 › *Body & Hands* › *Hand animations* and press *Preview hand
+   animation* with your support hand off the gun. The hand should go to the
+   gun, dip down about 8 cm, come back up, then return to your controller.
+5. Turn *Animate the support hand on the gun* off and reload by gesture
+   again: the hand should stay on your controller (the old behaviour).
+
+**ODST check.**
+
+6. Repeat steps 3 and 4 in an ODST mission (the Rookie's SMG or the silenced
+   pistol). The same hand motion should play.
+7. Optional: turn on *Body & Hands › Body (VRIK) › Tracked full-body IK*,
+   press *Preview* again, and watch the support hand's fingers. Half way
+   through they should close into a magazine-holding shape, then go back
+   to following your trigger and grip.
+
+What to send back: which steps looked right, anything that looked wrong
+(where the hand went, if it popped or jittered), the MCC edition, and
+`HaloMCCVR.log`. The log's `Hand tracks:` lines show each track start and
+how many arm solves it moved.
+
+**Known limits.** Halo 3's fingers do not move (no evidence for its
+first-person finger bones yet). A track does nothing while your support hand
+is gripping the gun or while dual wielding. If the game's own reload is
+shortened by the mod's reload settings, the `reload` track follows that
+shorter motion and then holds the hand at the game's grip until the track
+ends.
