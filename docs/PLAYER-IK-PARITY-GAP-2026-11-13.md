@@ -124,6 +124,37 @@ the fingers do.
    actions from the animated palette (CampE's ActionWatch) and play the
    `authored` track for melee and grenade too, without a gesture.
 
+8. **Empty-hand finger gestures** (not built). CampE's free hands make
+   gestures from the controller (`pose_for_inputs` and `pa_gesture` in CampE):
+
+   | Grip | Trigger | Thumb | Pose |
+   | --- | --- | --- | --- |
+   | yes | yes | yes | fist |
+   | yes | yes | no | thumbs-up |
+   | yes | no | yes | point down |
+   | yes | no | no | point |
+   | no | yes | yes | ok |
+   | no | yes | no | index |
+   | no | no | any | rest |
+
+   "Trigger" is the trigger *touch* where bound, otherwise the pull. "Thumb"
+   is any thumb sensor: A/B touch, thumbrest or stick touch. Poses ease in
+   over about 45 ms. The support hand gestures whenever it is off the gun;
+   the gun hand only while unarmed or with the weapon holstered ("emote
+   mode"), easing in and out over about 120 ms. One pose table serves both
+   hands, mirrored. A setting turns gestures off.
+
+   Here, ODST's free support hand only curls (trigger closes the index,
+   grip closes the rest), with no thumb input, no named gestures and no gun
+   hand. Halo 3 has nothing yet (gap 5). What it needs:
+   - thumb and trigger *touch* inputs in the mod's controller actions. This
+     changes the shared bindings for every title, so it is its own change,
+     tested in every title;
+   - the gesture table above, picking from the `pose` lines this branch
+     already reads (add `thumbsup`, `pointdown` and `ok` to the defaults);
+   - the gun hand's fingers, when it holds no weapon, for ODST and Halo 3
+     (the ODST finger solve covers only the free support hand today).
+
 ## What this branch does not change
 
 The solver, the shoulders, the right hand and the gun, two-handed aiming, and
