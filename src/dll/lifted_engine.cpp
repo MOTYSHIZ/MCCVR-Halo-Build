@@ -353,9 +353,29 @@ std::vector<Halo3DllCandidate> Halo3DllCandidates()
                 add(inMcc(folder), L"the folder the mod is installed in");
         }
     }
+    // The client's logs, newest first: client.log and client.previous.log up to 0.10.2, client-<date>-v<version>.log
+    // from 0.10.3 (2026-11-13).
     if (!reclaimer.empty())
-        for (const wchar_t* log : {L"\\Logs\\client.log", L"\\Logs\\client.previous.log"})
-            add(Widen(halo3_dll_locate::LiftedDllFromClientLog(LoadText(reclaimer + log))), L"the client's log");
+    {
+        std::vector<std::pair<uint64_t, std::wstring>> logs;
+        WIN32_FIND_DATAW entry{};
+        const HANDLE find = FindFirstFileW((reclaimer + L"\\Logs\\client*.log").c_str(), &entry);
+        if (find != INVALID_HANDLE_VALUE)
+        {
+            unsigned seen = 0;
+            do
+            {
+                if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                    logs.push_back({(uint64_t(entry.ftLastWriteTime.dwHighDateTime) << 32) |
+                                        entry.ftLastWriteTime.dwLowDateTime,
+                                    reclaimer + L"\\Logs\\" + entry.cFileName});
+            } while (++seen < 256 && FindNextFileW(find, &entry));
+            FindClose(find);
+        }
+        std::sort(logs.begin(), logs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (size_t i = 0; i < logs.size() && i < 3; ++i)
+            add(Widen(halo3_dll_locate::LiftedDllFromClientLog(LoadText(logs[i].second))), L"the client's log");
+    }
     // Steam's libraries.
     for (const auto& [root, key, value] :
          {std::tuple{HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath"},
