@@ -397,12 +397,33 @@ inline std::wstring SettingsFolder(bool recompiledEngine, const std::wstring& do
     return documents.empty() ? std::wstring() : documents + L"\\My Games\\Project Reclaimer";
 }
 
+// The cache folder a client run says it uses: its log's "[host] profile <player folder>, caches <cache folder>" line
+// (the last one, so a log holding several starts answers for the latest). Empty when the log has no such line.
+inline std::wstring CachesFromClientLog(std::wstring_view log)
+{
+    static constexpr std::wstring_view kProfile = L"[host] profile ";
+    static constexpr std::wstring_view kCaches = L", caches ";
+    const size_t line = log.rfind(kProfile);
+    if (line == std::wstring_view::npos)
+        return {};
+    size_t end = log.find_first_of(L"\r\n", line);
+    if (end == std::wstring_view::npos)
+        end = log.size();
+    const std::wstring_view text = log.substr(line, end - line);
+    const size_t caches = text.rfind(kCaches);
+    if (caches == std::wstring_view::npos)
+        return {};
+    return std::wstring(text.substr(caches + kCaches.size()));
+}
+
 // Where 0.10 and later may keep the engine's translated code (native\retail-engine\engine.code in its cache folder),
-// likeliest first, as the client picks its cache folder: RECLAIMER_CACHE_DIR when it is set; then the folder the
+// likeliest first. The running client's own log names its cache folder outright (clientLogCaches), so that comes
+// first. Then, as the client picks its cache folder: RECLAIMER_CACHE_DIR when it is set; then the folder the
 // player chose under Settings > Folders > Cache folder (the first line of cache-folder.txt in the player folder),
 // holding the cache itself or a Cache folder; then the player folder's own Cache (RECLAIMER_PROFILE_DIR, else
 // %LOCALAPPDATA%\ProjectReclaimer), where the client keeps it by default and while a chosen folder is missing.
-inline std::vector<std::wstring> EngineCodeCandidates(std::wstring_view cacheDirVariable,
+inline std::vector<std::wstring> EngineCodeCandidates(std::wstring_view clientLogCaches,
+                                                      std::wstring_view cacheDirVariable,
                                                       std::wstring_view cacheFolderNote,
                                                       std::wstring_view playerFolder)
 {
@@ -422,6 +443,7 @@ inline std::vector<std::wstring> EngineCodeCandidates(std::wstring_view cacheDir
                 return;
         list.push_back(std::move(path));
     };
+    add(folder(clientLogCaches));
     add(folder(cacheDirVariable));
     const std::wstring chosen = folder(cacheFolderNote);
     add(chosen);
