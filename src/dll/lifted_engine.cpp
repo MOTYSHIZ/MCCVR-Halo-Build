@@ -301,8 +301,50 @@ std::wstring Variable(const wchar_t* name)
     return length && length < 1024 ? std::wstring(buffer, length) : std::wstring();
 }
 
+// The client's logs in a player folder, newest first, at most `count`: client.log and client.previous.log up to 0.10.2,
+// client-<date>-v<version>.log from 0.10.3 (2026-11-13).
+std::vector<std::wstring> NewestClientLogs(const std::wstring& player, size_t count)
+{
+    std::vector<std::pair<uint64_t, std::wstring>> logs;
+    WIN32_FIND_DATAW entry{};
+    const HANDLE find = FindFirstFileW((player + L"\\Logs\\client*.log").c_str(), &entry);
+    if (find != INVALID_HANDLE_VALUE)
+    {
+        unsigned seen = 0;
+        do
+        {
+            if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                logs.push_back({(uint64_t(entry.ftLastWriteTime.dwHighDateTime) << 32) | entry.ftLastWriteTime.dwLowDateTime,
+                                player + L"\\Logs\\" + entry.cFileName});
+        } while (++seen < 256 && FindNextFileW(find, &entry));
+        FindClose(find);
+    }
+    std::sort(logs.begin(), logs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::vector<std::wstring> newest;
+    for (size_t i = 0; i < logs.size() && i < count; ++i)
+        newest.push_back(std::move(logs[i].second));
+    return newest;
+}
+
+// The first `limit` bytes of a text file (a log's start, which names its folders), or nothing.
+std::string LoadTextHead(const std::wstring& path, DWORD limit)
+{
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return {};
+    std::string text(limit, '\0');
+    DWORD read = 0;
+    if (!ReadFile(file, text.data(), limit, &read, nullptr))
+        read = 0;
+    CloseHandle(file);
+    text.resize(read);
+    return text;
+}
+
 // Every place engine.code may be, the likeliest first: HALOMCCVR_RECLAIMER_ENGINE_CODE names the file outright;
-// otherwise the client's own cache folder rules (reclaimer_host::EngineCodeCandidates).
+// otherwise the cache folder the running client's log names, then the client's own cache folder rules
+// (reclaimer_host::EngineCodeCandidates).
 std::vector<std::wstring> EngineCodePaths()
 {
     const std::wstring named = Variable(L"HALOMCCVR_RECLAIMER_ENGINE_CODE");
@@ -316,7 +358,12 @@ std::vector<std::wstring> EngineCodePaths()
             player = local + L"\\ProjectReclaimer";
     }
     const std::wstring note = player.empty() ? std::wstring() : Widen(LoadText(player + L"\\cache-folder.txt"));
-    return reclaimer_host::EngineCodeCandidates(Variable(L"RECLAIMER_CACHE_DIR"), note, player);
+    // Only the newest log, which is this run's: the client names its folders on its log's first lines, long before
+    // it links the engine. An older run's cache folder may hold an older engine.code.
+    const std::vector<std::wstring> logs = player.empty() ? std::vector<std::wstring>() : NewestClientLogs(player, 1);
+    const std::wstring caches =
+        logs.empty() ? std::wstring() : reclaimer_host::CachesFromClientLog(Widen(LoadTextHead(logs[0], 64 * 1024)));
+    return reclaimer_host::EngineCodeCandidates(caches, Variable(L"RECLAIMER_CACHE_DIR"), note, player);
 }
 
 // One place halo3.dll may lie, and what said so.
@@ -369,28 +416,12 @@ std::vector<Halo3DllCandidate> Halo3DllCandidates()
                 add(inMcc(folder), L"the folder the mod is installed in");
         }
     }
-    // The client's logs, newest first: client.log and client.previous.log up to 0.10.2, client-<date>-v<version>.log
-    // from 0.10.3 (2026-11-13).
+    // The client's logs, newest first.
     if (!reclaimer.empty())
     {
-        std::vector<std::pair<uint64_t, std::wstring>> logs;
-        WIN32_FIND_DATAW entry{};
-        const HANDLE find = FindFirstFileW((reclaimer + L"\\Logs\\client*.log").c_str(), &entry);
-        if (find != INVALID_HANDLE_VALUE)
-        {
-            unsigned seen = 0;
-            do
-            {
-                if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-                    logs.push_back({(uint64_t(entry.ftLastWriteTime.dwHighDateTime) << 32) |
-                                        entry.ftLastWriteTime.dwLowDateTime,
-                                    reclaimer + L"\\Logs\\" + entry.cFileName});
-            } while (++seen < 256 && FindNextFileW(find, &entry));
-            FindClose(find);
-        }
-        std::sort(logs.begin(), logs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-        for (size_t i = 0; i < logs.size() && i < 3; ++i)
-            add(Widen(halo3_dll_locate::LiftedDllFromClientLog(LoadText(logs[i].second))), L"the client's log");
+        const std::vector<std::wstring> logs = NewestClientLogs(reclaimer, 3);
+        for (const auto& log : logs)
+            add(Widen(halo3_dll_locate::LiftedDllFromClientLog(LoadText(log))), L"the client's log");
     }
     // Steam's libraries.
     for (const auto& [root, key, value] :
