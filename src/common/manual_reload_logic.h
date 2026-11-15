@@ -105,6 +105,11 @@ public:
     static constexpr uint64_t kLateGripMs = 300;     // a grip closed this long before reaching a zone still takes
     static constexpr float kGripOn = 0.55f, kGripOff = 0.35f;
     static constexpr float kRackDone = 0.92f, kRackRearm = 0.50f;
+    // No reading of the held gun for this long (a death and checkpoint revert, a cinematic, a vehicle, a level load):
+    // every count is forgotten and each gun is taken as the game has it next time (Campaign Evolved forgets on death
+    // and level loads). FA 2026-11-15: a Legendary death reverted the game to a full gun while the player's count
+    // still had its magazine out.
+    static constexpr uint64_t kForgetMs = 2000;
     static constexpr float kMagazineTopLocal[3]{0, 1, 0}; // the drawn magazine's top, in the controller's frame
 
     void Reset() noexcept { *this = Engine{}; }
@@ -126,13 +131,19 @@ public:
 
         if (!owned)
         {
-            // Not ours: the game's reload. A record the player left with its magazine out keeps it out; it comes
-            // back when the weapon is ours again (each gun keeps its own count).
+            // Not ours: the game's reload. A short gap keeps each gun's record (a gun put away comes back with its
+            // magazine where it was); a long one forgets them all. Either way the phase is worked out again from
+            // the held gun's record when one is ours again.
             if (phase_ != Phase::Idle) { phase_ = Phase::Idle; out.lost = true; }
+            if (!unownedSince_) unownedSince_ = in.now ? in.now : 1;
+            else if (in.now >= unownedSince_ && in.now - unownedSince_ > kForgetMs) ammo_.ForgetAll();
             ammo_.ReleaseHeld();
+            weaponId_ = 0;
             pulseUntil_ = 0;
+            pressPending_ = false;
             return out;
         }
+        unownedSince_ = 0;
         reload_ammo::Traits traits = in.weapon.traits;
         traits.chamberOnSeat = !(c.rack && in.weapon.rackChambers);
         ammo_.Sample(in.weaponId, in.sim, traits);
@@ -327,7 +338,7 @@ private:
     Phase phase_ = Phase::Idle;
     uint32_t weaponId_ = 0;
     bool gripArmed_ = false, gripOwned_ = false;
-    uint64_t gripClosedAt_ = 0;
+    uint64_t gripClosedAt_ = 0, unownedSince_ = 0;
     Vec grabbedAt_{}, rackFrom_{};
     bool rackArmed_ = false;
     float rackPull_ = 0;

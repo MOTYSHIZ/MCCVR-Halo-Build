@@ -26057,7 +26057,8 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
         g_contactSpaceEpoch.load(std::memory_order_acquire),nowMs);
     if((options&1)&&(changed||previousModel!=modelIdentity))
     {
-        const auto* model=weapon_model::Find(title,modelIdentity);
+        // Project Reclaimer's ODST levels run as Halo 3 with ODST's own gun models (manual_reload::FindModel).
+        const auto* model=manual_reload::FindModel(title,modelIdentity);
         LOG("Reload model: title=%s identity=%016llX name=%s visual=%s needleShakeEligible=%u; "
             "native reload/ammo rules unchanged",
             index>=0?weapon_interaction::kTitleNames[index]:"none",static_cast<unsigned long long>(modelIdentity),

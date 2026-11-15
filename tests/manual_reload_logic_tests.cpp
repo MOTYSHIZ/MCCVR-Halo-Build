@@ -209,6 +209,20 @@ int main()
         Check(rig.game.presses==2,"one press at the drop and one retry while the magazine is out");
     }
     {
+        // A short gap (a gun swapped away and back, a hitch): the magazine is still out when it comes back.
+        Rig rig;rig.Tap();
+        rig.in.simValid=false;rig.Step();rig.Wait(500);rig.in.simValid=true;rig.Step();
+        Check(rig.out.phase==Phase::MagOut&&rig.out.hideMagazine,"after a short gap the magazine is still out");
+        rig.in.support=kPouch;rig.Step();rig.Grip(false);rig.Grip(true);
+        Check(rig.out.grabbed,"and a magazine can be fetched (the phase came back with the gun)");
+        // A death and checkpoint revert: the game's gun comes back full; the player's count is forgotten.
+        Rig dead;dead.Tap();dead.Wait(700);
+        dead.in.simValid=false;dead.Wait(2500);
+        dead.game=Game{32,96,32};dead.in.simValid=true;dead.Step();
+        Check(dead.out.phase==Phase::Idle&&!dead.out.hideMagazine&&dead.out.loaded==32&&!dead.out.triggerHeld,
+            "after a long gap (a death, a cinematic) the gun is taken as the game has it");
+    }
+    {
         // Not owned (no simulation read): nothing is held back.
         Rig rig;rig.in.simValid=false;rig.Step();
         Check(!rig.out.owned&&!rig.out.triggerHeld&&!rig.out.hideMagazine,"no reading of the gun: the game's reload");
