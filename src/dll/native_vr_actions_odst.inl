@@ -18,37 +18,18 @@ constexpr const char* consumerReloadPattern=
     "BA 2A 00 00 00 48 8B CE E8 54 67 0A 00 48 8B C8 E8 28 D8 FF FF 8B 4F 2C 84 C0 74 06 0F BA E9 0C EB 04 "
     "0F BA F1 0C 89 4F 2C BA 2A 00 00 00 48 8B CE E8 2B 67 0A 00";
 // ODST'S PROMPT AND MAP STATE (vr_mapping::OdstAction; docs/ODST-PROMPT-AND-MAP-EVIDENCE-2026-11-15.md). The tutorial
-// scripts' unit_confirm_message / unit_confirm_cancel_message set bytes +0x1C / +0x1D of the controller's action-test
-// record (the engine TLS block +0xD8, a 0x30-byte record per controller); the game clears all four bytes once the
-// answer's test fires. The record's tests (+0) hold bit 3 while the controller's PDA, the VISR map, is up. Read here,
-// on the game thread, where the control builder reads accept (0x12) for controller 0 -- once a tick -- and published
-// for the input thread. Read only; nothing is written.
-constexpr uintptr_t promptReadRva=0x10FD11,promptReadCall=0x1A,promptReadReturn=0x1F;
-constexpr const char* promptReadPattern=
-    "BA 12 00 00 00 48 8B 85 E0 08 00 00 48 03 F1 48 8B CE 48 89 74 24 58 48 89 30 E8 ?? ?? ?? ?? 48 8B C8 "
-    "E8 ?? ?? ?? ?? 8B 4F 28 84 C0 74 05 83 C9 20 EB 03 83 E1 DF 89 4F 28 BA 13 00 00 00 48 8B CE E8";
-constexpr uintptr_t confirmSiteRva=0x22D1C6,cancelSiteRva=0x22D24E;
-constexpr const char* confirmSitePattern=
-    "8B 0D ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BA 20 00 00 00 4C 8B 14 C8 41 8B 00 0F B7 C8 4A 8B 14 12 "
-    "48 8D 0C 49 48 8B 42 48 48 8B 4C C8 10 8B 89 70 01 00 00 83 F9 FF 74 25 E8 ?? ?? ?? ?? 83 F8 03 77 1B 48 98 "
-    "BA D8 00 00 00 48 8D 0C 40 48 C1 E1 04 4A 03 0C 12 C6 41 1C 01 48 83 21 FD";
-constexpr const char* cancelSitePattern=
-    "8B 0D ?? ?? ?? ?? 65 48 8B 04 25 58 00 00 00 BA 20 00 00 00 4C 8B 14 C8 41 8B 00 0F B7 C8 4A 8B 14 12 "
-    "48 8D 0C 49 48 8B 42 48 48 8B 4C C8 10 8B 89 70 01 00 00 83 F9 FF 74 25 E8 ?? ?? ?? ?? 83 F8 03 77 1B 48 98 "
-    "BA D8 00 00 00 48 8D 0C 40 48 C1 E1 04 4A 03 0C 12 C6 41 1D 01 48 83 21 FB";
-// The tests' update: accept (+0x28 bit 5) is test bit 1, cancel (bit 6) test bit 2; the PDA up (+0x30) is test bit 3.
-constexpr uintptr_t promptTestsRva=0x114CCA,pdaTestRva=0x114FB9,promptClearRva=0x11240A;
-constexpr const char* promptTestsPattern=
-    "41 8B 40 28 A8 20 74 09 4B 83 0C D3 02 41 8B 40 28 A8 40 74 09 4B 83 0C D3 04";
-constexpr const char* pdaTestPattern="48 8B C1 48 83 E0 F7 48 83 C9 08 44 38 73 30 48 0F 44 C8 4B 89 0C D3";
-constexpr const char* promptClearPattern=
-    "45 38 57 1C 74 0F 41 8A 07 D0 E8 41 84 C3 74 05 41 83 67 1C 00 45 38 57 1D 74 10 41 8A 07 C0 E8 02 41 84 C3 "
-    "74 05 41 83 67 1C 00";
-constexpr uint32_t kActionTestBlock=0xD8,kPromptFlags=0x1C;
+// scripts' unit_confirm_message / unit_confirm_cancel_message set the controller's action-test record's confirm and
+// cancel prompt bytes; the game clears them once the answer's test fires. The record's tests word holds bit 3 while the
+// controller's PDA, the VISR map, is up. Where all of that is in this build is resolved by unique signatures and
+// cross-checked (src/common/odst_prompt_resolve.h; no recorded address); it is read on the game thread, where the
+// control builder reads accept for controller 0 -- once a tick -- and published for the input thread. Read only.
 struct PromptState {
     std::atomic<bool> proved{};
     const uint32_t* tlsIndex{};
-    // Bits 0-3: the four prompt bytes (+0x1C accept, +0x1D cancel, +0x1E, +0x1F) set; bit 4: the PDA up.
+    uintptr_t readReturn{};          // the reader's return address at the builder's read of accept
+    uint32_t block{}, confirmFlag{}; // the records' TLS block offset; the confirm byte (cancel follows it)
+    uint32_t pdaBit{};               // the PDA's bit in the tests word
+    // Bits 0-3: the four prompt bytes (confirm, cancel, and the two after them) set; bit 4: the PDA up.
     std::atomic<uint32_t> bits{}, generation{};
     std::atomic<uint64_t> stampMs{}, faults{};
 } prompt;
@@ -184,12 +165,12 @@ __declspec(noinline) void PublishPromptState(const void* state) noexcept {
         auto** slots=reinterpret_cast<void**>(__readgsqword(0x58));
         const uint32_t index=*prompt.tlsIndex;
         const auto* tls=slots&&index<0x200?static_cast<const uint8_t*>(slots[index]):nullptr;
-        const auto* record=tls?*reinterpret_cast<const uint8_t* const*>(tls+kActionTestBlock):nullptr;
+        const auto* record=tls?*reinterpret_cast<const uint8_t* const*>(tls+prompt.block):nullptr;
         if(!record) return;
-        const uint32_t flags=*reinterpret_cast<const volatile uint32_t*>(record+kPromptFlags);
+        const uint32_t flags=*reinterpret_cast<const volatile uint32_t*>(record+prompt.confirmFlag);
         const uint64_t tests=*reinterpret_cast<const volatile uint64_t*>(record);
         for(unsigned i=0;i<4;++i) if((flags>>(8*i))&0xFFu) bits|=1u<<i;
-        if((tests>>3)&1u) bits|=0x10u;
+        if((tests>>prompt.pdaBit)&1u) bits|=0x10u;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         prompt.faults.fetch_add(1,std::memory_order_relaxed);
         return;
@@ -203,7 +184,7 @@ void* __fastcall ReaderHook(void* state,unsigned action,uintptr_t caller) {
     void* result=nullptr;
     __try {
         result=reinterpret_cast<Read>(runtime.original[1])(state,action);
-        if(caller==runtime.base+promptReadRva+promptReadReturn && prompt.proved.load(std::memory_order_relaxed))
+        if(prompt.proved.load(std::memory_order_relaxed) && caller==prompt.readReturn)
             PublishPromptState(state);
         result=ReadOwned(state,action,result,caller);
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
@@ -234,6 +215,7 @@ bool Retire() {
     const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
     if(!WaitForNativeDetourQuiescence(functions,trampolines,8,runtime.callbacks)) return false;
     prompt.tlsIndex=nullptr;
+    prompt.readReturn=0;
     for(unsigned i=0;i<2;++i) if(runtime.target[i]) {
         if(MH_RemoveHook(runtime.target[i])!=MH_OK) return false;
         runtime.target[i]=runtime.original[i]=nullptr;
@@ -297,26 +279,36 @@ void Poll() {
                 runtime.enabled[i]=proved;
             }
         }
-        // The prompt and map state (PromptState): every site at its place and unique, the builder's accept read calling
-        // the reader just hooked, and both script functions naming the same engine TLS index.
+        // The prompt and map state (PromptState), found by unique signatures and cross-checked, never by a recorded
+        // address (odst_prompt_resolve.h): the builder's read of accept must call the reader just hooked. Anything not
+        // found or not agreeing is named, and the rows stay off: every control keeps its usual job.
+        prompt.proved.store(false,std::memory_order_release);
+        prompt.stampMs.store(0,std::memory_order_release);
         if(proved) {
-            const bool sites=Prove(base,size,promptReadRva,promptReadPattern) &&
-                Prove(base,size,confirmSiteRva,confirmSitePattern) && Prove(base,size,cancelSiteRva,cancelSitePattern) &&
-                Prove(base,size,promptTestsRva,promptTestsPattern) && Prove(base,size,pdaTestRva,pdaTestPattern) &&
-                Prove(base,size,promptClearRva,promptClearPattern);
-            const uintptr_t call=sites?sig::RipTarget(base+promptReadRva+promptReadCall+1,
-                base+promptReadRva+promptReadReturn):0;
-            const uintptr_t confirmIndex=sites?sig::RipTarget(base+confirmSiteRva+2,base+confirmSiteRva+6):0;
-            const uintptr_t cancelIndex=sites?sig::RipTarget(base+cancelSiteRva+2,base+cancelSiteRva+6):0;
-            const bool bound=sites&&call==base+d.readerRva&&confirmIndex&&confirmIndex==cancelIndex&&
-                confirmIndex>=base&&confirmIndex+4<=base+size;
-            prompt.tlsIndex=bound?reinterpret_cast<const uint32_t*>(confirmIndex):nullptr;
-            prompt.stampMs.store(0,std::memory_order_release);
-            prompt.proved.store(bound,std::memory_order_release);
-            LOG("ODST prompt and map rows: %s",bound?"the prompt and VISR map state is read (accept read +0x10FD11, "
-                "unit_confirm_message +0x22D1C6, PDA test +0x114FB9)":
-                "the prompt and VISR map state did not prove; the ODST prompt and map rows stay off");
+            drive_resolve::Image image{};
+            const char* why=nullptr;
+            if(!drive_cascade::OpenModuleImage(base,size,image,why))
+                LOG("ODST prompt and map rows: off; halo3odst.dll could not be read (%s)",why?why:"unknown");
+            else {
+                const auto found=odst_prompt_resolve::Resolve(image,static_cast<uint32_t>(d.readerRva));
+                if(found.ok) {
+                    prompt.tlsIndex=reinterpret_cast<const uint32_t*>(base+found.tlsIndexRva);
+                    prompt.readReturn=base+found.acceptReadReturn;
+                    prompt.block=found.block;
+                    prompt.confirmFlag=found.confirmFlag;
+                    prompt.pdaBit=found.pdaBit;
+                    prompt.proved.store(true,std::memory_order_release);
+                    LOG("ODST prompt and map rows: the prompt and VISR map state is found (the builder's read of accept "
+                        "returns to +0x%X; engine TLS index +0x%X, records at TLS +0x%X, prompt bytes +0x%X/+0x%X, the "
+                        "map test bit %u)",found.acceptReadReturn,found.tlsIndexRva,found.block,found.confirmFlag,
+                        found.cancelFlag,found.pdaBit);
+                }
+                else
+                    LOG("ODST prompt and map rows: off, normal controls kept; not found or not agreeing: %s",found.missing);
+            }
         }
+        else
+            LOG("ODST prompt and map rows: off, normal controls kept (the ODST action bridge did not install)");
         runtime.readerAt.store(0,std::memory_order_release);
         runtime.admitted.store(proved,std::memory_order_release);
         LOG("Native VR action bridge ODST: %s; requires observed owned input cadence; runtime validation pending",

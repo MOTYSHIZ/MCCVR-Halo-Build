@@ -62,16 +62,29 @@ not game actions -- and the map rows press those.
 
 ## What the mod reads (MCC)
 
-`native_vr_actions_odst.inl` (`PromptState`), once the ODST action bridge's hooks are installed, proves each site at its
-offset and unique in the module: the builder's accept read +0x10FD11 (and that its call is the hooked reader), both
-confirm functions' record stores +0x22D1C6 / +0x22D24E (and that they load the same TLS index), the tests +0x114CCA, the
-PDA test +0x114FB9 and the prompt clear +0x11240A. Then at the builder's read of accept for controller 0 (the reader's
-return +0x10FD30, on the game thread, once a tick) it reads the record's prompt bytes and test bit 3 and publishes them
-with a time stamp. The input thread takes a prompt (+0x1C or +0x1D set) or the map (bit 3) only from a publication less
-than 250 ms old: a paused game runs no control tick, so the rows go quiet.
+`src/common/odst_prompt_resolve.h` resolves all of it with no recorded address, once the ODST action bridge's hooks are
+installed. Six signatures must each match exactly once in the module's code, wherever they are: the builder's accept read
+(+0x10FD11 on the pinned build), both confirm functions' record stores (+0x22D1C6, +0x22D24E), the tests (+0x114CCA), the
+PDA test (+0x114FB9) and the prompts' clear (+0x11240A). The numbers used are read from those instructions: the reader's
+return address, the engine TLS index, the record block (0xD8), the prompt bytes (0x1C, 0x1D). Cross-checks: the
+builder's read calls the reader the bridge hooked; both script functions load the same TLS index, which is the module's
+own (PE TLS directory), and name the same block; the cancel byte follows the confirm byte; the builder and the tests
+name the same output field (+0x28); the PDA test lies in the tests' function (.pdata); the clear names the same bytes.
 
-All six patterns are unique in the pinned `halo3odst.dll`. If any fails, the log says "the prompt and VISR map state did
-not prove; the ODST prompt and map rows stay off", and every control keeps its usual job.
+Then at the builder's read of accept for controller 0 (on the game thread, once a tick) the mod reads the record's
+prompt bytes and the PDA bit and publishes them with a time stamp. The input thread takes a prompt (confirm or cancel
+byte set) or the map only from a publication less than 250 ms old: a paused game runs no control tick, so the rows go
+quiet.
+
+If anything is not found or does not agree, one log line names each ("ODST prompt and map rows: off, normal controls
+kept; not found or not agreeing: ..."), nothing is read, and every control keeps its usual job. The ODST action bridge
+itself still proves its own hooks at recorded offsets (its existing design); if it does not install, the rows are off
+and the log says so.
+
+The offline check `halomccvr_odst_prompt_resolve_check` (tests/odst_prompt_resolve_check.cpp) runs the same resolution
+on the DLLs on disk (`--mcc <MCC folder>`, `--dll <halo3odst.dll>`, or `HALOMCCVR_MCC_DIR`; skipped without one):
+`halo3odst.dll` must resolve whole and `halo3.dll` must resolve nothing. On the pinned builds (2026-11-15) it reports
+halo3odst.dll RESOLVED with the values above and halo3.dll NOT RESOLVED (all six signatures not found).
 
 ## Project Reclaimer
 

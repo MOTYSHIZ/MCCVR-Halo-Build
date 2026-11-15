@@ -10,6 +10,8 @@
 #include "../common/config.h"
 #include "../common/log.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/odst_prompt_resolve.h"
+#include "drive_cascade.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
