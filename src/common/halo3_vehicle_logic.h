@@ -1198,6 +1198,73 @@ inline bool Halo3RootNodeWithinReach(const float away[3], const Halo3StepSpeed& 
     return side2 <= rest * rest && std::fabs(along) <= reach;
 }
 
+// A MODEL BUILT TURNED ON ITS ROOT. Some vehicle models have their root node's axes turned against the object's by a
+// fixed quarter or half turn: Halo 3's Banshee, on every frame of a flight, stood at its origin with its root facing
+// up to 180 degrees and its up about 90 degrees away from the object's. Read in the object's frame, such a root's
+// axes lie near a signed permutation of the object's. That turn is learned once per vehicle (each object axis within
+// about 35 degrees of one root axis, the three distinct, a proper rotation) and undone, so the drawn root again gives
+// the object's axes as drawn; the usual 20-degree check then judges the result. A root near the object's own axes
+// learns the identity and is unchanged.
+struct Halo3RootAxisTurn
+{
+    uint8_t axis[3]{0, 1, 2}; // object axis i (forward, left, up) is root axis axis[i] times sign[i]
+    int8_t sign[3]{1, 1, 1};
+    bool learned = false;
+};
+inline constexpr float kHalo3RootAxisTurnLearnDot = 0.82f;
+
+inline bool Halo3RootAxisTurnIsIdentity(const Halo3RootAxisTurn& turn) noexcept
+{
+    return turn.axis[0] == 0 && turn.axis[1] == 1 && turn.axis[2] == 2 && turn.sign[0] > 0 && turn.sign[1] > 0 &&
+           turn.sign[2] > 0;
+}
+
+// Learns `turn` from the object's axes and the root's (forward, left, up each); false leaves it unlearned.
+inline bool Halo3LearnRootAxisTurn(const float* const object[3], const float* const root[3],
+                                   Halo3RootAxisTurn& turn) noexcept
+{
+    Halo3RootAxisTurn found;
+    bool used[3]{};
+    for (int i = 0; i < 3; ++i)
+    {
+        int best = -1;
+        float bestDot = 0.0f;
+        for (int j = 0; j < 3; ++j)
+        {
+            const float dot = object[i][0] * root[j][0] + object[i][1] * root[j][1] + object[i][2] * root[j][2];
+            if (!std::isfinite(dot))
+                return false;
+            if (std::fabs(dot) > std::fabs(bestDot))
+            {
+                bestDot = dot;
+                best = j;
+            }
+        }
+        if (best < 0 || used[best] || std::fabs(bestDot) < kHalo3RootAxisTurnLearnDot)
+            return false;
+        used[best] = true;
+        found.axis[i] = static_cast<uint8_t>(best);
+        found.sign[i] = bestDot > 0.0f ? int8_t{1} : int8_t{-1};
+    }
+    // A proper rotation: the permutation's parity times the signs is +1 (a mirror would swap left and right).
+    const int a = found.axis[0], b = found.axis[1], c = found.axis[2];
+    const int inversions = (a > b) + (a > c) + (b > c);
+    const int parity = inversions % 2 == 0 ? 1 : -1;
+    if (parity * found.sign[0] * found.sign[1] * found.sign[2] != 1)
+        return false;
+    found.learned = true;
+    turn = found;
+    return true;
+}
+
+// The object's axes as the drawn root gives them, through a learned turn (forward, left, up each, written to `out`).
+inline void Halo3ApplyRootAxisTurn(const Halo3RootAxisTurn& turn, const float* const root[3], float out[3][3]) noexcept
+{
+    for (int i = 0; i < 3; ++i)
+        for (int k = 0; k < 3; ++k)
+            out[i][k] = static_cast<float>(turn.sign[i]) * root[turn.axis[i]][k];
+}
+
 // Frame provenance, published for the probe log so a headset report can be
 // matched to how its anchor was built.
 enum class Halo3FrameStatus : uint32_t
