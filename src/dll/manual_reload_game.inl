@@ -14,6 +14,10 @@
 namespace manual_reload_game
 {
 std::atomic<uint64_t> samples{0}, ammoFailures{0}, hidden{0}, posed{0}, faults{0};
+// The gun's layout in the aim frame, for the log (a seqlock: the hook writes, the worker reads).
+struct Layout_ { float root[3], fwd[3], left[3], up[3], magNode[3], rackNode[3], well[3]; uint64_t identity; };
+Layout_ g_layout{};
+std::atomic<uint32_t> g_layoutSeq{0};
 
 struct Layout { size_t magazineBase, tagCount, tagAddress; };
 inline constexpr Layout kHalo3{0x230, 0x424, 0x428}, kOdst{0x228, 0x434, 0x438};
@@ -136,6 +140,26 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         reload_ammo::Sim sim{};
         const bool simValid = ReadAmmo(title, weapon, sim);
         if (!simValid) ammoFailures.fetch_add(1, std::memory_order_relaxed);
+        {
+            // The layout for the log: the root's origin and axes, the magazine and rack nodes, the catalogue's well.
+            Layout_ l{};
+            manual_reload::Vec v{};
+            auto put = [&](const float* w, bool point, float (&o)[3]) {
+                if (toAim(w, point, v)) { o[0] = v.x; o[1] = v.y; o[2] = v.z; }
+            };
+            const float c0[3]{basis[0], basis[1], basis[2]}, c1[3]{basis[3], basis[4], basis[5]},
+                        c2[3]{basis[6], basis[7], basis[8]};
+            put(held.translation, true, l.root); put(c0, false, l.fwd); put(c1, false, l.left); put(c2, false, l.up);
+            const int ms = source(parts->magazineNode);
+            BoneMatrix node{};
+            if (ms >= 0 && ComposeBoneMatrices(root, scratch[ms], node)) put(node.translation, true, l.magNode);
+            if (rackValid) put(rack, true, l.rackNode);
+            if (wellValid) put(well, true, l.well);
+            l.identity = identity;
+            g_layoutSeq.fetch_add(1, std::memory_order_acq_rel);
+            g_layout = l;
+            g_layoutSeq.fetch_add(1, std::memory_order_release);
+        }
         manual_reload::Vec wellLocal{}, axisLocal{}, rackLocal{}, backLocal{};
         const bool wellOk = wellValid && toAim(well, true, wellLocal) && toAim(up, false, axisLocal);
         const bool rackOk = rackValid && toAim(rack, true, rackLocal) && toAim(back, false, backLocal);
@@ -178,6 +202,25 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
 
 void Report()
 {
+    {
+        static ULONGLONG layoutAt = 0;
+        const auto clock = GetTickCount64();
+        if (clock - layoutAt >= 15000)
+        {
+            const uint32_t before = g_layoutSeq.load(std::memory_order_acquire);
+            const Layout_ l = g_layout;
+            if (!(before & 1u) && before && g_layoutSeq.load(std::memory_order_acquire) == before)
+            {
+                layoutAt = clock;
+                LOG("Manual reload gun layout (aim frame, m; x right y up z back): model=%016llX root=(%.3f,%.3f,%.3f) "
+                    "fwd=(%.2f,%.2f,%.2f) left=(%.2f,%.2f,%.2f) up=(%.2f,%.2f,%.2f) magazine-node=(%.3f,%.3f,%.3f) "
+                    "rack-node=(%.3f,%.3f,%.3f) well=(%.3f,%.3f,%.3f)",
+                    static_cast<unsigned long long>(l.identity), l.root[0], l.root[1], l.root[2], l.fwd[0], l.fwd[1],
+                    l.fwd[2], l.left[0], l.left[1], l.left[2], l.up[0], l.up[1], l.up[2], l.magNode[0], l.magNode[1],
+                    l.magNode[2], l.rackNode[0], l.rackNode[1], l.rackNode[2], l.well[0], l.well[1], l.well[2]);
+            }
+        }
+    }
     static uint64_t last[5]{};
     static ULONGLONG at = 0;
     const uint64_t now[]{samples.load(), ammoFailures.load(), hidden.load(), posed.load(), faults.load()};

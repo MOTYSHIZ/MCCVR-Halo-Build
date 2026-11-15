@@ -14,9 +14,10 @@ struct Game
 {
     int loaded=32,reserve=96,capacity=32;
     bool reloading=false;uint64_t reloadDoneAt=0;
+    bool deaf=false;int presses=0;
     reload_ammo::Sim Sim() const {return {loaded,reserve,capacity,reloading};}
     void Shoot(int n){loaded=loaded>n?loaded-n:0;}
-    void Press(uint64_t now){if(!reloading&&loaded<capacity&&reserve>0){reloading=true;reloadDoneAt=now+600;}}
+    void Press(uint64_t now){++presses;if(!deaf&&!reloading&&loaded<capacity&&reserve>0){reloading=true;reloadDoneAt=now+600;}}
     void Tick(uint64_t now)
     {
         if(reloading&&now>=reloadDoneAt)
@@ -199,6 +200,13 @@ int main()
         dry.MoveMagazine(kWell+kAxis*-0.12f);dry.MoveMagazine(kWell+kAxis*-0.005f,4);
         dry.Wait(6000);
         Check(dry.engine.Ammo().Behind()==0,"a game that will not catch up is taken as it is");
+    }
+    {
+        // A game that never answers the button: the drop's press and ONE retry, not a press every 400 ms
+        // (FA 2026-11-15: 141 presses in a minute).
+        Rig rig;rig.game.Shoot(5);rig.Step();rig.game.deaf=true;rig.game.presses=0;
+        rig.Tap();rig.Wait(3000);
+        Check(rig.game.presses==2,"one press at the drop and one retry while the magazine is out");
     }
     {
         // Not owned (no simulation read): nothing is held back.

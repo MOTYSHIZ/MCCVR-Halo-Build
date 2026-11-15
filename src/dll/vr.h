@@ -1180,6 +1180,8 @@ bool VR_ManualReloadPresentation(GameTitle title, uint32_t generation, uint64_t 
 bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;
 bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept;
 void VR_NoteManualReloadTap() noexcept;
+// The game button the manual reload presses and takes taps of (the game's own reload binding where known).
+uint32_t VR_ManualReloadButton() noexcept;
 uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t space,uint64_t now) noexcept;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 // One immutable, exact-serial OpenXR tracking snapshot for Reach's complete

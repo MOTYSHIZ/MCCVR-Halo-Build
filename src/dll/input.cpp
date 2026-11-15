@@ -1118,7 +1118,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         btn |= static_cast<WORD>(gestureMelee & 0xFFFF);
         if(!semanticMode)
         {
-            const WORD reloadBit=static_cast<WORD>(pad.weaponReloadBinding&0xFFFF);
+            const uint32_t manualReloadButton=VR_ManualReloadButton();
+            const WORD reloadBit=static_cast<WORD>((manualReloadButton?manualReloadButton:pad.weaponReloadBinding)&0xFFFF);
             if(FilterManualReload(reloadBit&&(btn&reloadBit),manualReloadOwned,inputNow)) btn&=static_cast<WORD>(~reloadBit);
         }
         btn |= static_cast<WORD>(pad.weaponButtons & 0xFFFF);

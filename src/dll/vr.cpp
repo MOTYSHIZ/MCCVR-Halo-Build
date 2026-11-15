@@ -11333,6 +11333,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // Title in bits 32..39, generation in the low 32, bit 63 owned, bit 62 trigger held; 0 when not running.
     std::atomic<uint64_t> g_manualReloadState{0};
     std::atomic<uint32_t> g_manualReloadTaps{0};
+    std::atomic<uint32_t> g_manualReloadButton{0}; // the game button the manual reload presses (and takes taps of)
     uint32_t g_manualReloadTapsSeen = 0;
     std::atomic<uint32_t> g_manualReloadEvents[6]{}; // dropped, grabbed, seated, racked, pressed, lost
     std::atomic<int> g_manualReloadPhase{0};
@@ -16100,7 +16101,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadIn.pouch=pouch;
                 reloadSettings.rack=g_config.manual_reload_rack;
                 reloadSettings.pouchRadius=weapon_interaction::Setting(g_config.weapon_body_zone_radius_m,0.08f,0.40f,0.20f);
-                reloadSettings.reloadButton=settings.reloadButton;
+                // The game's own reload button where its current layout is known (an MCC profile can move reload
+                // off X; FA 2026-11-15 found it on Right bumper), else the per-title setting.
+                const uint32_t nativeReload=Game_VrActionTransport(vr_mapping::Reload,inputNow);
+                reloadSettings.reloadButton=nativeReload?nativeReload:settings.reloadButton;
+                g_manualReloadButton.store(reloadSettings.reloadButton,std::memory_order_release);
                 // The pouch-to-receiver gesture is replaced in Halo 3 and ODST: a gun the manual reload does not
                 // cover reloads the game's way there. Other games keep it until they have the manual reload.
                 if(titleOk) settings.pouch=false;
@@ -26932,6 +26937,8 @@ bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept
 }
 
 void VR_NoteManualReloadTap() noexcept { g_manualReloadTaps.fetch_add(1,std::memory_order_acq_rel); }
+
+uint32_t VR_ManualReloadButton() noexcept { return g_manualReloadButton.load(std::memory_order_acquire); }
 
 bool VR_WeaponStowed(GameTitle title, uint32_t generation) noexcept
 {

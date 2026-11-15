@@ -171,6 +171,7 @@ public:
                     pressedSinceDrop_ = false;
                     // The game reloads now, unseen, while the hands fetch a magazine.
                     if (ammo_.GameCanReload()) Press(in.now, out);
+                    pressRetried_ = false;
                     break;
                 }
                 if (in.weapon.rackChambers && c.rack && RackHasWork() && in.geometry.rackValid &&
@@ -231,7 +232,7 @@ public:
         if (pressPending_ && in.now - pressAt_ > kPressCheckMs)
         {
             pressPending_ = false;
-            if (!pressRetried_ && ammo_.GameCanReload()) { pressRetried_ = true; Press(in.now, out); }
+            if (!pressRetried_ && ammo_.GameCanReload()) { Press(in.now, out); pressRetried_ = true; }
         }
         if (ammo_.MagIn() && ammo_.Behind() > 0 && !game.reloading && !pressPending_ && in.now >= catchUpAt_)
         {
@@ -240,6 +241,7 @@ public:
                 ++catchUp_;
                 catchUpAt_ = in.now + kCatchUpMs;
                 Press(in.now, out);
+                pressRetried_ = false;
             }
             else
                 ammo_.ClampToGame();
@@ -282,7 +284,6 @@ private:
         pulseUntil_ = now + kPulseMs;
         pressAt_ = now;
         pressPending_ = true;
-        pressRetried_ = false;
         pressLoaded_ = ammo_.Game().loaded;
         pressedSinceDrop_ = true;
         out.pressed = true;
