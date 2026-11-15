@@ -61,11 +61,23 @@ functions with its own versions, and enlarged several of its tables.
 
 2d. **The translated code's file format.** Reclaimer 0.10.4 (2026-11-15) changed `engine.code` from format 2 to 3
    (the body 8 bytes earlier, a 0x20-byte checksum after it), and the mod's reader refused anything but 2, so Halo 3
-   stayed flat. *Now:* 2 and 3 are read; an unknown version is read by whichever known layout fits it exactly (the
+   stayed flat. *Now:* 2 and 3 are read; an unknown version (with a hash of 0x10 to 0x40 bytes before the body
+   length, and a trailer of none, 0x20 bytes or the hash's length) is read by whichever layout fits it exactly (the
    record table and the code's length must agree with the file's size), logged as such, and used only once that code
    is found in memory; a missing or half-written file is retried for a minute instead of ruled out. *Keep:* on each
    Reclaimer release, run `halomccvr_lifted_engine_file_check` against the new cache (every adapter must decode)
    before the user does.
+2e. **The client's own code the mod hooks (VISR's camera and constants, the navpoint draw).** Reclaimer 0.10.4
+   recompiled its navpoint draw with other registers and put a pass-through in front of it, and both exact byte
+   patterns missed (player tags past the first 20 kept the game's look). *Now (2026-11-15):* every find in the
+   client executable lives in src/common/reclaimer_client_finds.h, by shape: register-wildcard patterns, a
+   pass-through followed, the count read found as "rip load, null test, jz, imul by the entry stride", each required
+   exactly once, its function taken from .pdata. Independent finds must agree before a hook goes on: VISR's camera
+   has exactly one calling function, which must also call VISR's constant builder; the navpoint count the draw walks
+   is compared with the client's own list of sizes (hud.markers) and a disagreement is logged. A find that fails
+   names what was missing, and only that hook stays off. *Offline:* tests/reclaimer_client_file_check.cpp runs the
+   same finds on the executable on disk (HALOMCCVR_RECLAIMER_CLIENT_EXE): run it on every new Reclaimer release
+   before anyone plays it (0.10.0 and 0.10.4 both pass).
 9b. **Where the host keeps halo3.dll and its logs.** 0.10.3 renamed its logs (`client-<date>-v<version>.log`) and
    prefixed each line with the time, which hid the lifted halo3.dll's path from the mod. *Now:* the newest three
    `client*.log` are read and the path is found anywhere on the line.

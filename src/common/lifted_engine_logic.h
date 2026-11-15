@@ -167,17 +167,22 @@ inline ParseResult Parse(const uint8_t* data, size_t size, Table& out)
     std::memcpy(&version, data + 8, 4);
     std::memcpy(&hashLength, data + 12, 4);
     out.version = version;
-    if (hashLength != 0x20)
+    // The body length follows the hash. Formats 2 and 3 have a 0x20-byte hash; a version this build does not know may
+    // have another (multiples of 4 up to 0x40 are tried), with its layouts placed after it the same way.
+    const bool known = version == 2 || version == 3;
+    if ((known && hashLength != 0x20) || hashLength < 0x10 || hashLength > 0x40 || hashLength % 4 ||
+        size < 0x10 + hashLength + 8)
         return ParseResult::OtherVersion;
+    const size_t lengthAt = 0x10 + hashLength;
     uint64_t bodyLength = 0;
-    std::memcpy(&bodyLength, data + 0x30, 8);
+    std::memcpy(&bodyLength, data + lengthAt, 8);
 
     struct Layout
     {
         size_t bodyStart;
         size_t after;   // bytes after the body
     };
-    static constexpr Layout kFormat2{0x40, 0}, kFormat3{0x38, 0x20};
+    const Layout format2{lengthAt + 0x10, 0}, format3{lengthAt + 8, 0x20};
     const auto read = [&](const Layout& layout) {
         if (bodyLength > size || layout.bodyStart + bodyLength + layout.after != size)
             return ParseResult::Inconsistent;
@@ -188,10 +193,12 @@ inline ParseResult Parse(const uint8_t* data, size_t size, Table& out)
         return result;
     };
     if (version == 2)
-        return read(kFormat2);
+        return read(format2);
     if (version == 3)
-        return read(kFormat3);
-    for (const Layout& layout : {kFormat3, kFormat2})
+        return read(format3);
+    // Unknown: the known layouts, then format 3's with a trailer as long as the hash, or none.
+    const Layout probes[] = {format3, format2, {lengthAt + 8, hashLength}, {lengthAt + 8, 0}};
+    for (const Layout& layout : probes)
         if (read(layout) == ParseResult::Ok)
         {
             out.probed = true;
