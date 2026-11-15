@@ -25,11 +25,6 @@
 
 namespace
 {
-constexpr char kReclaimerViewCameraReads[] = "8B ?? 28 8B ?? 64 8B ?? 68 85";
-constexpr char kReclaimerViewCameraStores[] = "89 ?? 04 89 ?? 08 89 ?? 0C";
-// In VISR's constant builder: movss [r+0x40],-tanX; movss [r+0x44],tanY; mov dword [r+0x48],1.0.
-constexpr char kReclaimerVisrConstantsStores[] = "0F 11 ?? 40 F3 ?? 0F 11 ?? 44 ?? C7 ?? 48 00 00 80 3F";
-
 // The builder: (out Vec of {name: &str, data: Vec<u8>}, width, height, ?, VISR's state).
 using ReclaimerVisrConstantsFn = void*(__fastcall*)(void* out, uint32_t width, uint32_t height, void* r9,
                                                      void* state);
@@ -111,57 +106,34 @@ __declspec(noinline) void* __fastcall ReclaimerViewCameraDetour(void* out, uint6
     return result;
 }
 
-// The client executable's code section.
-bool ReclaimerExeCode(uintptr_t& start, size_t& size)
-{
-    const auto exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(exe + dos->e_lfanew);
-    const auto* section = IMAGE_FIRST_SECTION(nt);
-    for (unsigned i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section)
-        if (memcmp(section->Name, ".text", 6) == 0)
-        {
-            start = exe + section->VirtualAddress;
-            size = section->Misc.VirtualSize;
-            return true;
-        }
-    return false;
-}
 } // namespace
 
-// Install thread, once per process while Project Reclaimer's recompiled engine is in use. False with a reason logged.
+// Install thread, once per process while Project Reclaimer's recompiled engine is in use. The finds are
+// reclaimer_client_finds.h's, the same the offline check runs (tests/reclaimer_client_file_check.cpp). False with a
+// reason logged when VISR's camera is not found; its constants are hooked only when found AND the two finds agree
+// (the camera's one caller also builds the constants), else VISR keeps the vertical fix alone.
 bool InstallReclaimerVisrCamera()
 {
     static bool tried = false;
     if (tried || !g_hostIsProjectReclaimer || !lifted::Active())
         return g_reclaimerViewCameraTarget != nullptr;
     tried = true;
-    uintptr_t code = 0;
-    size_t codeSize = 0;
-    const char* why = nullptr;
-    uintptr_t read = 0, function = 0;
-    DWORD64 image = 0;
-    const PRUNTIME_FUNCTION extent =
-        !ReclaimerExeCode(code, codeSize)                                       ? nullptr
-        : !(read = sig::Find(code, codeSize, kReclaimerViewCameraReads))       ? nullptr
-                                                                               : RtlLookupFunctionEntry(read, &image,
-                                                                                                        nullptr);
-    if (!code)
-        why = "the client's code section";
-    else if (!read)
-        why = "its VISR camera's reads of field of view, near and far";
-    else if (sig::Find(read + 1, codeSize - (read + 1 - code), kReclaimerViewCameraReads))
-        why = "a single VISR camera read (more than one matched)";
-    else if (!extent || !(function = static_cast<uintptr_t>(image + extent->BeginAddress)))
-        why = "the VISR camera's function extent";
-    else if (!sig::Find(read, static_cast<size_t>(image + extent->EndAddress - read), kReclaimerViewCameraStores))
-        why = "the VISR camera's answer (field of view, near, far)";
-    if (why)
+    reclaimer_client::Image image;
+    if (!reclaimer_client::ClientImageInMemory(image))
     {
-        LOG("Project Reclaimer VISR: StockFallback: %s not found; VISR keeps the client's field of view", why);
+        LOG("Project Reclaimer VISR: StockFallback: the client executable's headers do not read; VISR keeps the "
+            "client's field of view");
         return false;
     }
-    void* const target = reinterpret_cast<void*>(function);
+    const auto exe = reinterpret_cast<uintptr_t>(image.base);
+    const reclaimer_client::Find camera = reclaimer_client::FindVisrCamera(image);
+    if (camera.missing)
+    {
+        LOG("Project Reclaimer VISR: StockFallback: its camera: %s not found; VISR keeps the client's field of view",
+            camera.missing);
+        return false;
+    }
+    void* const target = reinterpret_cast<void*>(exe + camera.function);
     if (MH_CreateHook(target, reinterpret_cast<void*>(&ReclaimerViewCameraDetour),
                       reinterpret_cast<void**>(&g_reclaimerViewCameraOriginal)) != MH_OK ||
         MH_EnableHook(target) != MH_OK)
@@ -173,21 +145,20 @@ bool InstallReclaimerVisrCamera()
         return false;
     }
     g_reclaimerViewCameraTarget = target;
-    const auto exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-    LOG("Project Reclaimer VISR: installed on the camera its VISR asks for (exe+0x%llX): VISR gets the headset eye's "
-        "vertical field of view", static_cast<unsigned long long>(function - exe));
+    LOG("Project Reclaimer VISR: installed on the camera its VISR asks for (exe+0x%X): VISR gets the headset eye's "
+        "vertical field of view", camera.function);
 
-    // Its constants' width (see the header). Without it VISR keeps the vertical fix alone.
-    const uintptr_t stores = sig::Find(code, codeSize, kReclaimerVisrConstantsStores);
-    DWORD64 builderImage = 0;
-    const PRUNTIME_FUNCTION builder = stores ? RtlLookupFunctionEntry(stores, &builderImage, nullptr) : nullptr;
-    if (!stores || sig::Find(stores + 1, codeSize - (stores + 1 - code), kReclaimerVisrConstantsStores) || !builder)
+    // Its constants' width (see the header).
+    const reclaimer_client::Find constants = reclaimer_client::FindVisrConstants(image);
+    const char* disagree = constants.missing ? nullptr
+                                             : reclaimer_client::VisrAgree(image, camera.function, constants.function);
+    if (constants.missing || disagree)
     {
-        LOG("Project Reclaimer VISR: StockFallback: its constants' builder %s; VISR's width stays the picture's",
-            !stores ? "not found" : !builder ? "has no extent" : "matched more than once");
+        LOG("Project Reclaimer VISR: StockFallback: its constants: %s %s; VISR's width stays the picture's",
+            constants.missing ? constants.missing : disagree, constants.missing ? "not found" : "does not hold");
         return true;
     }
-    void* const builderTarget = reinterpret_cast<void*>(static_cast<uintptr_t>(builderImage + builder->BeginAddress));
+    void* const builderTarget = reinterpret_cast<void*>(exe + constants.function);
     if (MH_CreateHook(builderTarget, reinterpret_cast<void*>(&ReclaimerVisrConstantsDetour),
                       reinterpret_cast<void**>(&g_reclaimerVisrConstantsOriginal)) != MH_OK ||
         MH_EnableHook(builderTarget) != MH_OK)
@@ -199,8 +170,11 @@ bool InstallReclaimerVisrCamera()
         return true;
     }
     g_reclaimerVisrConstantsTarget = builderTarget;
-    LOG("Project Reclaimer VISR: installed on its constants' builder (exe+0x%llX): VISR's width becomes the eye's",
-        static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(builderTarget) - exe));
+    LOG("Project Reclaimer VISR: installed on its constants' builder (exe+0x%X, built by the camera's one caller "
+        "exe+0x%X too): VISR's width becomes the eye's", constants.function,
+        reclaimer_client::CallingFunctions(image, camera.function, 1).empty()
+            ? 0u
+            : reclaimer_client::CallingFunctions(image, camera.function, 1)[0]);
     return true;
 }
 

@@ -141,6 +141,7 @@
 #include "../common/drive_sites.h"
 #include "drive_cascade.h"
 #include "reclaimer_capacity.h"
+#include "reclaimer_client_image.h"
 #include "halo3_hook_watch_mark.h"
 #include "install_search_cache.h"
 #include "drive_install.h"
