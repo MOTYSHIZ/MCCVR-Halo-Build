@@ -121,6 +121,11 @@ void SetCacheProbe(void (*probe)());
 bool CacheLockHeld();
 #endif
 
+// Opens a loaded game module as a drive_resolve::Image (its headers, the readable runs of its code, .pdata, its own TLS
+// index; every read the game's own bytes whatever this mod has hooked), under a structured-exception guard. For other
+// engine-free resolutions over the same view (odst_prompt_resolve.h). `why` names what was refused.
+bool OpenModuleImage(uintptr_t base, size_t size, drive_resolve::Image& image, const char*& why);
+
 // Opens the module at `base` (its headers, the readable runs of its executable sections, its .pdata, the TLS
 // index its PE TLS directory names; every byte read as the game has it, through this mod's own enabled hooks)
 // and runs `plan` on it by the rungs. `keep` is called for the run whose result is the one in use. False when

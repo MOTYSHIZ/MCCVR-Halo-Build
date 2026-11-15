@@ -17,6 +17,22 @@ constexpr const char* consumerEntryPattern=
 constexpr const char* consumerReloadPattern=
     "BA 2A 00 00 00 48 8B CE E8 54 67 0A 00 48 8B C8 E8 28 D8 FF FF 8B 4F 2C 84 C0 74 06 0F BA E9 0C EB 04 "
     "0F BA F1 0C 89 4F 2C BA 2A 00 00 00 48 8B CE E8 2B 67 0A 00";
+// ODST'S PROMPT AND MAP STATE (vr_mapping::OdstAction; docs/ODST-PROMPT-AND-MAP-EVIDENCE-2026-11-15.md). The tutorial
+// scripts' unit_confirm_message / unit_confirm_cancel_message set the controller's action-test record's confirm and
+// cancel prompt bytes; the game clears them once the answer's test fires. The record's tests word holds bit 3 while the
+// controller's PDA, the VISR map, is up. Where all of that is in this build is resolved by unique signatures and
+// cross-checked (src/common/odst_prompt_resolve.h; no recorded address); it is read on the game thread, where the
+// control builder reads accept for controller 0 -- once a tick -- and published for the input thread. Read only.
+struct PromptState {
+    std::atomic<bool> proved{};
+    const uint32_t* tlsIndex{};
+    uintptr_t readReturn{};          // the reader's return address at the builder's read of accept
+    uint32_t block{}, confirmFlag{}; // the records' TLS block offset; the confirm byte (cancel follows it)
+    uint32_t pdaBit{};               // the PDA's bit in the tests word
+    // Bits 0-3: the four prompt bytes (confirm, cancel, and the two after them) set; bit 4: the PDA up.
+    std::atomic<uint32_t> bits{}, generation{};
+    std::atomic<uint64_t> stampMs{}, faults{};
+} prompt;
 struct Runtime {
     HMODULE module{};
     uintptr_t base{}, state{};
@@ -140,11 +156,36 @@ void* ReadOwned(void* state,unsigned action,void* native,uintptr_t caller) noexc
         runtime.routed.fetch_add(1,std::memory_order_relaxed);
         return record.bytes.data();
 }
+// The game thread, at the builder's read of accept for controller 0's row: the action-test record's prompt bytes and PDA
+// bit (PromptState). ODST runs only in MCC, never lifted, so the engine TLS array is gs:[0x58].
+__declspec(noinline) void PublishPromptState(const void* state) noexcept {
+    if(reinterpret_cast<uintptr_t>(state)!=runtime.state || !prompt.tlsIndex) return;
+    uint32_t bits=0;
+    __try {
+        auto** slots=reinterpret_cast<void**>(__readgsqword(0x58));
+        const uint32_t index=*prompt.tlsIndex;
+        const auto* tls=slots&&index<0x200?static_cast<const uint8_t*>(slots[index]):nullptr;
+        const auto* record=tls?*reinterpret_cast<const uint8_t* const*>(tls+prompt.block):nullptr;
+        if(!record) return;
+        const uint32_t flags=*reinterpret_cast<const volatile uint32_t*>(record+prompt.confirmFlag);
+        const uint64_t tests=*reinterpret_cast<const volatile uint64_t*>(record);
+        for(unsigned i=0;i<4;++i) if((flags>>(8*i))&0xFFu) bits|=1u<<i;
+        if((tests>>prompt.pdaBit)&1u) bits|=0x10u;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        prompt.faults.fetch_add(1,std::memory_order_relaxed);
+        return;
+    }
+    prompt.bits.store(bits,std::memory_order_relaxed);
+    prompt.generation.store(runtime.generation.load(std::memory_order_relaxed),std::memory_order_relaxed);
+    prompt.stampMs.store(GetTickCount64(),std::memory_order_release);
+}
 void* __fastcall ReaderHook(void* state,unsigned action,uintptr_t caller) {
     runtime.callbacks.fetch_add(1,std::memory_order_acq_rel);
     void* result=nullptr;
     __try {
         result=reinterpret_cast<Read>(runtime.original[1])(state,action);
+        if(prompt.proved.load(std::memory_order_relaxed) && caller==prompt.readReturn)
+            PublishPromptState(state);
         result=ReadOwned(state,action,result,caller);
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
     return result;
@@ -161,15 +202,20 @@ bool Retire() {
     runtime.readerAt.store(0,std::memory_order_release);
     publication.stamp.store(0,std::memory_order_release);
     publication.cancelEpoch.fetch_add(1,std::memory_order_acq_rel);
+    prompt.proved.store(false,std::memory_order_release);
+    prompt.stampMs.store(0,std::memory_order_release);
     for(unsigned i=0;i<2;++i) if(runtime.enabled[i]) {
         const auto status=MCCVR_DisableHookForRetirement(runtime.target[i]);
         if(status!=MH_OK && status!=MH_ERROR_DISABLED) return false;
         runtime.enabled[i]=false;
     }
     const void* functions[]{hooks[0],hooks[1],reinterpret_cast<void*>(&ReaderHook),reinterpret_cast<void*>(&ReadOwned),
-        reinterpret_cast<void*>(&Current),reinterpret_cast<void*>(&ReadController),reinterpret_cast<void*>(&ReadFrames)};
-    const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr};
-    if(!WaitForNativeDetourQuiescence(functions,trampolines,7,runtime.callbacks)) return false;
+        reinterpret_cast<void*>(&Current),reinterpret_cast<void*>(&ReadController),reinterpret_cast<void*>(&ReadFrames),
+        reinterpret_cast<void*>(&PublishPromptState)};
+    const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
+    if(!WaitForNativeDetourQuiescence(functions,trampolines,8,runtime.callbacks)) return false;
+    prompt.tlsIndex=nullptr;
+    prompt.readReturn=0;
     for(unsigned i=0;i<2;++i) if(runtime.target[i]) {
         if(MH_RemoveHook(runtime.target[i])!=MH_OK) return false;
         runtime.target[i]=runtime.original[i]=nullptr;
@@ -233,6 +279,36 @@ void Poll() {
                 runtime.enabled[i]=proved;
             }
         }
+        // The prompt and map state (PromptState), found by unique signatures and cross-checked, never by a recorded
+        // address (odst_prompt_resolve.h): the builder's read of accept must call the reader just hooked. Anything not
+        // found or not agreeing is named, and the rows stay off: every control keeps its usual job.
+        prompt.proved.store(false,std::memory_order_release);
+        prompt.stampMs.store(0,std::memory_order_release);
+        if(proved) {
+            drive_resolve::Image image{};
+            const char* why=nullptr;
+            if(!drive_cascade::OpenModuleImage(base,size,image,why))
+                LOG("ODST prompt and map rows: off; halo3odst.dll could not be read (%s)",why?why:"unknown");
+            else {
+                const auto found=odst_prompt_resolve::Resolve(image,static_cast<uint32_t>(d.readerRva));
+                if(found.ok) {
+                    prompt.tlsIndex=reinterpret_cast<const uint32_t*>(base+found.tlsIndexRva);
+                    prompt.readReturn=base+found.acceptReadReturn;
+                    prompt.block=found.block;
+                    prompt.confirmFlag=found.confirmFlag;
+                    prompt.pdaBit=found.pdaBit;
+                    prompt.proved.store(true,std::memory_order_release);
+                    LOG("ODST prompt and map rows: the prompt and VISR map state is found (the builder's read of accept "
+                        "returns to +0x%X; engine TLS index +0x%X, records at TLS +0x%X, prompt bytes +0x%X/+0x%X, the "
+                        "map test bit %u)",found.acceptReadReturn,found.tlsIndexRva,found.block,found.confirmFlag,
+                        found.cancelFlag,found.pdaBit);
+                }
+                else
+                    LOG("ODST prompt and map rows: off, normal controls kept; not found or not agreeing: %s",found.missing);
+            }
+        }
+        else
+            LOG("ODST prompt and map rows: off, normal controls kept (the ODST action bridge did not install)");
         runtime.readerAt.store(0,std::memory_order_release);
         runtime.admitted.store(proved,std::memory_order_release);
         LOG("Native VR action bridge ODST: %s; requires observed owned input cadence; runtime validation pending",

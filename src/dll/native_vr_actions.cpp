@@ -10,6 +10,8 @@
 #include "../common/config.h"
 #include "../common/log.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/odst_prompt_resolve.h"
+#include "drive_cascade.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
@@ -443,6 +445,22 @@ void NativeVrActions_Publish(const void* raw,GameTitle requested,uint64_t now,
     publication.stamp.store(now,std::memory_order_relaxed);
     publication.sequence.store(before+2,std::memory_order_release);
     pollPublished=true;
+}
+bool NativeVrActions_OdstPromptState(uint64_t now,bool& prompt,bool& map,uint32_t* raw) noexcept {
+    prompt=map=false;
+    if(raw) *raw=0;
+    auto& p=native_odst::prompt;
+    if(!p.proved.load(std::memory_order_acquire) || TitleAdapter_GetActiveTitle()!=GameTitle::Halo3ODST) return false;
+    const uint64_t stamp=p.stampMs.load(std::memory_order_acquire);
+    // The builder reads accept every tick: older than a quarter second, the game is not running its controls (a pause).
+    if(!stamp || now<stamp || now-stamp>250) return false;
+    const uint32_t generation=TitleAdapter_GetGeneration(GameTitle::Halo3ODST);
+    if(!generation || p.generation.load(std::memory_order_relaxed)!=generation) return false;
+    const uint32_t bits=p.bits.load(std::memory_order_relaxed);
+    prompt=(bits&0x3u)!=0;   // a prompt waiting on accept or cancel
+    map=(bits&0x10u)!=0;
+    if(raw) *raw=bits;
+    return true;
 }
 bool NativeVrActions_GestureRouting(GameTitle requested,uint64_t now) noexcept {
     if(requested==GameTitle::HaloCE)return native_ce::GestureRouting(now);

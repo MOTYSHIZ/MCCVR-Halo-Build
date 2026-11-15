@@ -60,6 +60,10 @@ bool Game_TitleCoreState(GameTitle,GameTitleCoreState& out) noexcept
 void HostUnloadGate_Pin(HMODULE,std::atomic<bool>*,const std::atomic<uint64_t>*,const char*,bool) {++pinned;}
 void HostUnloadGate_Unpin(HMODULE) {++unpinned;}
 void Logf(const char*,...){}
+// ODST's prompt and map state: the fixture image is no game DLL, so it does not open (the rows stay off).
+namespace drive_cascade {
+bool OpenModuleImage(uintptr_t,size_t,drive_resolve::Image&,const char*& why){why="the test fixture";return false;}
+}
 bool Game_ReadVrActionBindings(vr_mapping::Transports& out,uint64_t,unsigned){out.fill(0x4000);return fallbackVerified;}
 GameTitle TitleAdapter_GetActiveTitle(){
     if(switchGenerationOnTitleRead){switchGenerationOnTitleRead=false;runtime.generation=++testGeneration;}

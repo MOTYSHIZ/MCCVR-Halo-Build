@@ -1122,6 +1122,10 @@ struct VrPadState
     bool dualWield = false; // the support trigger fires the other gun
     bool supportOnOneHandedGun = false; // vr_mapping::OneHandedGripOnGun
     float dpadX = 0.0f, dpadY = 0.0f;
+    // ODST's VISR map with its D-pad rows on the right stick (Input_OdstMapTakesRightStick): the physical right stick,
+    // already removed from turn, for those rows alone.
+    bool odstMapStick = false;
+    float odstMapX = 0.0f, odstMapY = 0.0f;
     // Optional body-gesture output, validated again before XInput delivery.
     uint32_t weaponButtons = 0;
     uint64_t weaponSampleMs = 0;

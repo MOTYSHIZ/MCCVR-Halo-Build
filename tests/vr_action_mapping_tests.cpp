@@ -136,7 +136,11 @@ void CheckInputPresets()
         {
             Check(ContextSource(source)==(source>=kRowSourceCount&&source<HandOnGun),
                 "the context sources are the three past the rows' first choices");
-            Check(ListedSource(source)==(source!=Automatic&&!ContextSource(source)),"a row lists every other but Automatic");
+            const bool stickSide=source==RightStickLeft||source==RightStickRight;
+            Check(ListedSource(source)==(source!=Automatic&&!ContextSource(source)&&!stickSide),
+                "a row lists every other but Automatic and the right stick's sides");
+            Check(OdstListedSource(source)==(ListedSource(source)||stickSide),
+                "ODST's prompt and map rows also list the right stick's sides");
         }
         // A file from before the rows held inputs: the settings become the inputs they stood for.
         Inputs converted=DefaultInputs(GameTitle::HaloReach);
@@ -511,6 +515,66 @@ void CheckInputPresets()
         input_preset::Parse(input_preset::Serialize(moved).c_str(),movedLoaded);
         Check(input_preset::SameScheme(movedLoaded,moved)&&!input_preset::SameScheme(movedLoaded,Config{}),
             "the Pause row round trips in a preset, and a change to it is another scheme");
+    }
+    // ODST's prompt and map rows: A confirms and B rejects while a prompt waits or the map is open; the map's D-pad rows
+    // are the right stick, in the map only; outside both, nothing is claimed and nothing pressed.
+    {
+        OdstBindings rows=kOdstDefaults;
+        Check(rows[PromptConfirm][0].press==A&&rows[PromptReject][0].press==B&&rows[MapUp][0].press==RightStickUp&&
+            rows[MapLeft][0].press==RightStickLeft&&rows[MapRight][0].press==RightStickRight,"the defaults: A, B, the stick");
+        Check(OdstMapUsesRightStick(rows),"the default map rows take the right stick");
+        const OdstButtons game{};
+        OdstMapper m;
+        uint32_t claimed=0;
+        Check(!m.Step(Bit(A)|Bit(B),false,false,rows,&claimed)&&!claimed,"no prompt, no map: nothing, nothing claimed");
+        Check(!m.Step(Bit(A),true,false,rows,&claimed),"A already down as the prompt comes up waits for its release");
+        Check(claimed==(Bit(A)|Bit(B)),"in a prompt, confirm and reject claim A and B (not the stick: no map)");
+        m.Step(0,true,false,rows);
+        uint32_t pressed=m.Step(Bit(A),true,false,rows);
+        Check(pressed==(1u<<PromptConfirm)&&OdstRowButtons(pressed,true,false,game)==0x1000,
+            "in a prompt, A confirms with the game's accept button (the engine's A)");
+        pressed=m.Step(Bit(B),true,false,rows);
+        Check(pressed==(1u<<PromptReject)&&OdstRowButtons(pressed,true,false,game)==0x2000,"and B rejects with its cancel");
+        OdstButtons moved{};moved.accept=0x8000;moved.cancel=1u<<16;
+        Check(OdstRowButtons(1u<<PromptConfirm,true,false,moved)==0x8000&&
+            OdstRowButtons(1u<<PromptReject,true,false,moved)==(1u<<16),"the game's own buttons, as its layout has them");
+        Check(!m.Step(StickSideSources(0.f,1.f),true,false,rows),"the map's D-pad rows are not live in a prompt alone");
+        m.Step(0,false,true,rows);
+        pressed=m.Step(StickSideSources(0.f,1.f),false,true,rows,&claimed);
+        Check(pressed==(1u<<MapUp)&&OdstRowButtons(pressed,false,true,game)==0x1,"in the map, stick up is D-pad up");
+        Check((claimed&kRightStickSides)==kRightStickSides&&(claimed&Bit(A)),"the map claims the stick, A and B");
+        pressed=m.Step(StickSideSources(-.9f,.2f),false,true,rows);
+        Check(pressed==(1u<<MapLeft)&&OdstRowButtons(pressed,false,true,game)==0x4,"stick left is D-pad left, no diagonal");
+        Check(StickSideSources(.6f,-.7f)==Bit(RightStickDown)&&StickSideSources(.3f,.4f)==0&&
+            StickSideSources(std::numeric_limits<float>::quiet_NaN(),1.f)==0,"one direction past half way, the stronger");
+        m.Step(0,false,true,rows);
+        pressed=m.Step(Bit(A),false,true,rows);
+        Check(OdstRowButtons(pressed,false,true,moved)==0x1000,"in the map, confirm is A itself whatever the layout");
+        Check(OdstRowButtons(1u<<PromptConfirm,true,true,moved)==(0x8000|0x1000),"a prompt over the map: both");
+        Check(!m.Step(Bit(A),false,false,rows,&claimed)&&!claimed,"the map closed: A is the rows' again");
+        // Rebound: confirm on X and the map's D-pad off the stick give the stick back to turning.
+        rows[PromptConfirm]={Input{kNoneHeld,X},Input{},Input{},Input{}};
+        for(unsigned a=MapUp;a<OdstCount;++a) rows[a]={Input{kNoneHeld,Unbound},Input{},Input{},Input{}};
+        Check(!OdstMapUsesRightStick(rows),"map rows off the stick leave the stick alone");
+        OdstMapper r;
+        r.Step(0,true,false,rows);
+        Check(r.Step(Bit(A),true,false,rows,&claimed)==0&&!(claimed&Bit(A))&&(claimed&Bit(X)),"A is free, X confirms");
+        // Files and presets.
+        Input read{};
+        Check(RightStickLeft==22&&RightStickRight==23,"files keep the controls' numbers: the stick's sides go at the end");
+        Check(ParseOdstInput("22",read)&&read.press==RightStickLeft&&!ParseOdstInput("0",read),
+            "an ODST row lists the stick's sides, never Automatic");
+        HeldControls held{};int press=0;InputMode mode{};
+        Check(!ParseInput("22",held,press,mode,false),"other rows do not list the stick's sides");
+        Config odst{};
+        odst.vr_odst_bindings[PromptReject][1]=Input{kNoneHeld,RightStickRight,InputMode::Hold};
+        Config odstLoaded{};
+        input_preset::Parse(input_preset::Serialize(odst).c_str(),odstLoaded);
+        Check(odstLoaded.vr_odst_bindings==odst.vr_odst_bindings&&input_preset::SameScheme(odstLoaded,odst)&&
+            !input_preset::SameScheme(odstLoaded,Config{}),"the ODST rows round trip in a preset");
+        Config defaults{};
+        default_controls::Apply(defaults);
+        Check(defaults.vr_odst_bindings==kOdstDefaults,"the default controls' ODST rows");
     }
     // A row's further inputs: any of them presses the action; they count for flashlight suppression, the bridge's split
     // and Halo 2's Use, and are kept in presets and the config.
@@ -1113,6 +1177,22 @@ int main()
             g_config.vr_bindings[0]==scheme.vr_bindings[0]&&g_config.vr_inputs[2]==scheme.vr_inputs[2]&&
             g_config.vr_extra_bindings[3]==scheme.vr_extra_bindings[3],
             "the rest load as the default controls, and a chosen Automatic stays");
+        // ODST's prompt and map rows: a changed row is written, with all its inputs, and loads back; the rest stay default.
+        g_config.vr_odst_bindings[PromptReject]={Input{kNoneHeld,Y},Input{kNoneHeld,RightStickLeft},Input{},Input{}};
+        saved.close();   // the file is written again: let go of it first
+        ConfigSave();
+        std::ifstream odstSaved(path);
+        const std::string odstText((std::istreambuf_iterator<char>(odstSaved)),std::istreambuf_iterator<char>());
+        odstSaved.close();
+        Check(odstText.find("vr_bind_odst_prompt_reject = 9")!=std::string::npos&&
+            odstText.find("vr_bind_odst_prompt_reject_2 = 22")!=std::string::npos&&
+            odstText.find("vr_bind_odst_prompt_confirm")==std::string::npos,"only the changed ODST row is written");
+        g_config.vr_odst_bindings=kOdstDefaults;
+        ConfigLoad(path.c_str());
+        Check(g_config.vr_odst_bindings[PromptReject][0].press==Y&&
+            g_config.vr_odst_bindings[PromptReject][1].press==RightStickLeft&&
+            g_config.vr_odst_bindings[PromptConfirm]==kOdstDefaults[PromptConfirm],"and it loads back");
+        g_config.vr_odst_bindings=kOdstDefaults;
     }
     // A file from before the rows held inputs: the right stick and the two Input combinations become inputs, once.
     {std::ofstream file(path);file<<"right_stick_crouch = 1\ngrip_contextual_trigger = 1\ntrigger_air_equipment = 1\n";}

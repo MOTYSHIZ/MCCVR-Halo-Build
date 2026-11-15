@@ -16,7 +16,7 @@ enum Action : unsigned { Fire, Grenade, Jump, Melee, Reload, Interact, SwitchWea
 enum Source : int { Automatic, Unbound, PrimaryTrigger, SupportTrigger, PrimaryGrip,
     SupportGrip, A, B, X, Y, LeftClick, RightClick, DpadUp, DpadDown, DpadLeft,
     DpadRight, SupportTriggerFree, SupportTriggerOnGun, SupportTriggerAir, HandOnGun, RightStickUp, RightStickDown,
-    SourceCount };
+    RightStickLeft, RightStickRight, SourceCount };
 enum class Profile : unsigned { Unknown, Touch, Index, Vive, Wmr, Simple };
 inline constexpr const char* kKeys[Count]{"fire","grenade","jump","melee","reload",
     "interact","switch_weapon","switch_grenade","equipment","crouch","zoom","flashlight","sprint"};
@@ -30,7 +30,7 @@ inline constexpr const char* kSourceNames[SourceCount]{"Follow my MCC layout","U
     "Left X / lower face","Left Y / upper face","Left stick / pad click","Right stick / pad click",
     "D-pad gesture up","D-pad gesture down","D-pad gesture left","D-pad gesture right",
     "Support trigger, hand free","Support trigger, gripping the gun","Support trigger, gripping air",
-    "Support hand on the gun","Right stick up","Right stick down"};
+    "Support hand on the gun","Right stick up","Right stick down","Right stick left","Right stick right"};
 using Overrides = std::array<int, Count>;
 using Transports = std::array<uint32_t, Count>;
 inline constexpr int kDefaults[Count]{PrimaryTrigger,SupportTrigger,A,PrimaryGrip,X,X,
@@ -42,7 +42,8 @@ inline constexpr unsigned kNoAction=0xFF;
 inline constexpr int kRowSourceCount=SupportTriggerFree;
 inline constexpr bool ContextSource(int source) noexcept
 { return source==SupportTriggerFree||source==SupportTriggerOnGun||source==SupportTriggerAir; }
-// A control a row may list: every one but Automatic and the old contexts. Unbound is no control.
+// A control a row may list: every one but Automatic and the old contexts. Unbound is no control. The right stick's left
+// and right are not: on foot that axis turns, so only ODST's map rows list them (OdstListedSource).
 inline constexpr bool ListedSource(int source) noexcept
 { return (source>Automatic&&source<kRowSourceCount)||source==HandOnGun||source==RightStickUp||source==RightStickDown; }
 // A row saved while the context sources were rows' choices: Zoom on the gun turns the grip-contextual trigger on, and
@@ -336,8 +337,11 @@ inline void FormatInput(char (&out)[32],const HeldControls& held,int press,Input
 }
 // Reads FormatInput's text. A row's own press (`own`) may be Automatic or an old context number, which the caller
 // converts; every other control must be one a row may list. False leaves the outputs as they were.
-inline bool ParseInput(const char* text,HeldControls& held,int& press,InputMode& mode,bool own) noexcept
+inline bool ParseInput(const char* text,HeldControls& held,int& press,InputMode& mode,bool own,
+    bool stickSides=false) noexcept
 {
+    const auto listed=[stickSides](int source)
+    { return ListedSource(source)||(stickSides&&(source==RightStickLeft||source==RightStickRight)); };
     int values[kHeld+1]{};
     unsigned count=0;
     const char* at=text?text:"";
@@ -359,7 +363,7 @@ inline bool ParseInput(const char* text,HeldControls& held,int& press,InputMode&
     while(*at==' '||*at=='\t'||*at=='\r'||*at=='\n') ++at;
     if(*at) return false;
     const int readPress=values[count-1];
-    if(own?false:!ListedSource(readPress)) return false;
+    if(own?false:!listed(readPress)) return false;
     HeldControls readHeld=kNoneHeld;
     for(unsigned i=0;i+1<count;++i)
     {
@@ -735,6 +739,113 @@ struct ModMapper
             was[a]=on;
         }
         return started;
+    }
+};
+
+// ODST'S PROMPT AND MAP ROWS (VR Mappings, ODST only). ODST's tutorial prompts ("A to confirm, B to reject") wait on two
+// actions of the game's own, accept (0x12) and cancel (0x13), whose buttons are the engine's A and B: no MCC control moves
+// them. The VISR map is a screen of the game's that reads the gamepad's buttons themselves (A, B, the D-pad). These rows
+// press those only while a prompt waits or the map is open (`ODST-PROMPT-AND-MAP-EVIDENCE-2026-11-15.md`), and while
+// they do, the controls they use press nothing else, so the on-foot and vehicle rows keep their controls untouched.
+enum OdstAction : unsigned { PromptConfirm, PromptReject, MapUp, MapDown, MapLeft, MapRight, OdstCount };
+// ODST's own accept and cancel actions (halo3odst.dll's control builder reads them into the prompts' tests).
+inline constexpr unsigned kOdstAcceptAction=0x12,kOdstCancelAction=0x13;
+// Files keep these keys: vr_bind_odst_prompt_confirm, and _2 to _4 for further inputs.
+inline constexpr const char* kOdstKeys[OdstCount]{"odst_prompt_confirm","odst_prompt_reject","odst_map_up",
+    "odst_map_down","odst_map_left","odst_map_right"};
+inline constexpr const char* kOdstNames[OdstCount]{"Confirm (prompts and the VISR map)",
+    "Reject (prompts and the VISR map)","Map D-pad up","Map D-pad down","Map D-pad left","Map D-pad right"};
+// The confirm and reject rows count in a prompt and in the map; the D-pad rows in the map only.
+inline constexpr bool OdstMapOnly(OdstAction action) noexcept { return action>=MapUp&&action<OdstCount; }
+// A control an ODST row may list: a row's, and the right stick's left and right (only the map takes the stick).
+inline constexpr bool OdstListedSource(int source) noexcept
+{ return ListedSource(source)||source==RightStickLeft||source==RightStickRight; }
+using OdstBindings=std::array<ExtraRow,OdstCount>;
+inline constexpr OdstBindings kOdstDefaults{{
+    {Input{kNoneHeld,A},Input{},Input{},Input{}},
+    {Input{kNoneHeld,B},Input{},Input{},Input{}},
+    {Input{kNoneHeld,RightStickUp},Input{},Input{},Input{}},
+    {Input{kNoneHeld,RightStickDown},Input{},Input{},Input{}},
+    {Input{kNoneHeld,RightStickLeft},Input{},Input{},Input{}},
+    {Input{kNoneHeld,RightStickRight},Input{},Input{},Input{}}}};
+inline constexpr uint32_t kRightStickSides=Bit(RightStickUp)|Bit(RightStickDown)|Bit(RightStickLeft)|Bit(RightStickRight);
+// True if a map row uses the right stick: the map then takes the stick from turning.
+inline bool OdstMapUsesRightStick(const OdstBindings& rows) noexcept
+{
+    for(unsigned a=MapUp;a<OdstCount;++a)
+        for(const auto& input:rows[a])
+            if(OdstListedSource(input.press)&&(Bit(input.press)&kRightStickSides)) return true;
+    return false;
+}
+// The right stick as one direction, the stronger axis past half way (no diagonals: one D-pad direction at a time).
+inline uint32_t StickSideSources(float x,float y) noexcept
+{
+    if(!std::isfinite(x)||!std::isfinite(y)) return 0;
+    const float ax=std::fabs(x),ay=std::fabs(y);
+    if(ax<.5f&&ay<.5f) return 0;
+    if(ay>=ax) return Bit(y>0.f?RightStickUp:RightStickDown);
+    return Bit(x>0.f?RightStickRight:RightStickLeft);
+}
+// An ODST row's input in a file: any control an ODST row lists, never Automatic.
+inline bool ParseOdstInput(const char* text,Input& input) noexcept
+{
+    Input read=input;
+    if(!ParseInput(text,read.held,read.press,read.mode,false,true)) return false;
+    input=read;
+    return true;
+}
+// The buttons each ODST row presses: in a prompt, the game's own button for accept or cancel (`accept`, `cancel`: what
+// the player's layout has, the engine's A and B when unread); in the map, the gamepad's A, B and D-pad themselves.
+struct OdstButtons { uint32_t accept=0x1000,cancel=0x2000; };
+inline uint32_t OdstRowButtons(uint32_t pressed,bool prompt,bool map,const OdstButtons& buttons) noexcept
+{
+    constexpr uint32_t kA=0x1000,kB=0x2000,kDpad[4]{0x1,0x2,0x4,0x8};
+    uint32_t out=0;
+    if(pressed&(1u<<PromptConfirm)) out|=(prompt?buttons.accept:0u)|(map?kA:0u);
+    if(pressed&(1u<<PromptReject)) out|=(prompt?buttons.cancel:0u)|(map?kB:0u);
+    if(map) for(unsigned a=MapUp;a<OdstCount;++a) if(pressed&(1u<<a)) out|=kDpad[a-MapUp];
+    return out;
+}
+struct OdstMapper
+{
+    // Context 0: a prompt or the map; 1: the map.
+    std::array<bool,2> live{};
+    std::array<uint32_t,2> blocked{};
+    ChordState<OdstCount*kRowInputs> chords;
+    // One poll: the rows pressed (a bit per OdstAction). `claimed` takes every control a live row uses, pressed or not:
+    // the other rows leave those alone. A control already down as a context comes up waits for its release.
+    uint32_t Step(uint32_t sources,bool prompt,bool map,const OdstBindings& rows,uint32_t* claimed=nullptr) noexcept
+    {
+        const bool on[2]{prompt||map,map};
+        for(unsigned c=0;c<2;++c)
+        {
+            if(!on[c]) {live[c]=false;blocked[c]=0;continue;}
+            if(!live[c]) {live[c]=true;blocked[c]=sources;}
+            blocked[c]&=sources;
+        }
+        std::array<ResolvedInput,OdstCount*kRowInputs> inputs{};
+        uint32_t uses=0;
+        for(unsigned a=0;a<OdstCount;++a)
+        {
+            const unsigned c=OdstMapOnly(static_cast<OdstAction>(a))?1u:0u;
+            if(!live[c]) continue;
+            for(unsigned i=0;i<kRowInputs;++i)
+            {
+                const auto& input=rows[a][i];
+                if(!OdstListedSource(input.press)||!Bit(input.press)) continue;
+                uses|=Bit(input.press)|HeldBits(input.held);
+                if(!(Bit(input.press)&blocked[c]))
+                    inputs[a*kRowInputs+i]={HeldBits(input.held),Bit(input.press),input.mode};
+            }
+        }
+        if(!live[0]&&!live[1]) chords.Reset(true);
+        const auto presses=chords.Step(inputs,sources,sources,~0u);
+        uint32_t pressed=0;
+        for(unsigned a=0;a<OdstCount;++a)
+            for(unsigned i=0;i<kRowInputs;++i)
+                if(presses[a*kRowInputs+i]) pressed|=1u<<a;
+        if(claimed) *claimed=uses;
+        return pressed;
     }
 };
 

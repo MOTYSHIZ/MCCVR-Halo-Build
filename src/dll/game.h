@@ -31,6 +31,8 @@ bool Game_ReadVrActionBindings(vr_mapping::Transports& out, uint64_t nowMs,
 uint32_t Game_VrActionTransport(vr_mapping::Action action, uint64_t nowMs);
 // The seat's rows' own buttons in the active game, from the same snapshot (0 for an action the game has none of).
 bool Game_ReadVrExtraBindings(vr_mapping::ExtraTransports& out, uint64_t nowMs);
+// ODST (halo3odst.dll) only: the player's buttons for its prompts' accept and cancel actions, from the same snapshot.
+bool Game_ReadOdstPromptButtons(uint32_t& accept, uint32_t& cancel, uint64_t nowMs);
 
 // Camera-thread admission (roomscale_admission_logic.h): on foot, in control, first person -- by the game's own
 // camera where the title has it bound (every title; Reach, Halo 4 and Halo 2 since director_camera_logic.h), else
@@ -553,6 +555,8 @@ uint32_t Input_MenuPressSerial();
 void Input_ReportGamePolls();
 struct VrPadState;
 void Input_StepHeadKeys(VrPadState& pad);
+// ODST's VISR map is open and its D-pad rows (VR Mappings) use the right stick: the stick is theirs, not the turn's.
+bool Input_OdstMapTakesRightStick() noexcept;
 // MCC's crouch-lock (toggle crouch) settings, read from its GameUserSettings.ini by the cold worker
 // (a timestamp check every 2 s, a parse only when MCC rewrites the file) for the CROUCH log line.
 // Diagnostic only: the file did not predict Reach's crouch behaviour in FA (see input.cpp).
