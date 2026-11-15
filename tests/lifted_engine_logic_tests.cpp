@@ -72,7 +72,8 @@ static std::vector<uint8_t> MakeFile(size_t codeLength, uint32_t version = 2)
     body.push_back(0);
     Leb(body, codeLength);
     body.resize(body.size() + codeLength, 0xCC);
-    std::vector<uint8_t> file(0x40, 0);
+    const bool format3 = version != 2;   // 3 and the unknown versions made here: the body at 0x38, a checksum after
+    std::vector<uint8_t> file(format3 ? 0x38 : 0x40, 0);
     std::memcpy(file.data(), "RCLMCODE", 8);
     const uint32_t hashLength = 0x20;
     std::memcpy(file.data() + 8, &version, 4);
@@ -80,6 +81,8 @@ static std::vector<uint8_t> MakeFile(size_t codeLength, uint32_t version = 2)
     const uint64_t bodyLength = body.size();
     std::memcpy(file.data() + 0x30, &bodyLength, 8);
     file.insert(file.end(), body.begin(), body.end());
+    if (format3)
+        file.resize(file.size() + 0x20, 0x5A);
     return file;
 }
 
@@ -122,8 +125,38 @@ int main()
         CHECK(Parse(MakeFile(0x500).data(), MakeFile(0x500).size(), table) == ParseResult::Inconsistent);
         CHECK(Parse(MakeFile(code + 0x20000).data(), MakeFile(code + 0x20000).size(), table) ==
               ParseResult::Inconsistent);
+        CHECK(table.version == 2 && !table.probed);
+
+        // Format 3 (Project Reclaimer 0.10.4): the body 8 bytes earlier and a 0x20-byte checksum after it.
         const std::vector<uint8_t> v3 = MakeFile(code, 3);
-        CHECK(Parse(v3.data(), v3.size(), table) == ParseResult::OtherVersion);
+        Table t3;
+        CHECK(Parse(v3.data(), v3.size(), t3) == ParseResult::Ok);
+        CHECK(t3.version == 3 && !t3.probed && t3.preferredBase == 0x180000000ull && t3.records.size() == 3);
+        CHECK(t3.codeLength == code && t3.codeOffset + code + 0x20 == v3.size());
+        CHECK(t3.records[2].guestRva == 0x1260 && t3.records[2].hostOffset == 0x640);
+        std::vector<uint8_t> v3cut = v3;
+        v3cut.resize(v3cut.size() - 0x20);   // no checksum: a 3 is not read as a 2
+        CHECK(Parse(v3cut.data(), v3cut.size(), t3) == ParseResult::Inconsistent);
+        std::vector<uint8_t> v2as3 = file;
+        v2as3[8] = 3;                        // a 2's layout labelled 3
+        CHECK(Parse(v2as3.data(), v2as3.size(), t3) == ParseResult::Inconsistent);
+
+        // A version this build does not know is read when one known layout fits it exactly, and says so.
+        const std::vector<uint8_t> v4 = MakeFile(code, 4);
+        Table t4;
+        CHECK(Parse(v4.data(), v4.size(), t4) == ParseResult::Ok);
+        CHECK(t4.version == 4 && t4.probed && t4.codeLength == code && t4.records.size() == 3);
+        std::vector<uint8_t> v4as2 = file;
+        v4as2[8] = 4;
+        CHECK(Parse(v4as2.data(), v4as2.size(), t4) == ParseResult::Ok && t4.probed &&
+              t4.codeOffset + code == v4as2.size());
+        std::vector<uint8_t> v4odd = v4;
+        v4odd.resize(v4odd.size() + 3);      // fits neither
+        CHECK(Parse(v4odd.data(), v4odd.size(), t4) == ParseResult::OtherVersion);
+        CHECK(t4.version == 4 && t4.records.empty());
+        std::vector<uint8_t> v4hash = v4;
+        v4hash[12] = 0x40;                   // another hash length: the header itself has changed
+        CHECK(Parse(v4hash.data(), v4hash.size(), t4) == ParseResult::OtherVersion);
         std::vector<uint8_t> cut = file;
         cut.resize(cut.size() - 1);
         CHECK(Parse(cut.data(), cut.size(), table) == ParseResult::Inconsistent);   // the header's length disagrees

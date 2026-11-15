@@ -52,6 +52,8 @@ struct Table
     std::vector<Record> records;  // in guest order, contiguous
     size_t codeOffset = 0;        // where the code starts in the file
     size_t codeLength = 0;
+    uint32_t version = 0;         // the file's format version (kept when it cannot be read)
+    bool probed = false;          // a version this build does not know, read by a known layout that fits it
 };
 
 enum class ParseResult
@@ -69,7 +71,7 @@ inline const char* ParseResultName(ParseResult result)
     {
     case ParseResult::Ok: return "read";
     case ParseResult::NotEngineCode: return "not an engine.code file";
-    case ParseResult::OtherVersion: return "a format version other than 2";
+    case ParseResult::OtherVersion: return "a format version this build cannot read";
     case ParseResult::Truncated: return "cut short";
     default: return "inconsistent";
     }
@@ -90,31 +92,13 @@ inline bool ReadLeb(const uint8_t* data, size_t size, size_t& at, uint64_t& valu
     return false;
 }
 
-// The file as the client writes it (format 2):
-//   0x00 "RCLMCODE", u32 version 2, u32 hash length, the hash, u64 body length (= file length - 0x40), 8 more bytes
-//   0x40 body: u64 preferred base, 12 bytes, then LEB128 record count, first guest RVA, 0, and per record LEB128
-//        body offset, guest size, host size; more tables and names; then 0x00, LEB128 code length, the code (to the
-//        end of the file).
-inline ParseResult Parse(const uint8_t* data, size_t size, Table& out)
+// The body: u64 preferred base, 12 bytes, then LEB128 record count, first guest RVA, 0, and per record LEB128 body
+// offset, guest size, host size; more tables and names; then 0x00, LEB128 code length, the code (to the body's end).
+inline ParseResult ParseBody(const uint8_t* body, size_t bodySize, size_t bodyStart, Table& out)
 {
-    out = Table{};
-    static constexpr char kMagic[8] = {'R', 'C', 'L', 'M', 'C', 'O', 'D', 'E'};
-    if (!data || size < 0x40 + 0x14)
-        return size >= 8 && data && std::memcmp(data, kMagic, 8) == 0 ? ParseResult::Truncated
-                                                                       : ParseResult::NotEngineCode;
-    if (std::memcmp(data, kMagic, 8) != 0)
-        return ParseResult::NotEngineCode;
-    uint32_t version = 0, hashLength = 0;
-    std::memcpy(&version, data + 8, 4);
-    std::memcpy(&hashLength, data + 12, 4);
-    if (version != 2 || hashLength != 0x20)
-        return ParseResult::OtherVersion;
-    uint64_t bodyLength = 0;
-    std::memcpy(&bodyLength, data + 0x30, 8);
-    if (bodyLength != size - 0x40)
-        return ParseResult::Inconsistent;
-    const uint8_t* body = data + 0x40;
-    const size_t bodySize = size - 0x40;
+    out.records.clear();
+    if (bodySize < 0x14)
+        return ParseResult::Truncated;
     std::memcpy(&out.preferredBase, body, 8);
 
     size_t at = 0x14;
@@ -156,11 +140,64 @@ inline ParseResult Parse(const uint8_t* data, size_t size, Table& out)
             continue;
         if (length < host || length - host > 0x10000)
             return ParseResult::Inconsistent;
-        out.codeOffset = 0x40 + after;
+        out.codeOffset = bodyStart + after;
         out.codeLength = static_cast<size_t>(length);
         return ParseResult::Ok;
     }
     return ParseResult::Inconsistent;
+}
+
+// The file as the client writes it. Both formats start "RCLMCODE", u32 version, u32 hash length (0x20), the hash,
+// then u64 body length:
+//   format 2 (0.10.0 - 0.10.3): 8 more bytes, the body from 0x40 to the end of the file.
+//   format 3 (0.10.4, 2026-11-15): the body from 0x38, then 0x20 bytes after it (a checksum).
+// A version this build does not know is read by whichever of the two layouts fits it exactly (the body's record
+// table and the code's length must agree with the file's size); the caller then still finds that code in memory
+// before it uses any of it, so a layout that only seems to fit hooks nothing.
+inline ParseResult Parse(const uint8_t* data, size_t size, Table& out)
+{
+    out = Table{};
+    static constexpr char kMagic[8] = {'R', 'C', 'L', 'M', 'C', 'O', 'D', 'E'};
+    if (!data || size < 0x40 + 0x14)
+        return size >= 8 && data && std::memcmp(data, kMagic, 8) == 0 ? ParseResult::Truncated
+                                                                       : ParseResult::NotEngineCode;
+    if (std::memcmp(data, kMagic, 8) != 0)
+        return ParseResult::NotEngineCode;
+    uint32_t version = 0, hashLength = 0;
+    std::memcpy(&version, data + 8, 4);
+    std::memcpy(&hashLength, data + 12, 4);
+    out.version = version;
+    if (hashLength != 0x20)
+        return ParseResult::OtherVersion;
+    uint64_t bodyLength = 0;
+    std::memcpy(&bodyLength, data + 0x30, 8);
+
+    struct Layout
+    {
+        size_t bodyStart;
+        size_t after;   // bytes after the body
+    };
+    static constexpr Layout kFormat2{0x40, 0}, kFormat3{0x38, 0x20};
+    const auto read = [&](const Layout& layout) {
+        if (bodyLength > size || layout.bodyStart + bodyLength + layout.after != size)
+            return ParseResult::Inconsistent;
+        const ParseResult result =
+            ParseBody(data + layout.bodyStart, static_cast<size_t>(bodyLength), layout.bodyStart, out);
+        if (result != ParseResult::Ok)
+            out.records.clear();
+        return result;
+    };
+    if (version == 2)
+        return read(kFormat2);
+    if (version == 3)
+        return read(kFormat3);
+    for (const Layout& layout : {kFormat3, kFormat2})
+        if (read(layout) == ParseResult::Ok)
+        {
+            out.probed = true;
+            return ParseResult::Ok;
+        }
+    return ParseResult::OtherVersion;
 }
 
 // Whether a record's block holds a body after its adapter. The table's last record (the end of .text) does not.
