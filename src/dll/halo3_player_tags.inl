@@ -502,17 +502,25 @@ bool InstallReclaimerPlayerTags(void* guestDraw)
         why = "the call of its own draw in its version of the navpoint draw";
     else if (!extent || image + extent->BeginAddress != draw)
         why = "its own draw's extent";
-    else if (!(countRead = mcc_clock::FindUnique(draw, extent->EndAddress - extent->BeginAddress,
-                                                 kReclaimerCountPattern)))
-        why = "its own draw's read of the entry count";
+    else
+    {
+        // Found by the read's shape (halo3_player_tags_logic.h), not its bytes: 0.10.4 changed the registers.
+        const long disp = FindReclaimerCountRead(reinterpret_cast<const uint8_t*>(draw),
+                                                 extent->EndAddress - extent->BeginAddress);
+        if (disp < 0)
+            why = "its own draw's read of the entry count";
+        else
+            countRead = draw + static_cast<uintptr_t>(disp);
+    }
     if (why)
     {
         LOG("PLAYER TAGS Halo 3: StockFallback: Project Reclaimer's own navpoint draw: %s did not prove; the settings "
             "reach only the game's own draw (%d entries)", why, g_halo3PlayerTags.count.load(std::memory_order_relaxed));
         return false;
     }
-    hook.countBlock = reinterpret_cast<uint64_t* const*>(
-        sig::RipTarget(countRead + kReclaimerCountDisp, countRead + kReclaimerCountDisp + 4));
+    // The global may hold no block yet; the detour reads the count on every call and applies nothing while it does not
+    // read as 20 to kMaxEntryCount (HostEntryCount).
+    hook.countBlock = reinterpret_cast<uint64_t* const*>(sig::RipTarget(countRead, countRead + 4));
     void* const detour = reinterpret_cast<void*>(&ReclaimerPlayerTagsDetour);
     DWORD64 detourImage = 0;
     if (!RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(detour), &detourImage, nullptr))
