@@ -11337,6 +11337,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     std::atomic<uint32_t> g_manualReloadEvents[6]{}; // dropped, grabbed, seated, racked, pressed, lost
     std::atomic<int> g_manualReloadPhase{0};
     std::atomic<int> g_manualReloadCounts[3]{};       // loaded, shown reserve, chamber (ours)
+    // The engine's last state for the worker's log (the input thread writes, the worker reads; not a hot path).
+    struct ManualReloadLogState
+    {
+        bool owned = false;
+        int phase = 0, loaded = 0, chamber = 0, reserve = 0;
+        reload_ammo::Sim game{};
+        bool wellValid = false, rackValid = false;
+        weapon_interaction::Vec well{}, wellAxis{}, rack{}, rackBack{}, support{};
+        uint64_t identity = 0;
+    };
+    SRWLOCK g_manualReloadLogLock = SRWLOCK_INIT;
+    ManualReloadLogState g_manualReloadLog{};
     WeaponAccessoryRenderer g_weaponAccessoryRenderer;
     weapon_accessory::Presentation g_weaponAccessory; // compositor thread only
     std::atomic<HRESULT> g_weaponAccessoryResult{S_FALSE};
@@ -16116,6 +16128,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 weaponGesture.supportHaptic=std::max(weaponGesture.supportHaptic,reloadOut.supportHaptic);
                 weaponGesture.primaryHaptic=std::max(weaponGesture.primaryHaptic,reloadOut.primaryHaptic);
                 if(reloadOut.owned) weaponGesture.holdingMagazine=reloadOut.magazineInHand;
+                {
+                    ManualReloadLogState log{};
+                    log.owned=reloadOut.owned;log.phase=int(reloadOut.phase);log.loaded=reloadOut.loaded;
+                    log.chamber=reloadOut.chamber;log.reserve=reloadOut.reserve;log.game=reloadIn.sim;
+                    log.wellValid=reloadIn.geometry.wellValid;log.rackValid=reloadIn.geometry.rackValid;
+                    log.well=reloadIn.geometry.well;log.wellAxis=reloadIn.geometry.wellAxis;
+                    log.rack=reloadIn.geometry.rack;log.rackBack=reloadIn.geometry.rackBack;
+                    log.support=reloadIn.support;log.identity=sample.weaponGraph;
+                    AcquireSRWLockExclusive(&g_manualReloadLogLock);
+                    g_manualReloadLog=log;
+                    ReleaseSRWLockExclusive(&g_manualReloadLogLock);
+                }
             }
             g_weaponStowedWord.store(weaponGesture.stowed&&sample.generation
                 ?(uint64_t(unsigned(sample.title)&0xFFu)<<32)|sample.generation:0,std::memory_order_release);
@@ -26053,6 +26077,29 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
             g_config.weapon_body_zone_radius_m,g_config.weapon_insert_radius_m,
             g_config.weapon_holster_radius_m,g_config.weapon_holster_draw_m,g_config.weapon_needler_shake?1u:0u);
     {
+        // The manual reload's state, every 5 s while it owns the gun and something changed: the player's count beside
+        // the game's, and where the well and rack part are (tracking space, metres), for a headless pass to aim at.
+        static uint64_t stateLoggedAt=0;
+        static int lastState[6]{-1,-1,-1,-1,-1,-1};
+        ManualReloadLogState log{};
+        AcquireSRWLockShared(&g_manualReloadLogLock);
+        log=g_manualReloadLog;
+        ReleaseSRWLockShared(&g_manualReloadLogLock);
+        const int state[6]{log.phase,log.loaded,log.chamber,log.game.loaded,log.game.reserve,log.game.reloading?1:0};
+        if(log.owned&&nowMs-stateLoggedAt>=5000&&std::memcmp(state,lastState,sizeof(state)))
+        {
+            std::memcpy(lastState,state,sizeof(state));
+            stateLoggedAt=nowMs;
+            LOG("Manual reload state: %s; ours loaded=%d chamber=%d reserve-shown=%d; game loaded=%d reserve=%d "
+                "capacity=%d reloading=%u; model=%016llX well=%s(%.3f,%.3f,%.3f) axis(%.2f,%.2f,%.2f) "
+                "rack=%s(%.3f,%.3f,%.3f) back(%.2f,%.2f,%.2f) support(%.3f,%.3f,%.3f)",
+                manual_reload::kPhaseNames[log.phase>=0&&log.phase<5?log.phase:0],log.loaded,log.chamber,log.reserve,
+                log.game.loaded,log.game.reserve,log.game.capacity,log.game.reloading?1u:0u,
+                static_cast<unsigned long long>(log.identity),log.wellValid?"":"none",
+                log.well.x,log.well.y,log.well.z,log.wellAxis.x,log.wellAxis.y,log.wellAxis.z,
+                log.rackValid?"":"none",log.rack.x,log.rack.y,log.rack.z,log.rackBack.x,log.rackBack.y,log.rackBack.z,
+                log.support.x,log.support.y,log.support.z);
+        }
         // The manual reload: each event once, with the player's count beside the game's.
         static uint32_t previousEvents[6]{};
         uint32_t events[6]{};
