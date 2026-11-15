@@ -331,7 +331,10 @@ static bool LearnReclaimerOdstAnchor(uint32_t generation, uintptr_t listEntry, c
                     heapRefs.push_back(at);
             });
         }))
+    {
+        considered = SIZE_MAX;   // the level changed on the way: no verdict
         return false;
+    }
     std::sort(heapRefs.begin(), heapRefs.end());
     if (!heapRefs.empty())
         for (const auto& span : exe.writable)
@@ -589,6 +592,9 @@ static void FindReclaimerOdstHudRecord(uint32_t generation, int attempt)
             "later levels follow it first", ReclaimerOdstAnchorText(learned, how, sizeof(how)), considered,
             static_cast<unsigned long long>(GetTickCount64() - t1));
     }
+    else if (considered == SIZE_MAX)
+        LOG("SAFEFRAME [Halo 3]: Project Reclaimer's ODST HUD list: the level changed while its reference was looked "
+            "for; looked for again on the next level found by its shape");
     else if (++s_learnFailures, true)
         LOG("SAFEFRAME [Halo 3]: Project Reclaimer's ODST HUD list: no reference to it from the client's executable "
             "within two steps (%zu candidate(s) weighed, %llu ms); later levels find it by its shape",
