@@ -1264,14 +1264,16 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         }
         else if (Game_MoveStickIsLocomotion())
         {
-            // Gameplay locomotion (UNCHANGED, headset-confirmed): the left stick
-            // walks the player, rotated head-relative so forward = gaze, and
-            // each axis floored past MCC's inner deadzone so small corrections
-            // still move. This path runs only while the game is actually using
-            // the stick to move the character.
+            // Gameplay locomotion (headset-confirmed): the left stick walks the
+            // player, rotated so forward = gaze (or the controller chosen in
+            // movement_direction), and each axis floored past MCC's inner
+            // deadzone so small corrections still move. This path runs only
+            // while the game is actually using the stick to move the character.
+            // Roomscale steps and arm-swing running stay head-relative: a
+            // swinging hand's heading is not a direction to run in.
             float mx = locomotionX, my = locomotionY;
             const bool roomscale = !running&&Roomscale_Move(mx, my);
-            Game_MapMoveStick(mx, my);
+            Game_MapMoveStick(mx, my, !roomscale && !running);
             if (((roomscale||running) && mx * mx + my * my > 1e-6f) ||
                 mx * mx + my * my > 0.02f)
             {

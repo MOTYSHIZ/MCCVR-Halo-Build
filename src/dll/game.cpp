@@ -38,6 +38,7 @@
 #include "title_image_guard.h"
 #include "native_forward.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/movement_direction_logic.h"
 #include "../common/manual_vr_recovery.h"
 #include "../common/manual_vr_recovery_logic.h"
 #include "../common/pitch_trim_logic.h"
@@ -61636,8 +61637,25 @@ bool Game_GetSeatLimitReticle(float outDir[3], float& outRangeM, bool& outSurfac
     return true;
 }
 
-void Game_MapMoveStick(float& mx, float& my)
+// movement_direction: the angle from the head's heading to the chosen controller's (looking right positive), 0
+// for the head. Every title's rotation below adds it to the head's heading, so the stick walks where that
+// controller points. Only the input poll calls this.
+static float MoveDirectionOffset(bool fromStick)
 {
+    static movement_direction::Tracker tracker;
+    if (!fromStick)
+        return 0.0f;
+    const int wanted = movement_direction::Clamp(g_config.movement_direction);
+    float head[4]{}, hand[4]{}, position[3]{};
+    const bool headValid = wanted != movement_direction::Head && VR_GetHeadPose(head, position);
+    const bool handValid = headValid &&
+        VR_GetPhysicalControllerPose(wanted == movement_direction::LeftHand ? 0 : 1, hand, position);
+    return tracker.Offset(wanted, headValid, head, handValid, hand, GetTickCount64());
+}
+
+void Game_MapMoveStick(float& mx, float& my, bool fromStick)
+{
+    const float handOffset = MoveDirectionOffset(fromStick);
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     // ODST has its own generation/liveness-checked seat state. The shared
     // H3 movement branch below cannot detect it through Halo3VehicleFpActive.
@@ -61648,7 +61666,7 @@ void Game_MapMoveStick(float& mx, float& my)
     if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
     {
         float x{},y{};
-        if (Game_CeControllerFeaturesRequested()&&HaloCEControls_MapMoveStick(mx,my,x,y))
+        if (Game_CeControllerFeaturesRequested()&&HaloCEControls_MapMoveStick(mx,my,x,y,handOffset))
         { mx=x;my=y; }
         return;
     }
@@ -61673,7 +61691,7 @@ void Game_MapMoveStick(float& mx, float& my)
         const float x = q[0], y = q[1], z = q[2], w = q[3];
         const float fx = -2.0f * (w * y + x * z);
         const float fz = -(1.0f - 2.0f * (x * x + y * y));
-        const float hy = atan2f(fx, -fz);
+        const float hy = atan2f(fx, -fz) + handOffset;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
         float gameYawReference=0.0f;
         float headYawReference=0.0f;
@@ -61722,7 +61740,7 @@ void Game_MapMoveStick(float& mx, float& my)
         const float x = q[0], y = q[1], z = q[2], w = q[3];
         const float fx = -2.0f * (w * y + x * z);
         const float fz = -(1.0f - 2.0f * (x * x + y * y));
-        const float hy = atan2f(fx, -fz);
+        const float hy = atan2f(fx, -fz) + handOffset;
         const float gaze = gameYawReference +
             g_yawSign.load() * WrapPi(hy - headYawReference);
         const float aimYaw = atan2f(aimForward[1], aimForward[0]);
@@ -61756,6 +61774,8 @@ void Game_MapMoveStick(float& mx, float& my)
         {
             return;
         }
+        // Halo 2's yaw grows turning left (Blam, Z up); the hand offset grows turning right.
+        delta = WrapPi(delta - handOffset);
         const float c = cosf(delta), s = sinf(delta);
         const float nx = mx * c - my * s;
         const float ny = mx * s + my * c;
@@ -61784,7 +61804,7 @@ void Game_MapMoveStick(float& mx, float& my)
     const float x = q[0], y = q[1], z = q[2], w = q[3];
     const float fx = -2.0f * (w * y + x * z);
     const float fz = -(1.0f - 2.0f * (x * x + y * y));
-    const float hy = atan2f(fx, -fz);
+    const float hy = atan2f(fx, -fz) + handOffset;
     const float headYaw = g_gameYawRef + g_yawSign.load() * WrapPi(hy - g_headYawRef);
     const float aimYaw = atan2f(g_aimFwdY.load(), g_aimFwdX.load());
     const float delta = WrapPi(headYaw - aimYaw);
