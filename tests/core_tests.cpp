@@ -16270,6 +16270,7 @@ int main()
         "cutscene_theater_enabled", "cutscene_theater_depth",
         "cutscene_theater_flip_depth", "cutscene_theater_width_m",
         "cutscene_theater_distance_m",
+        "movement_direction",
         "turn_smooth", "vehicle_smooth_turn", "turn_snap_deg", "turn_smooth_deg_s", "vr_bind_pause", "dpad_hand",
         "dpad_head_radius", "quest_thumbrest_dpad",
         "vehicle_first_person", "vehicle_cam_forward_m", "vehicle_cam_up_m",
