@@ -708,6 +708,8 @@ if(BUILD_TESTING)
     add_test(NAME halomccvr_title_build_identity_tests COMMAND halomccvr_title_build_identity_tests)
     add_executable(halomccvr_reclaimer_host_logic_tests tests/reclaimer_host_logic_tests.cpp)
     add_test(NAME halomccvr_reclaimer_host_logic_tests COMMAND halomccvr_reclaimer_host_logic_tests)
+    add_executable(halomccvr_movement_direction_tests tests/movement_direction_tests.cpp)
+    add_test(NAME halomccvr_movement_direction_tests COMMAND halomccvr_movement_direction_tests)
     add_executable(halomccvr_lifted_engine_logic_tests tests/lifted_engine_logic_tests.cpp)
     add_test(NAME halomccvr_lifted_engine_logic_tests COMMAND halomccvr_lifted_engine_logic_tests)
     # Project Reclaimer 0.10's own engine.code, where this machine has one (skipped otherwise).

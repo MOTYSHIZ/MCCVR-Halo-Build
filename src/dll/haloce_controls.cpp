@@ -721,11 +721,11 @@ bool HaloCEControls_OwnsLookStick() noexcept
     return TurnCurrent()&&stamp&&now>=stamp&&now-stamp<150&&AdmittedTurnContext(state,context,seated,seat,hullYaw)&&
         HaloCE_RenderContextCurrent(context);
 }
-bool HaloCEControls_MapMoveStick(float x,float y,float& outputX,float& outputY) noexcept
+bool HaloCEControls_MapMoveStick(float x,float y,float& outputX,float& outputY,float headingOffset) noexcept
 {
     Callback callback;HaloCELocalPlayerState state{};RenderContext context{};
     float candidateX{},candidateY{};
-    if (!AdmittedContext(state,context)||!HeadRelativeMovement(context,x,y,candidateX,candidateY)||
+    if (!AdmittedContext(state,context)||!HeadRelativeMovement(context,x,y,candidateX,candidateY,headingOffset)||
         !StateCurrent()||!HaloCE_RenderContextCurrent(context)) return false;
     outputX=candidateX;outputY=candidateY;return true;
 }
