@@ -6,6 +6,7 @@
 // reload a weapon cannot finish.
 #include "reload_ammo_model.h"
 #include "runtime_types.h"
+#include "weapon_model_catalog.h"
 #include <cstdint>
 #include <cstring>
 
@@ -32,7 +33,17 @@ inline const Parts* FindParts(GameTitle title, uint64_t identity) noexcept
 {
     for (const Parts& parts : kParts)
         if (parts.title == title && parts.identity == identity) return &parts;
+    // Project Reclaimer runs ODST's levels on the Halo 3 engine: the active title is Halo 3 while the guns are
+    // ODST's own models. Their identities are the kits' pinned checksums, so the ODST rows are safe to try.
+    if (title == GameTitle::Halo3) return FindParts(GameTitle::Halo3ODST, identity);
     return nullptr;
+}
+// The same fallback for the reload catalogue's model (its name and magazine geometry).
+inline const weapon_model::Model* FindModel(GameTitle title, uint64_t identity) noexcept
+{
+    const auto* model = weapon_model::Find(title, identity);
+    if (!model && title == GameTitle::Halo3) model = weapon_model::Find(GameTitle::Halo3ODST, identity);
+    return model;
 }
 
 // How a weapon reloads by hand. Off (`enabled` false) for anything not listed: those reload the game's way.

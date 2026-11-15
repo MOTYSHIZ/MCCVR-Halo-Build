@@ -144,6 +144,21 @@ four identical crashes.
 - `camscan` is opt-in and has process-memory write modes. Never build or run a
   write mode without explicit approval.
 
+## Multiplayer safety (standing rule, user, 2026-11-15)
+
+Every gameplay feature must stay safe in co-op and multiplayer, in every title it is ported to (manual
+reload first; Reach, Halo 4, Halo 2 and CE ports included):
+
+- Input level only: the game sees what a flat player could do (buttons, a trigger held back, its own
+  reload press). Never write the simulation (ammo, reload state, inventory, object state) to make a
+  feature work.
+- Spawn nothing in the game. A magazine dropped, held or carried is drawn by the mod's own renderer, never
+  created or destroyed as a game object; engines differ in how objects spawn and replicate, so this is
+  checked per engine, never assumed.
+- Hide or pose only local first-person data (the first-person palette), never the world object other
+  players see.
+- Each port states, in its doc and commit, why each piece is local.
+
 ## The mod loader (HaloMCCVRInject.exe)
 
 - Microsoft has been asked to clear this exact file as a Windows Defender false

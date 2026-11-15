@@ -1452,6 +1452,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"manual_reload_skip_animations")) { g_config.manual_reload_skip_animations=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_shortened_animation")) { g_config.manual_reload_shortened_animation=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_magazine")) { g_config.manual_reload_magazine=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_rack")) { g_config.manual_reload_rack=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_stow")) { g_config.weapon_stow=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
@@ -3754,6 +3756,11 @@ void ConfigSave()
     fprintf(f, "# to put the gun away; squeeze there again (or use the holster) to bring it back. (default %d)\n",
         d.weapon_stow ? 1 : 0);
     fprintf(f, "weapon_stow = %d\n", g_config.weapon_stow?1:0);
+    fprintf(f, "# Halo 3 / ODST with manual_reload: the reload button drops the magazine; fetch one at the pouch and push it\n");
+    fprintf(f, "# into the well (AR, BR, SMGs, sniper, magnum, automag). manual_reload_rack: a gun that ran dry needs its\n");
+    fprintf(f, "# handle or slide pulled back. (defaults %d, %d)\n", d.manual_reload_magazine ? 1 : 0, d.manual_reload_rack ? 1 : 0);
+    fprintf(f, "manual_reload_magazine = %d\nmanual_reload_rack = %d\n", g_config.manual_reload_magazine?1:0,
+        g_config.manual_reload_rack?1:0);
     fprintf(f, "# 1 = while manual reload or holsters are on, the game's reload and weapon-switch buttons do nothing; gestures only.\n");
     fprintf(f, "gesture_only_weapon_input = %d\n", g_config.gesture_only_weapon_input?1:0);
     fprintf(f, "manual_reload_disable_auto = %d\nmanual_reload_skip_animations = %d\n",

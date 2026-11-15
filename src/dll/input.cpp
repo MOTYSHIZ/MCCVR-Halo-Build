@@ -22,12 +22,29 @@
 #include "../common/exclusive_input.h"
 #include "../common/flashlight_input.h"
 #include "../common/weapon_interaction_logic.h"
+#include "../common/manual_reload_logic.h"
 #include "../common/odst_bringup_logic.h"
 #include "../common/scope_action_input.h"
 #include "../common/physical_crouch_input.h"
 #include "../common/vr_action_passthrough.h"
 #include "../common/vehicle_seat_buttons.h"
 #include "physical_crouch_camera.h"
+
+namespace
+{
+    // THE MANUAL RELOAD'S RELOAD BUTTON (manual_reload_logic.h TapFilter): while the manual reload owns the held gun,
+    // a press is held back from the game; let go within half a second it is a tap (the magazine drops, through the VR
+    // thread), held longer it reaches the game as its own hold (pick up, use). One filter for every thread that polls.
+    std::mutex g_reloadTapLock;
+    manual_reload::TapFilter g_reloadTap;
+    bool FilterManualReload(bool down, bool owned, uint64_t now)
+    {
+        std::lock_guard<std::mutex> lock(g_reloadTapLock);
+        const auto result = g_reloadTap.Update(now, down, owned);
+        if (result.tap) VR_NoteManualReloadTap();
+        return result.swallow;
+    }
+}
 #include "native_vr_actions.h"
 #include "dev_pad.h"
 #include "halo2_observer_6dof.h"
@@ -930,6 +947,10 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                     zoom_pull_audit::Audit::Unanswered(report)?" - ZOOM PRESSED, NOT ANSWERED":"");
         }
         if(scopeAvailable) semanticActions.actions&=~(1u<<vr_mapping::Zoom);
+        const bool manualReloadOwned=gameplayMode&&
+            VR_ManualReloadOwnsReload(currentTitle,TitleAdapter_GetGeneration(currentTitle));
+        if(semanticMode&&FilterManualReload(semanticActions.Has(vr_mapping::Reload),manualReloadOwned,inputNow))
+            semanticActions.actions&=~(1u<<vr_mapping::Reload);
         // Direct routing withholds native transports, except Halo 2's context
         // actions, whose real button is their only complete transport (tap
         // reload / hold pick up or board). See vr_action_passthrough.h.
@@ -1082,7 +1103,10 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         const uint32_t gestureMelee=weaponGesture?0:Game_GestureMeleeInput(inputNow);
         const uint32_t blockedWeaponActions=manual_weapon_input::Blocked(
             gameplayMode&&inputMode==RuntimeMode::Gameplay&&g_config.gesture_only_weapon_input,
-            g_config.manual_reload,g_config.weapon_holsters)&
+            // Halo 3 / ODST: the manual reload takes the reload button's tap itself (FilterManualReload); a hold,
+            // and a gun it does not cover, are the game's.
+            g_config.manual_reload&&currentTitle!=GameTitle::Halo3&&currentTitle!=GameTitle::Halo3ODST,
+            g_config.weapon_holsters)&
             // A dual-wield shake is pressing a reload binding: let Reload through for its 120 ms
             // (Halo 3's left-reload edge is otherwise cleared under a blocked Reload).
             ~(pad.weaponDualReloadPulse?(1u<<vr_mapping::Reload):0u);
@@ -1092,6 +1116,11 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             manual_weapon_input::Publish(semanticMode?routedActions.published:0u,gestureActions,blockedWeaponActions),
             directActions,blockedWeaponActions,extraPublished,extraServed);
         btn |= static_cast<WORD>(gestureMelee & 0xFFFF);
+        if(!semanticMode)
+        {
+            const WORD reloadBit=static_cast<WORD>(pad.weaponReloadBinding&0xFFFF);
+            if(FilterManualReload(reloadBit&&(btn&reloadBit),manualReloadOwned,inputNow)) btn&=static_cast<WORD>(~reloadBit);
+        }
         btn |= static_cast<WORD>(pad.weaponButtons & 0xFFFF);
         state->Gamepad.wButtons = btn;
         NoteFedButtons(btn);

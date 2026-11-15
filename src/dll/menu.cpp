@@ -2374,23 +2374,17 @@ namespace
             ImGui::TextDisabled("Gestures only: button and keyboard reload are off.");
         if (g_config.manual_reload)
         {
-            ImGui::TextDisabled("Hold your support grip at your hip to take a magazine.\n"
-                "Bring it below your weapon hand, then release to reload.\n"
-                "Native ammo and reserve limits still apply.");
+            ImGui::TextDisabled("Halo 3 and ODST (assault rifle, battle rifle, SMGs, sniper rifle, magnums):\n"
+                "tap reload and the magazine drops out. Take one at your hip, bring it under the gun and push it\n"
+                "up into the well. The trigger waits until a round is in the gun. The game reloads by itself,\n"
+                "unseen, and your gun keeps its own count. Other Halo 3 and ODST weapons reload the game's way.\n"
+                "Other games: hold your support grip at your hip to take a magazine, bring it below your\n"
+                "weapon hand and let go.\n"
+                "Safe in co-op: only buttons and the trigger reach the game; the magazines are drawn by the mod.");
             SettingGap();
-            changed |= ImGui::Checkbox("Disable automatic reload", &g_config.manual_reload_disable_auto);
-            SingleplayerOnly("May break a co-op session. This one does NOT turn itself off.");
-            SettingGap();
-            changed |= ImGui::Checkbox("Skip reload and weapon-ready animations", &g_config.manual_reload_skip_animations);
-            SingleplayerOnly("May break a co-op session. This one does NOT turn itself off.");
-            SettingGap();
-            changed |= ImGui::Checkbox("Shortened reload animation", &g_config.manual_reload_shortened_animation);
-            SingleplayerOnly("May break a co-op session. This one does NOT turn itself off.");
-            if(g_config.manual_reload_shortened_animation)
-                ImGui::TextDisabled(g_config.manual_reload_skip_animations ?
-                    "Full animation skip takes precedence while both are enabled." :
-                    "Skip to insertion, then play the weapon's chambering tail.\n"
-                    "Weapons without a usable insertion keyframe keep their full reload.");
+            changed |= ImGui::Checkbox("Rack the handle after an empty magazine", &g_config.manual_reload_rack);
+            ImGui::TextDisabled("Halo 3 and ODST: a gun that ran dry needs its charging handle or slide pulled back\n"
+                "with your support hand once the new magazine is in. Off: seating the magazine chambers a round.");
             SettingGap();
             changed |= vr_menu::SliderFloat("Magazine grab radius (m)",
                 &g_config.weapon_body_zone_radius_m,0.08f,0.40f,"%.2f");

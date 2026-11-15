@@ -1691,6 +1691,12 @@ struct Config
     bool manual_reload_skip_animations = false;
     bool manual_reload_shortened_animation = false;
     bool weapon_holsters = true;
+    // Halo 3 / ODST, with manual_reload: the Campaign Evolved VR mod's reload by hand for the built-in guns (AR, BR,
+    // SMGs, sniper, magnum, automag). The reload button drops the magazine, the game reloads unseen, the player fetches
+    // a magazine at the pouch and pushes it into the well; the trigger waits on the player's own count.
+    bool manual_reload_magazine = true;
+    // ... and a gun that ran dry needs its handle or slide pulled back once the magazine is in (off: the seat chambers).
+    bool manual_reload_rack = true;
     // Stow the gun at the other shoulder: the weapon hand reaches to the holster spot mirrored to the other side
     // of the body and squeezes; the gun is put away (hidden, its trigger ignored) until the same squeeze there
     // again, or the holster. The Halo: Campaign Evolved VR mod's left-shoulder "emote mode". Halo 3 and ODST.

@@ -15,6 +15,7 @@
 #include "native_vehicle_first_person.h"
 #include "haloce_native_bindings.h"
 #include "../common/weapon_model_catalog.h"
+#include "../common/manual_reload_publication.h"
 #include "../common/weapon_muzzle.h"
 #include "../common/visual_hand_config.h"
 #include "../common/vr_turn_mode.h"
@@ -2794,6 +2795,11 @@ namespace
     void LegacyPublishReloadTarget(GameTitle title,uint16_t tag,uint32_t generation,
         const FpInterpolationContext& context,const BoneMatrix& root,const BoneMatrix* solved,
         const int32_t* boneMap,const FpExplicitPoseTargets* targets=nullptr);
+    namespace manual_reload_game {
+    void Apply(GameTitle title,uint16_t tag,uint32_t generation,const FpInterpolationContext& context,
+        const BoneMatrix& root,BoneMatrix* scratch,const int32_t* boneMap);
+    void Report();
+    }
     bool LegacyApplyWorldCollision(
         GameTitle title, int hand, BoneMatrix& target,
         float* appliedCorrection = nullptr);
@@ -9102,6 +9108,10 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 GameTitle::Halo3,tag,contactContext,*root,selectedSource,
                 LegacyCollisionIgnoredObject(GameTitle::Halo3),
                 collisionGeneration);
+            // The manual reload: the held gun's count and parts out, its magazine hidden and rack part drawn
+            // back on this frame's private palette (multiplayer-safe: local first-person data only).
+            manual_reload_game::Apply(GameTitle::Halo3,tag,collisionGeneration,contactContext,*root,
+                g_fpPaletteScratch,boneMap);
         }
 
         // FLOATING HANDS (optional, OFF by default): a pure presentation filter
@@ -18327,6 +18337,10 @@ static constexpr bool kOdstMappedFpEnabled = false;
                 GameTitle::Halo3ODST,tag,contactContext,*root,selectedSource,
                 LegacyCollisionIgnoredObject(GameTitle::Halo3ODST),
                 collisionGeneration);
+            // The manual reload: the held gun's count and parts out, its magazine hidden and rack part drawn
+            // back on this frame's private palette (multiplayer-safe: local first-person data only).
+            manual_reload_game::Apply(GameTitle::Halo3ODST,tag,collisionGeneration,contactContext,*root,
+                g_fpPaletteScratch,boneMap);
         }
         if (g_config.floating_hands && reconstructed && context.valid &&
             selectedSource == g_fpPaletteScratch &&
@@ -30540,8 +30554,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportOdstControllerFingers(); }
-        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();}
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportOdstControllerFingers(); manual_reload_game::Report(); }
+        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();manual_reload_game::Report();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
                 "%u polls / %u unavailable, %u missing velocity, peak %.2f m/s, "
@@ -32094,6 +32108,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     #include "odst_independent_publication.inl"
     #include "odst_muzzle_lifecycle.inl"
     #include "odst_weapon_haptics.inl"
+    #include "manual_reload_game.inl"
     #include "odst_finger_pose.inl"
     #include "reach_muzzle_ownership.inl"
     #include "reach_muzzle_publication.inl"

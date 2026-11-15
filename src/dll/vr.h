@@ -1034,6 +1034,7 @@ bool VR_ReadSupportGripOwnerEvidence(GameTitle title,
 // session. Lock-free; read by the palette hooks (hide the gun, free the gun hand's fingers) and the pad.
 bool VR_WeaponStowed(GameTitle title, uint32_t generation) noexcept;
 
+
 bool VR_GetSupportGripRelationship(
     SupportGripRelationshipSnapshot& snapshot) noexcept;
 
@@ -1161,6 +1162,21 @@ void VR_PublishReloadTarget(GameTitle title,uint32_t generation,uint64_t identit
 // Optional, read-only equipped-model observations. No inventory or animation writes.
 void VR_ObserveHalo2VisualModel(bool secondary,uint32_t generation,uint64_t identity) noexcept;
 void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity) noexcept;
+
+// THE MANUAL RELOAD (src/common/manual_reload_logic.h). The palette hook publishes the held gun's count and parts
+// (world points and directions through the palette's tracking transform) and asks what to hide and pose; the pad
+// thread asks whether the reload button is the manual reload's and whether the trigger is held back.
+namespace reload_ammo { struct Sim; }
+namespace manual_reload { struct Presentation; }
+void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint64_t serial,
+    const contact_melee::TrackingToWorld& trackingToWorld, uint32_t weapon, bool simValid,
+    const reload_ammo::Sim& sim, bool wellValid, const float well[3], const float wellAxis[3],
+    bool rackValid, const float rack[3], const float rackBack[3]) noexcept;
+bool VR_ManualReloadPresentation(GameTitle title, uint32_t generation, uint64_t identity,
+    manual_reload::Presentation& out) noexcept;
+bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;
+bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept;
+void VR_NoteManualReloadTap() noexcept;
 uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t space,uint64_t now) noexcept;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
 // One immutable, exact-serial OpenXR tracking snapshot for Reach's complete

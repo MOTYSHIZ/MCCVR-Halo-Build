@@ -21,6 +21,8 @@ inline Presentation Build(const weapon_interaction::Sample& sample,
 {
     using namespace weapon_interaction;
     const auto* model=weapon_model::Find(sample.title,sample.weaponGraph);
+    // Project Reclaimer runs ODST's levels on the Halo 3 engine with ODST's own gun models (pinned checksums).
+    if(!model&&sample.title==GameTitle::Halo3) model=weapon_model::Find(GameTitle::Halo3ODST,sample.weaponGraph);
     if(!model&&sample.weaponGraph&&settings.genericVisual) model=&weapon_model::kGenericReloadModel;
     // These H4 kit models have articulated reload assemblies, not a detached
     // clip node. A known zero-vertex model must still receive a visible item.

@@ -270,7 +270,12 @@ void NativeReloadPolicy_Poll()
             if (!Retire(i)) { if(now>=r.reportAt) {r.reportAt=now+2000;LOG("Native reload policy: title %u cleanup pending; stock feature admission",i);} continue; }
         }
         if (active!=title || !generation) continue;
-        const unsigned requested=native_reload::Options(g_config.manual_reload,g_config.manual_reload_disable_auto,
+        // RETIRED 2026-11-15 (multiplayer safety, AGENTS.md): every option blocks or writes the game's simulation
+        // (the empty-trigger reload call, the magazine's countdown timers, the reload's duration). The manual reload
+        // that replaced it (manual_reload_logic.h) lets the game reload by itself and holds only the trigger back.
+        // The code is kept; nothing installs.
+        constexpr bool kRetired=true;
+        const unsigned requested=kRetired?0u:native_reload::Options(g_config.manual_reload,g_config.manual_reload_disable_auto,
             g_config.manual_reload_skip_animations,g_config.manual_reload_shortened_animation);
         if (!r.attempted && requested) {
             const auto* descriptor=TitleRegistry_Find(title);

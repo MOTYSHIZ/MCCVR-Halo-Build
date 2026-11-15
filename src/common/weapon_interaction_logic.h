@@ -91,6 +91,9 @@ struct Settings
     // mirrored to the other side of the body, so it is the shoulder (or hip) away from the gun hand whichever
     // hand that is.
     bool stow{};
+    // The pouch-to-receiver magazine gesture. Off for a gun the manual reload (manual_reload_logic.h) owns: there a
+    // magazine is fetched after the reload button drops one, and seated at the well.
+    bool pouch{true};
     uint32_t reloadButton{0x4000}, swapButton{0x8000};
 };
 struct Sample
@@ -484,7 +487,7 @@ public:
                 out.consumePrimary=true;out.stowToggled=true;out.stowed=stowed_;
                 out.releaseTwoHand=true;out.primaryHaptic=stowed_?0.45f:0.30f;
             }
-            else if(c.reload&&c.reloadButton&&armedS_&&heldS&&!stowed_&&Near(s.support,pouch,radius))
+            else if(c.reload&&c.pouch&&c.reloadButton&&armedS_&&heldS&&!stowed_&&Near(s.support,pouch,radius))
             {
                 phase_=1;started_=s.now;leftPouch_=false;ownedS_=true;grabbedAt_=s.support;
                 out.consumeSupport=true;out.releaseTwoHand=true;

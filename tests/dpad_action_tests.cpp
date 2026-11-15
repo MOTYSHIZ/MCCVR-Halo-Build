@@ -149,6 +149,8 @@ bool fixtureNativePointer = false;
 bool NativeMenuPointer_ConsumesTrigger() { return fixtureNativePointer; }
 uint64_t VR_GetWeaponModelIdentity(GameTitle,uint32_t,uint64_t,uint64_t) noexcept { return fixtureWeaponGraph; }
 bool VR_WeaponStowed(GameTitle,uint32_t) noexcept { return fixtureStowed; }
+bool fixtureReloadHeld{};
+bool VR_ManualReloadTriggerHeld(GameTitle,uint32_t) noexcept { return fixtureReloadHeld; }
 bool VR_IsStereoEnabled() { return fixtureStereo; }
 bool VR_IsPausePresentation() { return fixturePause; }
 bool VR_IsPausePresentationTarget() { return fixturePauseTarget; }
@@ -470,6 +472,12 @@ int main()
     Check(needle.trigR==0.8f,"the menu still gets the trigger while the gun is stowed");
     fixtureMenu=false;fixtureStowed=false;VR_GetPadState(needle);
     Check(needle.trigR==0.8f,"the drawn gun fires again");
+    fixtureReloadHeld=true;VR_GetPadState(needle);
+    Check(needle.trigR==0,"the manual reload holds the trigger back on the player's own count");
+    fixtureMenu=true;VR_GetPadState(needle);
+    Check(needle.trigR==0.8f,"but never the menu's trigger");
+    fixtureMenu=false;fixtureReloadHeld=false;VR_GetPadState(needle);
+    Check(needle.trigR==0.8f,"a round in the gun: the trigger is the game's again");
     g_headCsInit=false;VrPadState absent{};absent.valid=true;absent.thumbrestDpad=true;
     VR_GetPadState(absent);Check(!absent.valid&&!absent.thumbrestDpad&&!absent.dpadX&&!absent.dpadY,
         "An unavailable controller snapshot cannot retain D-pad input");
