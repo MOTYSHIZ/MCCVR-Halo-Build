@@ -1012,12 +1012,34 @@ bool Poll()
     if (!LoadFile(path, file) ||
         (parsed = lifted_engine::Parse(file.data(), file.size(), table)) != lifted_engine::ParseResult::Ok)
     {
-        LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table %ls is %s; "
-            "Halo 3 stays flat", reinterpret_cast<void*>(guest), path.c_str(),
-            file.empty() ? "missing or unreadable" : lifted_engine::ParseResultName(parsed));
+        // A file missing or cut short may still be being written (the first launch after an update): look again
+        // every second for a minute before giving up. Another format or a file that disagrees with itself is final.
+        static unsigned waited = 0;
+        const bool unfinished = file.empty() || parsed == lifted_engine::ParseResult::Truncated;
+        if (unfinished && ++waited < 60)
+        {
+            if (waited == 1)
+                LOG("RECLAIMER 0.10: %ls is %s; looking again every second for a minute", path.c_str(),
+                    file.empty() ? "missing or unreadable" : "cut short");
+            ReleaseSRWLockExclusive(&g_lock);
+            return false;
+        }
+        LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table %ls is %s "
+            "(format %u; this build reads 2 and 3); Halo 3 stays flat", reinterpret_cast<void*>(guest), path.c_str(),
+            file.empty() ? "missing or unreadable" : lifted_engine::ParseResultName(parsed), table.version);
         g_ruledOut = true;
         ReleaseSRWLockExclusive(&g_lock);
         return false;
+    }
+    {
+        static bool said = false;
+        if (!said)
+            LOG("RECLAIMER 0.10: %ls is format %u%s: %zu functions, %zu bytes of code", path.c_str(), table.version,
+                table.probed ? ", newer than this build knows, read by the earlier layout that fits it exactly (used "
+                               "only if that code is found in memory)"
+                             : "",
+                table.records.size(), table.codeLength);
+        said = true;
     }
     // 16 bytes from each of 64 bodies spread over the table, where they hold no relocation (the client fills those
     // in, so they differ from the file; a body's first bytes can be one).

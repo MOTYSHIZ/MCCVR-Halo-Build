@@ -51,6 +51,17 @@ functions with its own versions, and enlarged several of its tables.
    from the code that reads them (the client's draw of ODST's HUD) rather than by the shape of its heap data, or ask
    Reclaimer's developers for a HUD safe-area setting the mod can set.
 
+2d. **The translated code's file format.** Reclaimer 0.10.4 (2026-11-15) changed `engine.code` from format 2 to 3
+   (the body 8 bytes earlier, a 0x20-byte checksum after it), and the mod's reader refused anything but 2, so Halo 3
+   stayed flat. *Now:* 2 and 3 are read; an unknown version is read by whichever known layout fits it exactly (the
+   record table and the code's length must agree with the file's size), logged as such, and used only once that code
+   is found in memory; a missing or half-written file is retried for a minute instead of ruled out. *Keep:* on each
+   Reclaimer release, run `halomccvr_lifted_engine_file_check` against the new cache (every adapter must decode)
+   before the user does.
+9b. **Where the host keeps halo3.dll and its logs.** 0.10.3 renamed its logs (`client-<date>-v<version>.log`) and
+   prefixed each line with the time, which hid the lifted halo3.dll's path from the mod. *Now:* the newest three
+   `client*.log` are read and the path is found anywhere on the line.
+
 ## Behaviour the mod assumes of its host
 
 3. **Window focus.** The mod's MCC keep-alive (a faked WM_ACTIVATE, a swallowed WM_KILLFOCUS) left Reclaimer 0.10
