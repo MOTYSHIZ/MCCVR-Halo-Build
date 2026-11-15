@@ -1167,11 +1167,14 @@ void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity
 // (world points and directions through the palette's tracking transform) and asks what to hide and pose; the pad
 // thread asks whether the reload button is the manual reload's and whether the trigger is held back.
 namespace reload_ammo { struct Sim; }
+namespace weapon_interaction { struct Vec; }
 namespace manual_reload { struct Presentation; }
-void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint64_t serial,
-    const contact_melee::TrackingToWorld& trackingToWorld, uint32_t weapon, bool simValid,
-    const reload_ammo::Sim& sim, bool wellValid, const float well[3], const float wellAxis[3],
-    bool rackValid, const float rack[3], const float rackBack[3]) noexcept;
+// Points (metres) and directions in the gun hand's aim frame (OpenXR: x right, y up, z back) as the arm solver places
+// it; the VR thread rebuilds them from VR_GetAimPose.
+void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint32_t weapon,
+    bool simValid, const reload_ammo::Sim& sim, bool wellValid, const weapon_interaction::Vec& well,
+    const weapon_interaction::Vec& wellAxis, bool rackValid, const weapon_interaction::Vec& rack,
+    const weapon_interaction::Vec& rackBack) noexcept;
 bool VR_ManualReloadPresentation(GameTitle title, uint32_t generation, uint64_t identity,
     manual_reload::Presentation& out) noexcept;
 bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;

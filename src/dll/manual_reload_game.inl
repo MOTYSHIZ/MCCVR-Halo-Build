@@ -89,19 +89,33 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         float basis[9]{};
         if (!ComposeBoneMatrices(root, scratch[rootSource], held) || !NormalizedBasis(held, basis)) return;
 
-        contact_melee::TrackingToWorld transform{};
-        const uint64_t serial = g_fpStereoSolveScope.anatomicalTracking.serial;
+        // Everything is measured from the gun hand's aim pose AS THE ARM SOLVER PLACES IT in this palette
+        // (ControllerWorldPoseEx, the pose DesiredWristWorld builds the hands from), less the gun's mount offsets, and
+        // published in that aim frame; the VR thread rebuilds it from the same aim pose (VR_GetAimPose). Whatever
+        // maps tracking space into the game (yaw references, the follow basis, the hands' origin) cancels out. A
+        // hand-built world transform put the well 40 cm low and the gun 58 degrees off in the first FA pass.
+        float aimBasis[9]{}, aimPos[3]{}, meshScale = 1.0f;
+        if (!ControllerWorldPoseEx(false, aimBasis, aimPos, meshScale)) return;
+        const float unitsPerMetre = g_worldScale.load();
+        if (!std::isfinite(unitsPerMetre) || unitsPerMetre <= 0) return;
         {
-            const float sh = sinf(g_headYawRef), ch = cosf(g_headYawRef);
-            const float cg = cosf(g_gameYawRef), sg = sinf(g_gameYawRef);
-            transform.unitsPerMetre = g_worldScale.load();
-            transform.axis[0] = {cg * sh + sg * ch, sg * sh - cg * ch, 0};
-            transform.axis[1] = {0, 0, 1};
-            transform.axis[2] = {-cg * ch + sg * sh, -sg * ch - cg * sh, 0};
-            const auto reference = transform.World({g_headPosRef[0], g_headPosRef[1], g_headPosRef[2]});
-            transform.origin = {g_baseCamX.load() - reference.x, g_baseCamY.load() - reference.y,
-                                BaseCamHandsZ() - reference.z};
+            const float standoff = weapon_alignment::Forward(false, g_config.gun_forward_m, g_config.left_hand_forward_m) * unitsPerMetre;
+            const float rightOff = weapon_alignment::Right(false, g_config.gun_right_m) * unitsPerMetre;
+            const float upOff = weapon_alignment::Up(g_config.gun_up_m) * unitsPerMetre;
+            for (int j = 0; j < 3; ++j)
+                aimPos[j] -= aimBasis[j] * standoff + aimBasis[3 + j] * rightOff + aimBasis[6 + j] * upOff;
         }
+        // World -> the aim's OpenXR frame (x right, y up, z back), metres.
+        auto toAim = [&](const float* v, bool point, manual_reload::Vec& out) {
+            float d[3]{v[0], v[1], v[2]};
+            if (point) for (int j = 0; j < 3; ++j) d[j] = (v[j] - aimPos[j]) / unitsPerMetre;
+            const float f = d[0] * aimBasis[0] + d[1] * aimBasis[1] + d[2] * aimBasis[2];
+            const float l = d[0] * aimBasis[3] + d[1] * aimBasis[4] + d[2] * aimBasis[5];
+            const float u = d[0] * aimBasis[6] + d[1] * aimBasis[7] + d[2] * aimBasis[8];
+            out = {-l, u, -f};
+            return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z) &&
+                   (!point || out.x * out.x + out.y * out.y + out.z * out.z < 4.0f);
+        };
         // Columns: forward, left, up. The magazine travels up into the gun; the rack part is pulled back.
         const float up[3]{basis[6], basis[7], basis[8]};
         const float back[3]{-basis[0], -basis[1], -basis[2]};
@@ -122,8 +136,11 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         reload_ammo::Sim sim{};
         const bool simValid = ReadAmmo(title, weapon, sim);
         if (!simValid) ammoFailures.fetch_add(1, std::memory_order_relaxed);
-        VR_PublishManualReloadSample(title, generation, identity, serial, transform, weapon, simValid, sim,
-                                     wellValid, well, up, rackValid, rack, back);
+        manual_reload::Vec wellLocal{}, axisLocal{}, rackLocal{}, backLocal{};
+        const bool wellOk = wellValid && toAim(well, true, wellLocal) && toAim(up, false, axisLocal);
+        const bool rackOk = rackValid && toAim(rack, true, rackLocal) && toAim(back, false, backLocal);
+        VR_PublishManualReloadSample(title, generation, identity, weapon, simValid, sim,
+                                     wellOk, wellLocal, axisLocal, rackOk, rackLocal, backLocal);
         samples.fetch_add(1, std::memory_order_relaxed);
 
         // What the hands asked for, on this frame's private copy only.
@@ -139,7 +156,7 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         {
             // The part's own palette entry moves back along the gun by the hand's pull (world units).
             const float units = std::fmin(p.rackPull, 1.0f) * std::fmin(std::fmax(p.rackTravel, 0.0f), 0.2f) *
-                                transform.unitsPerMetre;
+                                unitsPerMetre;
             float local[3]{};
             const float worldBack[3]{back[0] * units, back[1] * units, back[2] * units};
             // scratch is in the root's frame: carry the world offset back through the root's basis.

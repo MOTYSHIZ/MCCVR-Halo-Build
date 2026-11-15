@@ -16073,9 +16073,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadIn.now=inputNow;
                 reloadIn.ready=sample.ready&&!sample.dualWield;
                 const bool titleOk=sample.title==GameTitle::Halo3||sample.title==GameTitle::Halo3ODST;
+                // The parts were published in the gun hand's aim frame as the arm solver places it: rebuild them
+                // from the same aim pose.
+                float aimQ[4]{},aimP[3]{};
+                weapon_interaction::Vec aimPosition=sample.primary;
+                weapon_interaction::Quat aimRotation=sample.primaryRotation;
+                if(VR_GetAimPose(aimQ,aimP)) {aimPosition={aimP[0],aimP[1],aimP[2]};aimRotation={aimQ[0],aimQ[1],aimQ[2],aimQ[3]};}
                 if(g_config.manual_reload&&g_config.manual_reload_magazine&&titleOk&&g_manualReloadGame.Read(gameSide))
                     (void)manual_reload::ReadGameSample(gameSide,sample.title,sample.generation,sample.space,leftHanded,
-                        inputNow,sample.primary,sample.primaryRotation,reloadIn.geometry,reloadIn.weaponId,reloadIn.sim,
+                        inputNow,aimPosition,aimRotation,reloadIn.geometry,reloadIn.weaponId,reloadIn.sim,
                         reloadIn.simValid);
                 if(reloadIn.simValid&&gameSide.identity==sample.weaponGraph)
                 {
@@ -26887,24 +26893,19 @@ bool VR_ReadSupportGripOwnerEvidence(GameTitle title,
         evidence, revision);
 }
 
-void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint64_t serial,
-    const contact_melee::TrackingToWorld& trackingToWorld, uint32_t weapon, bool simValid,
-    const reload_ammo::Sim& sim, bool wellValid, const float well[3], const float wellAxis[3],
-    bool rackValid, const float rack[3], const float rackBack[3]) noexcept
+void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint32_t weapon,
+    bool simValid, const reload_ammo::Sim& sim, bool wellValid, const weapon_interaction::Vec& well,
+    const weapon_interaction::Vec& wellAxis, bool rackValid, const weapon_interaction::Vec& rack,
+    const weapon_interaction::Vec& rackBack) noexcept
 {
     if(!g_config.manual_reload||title!=TitleAdapter_GetActiveTitle()||generation!=TitleAdapter_GetGeneration(title))
         return;
-    VrContactTrackingSnapshot current{};
-    contact_melee::TrackingToWorld primaryController{};
-    if(!VR_GetContactTrackingSnapshot(current)||current.serial!=serial||!current.rawPrimaryValid||
-        !primaryController.SetPose(current.rawPrimaryOrientation,current.rawPrimaryPosition)) return;
     manual_reload::GameSample s{};
-    s.title=title;s.generation=generation;s.identity=identity;s.space=current.referenceEpoch;s.at=GetTickCount64();
-    s.leftHanded=current.leftHanded;s.weapon=weapon;s.simValid=simValid;s.sim=sim;
-    s.wellValid=wellValid&&manual_reload::LocalPoint(trackingToWorld,primaryController,well,s.well)&&
-        manual_reload::LocalDirection(trackingToWorld,primaryController,well,wellAxis,s.wellAxis);
-    s.rackValid=rackValid&&manual_reload::LocalPoint(trackingToWorld,primaryController,rack,s.rack)&&
-        manual_reload::LocalDirection(trackingToWorld,primaryController,rack,rackBack,s.rackBack);
+    s.title=title;s.generation=generation;s.identity=identity;
+    s.space=g_contactSpaceEpoch.load(std::memory_order_acquire);s.at=GetTickCount64();
+    s.leftHanded=g_config.left_handed;s.weapon=weapon;s.simValid=simValid;s.sim=sim;
+    s.wellValid=wellValid;s.well=well;s.wellAxis=manual_reload::Normalized(wellAxis);
+    s.rackValid=rackValid;s.rack=rack;s.rackBack=manual_reload::Normalized(rackBack);
     (void)g_manualReloadGame.Publish(s);
 }
 
