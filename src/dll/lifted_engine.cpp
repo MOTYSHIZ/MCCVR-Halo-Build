@@ -2,6 +2,7 @@
 // src/common/lifted_engine_logic.h the convention, lifted_engine_thunks.asm the register work.
 
 #include "lifted_engine.h"
+#include "reclaimer_capacity.h"
 
 #include <algorithm>
 #include <atomic>
@@ -934,6 +935,8 @@ bool Poll()
 {
     if (Active())
     {
+        // The client's own list of the sizes it enlarged (its log), read once; nothing here holds the lock.
+        reclaimer_capacity::Poll();
         // Calls the mod could not run (no hooked game call on their thread), reported here, off the game's threads.
         AcquireSRWLockExclusive(&g_lock);
         const auto exe = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));

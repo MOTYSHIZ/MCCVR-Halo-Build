@@ -304,6 +304,7 @@ add_library(halo3xr SHARED
     src/dll/dev_pad.cpp
     src/dll/title_adapter.cpp
     src/dll/lifted_engine.cpp
+    src/dll/reclaimer_capacity.cpp
     src/dll/lifted_engine_thunks.asm
     src/dll/title_image_guard.cpp
     src/dll/title_reentry_probe.cpp
@@ -520,6 +521,8 @@ if(BUILD_TESTING)
     target_compile_definitions(halomccvr_muzzle_suppression_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     add_test(NAME halomccvr_muzzle_suppression_tests COMMAND halomccvr_muzzle_suppression_tests)
     add_executable(halomccvr_physical_crouch_tests tests/physical_crouch_tests.cpp)
+    add_executable(halomccvr_reclaimer_capacity_tests tests/reclaimer_capacity_tests.cpp)
+    add_test(NAME halomccvr_reclaimer_capacity_tests COMMAND halomccvr_reclaimer_capacity_tests)
     add_executable(halomccvr_setting_search_tests tests/setting_search_tests.cpp)
     add_test(NAME halomccvr_setting_search_tests COMMAND halomccvr_setting_search_tests)
     add_executable(halomccvr_hud_reveal_tests tests/hud_reveal_tests.cpp)
