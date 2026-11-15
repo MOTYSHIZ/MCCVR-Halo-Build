@@ -151,6 +151,7 @@ void CopyScheme(Config& to, const Config& from) noexcept
         to.vr_extra_bindings[title] = from.vr_extra_bindings[title];
     }
     to.vr_mod_bindings = from.vr_mod_bindings;
+    to.vr_odst_bindings = from.vr_odst_bindings;
 }
 
 bool SameScheme(const Config& a, const Config& b) noexcept
@@ -166,7 +167,7 @@ bool SameScheme(const Config& a, const Config& b) noexcept
     for (unsigned title = 0; title < weapon_interaction::kTitleCount; ++title)
         if (a.vr_bindings[title] != b.vr_bindings[title] || a.vr_inputs[title] != b.vr_inputs[title] ||
             a.vr_extra_bindings[title] != b.vr_extra_bindings[title]) return false;
-    return a.vr_mod_bindings == b.vr_mod_bindings;
+    return a.vr_mod_bindings == b.vr_mod_bindings && a.vr_odst_bindings == b.vr_odst_bindings;
 }
 
 std::string Serialize(const Config& scheme)
@@ -237,6 +238,15 @@ std::string Serialize(const Config& scheme)
             const auto& mod = scheme.vr_mod_bindings[action][slot];
             vr_mapping::FormatInput(input, mod.held, mod.press, mod.mode);
             sprintf_s(line, "vr_bind_%s%s = %s\n", vr_mapping::kModKeys[action], vr_mapping::kControlSuffix[slot], input);
+            text += line;
+        }
+    // ODST's prompt and map rows.
+    for (unsigned action = 0; action < vr_mapping::OdstCount; ++action)
+        for (unsigned slot = 0; slot < vr_mapping::kRowInputs; ++slot)
+        {
+            const auto& odst = scheme.vr_odst_bindings[action][slot];
+            vr_mapping::FormatInput(input, odst.held, odst.press, odst.mode);
+            sprintf_s(line, "vr_bind_%s%s = %s\n", vr_mapping::kOdstKeys[action], vr_mapping::kControlSuffix[slot], input);
             text += line;
         }
     return text;
@@ -327,6 +337,15 @@ void Parse(const char* text, Config& out)
                 done = true;
                 auto& input = out.vr_mod_bindings[action][slot];
                 vr_mapping::ParseInput(value, input.held, input.press, input.mode, false);
+            }
+        // ODST's prompt and map rows.
+        for (unsigned action = 0; action < vr_mapping::OdstCount && !done; ++action)
+            for (unsigned slot = 0; slot < vr_mapping::kRowInputs && !done; ++slot)
+            {
+                sprintf_s(expected, "vr_bind_%s%s", vr_mapping::kOdstKeys[action], vr_mapping::kControlSuffix[slot]);
+                if (key != expected) continue;
+                done = true;
+                vr_mapping::ParseOdstInput(value, out.vr_odst_bindings[action][slot]);
             }
     }
     // Rows saved while the support trigger's contexts were rows' choices, then the settings that followed them, become

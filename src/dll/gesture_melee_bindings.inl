@@ -11,6 +11,8 @@ struct GestureBindingCache
     std::atomic<uint64_t> actions[4][vr_mapping::Count]{};
     std::atomic<uint64_t> secondaryReload[4]{};
     std::atomic<uint64_t> vehicle[4][vr_mapping::ExtraCount]{};
+    // ODST's accept and cancel (0x12, 0x13: its prompts' own actions), controller 0; 0 in every other game.
+    std::atomic<uint64_t> odstPrompt[2]{};
     std::atomic<uint64_t> observedMs{0};
     std::atomic<uint64_t> sequence{0};
     uintptr_t attemptedBase=0, state=0;
@@ -102,6 +104,12 @@ void RefreshGestureMeleeBinding(const TitleDescriptor* title,bool levelRunning,u
         if(native!=vr_mapping::kNoAction&&!GestureReadNativeBindings(d,g_gestureBinding.state,vehicle[action],native))
             for(auto& transport:vehicle[action]) transport=0;
     }
+    // ODST's prompts wait on accept (0x12) and cancel (0x13); no MCC control moves them (the engine's A and B).
+    uint32_t odstPrompt[2][4]{};
+    if(readable&&d.title==GameTitle::Halo3ODST)
+        for(unsigned i=0;i<2;++i)
+            if(!GestureReadNativeBindings(d,g_gestureBinding.state,odstPrompt[i],vr_mapping::kOdstAcceptAction+i))
+                for(auto& transport:odstPrompt[i]) transport=0;
     if(pinned!=lifted::Halo3Module()) FreeLibrary(pinned);
     if(!readable) { g_gestureBinding.observedMs.store(0,std::memory_order_release); return; }
     g_gestureBinding.sequence.fetch_add(1,std::memory_order_acq_rel);
@@ -127,6 +135,9 @@ void RefreshGestureMeleeBinding(const TitleDescriptor* title,bool levelRunning,u
                 (uint64_t(generation)<<32)|(uint64_t(title->title)<<24)|vehicle[action][controller],
                 std::memory_order_release);
     }
+    for(unsigned i=0;i<2;++i)
+        g_gestureBinding.odstPrompt[i].store((uint64_t(generation)<<32)|(uint64_t(title->title)<<24)|odstPrompt[i][0],
+            std::memory_order_release);
     g_gestureBinding.observedMs.store(now,std::memory_order_release);
     g_gestureBinding.sequence.fetch_add(1,std::memory_order_release);
 }
@@ -191,6 +202,24 @@ bool Game_ReadVrExtraBindings(vr_mapping::ExtraTransports& out,uint64_t now)
         if(g_hostIsProjectReclaimer) out[action]=vr_mapping::WithoutHostMenuButton(out[action]);
     }
     if(sequence!=g_gestureBinding.sequence.load(std::memory_order_acquire)) {out={};return false;}
+    return true;
+}
+
+bool Game_ReadOdstPromptButtons(uint32_t& accept,uint32_t& cancel,uint64_t now)
+{
+    accept=cancel=0;
+    const GameTitle title=TitleAdapter_GetActiveTitle();
+    if(title!=GameTitle::Halo3ODST) return false;
+    const uint64_t observed=g_gestureBinding.observedMs.load(std::memory_order_acquire);
+    if(!observed||now<observed||now-observed>150) return false;
+    uint32_t read[2]{};
+    for(unsigned i=0;i<2;++i)
+    {
+        const uint64_t value=g_gestureBinding.odstPrompt[i].load(std::memory_order_acquire);
+        if(uint32_t(value>>32)!=TitleAdapter_GetGeneration(title)||((value>>24)&0xFF)!=uint64_t(title)) return false;
+        read[i]=uint32_t(value)&0x3FFFF;
+    }
+    accept=read[0];cancel=read[1];
     return true;
 }
 

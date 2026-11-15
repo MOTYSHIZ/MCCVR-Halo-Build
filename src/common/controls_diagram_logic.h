@@ -49,6 +49,8 @@ inline bool PlaceOf(int source,bool leftHanded,bool thumbrestDpad,Place& out) no
     case RightClick: out={RightStickClick,nullptr}; return true;
     case RightStickUp: out={RightStick,"Up"}; return true;
     case RightStickDown: out={RightStick,"Down"}; return true;
+    case RightStickLeft: out={RightStick,"Left"}; return true;
+    case RightStickRight: out={RightStick,"Right"}; return true;
     // The D-pad: the right stick with the left thumb on its rest, or else the left stick with a controller held at the
     // head (the D-pad gesture).
     case DpadUp: out={thumbrestDpad?RightStick:LeftStick,thumbrestDpad?"Thumbrest + up":"D-pad up"}; return true;
@@ -83,6 +85,8 @@ inline const char* HeldName(int source,bool leftHanded) noexcept
     case HandOnGun: return "support hand on the gun";
     case RightStickUp: return "right stick up";
     case RightStickDown: return "right stick down";
+    case RightStickLeft: return "right stick left";
+    case RightStickRight: return "right stick right";
     default: return "";
     }
 }

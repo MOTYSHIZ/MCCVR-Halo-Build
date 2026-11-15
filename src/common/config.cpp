@@ -1206,6 +1206,17 @@ void ConfigLoad(const wchar_t* path)
                 if(!vr_mapping::ParseInput(val,input.held,input.press,input.mode,false))
                     LOG("config: invalid VR binding '%s' ignored",key);
             }
+        // ODST's prompt and map rows: vr_bind_odst_prompt_confirm and _2 on.
+        for(unsigned action=0;action<vr_mapping::OdstCount&&!vrBindingKey;++action)
+            for(unsigned slot=0;slot<vr_mapping::kRowInputs&&!vrBindingKey;++slot)
+            {
+                char bindingKey[96]{};
+                sprintf_s(bindingKey,"vr_bind_%s%s",vr_mapping::kOdstKeys[action],vr_mapping::kControlSuffix[slot]);
+                if(strcmp(key,bindingKey)) continue;
+                vrBindingKey=true;
+                if(!vr_mapping::ParseOdstInput(val,g_config.vr_odst_bindings[action][slot]))
+                    LOG("config: invalid VR binding '%s' ignored",key);
+            }
         if(vrBindingKey) continue;
         if(!strcmp(key,"experimental_body_ik")) {g_config.experimental_body_ik=atoi(val)!=0;continue;}
         if(!strcmp(key,"body_ik_hide_lower")) {g_config.body_ik_hide_lower=atoi(val)!=0;continue;}
@@ -3874,6 +3885,18 @@ void ConfigSave()
             const auto& mod=g_config.vr_mod_bindings[action][slot];
             vr_mapping::FormatInput(input,mod.held,mod.press,mod.mode);
             fprintf(f,"vr_bind_%s%s = %s\n",vr_mapping::kModKeys[action],vr_mapping::kControlSuffix[slot],input);
+        }
+    fprintf(f,"# ODST only: the rows for its tutorial prompts and the VISR map (confirm, reject, the map's D-pad), live only\n"
+              "# while a prompt waits or the map is open; %d and %d are the right stick's left and right. Only those that\n"
+              "# differ from the default controls.\n",
+        vr_mapping::RightStickLeft,vr_mapping::RightStickRight);
+    for(unsigned action=0;action<vr_mapping::OdstCount;++action)
+        for(unsigned slot=0;slot<vr_mapping::kRowInputs&&
+             g_config.vr_odst_bindings[action]!=vr_mapping::kOdstDefaults[action];++slot)
+        {
+            const auto& odst=g_config.vr_odst_bindings[action][slot];
+            vr_mapping::FormatInput(input,odst.held,odst.press,odst.mode);
+            fprintf(f,"vr_bind_%s%s = %s\n",vr_mapping::kOdstKeys[action],vr_mapping::kControlSuffix[slot],input);
         }
     fprintf(f,"\n# Native localized subtitles: independent gameplay and theatre placement.\n");
     fprintf(f,"# Per-game muzzle-flash hiding. Supported paths: H2 Original and H4.\n");

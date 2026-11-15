@@ -723,6 +723,9 @@ struct Config
     bool y_b_start_chord = true;
     // The mod's own rows (VR Mappings, every game): Pause, Y + B either way round to start.
     vr_mapping::ModBindings vr_mod_bindings = vr_mapping::kModDefaults;
+    // ODST's prompt and map rows (VR Mappings, ODST only): confirm, reject and the map's D-pad, live only while a tutorial
+    // prompt waits or the VISR map is open (vr_mapping::OdstAction). Live.
+    vr_mapping::OdstBindings vr_odst_bindings = vr_mapping::kOdstDefaults;
 
     // Halo 2 only: the gamepad's Back/View button is MCC's instant
     // Classic <-> Anniversary graphics switch. 0 = the mod swallows that

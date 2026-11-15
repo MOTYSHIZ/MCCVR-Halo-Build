@@ -15659,6 +15659,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         pad.thumbrestDpad = thumbrest.active;
         pad.dpadX = thumbrest.x;
         pad.dpadY = thumbrest.y;
+        // ODST's VISR map with its D-pad rows on the right stick: the stick is theirs, so it turns nothing (removed here,
+        // before any turn or scope reads it, as the thumb-rest D-pad's is).
+        if (!pad.thumbrestDpad && pad.valid && Input_OdstMapTakesRightStick())
+        {
+            pad.odstMapStick = true;
+            pad.odstMapX = std::isfinite(pad.turnX) ? std::clamp(pad.turnX, -1.0f, 1.0f) : 0.0f;
+            pad.odstMapY = std::isfinite(pad.turnY) ? std::clamp(pad.turnY, -1.0f, 1.0f) : 0.0f;
+            pad.turnX = pad.turnY = 0.0f;
+        }
         static VrPadState previousPad{};
         static bool previousRawMenu = false;
         static uint64_t odstMenuPulseUntil = 0;
