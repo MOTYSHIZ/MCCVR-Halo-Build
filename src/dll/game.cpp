@@ -10786,6 +10786,38 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         }
     }
 
+    // Vehicle cameras: the last non-identity root turn learned (Halo3RootAxisTurn), for the cold log: 0 = none,
+    // else 0x80000000 | axis[i] << (8 * i) | (sign[i] < 0) << (8 * i + 4).
+    std::atomic<uint32_t> g_halo3RootAxisTurnLearned{0};
+
+    // The drawn root node through its vehicle's learned turn (halo3_vehicle_logic.h Halo3RootAxisTurn): `root`'s axes
+    // become the object's axes as drawn. The turn is learned from a root that already stands where the object does
+    // (`placeOk`); until then, and for a model learned unturned, `root` is left as read. Seat samplers only.
+    void Halo3TurnRootToObject(Halo3RootAxisTurn& turn, const float objectFwd[3], const float objectUp[3],
+                               bool placeOk, Halo3Matrix4x3& root)
+    {
+        const float objectLeft[3] = {objectUp[1] * objectFwd[2] - objectUp[2] * objectFwd[1],
+                                     objectUp[2] * objectFwd[0] - objectUp[0] * objectFwd[2],
+                                     objectUp[0] * objectFwd[1] - objectUp[1] * objectFwd[0]};
+        const float* const object[3] = {objectFwd, objectLeft, objectUp};
+        const float* const axes[3] = {root.forward, root.left, root.up};
+        if (!turn.learned && placeOk && Halo3LearnRootAxisTurn(object, axes, turn) &&
+            !Halo3RootAxisTurnIsIdentity(turn))
+        {
+            uint32_t code = 0x80000000u;
+            for (int i = 0; i < 3; ++i)
+                code |= (static_cast<uint32_t>(turn.axis[i]) | (turn.sign[i] < 0 ? 0x10u : 0u)) << (8 * i);
+            g_halo3RootAxisTurnLearned.store(code, std::memory_order_relaxed);
+        }
+        if (!turn.learned || Halo3RootAxisTurnIsIdentity(turn))
+            return;
+        float turned[3][3];
+        Halo3ApplyRootAxisTurn(turn, axes, turned);
+        memcpy(root.forward, turned[0], sizeof(root.forward));
+        memcpy(root.left, turned[1], sizeof(root.left));
+        memcpy(root.up, turned[2], sizeof(root.up));
+    }
+
     // Copy one live world-space node matrix. ON follows Halo's exact
     // render-interpolated node bank; a false accessor result takes the same raw
     // fallback the visible renderer takes. OFF intentionally selects raw as an
@@ -11804,9 +11836,12 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                     // (Halo3RootNodeReachWu): the drawn vehicle trails the simulation by up to a tick or two.
                     static thread_local Halo3StepSpeed s_rootSpeed;
                     static thread_local int s_rootSpeedObject = -1;
+                    // A model built turned on its root (the Banshee): the turn learned for this vehicle.
+                    static thread_local Halo3RootAxisTurn s_rootTurn;
                     if (s_rootSpeedObject != nodeObject)
                     {
                         s_rootSpeed = Halo3StepSpeed{};
+                        s_rootTurn = Halo3RootAxisTurn{};
                         s_rootSpeedObject = nodeObject;
                     }
                     (void)Halo3StepSpeedUpdate(s_rootSpeed, world.pos, Halo3NowSeconds());
@@ -11818,6 +11853,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                                                rootNode.position[2] - world.pos[2]};
                         const bool inBounds =
                             Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f);
+                        Halo3TurnRootToObject(s_rootTurn, world.fwd, world.up,
+                                              inBounds && Halo3RootNodeWithinReach(away, s_rootSpeed), rootNode);
                         const float facingDot = rootNode.forward[0] * world.fwd[0] +
                                                 rootNode.forward[1] * world.fwd[1] + rootNode.forward[2] * world.fwd[2];
                         const float upDot = rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +
@@ -16378,9 +16415,19 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         {
             const float away[3] = {out.root.position[0] - out.hull.pos[0], out.root.position[1] - out.hull.pos[1],
                                    out.root.position[2] - out.hull.pos[2]};
+            const bool placeOk = Halo3AnchorWithinBounds(out.root.position, out.boundsCenter, out.boundsRadius, 2.0f) &&
+                                 away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= 1.0f;
+            // A model built turned on its root (the Banshee): the turn learned for this vehicle (Halo 3's rule).
+            static thread_local Halo3RootAxisTurn s_turn;
+            static thread_local int s_turnOwner = -1;
+            if (s_turnOwner != owner)
+            {
+                s_turn = Halo3RootAxisTurn{};
+                s_turnOwner = owner;
+            }
+            Halo3TurnRootToObject(s_turn, out.hull.fwd, out.hull.up, placeOk, out.root);
             out.rootValid =
-                Halo3AnchorWithinBounds(out.root.position, out.boundsCenter, out.boundsRadius, 2.0f) &&
-                away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= 1.0f &&
+                placeOk &&
                 out.root.forward[0] * out.hull.fwd[0] + out.root.forward[1] * out.hull.fwd[1] +
                         out.root.forward[2] * out.hull.fwd[2] > 0.94f &&
                 out.root.up[0] * out.hull.up[0] + out.root.up[1] * out.hull.up[1] + out.root.up[2] * out.hull.up[2] >

@@ -1491,6 +1491,7 @@ struct VehicleCameraRuntime
         uint32_t worstSideCm = 0, worstAlongCm = 0, reachAtWorstCm = 0, worstFacingTenthsDeg = 0,
                  worstTiltTenthsDeg = 0;
     } rootMisses;
+    uint32_t rootTurnLogged = 0; // g_halo3RootAxisTurnLearned last said
     bool standInLogged = false;
     bool noTraceLogged = false;
     bool markerNoTraceLogged = false;
@@ -2602,6 +2603,21 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
             "this seat, so the camera stands %.0f cm behind and %.0f cm above the vehicle's origin instead", legacyName,
             static_cast<double>(vehicle_camera_place::kStandInBehindCm),
             static_cast<double>(vehicle_camera_place::kStandInAboveCm));
+    }
+    if (const uint32_t turn = g_halo3RootAxisTurnLearned.load(std::memory_order_relaxed);
+        turn && turn != r.rootTurnLogged)
+    {
+        r.rootTurnLogged = turn;
+        static constexpr const char* kAxis[3] = {"forward", "left", "up"};
+        char said[3][16];
+        for (int i = 0; i < 3; ++i)
+        {
+            const uint32_t entry = (turn >> (8 * i)) & 0xFFu;
+            snprintf(said[i], sizeof(said[i]), "%s%s", (entry & 0x10u) ? "-" : "", kAxis[(entry & 0x3u) < 3 ? entry & 0x3u : 0]);
+        }
+        LOG("Vehicle cameras (%s): this vehicle's model is built turned on its root node (the object's forward is the "
+            "root's %s, its left the root's %s, its up the root's %s); the turn is undone, so the camera can follow "
+            "the vehicle as drawn", legacyName, said[0], said[1], said[2]);
     }
     if (frames)
     {

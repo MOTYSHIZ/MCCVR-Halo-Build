@@ -19068,6 +19068,41 @@ int main()
                           !Halo3RootNodeWithinReach(tooFar, moving) && !Halo3RootNodeWithinReach(behind, resting),
                       "root node reach: along the motion it grows with speed, off it a world unit, at rest a world unit");
             }
+            {
+                // A model built turned on its root (the Banshee): the turn is learned and undone.
+                const float c = std::cos(0.3f), s = std::sin(0.3f);       // the vehicle yawed 17 degrees
+                const float fwd[3] = {c, s, 0.0f}, left[3] = {-s, c, 0.0f}, up[3] = {0.0f, 0.0f, 1.0f};
+                const float back[3] = {-c, -s, 0.0f};
+                const float* const object[3] = {fwd, left, up};
+                // Root: its forward is the object's up, its left the object's left, its up the object's back.
+                const float* const turnedRoot[3] = {up, left, back};
+                Halo3RootAxisTurn turn;
+                const bool learned = Halo3LearnRootAxisTurn(object, turnedRoot, turn);
+                float out[3][3]{};
+                Halo3ApplyRootAxisTurn(turn, turnedRoot, out);
+                bool same = learned && !Halo3RootAxisTurnIsIdentity(turn);
+                for (int i = 0; i < 3; ++i)
+                    for (int k = 0; k < 3; ++k)
+                        same = same && std::fabs(out[i][k] - object[i][k]) < 1.0e-5f;
+                // An unturned root a little off (lag): the identity, unchanged.
+                const float c2 = std::cos(0.4f), s2 = std::sin(0.4f);
+                const float lagFwd[3] = {c2, s2, 0.0f}, lagLeft[3] = {-s2, c2, 0.0f};
+                const float* const plainRoot[3] = {lagFwd, lagLeft, up};
+                Halo3RootAxisTurn plain;
+                const bool plainLearned = Halo3LearnRootAxisTurn(object, plainRoot, plain) &&
+                                          Halo3RootAxisTurnIsIdentity(plain);
+                // A mirror (left swapped for right) is no rotation, and a root 45 degrees off has no clear turn.
+                const float right[3] = {s, -c, 0.0f};
+                const float* const mirrored[3] = {fwd, right, up};
+                const float d45 = 0.70710678f;
+                const float diag[3] = {d45 * (c - s), d45 * (s + c), 0.0f}, diagLeft[3] = {-d45 * (s + c), d45 * (c - s), 0.0f};
+                const float* const vague[3] = {diag, diagLeft, up};
+                Halo3RootAxisTurn mirror, unclear;
+                Check(same && plainLearned && !Halo3LearnRootAxisTurn(object, mirrored, mirror) && !mirror.learned &&
+                          !Halo3LearnRootAxisTurn(object, vague, unclear) && !unclear.learned,
+                      "root axis turn: a model turned on its root is undone, an unturned one is the identity, a "
+                      "mirror or a 45-degree root learns nothing");
+            }
             // A giant: HugeGrass's Lich has a live sphere of 112.25 wu, and its seat's frame stands inside it.
             const float lichCenter[3] = {40.0f, -12.0f, 30.0f};
             const float lichOrigin[3] = {10.0f, 5.0f, 2.0f};
