@@ -289,16 +289,38 @@ int main()
     {
         const std::wstring tail = L"\\native\\retail-engine\\engine.code";
         const std::wstring player = L"C:\\Users\\p\\AppData\\Local\\ProjectReclaimer";
-        auto list = EngineCodeCandidates(L"", L"", player);
+        auto list = EngineCodeCandidates(L"", L"", L"", player);
         CHECK(list.size() == 1 && list[0] == player + L"\\Cache" + tail);
-        list = EngineCodeCandidates(L"", L"\xFEFF" L"A:\\Reclaimer Cache\\\r\nsecond line", player);
+        list = EngineCodeCandidates(L"", L"", L"\xFEFF" L"A:\\Reclaimer Cache\\\r\nsecond line", player);
         CHECK(list.size() == 3 && list[0] == L"A:\\Reclaimer Cache" + tail &&
               list[1] == L"A:\\Reclaimer Cache\\Cache" + tail && list[2] == player + L"\\Cache" + tail);
-        list = EngineCodeCandidates(L"D:\\RC", L"A:\\Moved", player);
+        list = EngineCodeCandidates(L"", L"D:\\RC", L"A:\\Moved", player);
         CHECK(list.size() == 4 && list[0] == L"D:\\RC" + tail && list[1] == L"A:\\Moved" + tail);
         // The same folder named twice, in any case, is looked in once.
-        CHECK(EngineCodeCandidates(L"", L"c:\\users\\p\\appdata\\local\\projectreclaimer", player).size() == 2);
-        CHECK(EngineCodeCandidates(L"", L"", L"").empty());
+        CHECK(EngineCodeCandidates(L"", L"", L"c:\\users\\p\\appdata\\local\\projectreclaimer", player).size() == 2);
+        CHECK(EngineCodeCandidates(L"", L"", L"", L"").empty());
+        // The running client's log names its cache folder outright, and it is looked in first.
+        list = EngineCodeCandidates(L"A:\\Project Reclaimer\\ProjectReclaimer", L"", L"", player);
+        CHECK(list.size() == 2 && list[0] == L"A:\\Project Reclaimer\\ProjectReclaimer" + tail &&
+              list[1] == player + L"\\Cache" + tail);
+    }
+
+    // The cache folder a client run names on its log's first lines (0.10.3's form, a time at each line's start).
+    {
+        const std::wstring log =
+            L"Project Reclaimer 0.10.3, started 2026-11-12 20:25:26.393 UTC-05:00, windows x86_64, run 683fe0f4\r\n"
+            L"20:25:26.394 [host] Project Reclaimer 0.10.3 (rcl-engine)\r\n"
+            L"20:25:26.394 [host] profile C:\\Users\\p\\AppData\\Local\\ProjectReclaimer, caches A:\\Project "
+            L"Reclaimer\\ProjectReclaimer\r\n"
+            L"20:25:26.395 [host] community profile shad7 (4651)\r\n";
+        CHECK(CachesFromClientLog(log) == L"A:\\Project Reclaimer\\ProjectReclaimer");
+        // Up to 0.10.2, without times; the line may end the text.
+        CHECK(CachesFromClientLog(L"[host] profile C:\\P, caches C:\\P\\Cache") == L"C:\\P\\Cache");
+        // A profile folder whose name holds ", caches " still gives the cache folder that ends the line.
+        CHECK(CachesFromClientLog(L"[host] profile C:\\a, caches b, caches D:\\C\n") == L"D:\\C");
+        CHECK(CachesFromClientLog(L"[host] Project Reclaimer 0.10.3\r\n").empty());
+        CHECK(CachesFromClientLog(L"[host] profile C:\\P\r\n").empty());
+        CHECK(CachesFromClientLog(L"").empty());
     }
 
     // The version resource, read without version.dll: VS_FIXEDFILEINFO by its signature.
