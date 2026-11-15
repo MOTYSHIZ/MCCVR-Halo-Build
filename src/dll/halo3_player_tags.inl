@@ -482,7 +482,15 @@ bool InstallReclaimerPlayerTags(void* guestDraw)
         LOG("PLAYER TAGS Halo 3: StockFallback: Project Reclaimer's own navpoint draw is still hooked from before");
         return false;
     }
-    const auto version = reinterpret_cast<uintptr_t>(lifted::ClientVersion(guestDraw));
+    auto version = reinterpret_cast<uintptr_t>(lifted::ClientVersion(guestDraw));
+    // Through a pass-through or two in front of it (0.10.4 has one).
+    for (int hop = 0; version && hop < 2; ++hop)
+    {
+        int64_t offset = 0;
+        if (!ThunkCallee(reinterpret_cast<const uint8_t*>(version), 16, offset))
+            break;
+        version += static_cast<uintptr_t>(offset);
+    }
     if (!version)
     {
         LOG("PLAYER TAGS Halo 3: Project Reclaimer has no navpoint draw of its own here; the settings reach the "
