@@ -10717,6 +10717,74 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         return rawOk && Halo3MatrixValid(out);
     }
 
+    // Vehicle cameras: why the drawn root node was not taken for the vehicle's frame, by test (a frame can fail more
+    // than one), with the worst miss of each. Written by the seat sampler only; read and reset by the vehicle
+    // cameras' cold log (vehicle_cameras.inl), once a poll.
+    struct Halo3RootCheckMisses
+    {
+        std::atomic<uint32_t> checked{0}, unread{0}, outside{0}, offLine{0}, tooFar{0}, facing{0}, tilted{0};
+        std::atomic<uint32_t> worstSideCm{0}, worstAlongCm{0}, reachAtWorstCm{0};
+        std::atomic<uint32_t> worstFacingTenthsDeg{0}, worstTiltTenthsDeg{0};
+    };
+    Halo3RootCheckMisses g_halo3RootCheckMisses;
+
+    uint32_t Halo3RootMissUnits(float value, float scale)
+    {
+        const float v = value * scale;
+        return std::isfinite(v) && v > 0.0f ? static_cast<uint32_t>(v < 1.0e8f ? v : 1.0e8f) : 0u;
+    }
+
+    void Halo3RaiseTo(std::atomic<uint32_t>& slot, uint32_t value)
+    {
+        if (value > slot.load(std::memory_order_relaxed))
+            slot.store(value, std::memory_order_relaxed);
+    }
+
+    void Halo3NoteRootCheck(bool inBounds, const float away[3], const Halo3StepSpeed& speed, float facingDot,
+                            float upDot)
+    {
+        Halo3RootCheckMisses& m = g_halo3RootCheckMisses;
+        m.checked.fetch_add(1, std::memory_order_relaxed);
+        if (!inBounds)
+            m.outside.fetch_add(1, std::memory_order_relaxed);
+        float d2 = 0.0f, along = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            d2 += away[i] * away[i];
+            along += away[i] * speed.dir[i];
+        }
+        const float side = std::sqrt(d2 - along * along > 0.0f ? d2 - along * along : 0.0f);
+        const float reach = Halo3RootNodeReachWu(speed.speed);
+        if (side > kHalo3RootNodeRestReachWu)
+        {
+            m.offLine.fetch_add(1, std::memory_order_relaxed);
+            Halo3RaiseTo(m.worstSideCm, Halo3RootMissUnits(side, 304.8f));
+        }
+        if (std::fabs(along) > reach)
+        {
+            m.tooFar.fetch_add(1, std::memory_order_relaxed);
+            const uint32_t alongCm = Halo3RootMissUnits(std::fabs(along), 304.8f);
+            if (alongCm > m.worstAlongCm.load(std::memory_order_relaxed))
+            {
+                m.worstAlongCm.store(alongCm, std::memory_order_relaxed);
+                m.reachAtWorstCm.store(Halo3RootMissUnits(reach, 304.8f), std::memory_order_relaxed);
+            }
+        }
+        constexpr float kTenthsDegPerRadian = 572.9578f;
+        if (!(facingDot > 0.94f))
+        {
+            m.facing.fetch_add(1, std::memory_order_relaxed);
+            Halo3RaiseTo(m.worstFacingTenthsDeg,
+                         Halo3RootMissUnits(std::acos(std::clamp(facingDot, -1.0f, 1.0f)), kTenthsDegPerRadian));
+        }
+        if (!(upDot > 0.94f))
+        {
+            m.tilted.fetch_add(1, std::memory_order_relaxed);
+            Halo3RaiseTo(m.worstTiltTenthsDeg,
+                         Halo3RootMissUnits(std::acos(std::clamp(upDot, -1.0f, 1.0f)), kTenthsDegPerRadian));
+        }
+    }
+
     // Copy one live world-space node matrix. ON follows Halo's exact
     // render-interpolated node bank; a false accessor result takes the same raw
     // fallback the visible renderer takes. OFF intentionally selects raw as an
@@ -11747,13 +11815,20 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                         const float away[3] = {rootNode.position[0] - world.pos[0],
                                                rootNode.position[1] - world.pos[1],
                                                rootNode.position[2] - world.pos[2]};
-                        rootValid =
-                            Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f) &&
-                            Halo3RootNodeWithinReach(away, s_rootSpeed) &&
-                            rootNode.forward[0] * world.fwd[0] + rootNode.forward[1] * world.fwd[1] +
-                                    rootNode.forward[2] * world.fwd[2] > 0.94f &&
-                            rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +
-                                    rootNode.up[2] * world.up[2] > 0.94f;
+                        const bool inBounds =
+                            Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f);
+                        const float facingDot = rootNode.forward[0] * world.fwd[0] +
+                                                rootNode.forward[1] * world.fwd[1] + rootNode.forward[2] * world.fwd[2];
+                        const float upDot = rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +
+                                            rootNode.up[2] * world.up[2];
+                        rootValid = inBounds && Halo3RootNodeWithinReach(away, s_rootSpeed) && facingDot > 0.94f &&
+                                    upDot > 0.94f;
+                        Halo3NoteRootCheck(inBounds, away, s_rootSpeed, facingDot, upDot);
+                    }
+                    else
+                    {
+                        g_halo3RootCheckMisses.checked.fetch_add(1, std::memory_order_relaxed);
+                        g_halo3RootCheckMisses.unread.fetch_add(1, std::memory_order_relaxed);
                     }
                 }
 
