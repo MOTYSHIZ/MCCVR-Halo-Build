@@ -203,15 +203,15 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
 void Report()
 {
     {
-        static ULONGLONG layoutAt = 0;
-        const auto clock = GetTickCount64();
-        if (clock - layoutAt >= 15000)
+        // Once per gun model: where its parts sit in the gun hand's aim frame.
+        static uint64_t loggedModel = 0;
         {
             const uint32_t before = g_layoutSeq.load(std::memory_order_acquire);
             const Layout_ l = g_layout;
-            if (!(before & 1u) && before && g_layoutSeq.load(std::memory_order_acquire) == before)
+            if (!(before & 1u) && before && g_layoutSeq.load(std::memory_order_acquire) == before &&
+                l.identity != loggedModel)
             {
-                layoutAt = clock;
+                loggedModel = l.identity;
                 LOG("Manual reload gun layout (aim frame, m; x right y up z back): model=%016llX root=(%.3f,%.3f,%.3f) "
                     "fwd=(%.2f,%.2f,%.2f) left=(%.2f,%.2f,%.2f) up=(%.2f,%.2f,%.2f) magazine-node=(%.3f,%.3f,%.3f) "
                     "rack-node=(%.3f,%.3f,%.3f) well=(%.3f,%.3f,%.3f)",

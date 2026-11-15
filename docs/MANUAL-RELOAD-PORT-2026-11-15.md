@@ -13,9 +13,10 @@ Source: the Halo: Campaign Evolved VR mod's reload engine (`core/reload`, `Gestu
 Built-in guns: assault rifle, battle rifle, SMG, silenced SMG, sniper rifle, magnum, automag. Every other gun
 reloads the game's way (the reload button goes straight to the game).
 
-1. **Tap reload** (the game's reload button: X in MCC, Right bumper in Project Reclaimer). The magazine drops
-   out: the gun's own magazine is no longer drawn. A press held longer than half a second is the game's own
-   (pick up, use).
+1. **Tap reload**: the game's own reload button. The mod reads which button that is from the game's
+   current layout where it can, and otherwise uses the per-title setting (X in MCC, Right bumper in Project
+   Reclaimer). The magazine drops out: the gun's own magazine is no longer drawn. A press held longer than half
+   a second is the game's own (pick up, use).
 2. The chambered round can still be fired (the Battle Rifle keeps its 3-round burst). After that the trigger
    does nothing until a magazine is in.
 3. **Fetch a magazine:** close the support grip at the pouch (the hip by default, or behind the support
@@ -109,6 +110,33 @@ Log lines:
 - `Manual reload: <phase>; dropped=.. grabbed=.. seated=.. racked=.. game-presses=.. let-go=..; ours ...; trigger held|free`
 - `Manual reload state: ...` (every 5 s while it owns the gun: the counts and where the well and rack are)
 - `Manual reload (game side): gun samples=.. ammo-unread=.. magazine-hidden=.. rack-drawn=.. faults=..`
+
+## Headless (FA) results, 2026-11-15
+
+Meta XR Simulator and Operator. FA DLL = this branch plus the usual test-only acceptance of a VALID (never
+TRACKED) simulated head, which is never committed. Logs are in `out/fa/logs` (MCC) and
+`_reclaimer-0.10-re/fa/logs` (Reclaimer, `mreload-rc-*`).
+
+| Run | Result |
+| --- | --- |
+| MCC Halo 3 Forge (Construct), assault rifle | **Full cycle passed.** Reads: loaded 32, reserve 64, capacity 32. Shots counted from the game's count. Tap: one drop, one press; the game reloaded unseen (28 → 32 loaded, 64 → 60 reserve). The chambered round fired, then the trigger was held. Pouch grab, seat (31 in, chamber empty), rack (chambered, trigger free), fire again. Nothing created or lost at any step. |
+| Project Reclaimer 0.10.3, Halo 3 (Tsavo Highway), assault rifle | **Full cycle passed**, the same steps and numbers (reserve 240), through the lifted engine. |
+| Project Reclaimer 0.10.3, ODST (Tayari Plaza), ODST assault rifle | **Reads, ownership, drop and the game's reload passed.** Ownership is through the ODST model identity fallback; the accessory draws the real ODST magazine. The full cycle was not completed: the simulated player kept dying, or the mission kept reloading its start checkpoints. One run then showed the trigger free with the magazine out; that is not explained and needs the headset. |
+| MCC ODST | **Not reached.** The user was at the PC (the input gate aborted), and the FA harness has no ODST route. ODST's own record layout (+0x228) is untested in game. |
+
+Fixed by the pass:
+- The well and rack are now measured from the gun hand's aim pose as the arm solver places it. A hand-built
+  world transform had put them 40 cm off.
+- The reload is pressed on the game's own binding. That MCC profile reloads on RB, while the cfg default
+  says X.
+- A retry no longer re-arms itself (it had sent 141 presses a minute).
+- Counts are forgotten after 2 s with no reading of the gun (a death, a checkpoint revert, a cinematic).
+  When the gun is read again, the phase is worked out from that gun's own count.
+
+Seen, not changed:
+- An automatic rifle can fire one round past the player's chambered round before the hold lands (one frame
+  at its fire rate). The count floors it, as in Campaign Evolved.
+- The rifle's on-gun counter shows the game's count, not the player's.
 
 ## Not ported yet (Campaign Evolved has these)
 
