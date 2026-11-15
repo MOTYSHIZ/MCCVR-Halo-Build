@@ -7861,6 +7861,57 @@ int main()
                       !reclaimer_odst_hud::IsOdstScenarioPath("levels\\atla") &&
                       !reclaimer_odst_hud::IsOdstScenarioPath(""),
                 "ODST's scenarios lie under levels\\atlas\\; Halo 3's do not");
+            // The client's own reference to the list: entries 0x18 apart, ODST's block within the first 64.
+            uint32_t index = 99;
+            Check(reclaimer_odst_hud::CanStartListAt(0x1000, 0x1000, index) && index == 0 &&
+                      reclaimer_odst_hud::CanStartListAt(0x1000, 0x1000 + 3 * 0x18, index) && index == 3 &&
+                      reclaimer_odst_hud::CanStartListAt(0x1000, 0x1000 + 64 * 0x18, index) && index == 64,
+                  "a list start up to 64 entries before ODST's block");
+            Check(!reclaimer_odst_hud::CanStartListAt(0x1000, 0x1000 + 65 * 0x18, index) &&
+                      !reclaimer_odst_hud::CanStartListAt(0x1008, 0x1000 + 0x18, index) &&
+                      !reclaimer_odst_hud::CanStartListAt(0x2000, 0x1000, index) &&
+                      !reclaimer_odst_hud::CanStartListAt(0, 0x18, index),
+                  "not past 64 entries, off the stride, after the block, or null");
+            reclaimer_odst_hud::Anchor one;
+            one.exeStamp = 0x6912ABCD;
+            one.exeSize = 0x4000000;
+            one.rva = 0x2E1F3A8;
+            reclaimer_odst_hud::Anchor read;
+            Check(reclaimer_odst_hud::FormatAnchor(one) == "odst-hud 6912abcd 04000000 02e1f3a8 -" &&
+                      reclaimer_odst_hud::ParseAnchor(reclaimer_odst_hud::FormatAnchor(one) + "\r\n", read) &&
+                      read.exeStamp == one.exeStamp && read.exeSize == one.exeSize && read.rva == one.rva &&
+                      read.kind == reclaimer_odst_hud::AnchorKind::Pointer,
+                  "an anchor pointing at the list round-trips");
+            reclaimer_odst_hud::Anchor two = one;
+            two.kind = reclaimer_odst_hud::AnchorKind::PointerInBlock;
+            two.offset = 0x2A8;
+            Check(reclaimer_odst_hud::ParseAnchor(reclaimer_odst_hud::FormatAnchor(two), read) &&
+                      read.kind == reclaimer_odst_hud::AnchorKind::PointerInBlock && read.offset == 0x2A8 &&
+                      read.rva == one.rva,
+                  "an anchor through a heap block's pointer round-trips");
+            reclaimer_odst_hud::Anchor inside = one;
+            inside.kind = reclaimer_odst_hud::AnchorKind::InBlock;
+            inside.offset = 0x40;
+            Check(reclaimer_odst_hud::FormatAnchor(inside) == "odst-hud 6912abcd 04000000 02e1f3a8 +40" &&
+                      reclaimer_odst_hud::ParseAnchor(reclaimer_odst_hud::FormatAnchor(inside), read) &&
+                      read.kind == reclaimer_odst_hud::AnchorKind::InBlock && read.offset == 0x40,
+                  "an anchor to a list inside a heap block round-trips");
+            Check(reclaimer_odst_hud::ListStart(one, 0x5000, 0) == 0x5000 &&
+                      reclaimer_odst_hud::ListStart(two, 0x5000, 0x9000) == 0x9000 &&
+                      reclaimer_odst_hud::ListStart(two, 0, 0x9000) == 0 &&
+                      reclaimer_odst_hud::ListStart(inside, 0x5000, 0) == 0x5040 &&
+                      reclaimer_odst_hud::ListStart(inside, 0, 0) == 0,
+                  "where each kind of anchor says the list starts");
+            Check(!reclaimer_odst_hud::ParseAnchor("odst-hud 1 4000000 100 +-8", read) &&
+                      !reclaimer_odst_hud::ParseAnchor("odst-hud 1 4000000 100 +1000", read),
+                  "a malformed in-block offset is refused");
+            Check(!reclaimer_odst_hud::ParseAnchor("odst-hud 1 4000000 5000000 -", read) &&
+                      !reclaimer_odst_hud::ParseAnchor("odst-hud 1 4000000 100 1001", read) &&
+                      !reclaimer_odst_hud::ParseAnchor("odst-hud 1 4000000 100 2a9", read) &&
+                      !reclaimer_odst_hud::ParseAnchor("odst-hud 1 4000000 100 2a8x", read) &&
+                      !reclaimer_odst_hud::ParseAnchor("garbage", read) &&
+                      !reclaimer_odst_hud::ParseAnchor("odst-hud 1 0 100 -", read),
+                  "an anchor outside the executable, a block offset too far, unaligned or not a number is refused");
         }
         {
             // Where halo3.dll lies for Project Reclaimer 0.10 (halo3_dll_locate_logic.h): a fresh 0.10.x install

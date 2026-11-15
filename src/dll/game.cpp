@@ -140,6 +140,7 @@
 // Where the direct drives' code is in the loaded game DLL: the tables and their resolution, and the DLL's side.
 #include "../common/drive_sites.h"
 #include "drive_cascade.h"
+#include "reclaimer_capacity.h"
 #include "halo3_hook_watch_mark.h"
 #include "install_search_cache.h"
 #include "drive_install.h"
@@ -5947,7 +5948,8 @@ namespace
     }
     // Game thread, on the composed primary weapon of player 0 (`users` is the block's start). A capacity holds when the
     // slot's selected node is one of its nodes (or none) and the render root after the two slots is a real
-    // transform. Retail's 64 is tried first; at 64 nodes Reclaimer 0.10's root reads all zero.
+    // transform. Retail's 64 is tried first; at 64 nodes Reclaimer 0.10's root reads all zero. Then the client's own
+    // fp_nodes when its log states one (reclaimer_capacity.h), then 128 (Reclaimer 0.10.0 - 0.10.4).
     __declspec(noinline) void Halo3ProveFpLayout(const uint8_t* users)
     {
         if (g_halo3FpNodes.load(std::memory_order_acquire))
@@ -5957,8 +5959,10 @@ namespace
         if (now < nextMs)
             return;
         nextMs = now + 1000;
-        for (const uint32_t nodes : {64u, 128u})
+        const reclaimer_capacity::NodeCandidates candidates = reclaimer_capacity::FpNodes();
+        for (size_t c = 0; c < candidates.count; ++c)
         {
+            const uint32_t nodes = candidates.values[c];
             const Halo3FpLayout layout = Halo3FpLayoutFor(nodes);
             int32_t count = 0, selected = 0;
             float root[13]{};
