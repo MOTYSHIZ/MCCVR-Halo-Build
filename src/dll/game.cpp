@@ -14294,6 +14294,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
     // PROJECT RECLAIMER'S VISR: the vertical field of view of the eye last rendered (radians, 0 = none yet), handed to
     // the client's VISR camera by reclaimer_visr_camera.inl. Written by each eye's render, read by the client's VISR.
     std::atomic<float> g_reclaimerEyeVerticalFov{0.0f};
+    std::atomic<float> g_reclaimerEyeTanX{0.0f};   // and its horizontal half-width (tangent), from the same projection
 
     void __fastcall RenderViewHook(void* view)
     {
@@ -14686,11 +14687,14 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 g_prepareView(view, 0);
             if (g_hostIsProjectReclaimer)
             {
-                // The eye's vertical field of view, for Project Reclaimer's VISR (reclaimer_visr_camera.inl).
-                const float p5 = fabsf(reinterpret_cast<const float*>(reinterpret_cast<const char*>(view) + 0x98 +
-                                                                     0x78)[5]);
-                if (p5 > 0.05f && p5 < 20.0f)
+                // The eye's field of view, for Project Reclaimer's VISR (reclaimer_visr_camera.inl).
+                const float* p = reinterpret_cast<const float*>(reinterpret_cast<const char*>(view) + 0x98 + 0x78);
+                const float p0 = fabsf(p[0]), p5 = fabsf(p[5]);
+                if (p0 > 0.05f && p0 < 20.0f && p5 > 0.05f && p5 < 20.0f)
+                {
+                    g_reclaimerEyeTanX.store(1.0f / p0, std::memory_order_relaxed);
                     g_reclaimerEyeVerticalFov.store(2.0f * atanf(1.0f / p5), std::memory_order_relaxed);
+                }
             }
             g_origRenderView(view);
             g_aimFramePass.store(false, std::memory_order_release);
