@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <string>
 
 namespace reclaimer_odst_hud
 {
@@ -71,5 +73,101 @@ inline bool IsOdstScenarioPath(const char* path) noexcept
 inline bool IsCandidate(const uintptr_t* sorted, size_t count, uint64_t value) noexcept
 {
     return count && std::binary_search(sorted, sorted + count, static_cast<uintptr_t>(value));
+}
+
+// ---- the client's own reference to the list (reclaimer_odst_hud_record.inl: the anchor) -----------------------------
+// The shape search finds the list by what it holds. Once found, the mod also looks for what in the client points at
+// it, starting from a word in the client executable's own data: that word points at the list, or at a heap block
+// holding a pointer to the list, or at a heap block the list sits in -- and on later levels follows that first. What it reaches must pass the very check the shape search
+// makes before anything is written, and the shape search still runs after it and wins when the two disagree. The
+// anchor is learned again by itself whenever a client update moves it: nothing about it is written in this source.
+
+// The list's entries are {capacity, pointer, length}, 0x18 bytes each; a list holding ODST's block is taken to hold
+// it within its first kMaxListIndex entries.
+inline constexpr uint64_t kListStride = 0x18;
+inline constexpr uint32_t kMaxListIndex = 64;
+// The furthest into a heap block a reference to the list is looked for (two steps).
+inline constexpr uint64_t kMaxBlockOffset = 0x1000;
+
+// Whether `value` can be the start of a list whose entry `index` is `listEntry`.
+inline constexpr bool CanStartListAt(uint64_t value, uint64_t listEntry, uint32_t& index) noexcept
+{
+    if (!value || value > listEntry || (listEntry - value) % kListStride)
+        return false;
+    const uint64_t at = (listEntry - value) / kListStride;
+    if (at > kMaxListIndex)
+        return false;
+    index = static_cast<uint32_t>(at);
+    return true;
+}
+
+enum class AnchorKind : uint8_t
+{
+    Pointer,          // the executable's word points at the list
+    PointerInBlock,   // ... at a heap block whose word at `offset` points at the list
+    InBlock,          // ... at a heap block the list sits in, `offset` bytes in
+};
+
+struct Anchor
+{
+    uint32_t exeStamp = 0, exeSize = 0;   // the client executable it was learned in (PE TimeDateStamp, SizeOfImage)
+    uint32_t rva = 0;                     // the word in the executable's data
+    AnchorKind kind = AnchorKind::Pointer;
+    uint32_t offset = 0;
+};
+
+// Where the list starts, given the executable's word and (for PointerInBlock) the block's word: 0 when unknown.
+inline constexpr uint64_t ListStart(const Anchor& anchor, uint64_t exeWord, uint64_t blockWord) noexcept
+{
+    switch (anchor.kind)
+    {
+    case AnchorKind::Pointer: return exeWord;
+    case AnchorKind::PointerInBlock: return exeWord ? blockWord : 0;
+    case AnchorKind::InBlock: return exeWord ? exeWord + anchor.offset : 0;
+    }
+    return 0;
+}
+
+// One line of the mod's cache file: "odst-hud <stamp> <size> <rva> <how>", hexadecimal, <how> "-" (Pointer),
+// "<offset>" (PointerInBlock) or "+<offset>" (InBlock).
+inline std::string FormatAnchor(const Anchor& anchor)
+{
+    char line[96];
+    if (anchor.kind == AnchorKind::Pointer)
+        std::snprintf(line, sizeof(line), "odst-hud %08x %08x %08x -", anchor.exeStamp, anchor.exeSize, anchor.rva);
+    else
+        std::snprintf(line, sizeof(line), "odst-hud %08x %08x %08x %s%x", anchor.exeStamp, anchor.exeSize, anchor.rva,
+                      anchor.kind == AnchorKind::InBlock ? "+" : "", anchor.offset);
+    return line;
+}
+
+inline bool ParseAnchor(const std::string& text, Anchor& out)
+{
+    const size_t at = text.find("odst-hud ");
+    if (at == std::string::npos)
+        return false;
+    unsigned stamp = 0, size = 0, rva = 0;
+    char last[16]{};
+    if (std::sscanf(text.c_str() + at, "odst-hud %x %x %x %15s", &stamp, &size, &rva, last) != 4 || !size || !rva ||
+        rva >= size)
+        return false;
+    Anchor anchor;
+    anchor.exeStamp = stamp;
+    anchor.exeSize = size;
+    anchor.rva = rva;
+    if (last[0] != '-' || last[1])
+    {
+        const bool inBlock = last[0] == '+';
+        unsigned offset = 0;
+        char extra = 0;
+        if ((inBlock && last[1] == '-') ||
+            std::sscanf(last + (inBlock ? 1 : 0), "%x%c", &offset, &extra) != 1 || offset >= kMaxBlockOffset ||
+            offset % 8)
+            return false;
+        anchor.kind = inBlock ? AnchorKind::InBlock : AnchorKind::PointerInBlock;
+        anchor.offset = offset;
+    }
+    out = anchor;
+    return true;
 }
 } // namespace reclaimer_odst_hud
