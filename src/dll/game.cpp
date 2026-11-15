@@ -14363,6 +14363,62 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         memcpy(eyeUpOut, eyeUp, sizeof(eyeUp));
     }
 
+    // PROJECT RECLAIMER'S VISR SEES EACH EYE'S FIELD OF VIEW. Reclaimer draws ODST's VISR itself (0.10.x): for each
+    // view it keeps a pointer to the game's camera, the one the engine copies into view+0x08 (view+0x2A8, the client's
+    // camera copy at exe+0x41C3140 in 0.10.4), and builds VISR's screen-to-view constants from that camera's vertical
+    // field of view (+0x28, radians; near +0x64, far +0x68; exe+0x3775E80 / +0x377B7B0) and the picture's width over
+    // height. The mod gives each eye its own projection in view+0x98, so with VISR on the client rebuilt every eye
+    // at the flat game's 43.5 degrees and the whole world looked stretched and zoomed (2026-11-15). During each eye's
+    // render the game camera holds that eye's vertical field of view; it is put back right after, unless the game has
+    // written it meanwhile. Reclaimer only; the camera is checked as the client checks it before anything is written.
+    struct ReclaimerEyeFov
+    {
+        float* at = nullptr;
+        uint32_t savedBits = 0, writtenBits = 0;
+    };
+    __declspec(noinline) ReclaimerEyeFov ReclaimerEyeFovBegin(void* view, float tanY) noexcept
+    {
+        ReclaimerEyeFov state{};
+        if (!g_hostIsProjectReclaimer || !view || !(tanY > 0.05f && tanY < 20.0f))
+            return state;
+        __try
+        {
+            auto* source = *reinterpret_cast<uint8_t**>(reinterpret_cast<uint8_t*>(view) + 0x2A8);
+            if (!source)
+                return state;
+            float fov = 0.0f, nearZ = 0.0f, farZ = 0.0f;
+            memcpy(&fov, source + 0x28, sizeof(fov));
+            memcpy(&nearZ, source + 0x64, sizeof(nearZ));
+            memcpy(&farZ, source + 0x68, sizeof(farZ));
+            if (!(fov > 0.05f && fov < 3.0f) || !(nearZ > 0.0f) || !(farZ > nearZ))
+                return state;
+            const float eyeFov = 2.0f * atanf(tanY);
+            state.at = reinterpret_cast<float*>(source + 0x28);
+            memcpy(&state.savedBits, &fov, sizeof(fov));
+            memcpy(&state.writtenBits, &eyeFov, sizeof(eyeFov));
+            *reinterpret_cast<volatile uint32_t*>(state.at) = state.writtenBits;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            state = ReclaimerEyeFov{};
+        }
+        return state;
+    }
+    __declspec(noinline) void ReclaimerEyeFovEnd(const ReclaimerEyeFov& state) noexcept
+    {
+        if (!state.at)
+            return;
+        __try
+        {
+            auto* bits = reinterpret_cast<volatile uint32_t*>(state.at);
+            if (*bits == state.writtenBits)
+                *bits = state.savedBits;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+        }
+    }
+
     void __fastcall RenderViewHook(void* view)
     {
         if (!VR_IsStereoEnabled() || !g_enabled.load() || !view)
@@ -14752,7 +14808,26 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             g_aimFramePass.store(aimFrameFrame, std::memory_order_release);
             if (g_prepareView)
                 g_prepareView(view, 0);
+            const float* eyeProjection =
+                reinterpret_cast<const float*>(reinterpret_cast<const char*>(view) + 0x98 + 0x78);
+            const ReclaimerEyeFov reclaimerEyeFov = ReclaimerEyeFovBegin(
+                view, fabsf(eyeProjection[5]) > 0.01f ? 1.0f / fabsf(eyeProjection[5]) : 0.0f);
+            if (reclaimerEyeFov.at)
+            {
+                static std::atomic<bool> s_reported{false};
+                if (!s_reported.exchange(true, std::memory_order_relaxed))
+                {
+                    float before = 0.0f, after = 0.0f;
+                    memcpy(&before, &reclaimerEyeFov.savedBits, sizeof(before));
+                    memcpy(&after, &reclaimerEyeFov.writtenBits, sizeof(after));
+                    LOG("Project Reclaimer VISR: each eye's render gives the game camera that eye's vertical field of "
+                        "view (%.1f deg instead of %.1f; the eye is %.3f wide for 1 high, VISR takes the picture's "
+                        "width over height)", after * 57.29578f, before * 57.29578f,
+                        fabsf(eyeProjection[5]) / (fabsf(eyeProjection[0]) > 0.01f ? fabsf(eyeProjection[0]) : 1.0f));
+                }
+            }
             g_origRenderView(view);
+            ReclaimerEyeFovEnd(reclaimerEyeFov);
             g_aimFramePass.store(false, std::memory_order_release);
             g_eyeFpView.store(nullptr, std::memory_order_release);
             monoCaptured = VR_CaptureRenderedEye(eye);

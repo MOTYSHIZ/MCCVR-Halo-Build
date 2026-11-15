@@ -8492,6 +8492,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                            std::memory_order_relaxed);
                 strcpy_s(g_status.sessionState, SessionStateName(sc.state));
                 LOG("XR session state -> %s", SessionStateName(sc.state));
+                // VISIBLE after FOCUSED: the headset's own menu (SteamVR's dashboard, Meta's universal menu) or another
+                // overlay has taken the controllers; OpenXR gives the game no input until it closes (2026-11-15:
+                // SteamVR's dashboard opened a second into a launch and the menu "ignored" every button for 30 s).
+                if (sc.state == XR_SESSION_STATE_VISIBLE)
+                    LOG("XR session: the headset's own menu or another overlay has the controllers (SteamVR's "
+                        "dashboard opens and closes with the left controller's menu button); the game gets no input "
+                        "until it closes");
                 if (sc.state != XR_SESSION_STATE_FOCUSED)
                 {
                     g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
