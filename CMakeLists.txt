@@ -1799,6 +1799,14 @@ if(BUILD_TESTING)
     target_include_directories(hand_gesture_logic_tests PRIVATE src/common)
     target_compile_options(hand_gesture_logic_tests PRIVATE /W4 /EHsc)
     add_test(NAME hand_gesture_logic COMMAND hand_gesture_logic_tests)
+    add_executable(reload_ammo_model_tests tests/reload_ammo_model_tests.cpp)
+    target_include_directories(reload_ammo_model_tests PRIVATE src/common)
+    target_compile_options(reload_ammo_model_tests PRIVATE /W4 /WX /EHsc)
+    add_test(NAME reload_ammo_model COMMAND reload_ammo_model_tests)
+    add_executable(manual_reload_logic_tests tests/manual_reload_logic_tests.cpp)
+    target_include_directories(manual_reload_logic_tests PRIVATE src/common)
+    target_compile_options(manual_reload_logic_tests PRIVATE /W4 /EHsc)
+    add_test(NAME manual_reload_logic COMMAND manual_reload_logic_tests)
     add_executable(hand_tracks_runtime_tests
         tests/hand_tracks_runtime_tests.cpp
         src/dll/hand_tracks.cpp
