@@ -170,7 +170,8 @@ int main()
     Check(mouseDown&&NativeMenuPointer_ConsumesTrigger(),"reported six-module shell now delivers trigger click");
     Frame(true);
     physicalDown=true; Frame(true,true); Check(!mouseDown,"physical drag remains native"); physicalDown=false;
-    covered=true; Frame(true); Check(!mouseDown,"covered window cannot click"); covered=false;
+    covered=true; Frame(true); Check(!mouseDown,"covered window cannot click");
+    Check(NativeMenuPointer_ConsumesTrigger(),"a covered point keeps the trigger and stick from the game"); covered=false;
     Frame(true); sendOk=false; Frame(true,true); Check(!mouseDown&&logs>0,"send failure stays optional and logs"); sendOk=true;
     Frame(true); Frame(true,true); sendOk=false; Frame(false);
     Check(mouseDown&&timer,"failed release retains retry ownership"); sendOk=true;
@@ -249,6 +250,28 @@ int main()
         Check(slow<0&&slow>-upward,"pushed a little: slower");
         wheel.Reset();
         Check(wheel.Step(1.f,t+=50)==1,"after a reset it starts afresh");
+    }
+    {
+        // MCC's lists: eighths of a notch, 10 notches a second, so they glide at the speed whole notches had.
+        game_menu_pointer::StickWheel wheel{10.f,8};
+        Check(wheel.Step(.5f,1000)==8,"a flick still moves one whole notch at once");
+        int steps=0,largest=0;uint32_t t=1000;
+        for(int i=0;i<90;++i){const int s=wheel.Step(1.f,t+=11);steps+=s;largest=std::max(largest,s);}
+        Check(steps>=74&&steps<=84,"held fully: about ten notches a second");
+        Check(largest<=2,"held, it goes a little at a time, not in whole notches");
+        int half=0;game_menu_pointer::StickWheel slow{10.f,8};slow.Step(-.5f,t);
+        for(int i=0;i<90;++i)half+=slow.Step(-.5f,t+=11);
+        Check(half<0&&-half<steps,"pushed a little: slower");
+    }
+    {
+        // Sideways lists: right goes down the list, left back up; the further push is the wheel.
+        using game_menu_pointer::StickWheelAxis;
+        Check(StickWheelAxis(0.f,1.f)==1.f&&StickWheelAxis(0.f,-1.f)==-1.f,"up and down are the wheel as before");
+        Check(StickWheelAxis(1.f,0.f)==-1.f,"right scrolls down");
+        Check(StickWheelAxis(-1.f,0.f)==1.f,"left scrolls up");
+        Check(StickWheelAxis(.8f,.3f)==-.8f,"mostly right is right");
+        Check(StickWheelAxis(.3f,-.8f)==-.8f,"mostly down is down");
+        Check(StickWheelAxis(0.f,0.f)==0.f,"centred: no wheel");
     }
     {
         // A click holds where it was aimed; a hand that goes on moving is a drag.

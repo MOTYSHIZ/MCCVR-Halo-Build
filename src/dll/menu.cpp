@@ -37,6 +37,7 @@
 #include "../common/log.h"
 #include "../common/config.h"
 #include "../common/input_preset.h"
+#include "../common/default_controls.h"
 #include "../common/menu_mirror.h"
 #include "../common/roomscale_recenter_logic.h"
 #include "../common/reclaimer_host_logic.h"
@@ -100,12 +101,8 @@ namespace
     //  readable rather than being cut off.
     // ===================================================================
     constexpr const char* kWelcomeMessage =
-        "Original Halo MCC VR mod created by Pancreations, with the community building on top of it to give you the "
-        "version you are playing today.\n\n"
-        "Pass-on/community build maintained by @MeWhenINameMyself (Moistman42069).\n\n"
-        "Multiplayer support for Project Reclaimer maintained by Nitsujack.\n\n"
-        "This mod is an effort by many contributors, please see the Credits section to the right and consider "
-        "supporting them through their links present in the launcher.\n\n"
+        "Halo MCC VR is a collaborative effort! Please see the credits to the right and consider supporting "
+        "collaborators through their links in the launcher.\n\n"
         "Join the Flat2VR Discord to report bugs or share feedback.";
 
     constexpr const char* kWelcomeCloseHint =
@@ -631,7 +628,7 @@ namespace
     } g_mappingPage;
     int MappingTitle()
     {
-        const auto active=TitleAdapter_GetActiveTitle();
+        const auto active=Game_ControlsTitle(TitleAdapter_GetActiveTitle());
         const int activeIndex=weapon_interaction::TitleIndex(active);
         if(active!=g_mappingPage.previousTitle&&activeIndex>=0) g_mappingPage.selectedTitle=activeIndex;
         g_mappingPage.previousTitle=active;
@@ -705,7 +702,10 @@ namespace
         {
             Config scheme{};
             if(!input_preset::Find(chosen,scheme)) return;
+            // The running game's aim angles are live copies of its profile: kept first, taken from the preset after.
+            Config_StoreLiveTunables();
             input_preset::CopyScheme(g_config,scheme);
+            Config_RefreshLiveTunables();
             strncpy_s(g_config.input_preset,chosen.c_str(),_TRUNCATE);
             CloseEmptyInputs();
             baselineFound=false;
@@ -723,6 +723,8 @@ namespace
             if(!chosen.empty()) apply(chosen);
             ImGui::EndCombo();
         }
+        // A slider just moved edits the live copy of the running game's aim angles; its profile is what presets hold.
+        Config_StoreLiveTunables();
         const bool modified=baselineFound&&(!input_preset::SameScheme(g_config,baseline)||EmptyInputShown());
         for(int i=0;i<input_preset::BuiltInCount();++i)
             if(active==input_preset::BuiltInName(i)) ImGui::TextWrapped("%s",input_preset::BuiltInDescription(i));
@@ -766,7 +768,8 @@ namespace
             ImGui::TextDisabled("This preset's file is gone. Your settings stay as they are.");
         ImGui::PushStyleColor(ImGuiCol_Text,ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::TextWrapped("Saves your buttons, turning, movement, roomscale, controller vibration, left-handed play, "
-            "two-handed aiming, gestures, reload and holsters (where they sit on you too), but not your weapon aim. "
+            "two-handed aiming, gestures, reload and holsters (where they sit on you too), and each game's crosshair "
+            "and bullet direction, but not where the gun sits in your hand. "
             "Presets are files in Controls Presets beside halomccvr.cfg, so you can share them.");
         ImGui::PopStyleColor();
     }
@@ -1293,6 +1296,10 @@ namespace
         }
         ImGui::TextDisabled("Raw by default. Try 5%% only for micro-jitter; capped at 10%% for comfort.");
         ImGui::Spacing();
+        changed |= ImGui::Checkbox("Halo 2 camera shake##headmotion", &g_config.halo2_camera_shake);
+        ImGui::TextDisabled("OFF (default): your view keeps still when you fire or something explodes, as in the "
+                            "other games. ON: Halo 2's own camera shake.");
+        ImGui::Spacing();
         ImGui::Separator();
         }
         if (SectionHeader("Sound##section", ImGuiTreeNodeFlags_None))
@@ -1614,7 +1621,7 @@ namespace
             int& selectedTitle=g_mappingPage.selectedTitle;
             auto& moreOpen=g_mappingPage.moreOpen;
             auto& optionsOpen=g_mappingPage.optionsOpen;
-            const int activeIndex=weapon_interaction::TitleIndex(TitleAdapter_GetActiveTitle());
+            const int activeIndex=weapon_interaction::TitleIndex(Game_ControlsTitle(TitleAdapter_GetActiveTitle()));
             ImGui::Text("Detected left: %s",VR_ControllerProfileName(true));
             ImGui::Text("Detected right: %s",VR_ControllerProfileName(false));
             changed|=ImGui::Checkbox("Remap buttons (off: every button is the game's own)",&g_config.vr_action_mapping);
@@ -1668,10 +1675,10 @@ namespace
                 if(g_config.vr_bindings[selectedTitle][action]==vr_mapping::Automatic)
                 {
                     if(haveBindings)
-                        ImGui::TextDisabled("The game has this on: %s",
+                        ImGui::TextDisabled("Your MCC layout has this on: %s",
                             vr_mapping::kSourceNames[vr_mapping::LayoutSource(bindings[action])]);
                     else
-                        ImGui::TextDisabled("Follows the game's own layout.");
+                        ImGui::TextDisabled("Follows your MCC controller layout for this game.");
                 }
                 if(haveBindings&&!bindings[action]) ImGui::TextDisabled("No native action binding available in this title.");
                 if(MoreInputsList(row.more.data(),vr_mapping::kMoreInputs,moreOpen[selectedTitle][action],
@@ -1685,8 +1692,8 @@ namespace
                 }
                 ImGui::PopID();
             }
-            // The extra rows, under where each counts: inputs as a row has. Automatic leaves the action on the game's
-            // own button, pressed whenever another row sends that button.
+            // The extra rows, under where each counts: inputs as a row has. Automatic follows the player's MCC layout
+            // (vr_mapping::EffectiveExtraBindings), as an action row's does.
             static constexpr const char* kContextNotes[static_cast<unsigned>(vr_mapping::ExtraContext::Count)]{
                 "In a vehicle seat: these press the game's own button for the action, beside whatever the rows above "
                 "press. In Halo 3, ODST, Reach and Halo 4, where that button also carries an action on other controls "
@@ -1703,7 +1710,8 @@ namespace
                 bool noted=false;
                 for(unsigned action=0;action<vr_mapping::ExtraCount;++action)
                 {
-                    if(static_cast<unsigned>(vr_mapping::kExtraContexts[action])!=context) continue;
+                    if(static_cast<unsigned>(vr_mapping::kExtraContexts[action])!=context||
+                       vr_mapping::RetiredExtra(static_cast<vr_mapping::ExtraAction>(action))) continue;
                     if(!noted) {SettingGap();ImGui::TextWrapped("%s",kContextNotes[context]);noted=true;}
                     const auto extraAction=static_cast<vr_mapping::ExtraAction>(action);
                     const char* name=vr_mapping::ExtraName(selectedGame,extraAction);
@@ -1737,10 +1745,10 @@ namespace
                     if(row[0].press==vr_mapping::Automatic)
                     {
                         if(haveExtra&&extraBindings[action])
-                            ImGui::TextDisabled("The game has this on: %s",
+                            ImGui::TextDisabled("Your MCC layout has this on: %s",
                                 vr_mapping::kSourceNames[vr_mapping::LayoutSource(extraBindings[action])]);
                         else
-                            ImGui::TextDisabled("Stays on the game's own button.");
+                            ImGui::TextDisabled("Follows your MCC controller layout for this game.");
                     }
                     else
                         extraChanged|=InputOptions(row[0].held,row[0].mode,open[0]);
@@ -1756,9 +1764,9 @@ namespace
             }
             if(ImGui::Button("Reset this game's mappings"))
             {
-                g_config.vr_bindings[selectedTitle]={};
-                g_config.vr_inputs[selectedTitle]=vr_mapping::DefaultInputs(selectedGame);
-                g_config.vr_extra_bindings[selectedTitle]=vr_mapping::kExtraDefaults;
+                // The default controls' rows, never the player's flat layout.
+                default_controls::Rows(selectedGame,g_config.vr_bindings[selectedTitle],g_config.vr_inputs[selectedTitle],
+                    g_config.vr_extra_bindings[selectedTitle]);
                 for(int& open:moreOpen[selectedTitle]) open=0;
                 changed=true;
             }
@@ -2354,7 +2362,8 @@ namespace
             changed |= vr_menu::SliderFloat("Minimum shake stroke (m)##dualreload",
                 &g_config.weapon_shake_travel_m,0.06f,0.20f,"%.2f");
             ImGui::TextDisabled("Shake a hand back and forth once: it presses that hand's reload button.\n"
-                "Halo 3: either hand. Halo 2: the right-hand gun only for now.\n"
+                "Halo 3: each hand reloads its own gun.\n"
+                "Halo 2: either hand presses Reload, which reloads both guns.\n"
                 "Let the hand settle before shaking again.");
         }
         }
@@ -2979,8 +2988,9 @@ namespace
         }
         }
 
-        // The crosshair and the shot's direction, after the rest of Weapon & Aim.
-        if (CategorySection section{Cat_WeaponAim}; section.visible)
+        // The crosshair and the shot's direction against the controller are how the player aims: a controls preset's,
+        // each game's own angles included.
+        if (CategorySection section{Cat_Controls}; section.visible)
         {
         if (SectionHeader("Crosshair and bullet direction##section", ImGuiTreeNodeFlags_None))
         {
@@ -3006,11 +3016,15 @@ namespace
             g_config.gun_roll_deg = 0.0f;
             changed = true;
         }
-        ImGui::TextDisabled("Adjusts the aiming ray used by shots and the reticle, even when hidden.\n"
-                            "Visual gun alignment and gun-stock offsets have their own sections above.");
+        ImGui::TextDisabled("Adjusts the aiming ray used by shots and the reticle, even when hidden. Saved separately\n"
+                            "for each game. Visual gun alignment and gun-stock offsets are on Weapon & Aim.");
         }
         ImGui::Spacing();
         }
+        }
+
+        if (CategorySection section{Cat_WeaponAim}; section.visible)
+        {
         if (SectionHeader("Authored weapon crosshair (stereo)##section", ImGuiTreeNodeFlags_None))
         {
         ImGui::TextDisabled("The floating reticle that shows where the weapon really shoots.");
@@ -3115,9 +3129,11 @@ namespace
                 ImGui::Indent();
                 changed |= vr_menu::SliderInt(
                     "Refresh every N frames", &g_config.crosshair_animation_frames,
-                    6, 60, "%d");
+                    1, 60, "%d");
                 ImGui::TextDisabled("Lower = smoother shooting animation and faster "
                                     "red/green target colors. Higher = cheaper.\n"
+                                    "1 = every frame. Below 6 applies only where your headset\n"
+                                    "makes an update cheap; otherwise the crosshair keeps to 6.\n"
                                     "Turn it off if you feel any frame-rate cost.");
                 ImGui::Unindent();
             }
@@ -3159,8 +3175,8 @@ namespace
         {
             ImGui::Indent();
             changed |= ImGui::Checkbox("3D in the frame##aimframe", &g_config.aim_frame_stereo);
-            ImGui::TextDisabled("ON (default): each eye sees its own picture of the zoomed view. OFF: one flat "
-                                "picture for both eyes, drawn once.");
+            ImGui::TextDisabled("ON: each eye sees its own picture of the zoomed view. OFF (default): one flat "
+                                "picture for both eyes, drawn once, which is faster.");
             if (g_config.aim_frame_stereo)
             {
                 changed |= vr_menu::SliderFloat("3D strength##aimframe", &g_config.aim_frame_3d_strength,
@@ -3384,6 +3400,11 @@ namespace
         }
         if (SectionHeader("Waypoints##section", ImGuiTreeNodeFlags_None))
         {
+        changed |= ImGui::Checkbox("Markers follow your head, not your gun", &g_config.nav_markers_follow_head);
+        ImGui::TextDisabled("ON: an objective marker shows when you look toward it, and its off-screen arrow "
+                            "when you look away, wherever the gun points.\n"
+                            "OFF: as before: the marker shows only while the gun points near the objective.\n"
+                            "Halo: Reach and Halo 4. Live.");
         changed |= ImGui::Checkbox("Markers use the headset's field of view", &g_config.nav_markers_on_target);
         ImGui::TextDisabled("ON: objective markers are projected with the field of view each eye is drawn with, "
                             "so a marker stays on its point when you turn your head.\n"
@@ -3934,6 +3955,8 @@ namespace
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Aim your primary controller at MCC's main or pause menu, then pull its trigger to click.\n"
                               "A white ring marks the cursor and shrinks when clicked. MCC must have desktop focus.\n"
+                              "The right stick scrolls the list it points at like a mouse wheel: up or left goes back,\n"
+                              "down or right goes on (map and game type lists run sideways).\n"
                               "Release the trigger before your first click. Off preserves normal menu controls.");
         ImGui::TextDisabled("Currently %.2f m away, %.2f m wide, %+.2f m high, %+.2f m across.",
                             g_config.menu_distance_m, g_config.menu_width_m,
@@ -3981,6 +4004,8 @@ namespace
             if (g_resetArmed)
             {
                 g_config = Config{};
+                default_controls::Apply(g_config);
+                strcpy_s(g_config.input_preset, input_preset::kDefaultName);
                 ConfigSave();
                 LOG("config: reset to defaults from the menu");
                 two_hand_lab_runtime::ResetSettings();

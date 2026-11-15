@@ -96,6 +96,7 @@ struct Setup
     bool leftHanded=false;
     bool remap=false;            // VR Mappings' Remap buttons
     bool thumbrestDpad=false;    // the D-pad is the left thumb on its rest and the right stick
+    bool reclaimerHeadKeys=false; // Project Reclaimer: X, Y, A and B at the head press its talk, scoreboard and vote keys
     uint32_t blocked=0;          // actions (a bit per vr_mapping::Action) whose buttons do nothing on foot
     uint32_t blockedAlways=0;    // and those whose buttons do nothing anywhere
     const vr_mapping::Overrides* bindings=nullptr;
@@ -192,7 +193,7 @@ inline Labels Build(const Setup& setup)
             const auto extra=static_cast<ExtraAction>(x);
             const ExtraContext context=kExtraContexts[x];
             if(context!=ExtraContext::Anywhere&&(context==ExtraContext::Seat)!=vehicle) continue;
-            if(NativeExtraAction(setup.game,extra)==kNoAction) continue;
+            if(NativeExtraAction(setup.game,extra)==kNoAction||RetiredExtra(extra)) continue;
             const char* name=ExtraName(setup.game,extra);
             const auto& row=(*setup.extra)[x];
             for(unsigned i=0;i<kRowInputs;++i)
@@ -288,11 +289,11 @@ inline std::vector<GestureLine> GestureLines(const Setup& setup,const Gestures& 
             lines.push_back({"Gesture melee",gestures.meleeNeedsGrip?"Grip "+hand+" and punch away from your body.":
                 "Punch away from your body with "+hand+"."});
         }
-        // Only Halo 3 and Halo 2 dual wield; Halo 2's shake reloads its right-hand gun for now.
+        // Only Halo 3 and Halo 2 dual wield; Halo 2's one reload button reloads both guns.
         if(gestures.shakeReload&&setup.game==GameTitle::Halo3)
             lines.push_back({"Dual-wield reload","Shake a hand: reload that hand's gun."});
         else if(gestures.shakeReload&&setup.game==GameTitle::Halo2)
-            lines.push_back({"Dual-wield reload","Shake a hand: reload the right-hand gun."});
+            lines.push_back({"Dual-wield reload","Shake either hand: reload both guns."});
         if(gestures.physicalCrouch) lines.push_back({"Physical crouch","Physically duck your head in real space to crouch."});
         if(gestures.physicalRunning) lines.push_back({"Physical running","Swing both arms to run."});
     }
@@ -305,6 +306,11 @@ inline std::vector<GestureLine> GestureLines(const Setup& setup,const Gestures& 
         const bool right=gestures.dpadHand==1&&setup.game!=GameTitle::HaloCE;
         lines.push_back({"D-pad",std::string("Hold the ")+(right?"right controller to your head and push the left":
             "left controller to your head and push its")+" thumbstick the way you want the D-pad pressed."});
+    }
+    if(setup.reclaimerHeadKeys)
+    {
+        lines.push_back({"Vote","A or B near head to vote yes or no."});
+        lines.push_back({"Scoreboard and voice","Y near head for scoreboard, X near head for voice input."});
     }
     return lines;
 }

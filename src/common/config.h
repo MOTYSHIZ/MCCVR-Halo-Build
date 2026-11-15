@@ -465,7 +465,7 @@ struct Config
     // configuration.
     Config();
 
-    int config_version = 6;
+    int config_version = 7;
 
     // Portable OpenXR feedback and pose stabilization. Headset smoothing is a
     // deliberately tiny previous-frame blend (0.03 shipped default, 10% hard maximum)
@@ -662,6 +662,14 @@ struct Config
     // Exercised in game with one marker only (a King of the Hill hill marker); marked players and name tags
     // are not. A title that has not bound this keeps its own behaviour (log: NAV MARKERS <title>).
     bool nav_markers_on_target = true;
+    // MARKERS FOLLOW THE HEAD, NOT THE GUN (reach_nav_marker_logic.h, part 3). Whether an objective marker is on
+    // screen (its marker) or off it (its arrow) is decided by the game outside the picture each eye is drawn
+    // with, from the game's own camera, which this mod points down the controller: a marker then showed only
+    // while the gun pointed at its objective. 1 = those decisions are made from the head of the last frame.
+    // 0 = the game's own camera, as before. Halo: Reach; Halo 4 (halo4_nav_marker_logic.h: its HUD places markers
+    // in its interface pass with the aim camera, and the head's is used there once that camera is proven to be
+    // the aim's at run time). Read live.
+    bool nav_markers_follow_head = true;
     // THE OFF-SCREEN ARROW STAYS IN VIEW (reach_nav_projection.inl). 1 = when a navpoint's target (an objective
     // marker, a marked player: by a static read) is out of view, the game's arrow for it is drawn on a ring about
     // the HEAD's axis, at most 30 degrees out, as one point in the world for both eyes. 0 = the game's own ring,
@@ -722,6 +730,11 @@ struct Config
     // the renderer mid-game; 1 = pass it through as the game expects.
     bool halo2_gamepad_graphics_switch = false;
 
+    // Halo 2 only: the game's camera shake, from a weapon's fire animation and from damage, explosions and weapon
+    // effects (halo2_camera_shake_logic.h). 0 = the headset view keeps still, as Halo 3's always does; 1 = the
+    // game's own shake.
+    bool halo2_camera_shake = false;
+
     // Which controller, held next to the head, turns the left stick into the
     // D-pad (UEVR-style gesture): 0 = left controller, 1 = right controller.
     int dpad_hand = 0;
@@ -747,13 +760,17 @@ struct Config
         vr_mapping::DefaultInputs(GameTitle::Halo4),vr_mapping::DefaultInputs(GameTitle::HaloCE),
         vr_mapping::DefaultInputs(GameTitle::Halo2)};
     // The seat's rows (VR Mappings): each game's Banshee bomb and trick, inputs as a row has.
-    vr_mapping::ExtraBindings vr_extra_bindings[6]{vr_mapping::kExtraDefaults,vr_mapping::kExtraDefaults,
-        vr_mapping::kExtraDefaults,vr_mapping::kExtraDefaults,vr_mapping::kExtraDefaults,vr_mapping::kExtraDefaults};
+    vr_mapping::ExtraBindings vr_extra_bindings[6]{vr_mapping::ExtraDefaults(GameTitle::Halo3),
+        vr_mapping::ExtraDefaults(GameTitle::Halo3ODST),vr_mapping::ExtraDefaults(GameTitle::HaloReach),
+        vr_mapping::ExtraDefaults(GameTitle::Halo4),vr_mapping::ExtraDefaults(GameTitle::HaloCE),
+        vr_mapping::ExtraDefaults(GameTitle::Halo2)};
     // Automatic VR action routing (F1 > Controls): a VR button reaches the game as the action bound to it. Off by
     // default for now -- the plain route, each VR button as the gamepad button it stands for, is the one that works;
     // the automatic one has known faults.
     bool vr_action_mapping = false;
-    char input_preset[64] = "Default"; // input_preset.h; empty: a scheme no preset named
+    // input_preset.h; empty: a scheme no preset named. The struct's scheme is Legacy Default; a new player starts on
+    // Default (default_controls.h).
+    char input_preset[64] = "Legacy Default";
     // Settings the rows' inputs took over (vr_mapping::ConvertSettingsToInputs), read only from a file or preset written
     // before them: the support trigger gripping air used equipment, and with the hand on the gun zoomed.
     bool trigger_air_equipment = false;
@@ -1498,8 +1515,9 @@ struct Config
     // found feels like the flat game's): the tester's settings (2026-10-30).
     bool aim_frame_zoom = true;
     // 3D inside the frame: the two eye passes are drawn along the aim and each eye sees its own picture in the
-    // frame (the cost of the ordinary 3D view). 0 = one flat picture for both eyes.
-    bool aim_frame_stereo = true;
+    // frame (the cost of the ordinary 3D view). 0 = one flat picture for both eyes, drawn once. Off by default: the
+    // depth adds little to a zoomed view, and one picture keeps the zoom at the mono view's frame rate (2026-11-11).
+    bool aim_frame_stereo = false;
     // How far apart the frame's two eyes are, as a multiple of your own eye spacing (binoculars set their lenses
     // wider for the same reason): far targets show little depth at real spacing. The two pictures meet at the
     // point you aim at, so it and the game's crosshair sit at the frame's own depth. 1 to 10.
@@ -2195,6 +2213,8 @@ int Config_ActiveTitleProfile();
 int Config_ShownTitleProfile();
 void Config_ApplyTitleProfile(int profile);
 void Config_StoreLiveTunables();
+// The other way: the live fields take the active game's profile again, after something (a controls preset) wrote it.
+void Config_RefreshLiveTunables();
 // Cold config/UI path only. Identity comes from the admitted primary weapon
 // palette, never a native object/tag handle. Unknown models use title settings.
 void Config_ApplyWeaponProfile(uint64_t identity);

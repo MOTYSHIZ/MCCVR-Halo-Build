@@ -23,7 +23,9 @@ inline constexpr const char* kKeys[Count]{"fire","grenade","jump","melee","reloa
 inline constexpr const char* kNames[Count]{"Fire","Grenade / secondary fire","Jump","Melee",
     "Reload","Use / pick up","Switch weapon","Switch grenade","Equipment / ability",
     "Crouch","Zoom","Flashlight / night vision","Sprint"};
-inline constexpr const char* kSourceNames[SourceCount]{"Automatic","Unbound","Primary trigger",
+// Automatic shows as what it does: the row follows the player's own MCC controller layout. The default controls name
+// a control for every row (default_controls.h), so it is only ever a player's choice.
+inline constexpr const char* kSourceNames[SourceCount]{"Follow my MCC layout","Unbound","Primary trigger",
     "Support trigger","Primary grip","Support grip","Right A / lower face","Right B / upper face",
     "Left X / lower face","Left Y / upper face","Left stick / pad click","Right stick / pad click",
     "D-pad gesture up","D-pad gesture down","D-pad gesture left","D-pad gesture right",
@@ -497,17 +499,24 @@ inline bool HoldsHandOnGun(Action action,const Overrides& bindings,const Inputs&
 enum class ExtraContext : unsigned { Seat, OnFoot, Anywhere, Count };
 // Files keep these keys: a new row goes at the end.
 enum ExtraAction : unsigned { BansheeBomb, BansheeTrick, FireLeft, ReloadLeft, DualWield, PreviousGrenade,
-    ActivateWaypoint, VehicleSecondary, VehicleTrick2, FlyUp, FlyDown, Scoreboard, SpecialAction, ExtraCount };
+    ActivateWaypoint, VehicleSecondary, VehicleTrick2, FlyUp, FlyDown, Scoreboard, SpecialAction, SeatSwitchWeapon,
+    ExtraCount };
 inline constexpr const char* kExtraKeys[ExtraCount]{"banshee_bomb","banshee_trick","fire_left","reload_left",
     "dual_wield","previous_grenade","activate_waypoint","vehicle_secondary","vehicle_trick_2","fly_up","fly_down",
-    "scoreboard","special_action"};
+    "scoreboard","special_action","seat_switch_weapon"};
 inline constexpr const char* kExtraNames[ExtraCount]{"Banshee bomb","Banshee trick","Fire left weapon (dual wielding)",
     "Reload left weapon (dual wielding)","Dual wield (pick up a second weapon)","Previous grenade","Activate waypoint",
     "Vehicle secondary fire / boost","Second vehicle trick / brake","Fly up","Fly down","Scoreboard",
-    "Special action (some missions)"};
+    "Special action (some missions)","Switch weapon (in a seat)"};
 inline constexpr ExtraContext kExtraContexts[ExtraCount]{ExtraContext::Seat,ExtraContext::Seat,ExtraContext::OnFoot,
     ExtraContext::OnFoot,ExtraContext::OnFoot,ExtraContext::OnFoot,ExtraContext::OnFoot,ExtraContext::Seat,
-    ExtraContext::Seat,ExtraContext::Seat,ExtraContext::Seat,ExtraContext::Anywhere,ExtraContext::Anywhere};
+    ExtraContext::Seat,ExtraContext::Seat,ExtraContext::Seat,ExtraContext::Anywhere,ExtraContext::Anywhere,
+    ExtraContext::Seat};
+// A row no longer offered: Fire left weapon is Grenade's left trigger in Halo 3 and Halo 2, the left gun firing while
+// dual wielding, so it goes with Grenade's row (ActionName says so) and cannot be put on other controls. A row of its own
+// on the support trigger pressed that button under the gun-gripped zoom chord too: Halo 2's Aim Frame Zoom threw a
+// grenade. Its key stays in kExtraKeys so old files still parse; nothing presses it and the menu does not show it.
+inline constexpr bool RetiredExtra(ExtraAction action) noexcept { return action==FireLeft; }
 using ExtraRow=std::array<Input,kRowInputs>;
 using ExtraBindings=std::array<ExtraRow,ExtraCount>;
 using ExtraTransports=std::array<uint32_t,ExtraCount>;
@@ -516,28 +525,31 @@ inline constexpr ExtraBindings kExtraDefaults{{
     {Input{kNoneHeld,PrimaryGrip},Input{kNoneHeld,RightClick},Input{},Input{}},
     {Input{kNoneHeld,A},Input{},Input{},Input{}},
     kAutomaticRow,kAutomaticRow,kAutomaticRow,kAutomaticRow,kAutomaticRow,kAutomaticRow,kAutomaticRow,kAutomaticRow,
-    kAutomaticRow,kAutomaticRow,kAutomaticRow}};
+    kAutomaticRow,kAutomaticRow,kAutomaticRow,kAutomaticRow}};
 // Each game's own action for an extra row, as NativeAction names the rows' (kNoAction: the game has none), in the games'
 // order Halo 3, ODST, Reach, Halo 4, Halo CE, Halo 2: what each game's converter makes of MCC's own control for it. See
-// BANSHEE-SEAT-ACTIONS-EVIDENCE-2026-11-05.md and EXTRA-ACTIONS-EVIDENCE-2026-11-05.md. Reach and Halo 4 have no bomb of
-// their own: a Banshee's bomb is the vehicle's secondary fire. Halo 3's and ODST's trick is the seat's jump; Halo 4's and
-// Halo 2's second trick is the Banshee's brake. ODST keeps Halo 3's dual-wield actions but has no dual wielding; Halo 2's
+// BANSHEE-SEAT-ACTIONS-EVIDENCE-2026-11-05.md and EXTRA-ACTIONS-EVIDENCE-2026-11-05.md. Reach and Halo 4 have no bomb
+// button: their vehicle secondary fire (0x0A, 0x0B, the secondary trigger) is the boost, and a Banshee's fuel rod or a
+// Pelican's missiles are a weapon picked with Switch weapon and fired with Fire -- in the headset a bomb row there boosted. Halo 3's and ODST's trick is the seat's jump; the second
+// trick is the Banshee's brake in Halo 2, Reach and Halo 4. In Reach and Halo 4 the brake is the lower of the two
+// (seated control bit 2), the trick the higher (bit 0x14 / 0x15): in the headset Halo 4's were the other way round. ODST keeps Halo 3's dual-wield actions but has no dual wielding; Halo 2's
 // dual-wield pickup is a held binding the reader leaves alone; Back is Halo 2's and Halo CE's graphics switch, so neither
 // has a Scoreboard row.
 inline constexpr unsigned kExtraNative[ExtraCount][6]{
-    {0x0A,0x0A,0x0A,0x0B,kNoAction,0x15},
-    {0x1E,0x1F,0x0C,0x0D,kNoAction,0x01},
+    {0x0A,0x0A,kNoAction,kNoAction,kNoAction,0x15},
+    {0x1E,0x1F,0x0D,0x0E,kNoAction,0x01},
     {0x41,kNoAction,kNoAction,kNoAction,kNoAction,0x17},
     {0x42,kNoAction,kNoAction,kNoAction,kNoAction,kNoAction},
     {0x1F,kNoAction,kNoAction,kNoAction,kNoAction,kNoAction},
     {0x20,0x21,0x48,0x09,0x17,0x03},
     {kNoAction,0x25,kNoAction,kNoAction,kNoAction,kNoAction},
     {0x09,0x09,0x0A,0x0B,0x12,0x19},
-    {0x27,0x2B,0x0D,0x0E,kNoAction,0x02},
+    {0x27,0x2B,0x0C,0x0D,kNoAction,0x02},
     {0x22,0x23,0x0E,0x10,kNoAction,kNoAction},
     {0x23,0x24,0x0F,0x11,kNoAction,kNoAction},
     {0x1D,0x0C,0x3B,0x25,kNoAction,kNoAction},
-    {kNoAction,kNoAction,kNoAction,0x54,kNoAction,kNoAction}};
+    {kNoAction,kNoAction,kNoAction,0x54,kNoAction,kNoAction},
+    {0x02,0x02,0x02,0x01,0x03,0x04}};
 // The name an extra row shows in a game: ODST's Back brings up its map as well as the scores.
 inline constexpr const char* ExtraName(GameTitle title,ExtraAction action) noexcept
 {
@@ -549,6 +561,19 @@ inline constexpr unsigned NativeExtraAction(GameTitle title,ExtraAction action) 
 {
     const int game=static_cast<int>(title)-1;
     return action<ExtraCount&&game>=0&&game<6?kExtraNative[action][game]:kNoAction;
+}
+// A game's extra rows as they start. In a seat left Y is the vehicle cameras', so Switch weapon has a seat row of its
+// own: in Reach and Halo 4 it picks a Banshee's fuel rod or a Pelican's missiles, which have no bomb button, and it starts
+// on the controls the Banshee bomb starts on in the other games. There the bomb row, not in the game, gives them up.
+inline constexpr ExtraBindings ExtraDefaults(GameTitle title) noexcept
+{
+    ExtraBindings defaults=kExtraDefaults;
+    if(title==GameTitle::HaloReach||title==GameTitle::Halo4)
+    {
+        defaults[SeatSwitchWeapon]=kExtraDefaults[BansheeBomb];
+        defaults[BansheeBomb]=kAutomaticRow;
+    }
+    return defaults;
 }
 // An extra row's input in a file: its own may be Automatic, no input an old context.
 inline bool ParseExtraInput(const char* text,Input& input,bool own) noexcept
@@ -586,7 +611,7 @@ struct ExtraMapper
         for(unsigned a=0;a<ExtraCount;++a)
         {
             const unsigned c=static_cast<unsigned>(kExtraContexts[a]);
-            if(!live[c]) continue;
+            if(!live[c]||RetiredExtra(static_cast<ExtraAction>(a))) continue;
             for(unsigned i=0;i<kRowInputs;++i)
             {
                 const auto& input=bindings[a][i];
@@ -607,6 +632,21 @@ struct ExtraMapper
         return buttons;
     }
 };
+
+// An extra row on Automatic follows the game's own button for its action, as an action row does (EffectiveOverrides):
+// its own input becomes the VR control at that button's place. Once it pressed nothing and its action waited on an
+// action row sending the same button -- a vehicle's boost (Halo 4's and a Mantis's missiles too) rode Grenade's left
+// trigger, and was lost with a layout or a mapping that moved Grenade. Until the layout is known the rows stay as set.
+inline ExtraBindings EffectiveExtraBindings(const ExtraBindings& bindings,const ExtraTransports& layout,
+    bool layoutKnown) noexcept
+{
+    ExtraBindings effective=bindings;
+    if(layoutKnown)
+        for(unsigned x=0;x<ExtraCount;++x)
+            for(auto& input:effective[x])
+                if(input.press==Automatic) input.press=LayoutSource(layout[x]);
+    return effective;
+}
 
 // An extra row's inputs as one number, the way InputsSignature numbers an action row's: an Automatic own input is none.
 inline uint64_t ExtraInputsSignature(const ExtraRow& row) noexcept
@@ -633,6 +673,7 @@ inline uint32_t ExtraBridgeOnly(const ExtraBindings& extra,const ExtraTransports
     uint32_t only=0;
     for(unsigned x=0;x<ExtraCount;++x)
     {
+        if(RetiredExtra(static_cast<ExtraAction>(x))) continue;
         if(!ExtraControlBits(extra[x])) continue;   // Automatic, or nothing: the game's own button
         const uint32_t button=extraNative[x];
         if(!button) continue;

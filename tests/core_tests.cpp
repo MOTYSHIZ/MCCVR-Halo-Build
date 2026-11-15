@@ -13,6 +13,7 @@ int RunDirectorCameraTests();
 #include "../src/common/halo4_runtime_weapon_bounds.h"
 #include "../src/common/legacy_runtime_weapon_bounds.h"
 #include "../src/common/halo2_snap_turn_logic.h"
+#include "../src/common/halo2_camera_shake_logic.h"
 #include "../src/common/halo2_vehicle_view.h"
 #include "../src/common/halo2_foot_view.h"
 #include "../src/common/halo2_datum_logic.h"
@@ -322,6 +323,34 @@ int main()
         Check(state.Build(key,basis(.6f),basis(0),false,2000,reference)&&
             std::fabs(std::atan2(reference.forward[1],reference.forward[0])-.6f)<1e-5f,
             "H2 stale observer gap reseeds the vehicle reference");
+        {
+            // VR turning in a seat: the stick turns a live occupation's heading, which the next frame keeps.
+            Halo2VehicleViewState turning;Halo2CameraBasis out{};
+            turning.Turn(.5f);
+            Check(!turning.active,"H2 seat turn: nothing to turn outside a seat");
+            Check(turning.Build(key,basis(.2f),basis(0),false,4000,out),"H2 seat turn: seated");
+            turning.Turn(.3f);
+            Check(turning.Build(key,basis(2.2f),basis(0),false,4010,out)&&
+                std::fabs(std::atan2(out.forward[1],out.forward[0])-.5f)<1e-5f,
+                "H2 seat turn: the heading turns and the next frame keeps it");
+            turning.Turn(3.0f);
+            Check(turning.Build(key,basis(2.2f),basis(0),false,4020,out)&&
+                std::fabs(std::atan2(out.forward[1],out.forward[0])-(3.5f-6.28318530718f))<1e-4f,
+                "H2 seat turn: the heading wraps");
+            Halo2SeatTurnState stick;bool snapped=false;
+            Check(stick.Step(true,1.0f,true,45.0f,90.0f,0.5f,snapped)==0.0f&&!snapped,
+                "H2 seat turn: a push held into the seat does not snap until the stick is let back");
+            (void)stick.Step(true,0.0f,false,45.0f,90.0f,0.016f,snapped);
+            const float smooth=stick.Step(true,1.0f,false,45.0f,90.0f,0.05f,snapped);
+            Check(std::fabs(smooth+90.0f*0.05f*0.0174532925f)<1e-5f&&!snapped,
+                "H2 seat turn: smooth, right turns right at turn_smooth_deg_s");
+            (void)stick.Step(true,0.0f,true,45.0f,90.0f,0.016f,snapped);
+            const float snap=stick.Step(true,-0.9f,true,45.0f,90.0f,0.016f,snapped);
+            const bool once=snapped;
+            Check(std::fabs(snap-45.0f*0.0174532925f)<1e-5f&&once&&
+                    stick.Step(true,-0.9f,true,45.0f,90.0f,0.016f,snapped)==0.0f&&!snapped,
+                "H2 seat turn: snap, one step per push");
+        }
         {
             const float seed=-1.2f;
             auto seated=key;seated.seat=3;
@@ -1951,18 +1980,42 @@ int main()
               "art centre: no measurement leaves the quad centred");
 
         // Bloom shuffles the centroid by a texel; the centre in use holds until
-        // a measurement moves it past the deadband, and a gap keeps it.
+        // a measurement moves it past the deadband for `confirm` samples, and a gap keeps it.
+        constexpr float deadband = 2.0f / 512.0f;
+        constexpr uint32_t confirm = 4;
         AuthoredReticleArtCentre nudged = byColour;
         nudged.v += 1.0f / 512.0f;
-        Check(SettleAuthoredReticleArtCentre(byColour, nudged, 2.0f / 512.0f).v == byColour.v,
+        AuthoredReticleCentreSettle settle{};
+        Check(settle.Step(byColour, nudged, deadband, confirm).v == byColour.v,
               "art centre: a texel of jitter does not move the quad");
         AuthoredReticleArtCentre moved = byColour;
         moved.v += 5.0f / 512.0f;
-        Check(SettleAuthoredReticleArtCentre(byColour, moved, 2.0f / 512.0f).v == moved.v,
-              "art centre: a real move is followed at once");
-        Check(SettleAuthoredReticleArtCentre(byColour, {}, 2.0f / 512.0f).v == byColour.v &&
-                  SettleAuthoredReticleArtCentre({}, byColour, 2.0f / 512.0f).valid,
-              "art centre: an unmeasured sample keeps the centre; the first one sets it");
+        settle = {};
+        bool heldThenMoved = true;
+        for (uint32_t i = 1; i < confirm; ++i)
+            heldThenMoved = heldThenMoved && settle.Step(byColour, moved, deadband, confirm).v == byColour.v;
+        Check(heldThenMoved && settle.Step(byColour, moved, deadband, confirm).v == moved.v,
+              "art centre: a real move is followed once it has held for the confirm count");
+        settle = {};
+        AuthoredReticleArtCentre passing = byColour;
+        passing.v -= 0.25f;
+        for (uint32_t i = 1; i < confirm; ++i)
+            (void)settle.Step(byColour, passing, deadband, confirm);
+        Check(settle.Step(byColour, byColour, deadband, confirm).v == byColour.v &&
+                  settle.Step(byColour, passing, deadband, confirm).v == byColour.v,
+              "art centre: art that passes through for fewer than the confirm count does not move the quad");
+        settle = {};
+        AuthoredReticleArtCentre cutOff = passing;
+        cutOff.touchesEdge = true;
+        bool cutOffHeld = true;
+        for (uint32_t i = 0; i < confirm * 3; ++i)
+            cutOffHeld = cutOffHeld && settle.Step(byColour, cutOff, deadband, confirm).v == byColour.v;
+        Check(cutOffHeld, "art centre: art cut off by the capture's edge never moves the quad, however long it stays");
+        settle = {};
+        Check(settle.Step(byColour, {}, deadband, confirm).v == byColour.v &&
+                  settle.Step({}, byColour, deadband, confirm).valid &&
+                  settle.Step({}, cutOff, deadband, confirm).v == cutOff.v,
+              "art centre: an unmeasured sample keeps the centre; the first one sets it, cut off or not");
     }
     {
         // The capture window follows art drawn away from the view's centre (a Halo 2 vehicle's reticle).
@@ -2005,6 +2058,67 @@ int main()
                   step(outward, at(0.0f, 240.0f), 5, 6) && step(outward, at(0.0f, 240.0f), 7, 8) &&
                   outward.y == 768.0f && !step(outward, at(0.0f, 240.0f), 9, 10),
               "capture follow: the window stops at its limit");
+    }
+    {
+        // How far a capture's art reaches, and how much of the view the next capture takes in to hold it.
+        constexpr uint32_t size = 64;
+        constexpr size_t pitch = size * 4;
+        const auto ring = [&](uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1) {
+            std::array<uint8_t, pitch * size> rows{};
+            for (uint32_t y = y0; y <= y1; ++y)
+                for (uint32_t x = x0; x <= x1; ++x)
+                    if (y == y0 || y == y1 || x == x0 || x == x1)
+                        rows[y * pitch + x * 4 + 1] = 200;
+            return MeasureAuthoredReticleArtCentre(rows.data(), pitch, size, true, 2);
+        };
+        // Rows 24..39 of 64: the ring's bounding box spans 24..40, eight texels either side of 32.
+        const AuthoredReticleArtCentre inside = ring(24, 24, 39, 39);
+        Check(inside.valid && std::fabs(inside.reach - 0.25f) < 1.0e-6f && !inside.touchesEdge,
+              "art reach: a centred ring a quarter of the texture across reaches a quarter of the way out");
+        // The same ring well below the centre: its far side sets the reach.
+        const AuthoredReticleArtCentre low = ring(24, 40, 39, 55);
+        Check(low.valid && std::fabs(low.reach - 0.75f) < 1.0e-6f && !low.touchesEdge,
+              "art reach: art off the centre reaches as far as its farthest side");
+        const AuthoredReticleArtCentre cut = ring(4, 0, 59, 63);
+        Check(cut.valid && cut.reach == 1.0f && cut.touchesEdge, "art reach: art at the edge was cut by it");
+
+        const auto reaching = [](float reach, bool touches) {
+            AuthoredReticleArtCentre c{};
+            c.u = c.v = 0.5f;
+            c.reach = reach;
+            c.touchesEdge = touches;
+            c.ink = 1000;
+            c.valid = true;
+            return c;
+        };
+        ReticleCaptureFit fit{};
+        Check(!fit.Step(inside, 1.0f, 0.75f, 0.25f, 2) && !fit.Step(inside, 1.0f, 0.75f, 0.25f, 2) && fit.zoom == 1.0f,
+              "capture fit: art well inside the capture keeps the framing");
+        Check(!fit.Step(reaching(0.9f, false), 1.0f, 0.75f, 0.25f, 2) && fit.zoom == 1.0f,
+              "capture fit: one capture reaching past the fill does not widen it");
+        Check(!fit.Step(inside, 1.0f, 0.75f, 0.25f, 2) && !fit.Step(reaching(0.9f, false), 1.0f, 0.75f, 0.25f, 2) &&
+                  fit.zoom == 1.0f,
+              "capture fit: reaching past the fill must hold over consecutive captures");
+        Check(fit.Step(reaching(0.9f, false), 1.0f, 0.75f, 0.25f, 2) && std::fabs(fit.zoom - 0.75f / 0.9f) < 1.0e-6f,
+              "capture fit: art reaching 90% widens the capture to hold it at 75%");
+        // Bloom spreading further, measured in a capture drawn at the new zoom, cut by the edge.
+        const float before = fit.zoom;
+        Check(fit.Step(reaching(1.0f, true), before, 0.75f, 0.25f, 2) &&
+                  std::fabs(fit.zoom - before * 0.75f) < 1.0e-6f,
+              "capture fit: art cut off by the edge widens it again on the next capture");
+        // The bloom shrinking back, or a capture still drawn at the old zoom, never narrows it.
+        const float widened = fit.zoom;
+        Check(!fit.Step(inside, widened, 0.75f, 0.25f, 2) && !fit.Step(reaching(0.9f, false), 1.0f, 0.75f, 0.25f, 2) &&
+                  !fit.Step(reaching(0.9f, false), 1.0f, 0.75f, 0.25f, 2) && fit.zoom == widened && fit.widenings == 2,
+              "capture fit: the framing never narrows again, whatever is measured");
+        ReticleCaptureFit floored{};
+        (void)floored.Step(reaching(1.0f, true), 0.3f, 0.75f, 0.25f, 1);
+        Check(floored.zoom == 0.25f && !floored.Step(reaching(1.0f, true), 0.25f, 0.75f, 0.25f, 1),
+              "capture fit: the capture is never drawn smaller than its floor");
+        ReticleCaptureFit none{};
+        Check(!none.Step({}, 1.0f, 0.75f, 0.25f, 1) && !none.Step(reaching(0.9f, false), 0.0f, 0.75f, 0.25f, 1) &&
+                  none.zoom == 1.0f,
+              "capture fit: no measurement, or no zoom to measure it against, changes nothing");
     }
     {
         // A seat camera's point is carried from the vehicle as simulated to the vehicle as drawn.
@@ -2279,6 +2393,33 @@ int main()
                   ResolveAuthoredAnimationGapFrames(0) == 0 &&
                   ResolveAuthoredAnimationGapFrames(-4) == 0,
               "authored animation cadence clamp");
+        Check(ResolveAuthoredAnimationGapFrames(1, 1) == 1 && ResolveAuthoredAnimationGapFrames(3, 1) == 3 &&
+                  ResolveAuthoredAnimationGapFrames(1, 6) == 6 && ResolveAuthoredAnimationGapFrames(0, 1) == 0 &&
+                  ResolveAuthoredAnimationGapFrames(2, 0) == 2,
+              "authored animation cadence follows the upload floor in force");
+
+        // The upload floor follows what a publish was measured to cost (2026-11-06 Quest numbers, and Halo 3's
+        // 4-5 ms).
+        Check(AuthoredReticleUploadGapForCost(6, 24, 0.007, 0.11) == 1,
+              "a window of cheap publishes lets the next one publish every frame");
+        Check(AuthoredReticleUploadGapForCost(1, 72, 4.5, 6.0) == kMinimumUploadGapFrames &&
+                  AuthoredReticleUploadGapForCost(1, 72, 0.1, 3.0) == kMinimumUploadGapFrames,
+              "a costly mean or a costly spike restores the six-frame floor");
+        Check(AuthoredReticleUploadGapForCost(6, 0, 0.0, 0.0) == 6 && AuthoredReticleUploadGapForCost(1, 0, 9.0, 9.0) == 1 &&
+                  AuthoredReticleUploadGapForCost(6, 3, 0.007, 0.01) == 6,
+              "no publishes, or too few, change nothing");
+        {
+            AuthoredReticleRefreshState everyFrame{};
+            int count = 0;
+            for (uint64_t serial = 1; serial <= 72; ++serial)
+                if (ShouldUploadAuthoredReticle(AuthoredReticleRefreshPolicy::BoundedAnimation, true, true, 1, 0, 0,
+                                                serial, 1, everyFrame, 1))
+                {
+                    MarkAuthoredReticleUploaded(everyFrame, 1, 0, 0, serial);
+                    ++count;
+                }
+            Check(count == 72, "a one-frame floor publishes every frame");
+        }
 
         // A Halo 3 sample publishes on the frame it was captured on, every
         // time, so the animation cadence the player sets is the cadence they
@@ -2303,6 +2444,37 @@ int main()
             }
         }
         Check(published == 20, "every animated sample publishes");
+
+        // The coverage readback publishes a capture on a later frame than it was taken. The floor counts from the
+        // capture, so every sample still publishes; counted from the publish frame, only every other one did.
+        const auto pipelined = [gap](uint64_t readbackFrames, bool markCaptureFrame) {
+            AuthoredReticleRefreshState state{};
+            uint64_t lastSampled = 0, pendingCapture = 0, publishAt = 0;
+            int count = 0;
+            for (uint64_t serial = 1; serial <= 144; ++serial)
+            {
+                if (pendingCapture && serial == publishAt)
+                {
+                    MarkAuthoredReticleUploaded(state, 1, 0, 0, markCaptureFrame ? pendingCapture : serial);
+                    pendingCapture = 0;
+                    ++count;
+                }
+                // No capture while its readback is in flight, as VR_ShouldCaptureAuthoredReticleThisFrame.
+                if (pendingCapture || !ShouldSampleAuthoredCapture(gap, lastSampled, serial))
+                    continue;
+                lastSampled = serial;
+                if (ShouldUploadAuthoredReticle(AuthoredReticleRefreshPolicy::BoundedAnimation, true, true, 1, 0, 0,
+                                                serial, 1, state))
+                {
+                    pendingCapture = serial;
+                    publishAt = serial + readbackFrames;
+                }
+            }
+            return count;
+        };
+        Check(pipelined(1, true) == 24 && pipelined(2, true) == 24,
+              "a capture published after its readback keeps the one-in-six cadence");
+        Check(pipelined(1, false) == 12, "counted from the publish frame, every other capture was refused");
 
         // Halo 4 has no proven stable weapon-art identity, so animation=0
         // holds the fixed key between slow probes rather than freezing it for
@@ -7608,6 +7780,30 @@ int main()
             Check(!reclaimer_odst_hud::ListsBlock(block, lone) && !reclaimer_odst_hud::ListsBlock(block, reordered) &&
                       !reclaimer_odst_hud::ListsBlock(cut, shapes),
                 "a lone entry, another order or an entry that is not a whole record is not the client's block");
+            {
+                // Project Reclaimer 0.10.2's own table, as the 2026-11-11 scan found it: 0x64 apart, two pairs zero.
+                uint8_t table[reclaimer_odst_hud::kTableBytes]{};
+                const float tail[6]{2000.0f, 2000.0f, 58.0f, 4.0f, 0.87f, 0.87f};
+                for (int i = 0; i < reclaimer_odst_hud::kBlockRecords; ++i)
+                {
+                    uint8_t* entry = table + i * reclaimer_odst_hud::kTableStride;
+                    const uint32_t shape[2]{reclaimer_odst_hud::kBlockShapes[i].width,
+                                            reclaimer_odst_hud::kBlockShapes[i].height};
+                    std::memcpy(entry, shape, sizeof(shape));
+                    std::memcpy(entry + sizeof(shape), tail, (i == 2 || i == 3) ? 16 : sizeof(tail));
+                }
+                const bool found = reclaimer_odst_hud::TableAt(table);
+                uint8_t swapped[sizeof(table)];
+                std::memcpy(swapped, table, sizeof(table));
+                std::memcpy(swapped, table + reclaimer_odst_hud::kTableStride, 8);
+                uint8_t halo3[sizeof(table)];
+                std::memcpy(halo3, table, sizeof(table));
+                const float halo3Sensor = 55.0f;
+                std::memcpy(halo3 + 8, &halo3Sensor, sizeof(halo3Sensor));
+                Check(found && !reclaimer_odst_hud::TableAt(swapped) && !reclaimer_odst_hud::TableAt(halo3) &&
+                          reclaimer_odst_hud::kTableBytes == 4 * 0x64 + 24 + 8,
+                      "Project Reclaimer 0.10.2's table of ODST's layouts: the five in order, ODST's sensor, pairs at +24");
+            }
         }
         {
             // Records left from an earlier level (Project Reclaimer, 2026-11-07): the ODST level's six still held
@@ -10955,6 +11151,30 @@ int main()
                       Halo2SaberViewSlotsIntact(0xFFF, 0xFFF) && Halo2SaberViewSlotsIntact(0x0F0, 0xFFF) &&
                       !Halo2SaberViewSlotsIntact(0xFFF, 0xFFE) && !Halo2SaberViewSlotsIntact(0x0F0, 0),
                 "an eye pass waits while any slot seen filled this level is empty");
+            Check(kHalo2SaberViewTargetsDrawRva == 0x004719B0 &&
+                      Halo2SaberViewTargetSlot(0, 0, 0) == 0 && Halo2SaberViewTargetSlot(1, 0, 1) == 3 &&
+                      Halo2SaberViewTargetSlot(0, 2, 1) == 10 && Halo2SaberViewTargetSlot(1, 2, 1) == 11 &&
+                      Halo2SaberViewTargetSlot(0, 1, 0) == 4 && Halo2SaberViewTargetSlot(2, 2, 1) == 12 &&
+                      Halo2SaberViewTargetSlot(0, -1, 0) == UINT64_MAX,
+                "the view-target draw reads slot offset + half*2 + group*4 (Outskirts' load faulted on one)");
+            Check(Halo2SaberViewTargetPointerOffset(0, 0, 0) == 0x1DFF858 &&
+                      Halo2SaberViewTargetPointerOffset(1, 2, 1) == 0x1DFF858 + 11 * 0x4E0 &&
+                      Halo2SaberViewTargetPointerOffset(3, 2, 1) == 0x1DFF858 + 13 * 0x4E0 &&
+                      Halo2SaberViewTargetPointerOffset(0, -1, 0) == 0x1DFF858 - 4 * 0x4E0 &&
+                      Halo2SaberViewTargetPointerOffset(0xFFFFFFFFu, 0, 0) == 0x1DFF858 + 0xFFFFFFFFull * 0x4E0,
+                "the view-target check reads the very pointer the draw does, inside the twelve slots or not");
+            {
+                namespace shake = halo2_camera_shake;
+                Check(shake::PatternByte(shake::kCallSitesPattern, shake::kAnimationCameraCallOffset) == 0xE8 &&
+                          shake::PatternByte(shake::kCallSitesPattern, shake::kScreenShakeCallOffset) == 0xE8 &&
+                          shake::kCallSitesRva + shake::kAnimationCameraCallOffset == 0x6F02B1 &&
+                          shake::kCallSitesRva + shake::kScreenShakeCallOffset == 0x6F02DD &&
+                          shake::PatternByte(shake::kCallSitesPattern, shake::kAnimationCameraCallOffset + 1) == -1,
+                      "Halo 2's camera shake: the call-site pattern names both calls of the observer transform");
+                Check(shake::PatternByte(shake::kAnimationCameraPattern, 0) == 0x48 &&
+                          shake::PatternByte(shake::kScreenShakePattern, 0) == 0x48 && shake::kMatrixBytes == 13 * 4,
+                      "Halo 2's camera shake: both routines' entries are pinned; the matrix is real_matrix4x3");
+            }
             float a[16]{1,0,0,0, 0,1,0,0, 0,0,1,0, 1.0f,2.0f,3.0f,1};
             float b[16]{1,0,0,0, 0,1,0,0, 0,0,1,0, 1.0f,2.0f,3.0f,1};
             Check(Halo2SaberViewMatricesMatch(a, b, 2.0e-3f, 0.02f),
@@ -14781,10 +15001,10 @@ int main()
             "Pre-v6 saved OFF is migrated to coherent committed-sample aim ON");
         ConfigSave();
         const std::string migratedAimConfig = ReadTextFile(oldAimConfig);
-        Check(g_config.config_version == 6 &&
-                  CountText(migratedAimConfig, "\nconfig_version = 6") == 1 &&
+        Check(g_config.config_version == 7 &&
+                  CountText(migratedAimConfig, "\nconfig_version = 7") == 1 &&
                   CountText(migratedAimConfig, "\ntwo_hand_coherent_aim = 1") == 1,
-            "Saving the v5 coherent-aim migration persists version 6 and ON");
+            "Saving the v5 coherent-aim migration persists the current version and ON");
         ConfigLoad(oldAimConfig.c_str());
         Check(g_config.two_hand_coherent_aim,
             "Reloading the saved v6 migration keeps coherent committed-sample aim ON");
@@ -14832,6 +15052,25 @@ int main()
             "A first run with no config file derives direct drive ON in every lane");
         ConfigLoad(primary.c_str());
         std::filesystem::remove(driveConfig);
+    }
+    {
+        // A new player starts on the Default controls; a player whose file named "Default" before version 7 was on
+        // the struct's scheme, now Legacy Default, and keeps it under that name.
+        const std::filesystem::path controlsConfig = configDir / L"default-controls.cfg";
+        std::filesystem::remove(controlsConfig);
+        ConfigLoad(controlsConfig.c_str());
+        Check(!strcmp(g_config.input_preset, "Default") && g_config.vr_action_mapping &&
+                  g_config.gesture_melee_require_grip && g_config.title_profiles[0].gun_pitch_deg == -13.0f,
+            "A first run starts on the Default controls, and says so");
+        { std::ofstream file(controlsConfig); file << "config_version = 6\ninput_preset = Default\n"; }
+        ConfigLoad(controlsConfig.c_str());
+        Check(!strcmp(g_config.input_preset, "Legacy Default") && !g_config.vr_action_mapping,
+            "An older file's Default is the scheme it always was, named Legacy Default");
+        { std::ofstream file(controlsConfig); file << "config_version = 7\ninput_preset = Default\n"; }
+        ConfigLoad(controlsConfig.c_str());
+        Check(!strcmp(g_config.input_preset, "Default"), "A current file's Default stays Default");
+        ConfigLoad(primary.c_str());
+        std::filesystem::remove(controlsConfig);
     }
 #if !HALOMCCVR_DEV_DIAGNOSTICS
     {
@@ -14881,7 +15120,7 @@ int main()
                 g_config.virtual_stock_standard_strength == .61f &&
                 g_config.virtual_stock_plus_strength == kVirtualStockPlusStrengthDefault &&
                 g_config.two_hand_smoothing_strength == 25.0f &&
-                g_config.two_hand_coherent_aim && g_config.config_version == 6;
+                g_config.two_hand_coherent_aim && g_config.config_version == 7;
         }, "installer/runtime roundtrip migrates legacy Standard strength, smoothing and v5 coherent aim");
         verifyMerged("config_version=5\nvirtual_stock_rear_reference=3\n"
                      "virtual_stock_strength=0.44\ntwo_hand_smoothing=0\n", [] {

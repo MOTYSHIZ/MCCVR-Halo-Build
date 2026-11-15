@@ -310,32 +310,38 @@ struct Version
 };
 
 // project-reclaimer-v0.9.8.exe -> 0.9.8. A name without a version is "unknown" and loses to any known one.
-inline Version VersionOf(std::wstring_view leaf)
+// "0.10.1" -> 0.10.1: up to three numbers joined by dots, from the start of `text`. Unknown when it starts with none.
+inline Version VersionOfText(std::wstring_view text)
 {
     Version version;
-    const std::wstring name = Lower(leaf);
-    const size_t at = name.rfind(L"-v");
-    if (at == std::wstring::npos)
-        return version;
-    size_t i = at + 2;
+    size_t i = 0;
     int parts = 0;
-    while (parts < 3 && i < name.size() && name[i] >= L'0' && name[i] <= L'9')
+    while (parts < 3 && i < text.size() && text[i] >= L'0' && text[i] <= L'9')
     {
         int value = 0;
-        while (i < name.size() && name[i] >= L'0' && name[i] <= L'9')
+        while (i < text.size() && text[i] >= L'0' && text[i] <= L'9')
         {
             if (value > 100000)
                 return Version{};
-            value = value * 10 + (name[i++] - L'0');
+            value = value * 10 + (text[i++] - L'0');
         }
         version.part[parts++] = value;
-        if (i < name.size() && name[i] == L'.' && i + 1 < name.size() && name[i + 1] >= L'0' && name[i + 1] <= L'9')
+        if (i < text.size() && text[i] == L'.' && i + 1 < text.size() && text[i + 1] >= L'0' && text[i + 1] <= L'9')
             ++i;
         else
             break;
     }
     version.known = parts > 0;
     return version;
+}
+
+inline Version VersionOf(std::wstring_view leaf)
+{
+    const std::wstring name = Lower(leaf);
+    const size_t at = name.rfind(L"-v");
+    if (at == std::wstring::npos)
+        return Version{};
+    return VersionOfText(std::wstring_view(name).substr(at + 2));
 }
 
 // True when `candidate` should replace `best`.
@@ -356,7 +362,7 @@ inline bool Newer(const Version& candidate, const Version& best)
 // launcher's log says so either way. A client named in reclaimer_client.txt is the player's own choice and is
 // started whatever its version.
 inline constexpr Version kProvenVersions[] = {{{0, 9, 8}, true}, {{0, 9, 10}, true}, {{0, 9, 11}, true},
-                                              {{0, 9, 12}, true}};
+                                              {{0, 9, 12}, true}, {{0, 10, 0}, true}, {{0, 10, 1}, true}};
 inline bool Proven(const Version& version)
 {
     if (!version.known)
@@ -389,6 +395,62 @@ inline std::wstring SettingsFolder(bool recompiledEngine, const std::wstring& do
     if (recompiledEngine)
         return localAppData.empty() ? std::wstring() : localAppData + L"\\ProjectReclaimer";
     return documents.empty() ? std::wstring() : documents + L"\\My Games\\Project Reclaimer";
+}
+
+// The cache folder a client run says it uses: its log's "[host] profile <player folder>, caches <cache folder>" line
+// (the last one, so a log holding several starts answers for the latest). Empty when the log has no such line.
+inline std::wstring CachesFromClientLog(std::wstring_view log)
+{
+    static constexpr std::wstring_view kProfile = L"[host] profile ";
+    static constexpr std::wstring_view kCaches = L", caches ";
+    const size_t line = log.rfind(kProfile);
+    if (line == std::wstring_view::npos)
+        return {};
+    size_t end = log.find_first_of(L"\r\n", line);
+    if (end == std::wstring_view::npos)
+        end = log.size();
+    const std::wstring_view text = log.substr(line, end - line);
+    const size_t caches = text.rfind(kCaches);
+    if (caches == std::wstring_view::npos)
+        return {};
+    return std::wstring(text.substr(caches + kCaches.size()));
+}
+
+// Where 0.10 and later may keep the engine's translated code (native\retail-engine\engine.code in its cache folder),
+// likeliest first. The running client's own log names its cache folder outright (clientLogCaches), so that comes
+// first. Then, as the client picks its cache folder: RECLAIMER_CACHE_DIR when it is set; then the folder the
+// player chose under Settings > Folders > Cache folder (the first line of cache-folder.txt in the player folder),
+// holding the cache itself or a Cache folder; then the player folder's own Cache (RECLAIMER_PROFILE_DIR, else
+// %LOCALAPPDATA%\ProjectReclaimer), where the client keeps it by default and while a chosen folder is missing.
+inline std::vector<std::wstring> EngineCodeCandidates(std::wstring_view clientLogCaches,
+                                                      std::wstring_view cacheDirVariable,
+                                                      std::wstring_view cacheFolderNote,
+                                                      std::wstring_view playerFolder)
+{
+    const auto folder = [](std::wstring_view text) {
+        std::wstring tidy = TidyPath(text.substr(0, text.find_first_of(L"\r\n")));
+        while (!tidy.empty() && (tidy.back() == L'\\' || tidy.back() == L'/'))
+            tidy.pop_back();
+        return tidy;
+    };
+    std::vector<std::wstring> list;
+    const auto add = [&](const std::wstring& cache) {
+        if (cache.empty())
+            return;
+        std::wstring path = cache + L"\\native\\retail-engine\\engine.code";
+        for (const auto& had : list)
+            if (Lower(had) == Lower(path))
+                return;
+        list.push_back(std::move(path));
+    };
+    add(folder(clientLogCaches));
+    add(folder(cacheDirVariable));
+    const std::wstring chosen = folder(cacheFolderNote);
+    add(chosen);
+    add(chosen.empty() ? chosen : chosen + L"\\Cache");
+    const std::wstring player = folder(playerFolder);
+    add(player.empty() ? player : player + L"\\Cache");
+    return list;
 }
 
 // Which client process gets the mod: up to 0.9, the engine worker with the player's window; from 0.10, the client

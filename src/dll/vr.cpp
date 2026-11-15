@@ -447,14 +447,74 @@ namespace
     constexpr uint32_t kAuthoredReticleCentreProbeSize = 64;
     // Two texels of the 512 capture: below it a centroid change is noise.
     constexpr float kAuthoredReticleCentreDeadband = 2.0f / 512.0f;
+    // A move of the centre holds this many published captures first (about half a second in Halo 4).
+    constexpr uint32_t kAuthoredReticleCentreConfirm = 4;
+    AuthoredReticleCentreSettle g_authoredReticleCentreSettle{};
     bool g_authoredReticleCentreQueued = false;
+    // Halo 4 publishes every frame where the floor allows it: a capture is copied aside when its readback is
+    // queued, so the next frame's capture can be drawn while that readback is in flight, and the copy is what
+    // publishes once the readback has judged it. Optional: without it Halo 4 waits out each readback before it
+    // captures again, as it did.
+    ID3D11Texture2D* g_authoredReticleSnapshot = nullptr;
+    bool g_authoredReticleSnapshotQueued = false;   // the readback in flight is of the snapshot
+    uint64_t g_authoredReticleSnapshotSerial = 0;
+    float g_authoredReticleSnapshotZoom = 1.0f;
+    uint32_t g_authoredReticleReadbackLate = 0;     // polls that found the readback not done, for the log
     // The prepared-frame serial of the capture the queued centre readback copied.
     uint64_t g_authoredReticleCentreSerial = 0;
     AuthoredReticleArtCentre g_authoredReticleMeasuredCentre{};
-    // Halo 2's capture window follows its art (authored_reticle_logic.h, ReticleCaptureFollow). The follower is
-    // stepped where the centre is measured; the capture, on the thread that draws the HUD, reads the pair below.
-    ReticleCaptureFollow g_halo2ReticleFollow{};
-    std::atomic<float> g_halo2ReticleWindowX{0.0f}, g_halo2ReticleWindowY{0.0f};
+    // The capture window follows its art in Halo 2, Halo 3 and ODST (authored_reticle_logic.h, ReticleCaptureFollow;
+    // ReticleCaptureFollowsArt). The follower is stepped where the centre is measured; the capture, on the thread
+    // that draws the HUD, reads the pair below, in texels of the capture texture.
+    ReticleCaptureFollow g_reticleFollow{};
+    std::atomic<float> g_reticleWindowX{0.0f}, g_reticleWindowY{0.0f};
+    // HOW MANY CAPTURES ONE DISPLAYED FRAME TOOK, where the window follows the art (for the log). Each crosshair
+    // widget draw begins one, all into the one texture, cleared once a frame. Kept by the thread that captures:
+    // this frame's count, and its first and latest capture's raster eye and widget viewport (top, height).
+    struct ReticleCaptureTally
+    {
+        uint64_t serial = 0;
+        uint32_t count = 0;
+        int eye[2]{-1, -1};
+        float top[2]{}, height[2]{};
+    };
+    ReticleCaptureTally g_reticleTally{};
+    // For the log: the most in one frame, how many frames took more than one, and the last such frame's pair.
+    std::atomic<uint32_t> g_reticleTallyMost{0}, g_reticleTallyMulti{0};
+    std::atomic<int> g_reticleTallyEye[2]{-1, -1};
+    std::atomic<float> g_reticleTallyTop[2]{}, g_reticleTallyHeight[2]{};
+    // Halo 4's capture takes in as much of the view as its art reaches (authored_reticle_logic.h,
+    // ReticleCaptureFit), stepped where the centre is measured. `g_halo4ReticleZoom` is what the next capture is
+    // drawn at; each capture keeps the zoom it was drawn at, the readback and the published art theirs.
+    ReticleCaptureFit g_halo4ReticleFit{};
+    std::atomic<float> g_halo4ReticleZoom{1.0f};
+    std::atomic<float> g_authoredReticleCaptureZoom{1.0f};
+    float g_authoredReticleCentreZoom = 1.0f;
+    float g_authoredReticlePublishedZoom = 1.0f;
+    constexpr float kHalo4ReticleFill = 0.75f;          // of the way from the texture's centre to its edge
+    // The unmagnified framing (1 / kHalo4CuiCaptureScale): Stage 3BQ captured whole art at it (73 of 512 texels).
+    constexpr float kHalo4ReticleMinimumZoom = 1.0f / kHalo4CuiCaptureScale;
+    constexpr uint32_t kHalo4ReticleFitConfirm = 2;
+    // What a publish of the authored crosshair costs the render thread, for the 2 s upload line: the swapchain's
+    // acquire and blocking wait, then the copy and release. The upload floor exists for this cost (4-5 ms measured
+    // once on Halo 3); per-frame publishing waits on its measurement.
+    struct AuthoredReticleUploadCost
+    {
+        uint32_t timed = 0;
+        LONGLONG acquireWait = 0, acquireWaitMax = 0, copyRelease = 0, copyReleaseMax = 0;
+    };
+    AuthoredReticleUploadCost g_authoredReticleUploadCost{};
+    // The upload floor in force, from the last window's measured cost (AuthoredReticleUploadGapForCost): read by
+    // the capture cadence on the thread that draws the HUD and by the publish decision.
+    std::atomic<uint64_t> g_authoredReticleUploadGap{kMinimumUploadGapFrames};
+
+    // Halo 4 captures while a readback is in flight only where a publish may run every frame; elsewhere it keeps
+    // the cadence it had.
+    bool AuthoredReticlePipelined()
+    {
+        return TitleAdapter_GetActiveTitle() == GameTitle::Halo4 && g_authoredReticleSnapshot &&
+            g_authoredReticleUploadGap.load(std::memory_order_relaxed) <= 1;
+    }
     // CE: how far above the HUD's centre the art being captured draws, as a fraction of the HUD's height (a
     // Warthog driver's chevron, haloce_hud.cpp). Its window is lowered by that much: the art's centre is the ray's.
     std::atomic<float> g_ceReticleLift{0.0f};
@@ -463,10 +523,20 @@ namespace
     std::atomic<float> g_authoredReticleFitAcross{1.0f}, g_authoredReticleFitDown{1.0f};
     // The last capture's magnification of the raster (Halo3ReticleCaptureScale for Halo 3 and ODST).
     std::atomic<float> g_authoredReticleCaptureScale{1.0f};
-    constexpr float kHalo2ReticleFollowEngage = 32.0f;     // texels: nearer the middle than this is centred art
-    constexpr float kHalo2ReticleFollowDeadband = 6.0f;    // texels: a moved window holds the art this close
-    constexpr float kHalo2ReticleFollowLimit = 768.0f;     // view pixels: no reticle is drawn farther out
-    constexpr uint32_t kHalo2ReticleFollowBlankLimit = 8;
+    constexpr float kReticleFollowEngage = 32.0f;     // texels: nearer the middle than this is centred art
+    constexpr float kReticleFollowDeadband = 6.0f;    // texels: a moved window holds the art this close
+    constexpr float kReticleFollowLimit = 768.0f;     // texels: no reticle is drawn farther out
+    constexpr uint32_t kReticleFollowBlankLimit = 8;
+    // The titles whose capture window follows its art. Halo 2 draws a vehicle's reticle well below the view's centre;
+    // Halo 3, ODST, Reach and CE draw every crosshair below it when MCC's own crosshair location is not centred
+    // (Reach's 0.37 of the texture low and cut off at its edge, 3.9 deg below the aim point; CE's 0.40 low, 2.9 deg:
+    // headset log 2026-11-09). The setting is the player's, kept for flat play: the capture follows the art rather
+    // than the mod changing it. CE's seat lift (g_ceReticleLift) still places a driver's chevron first.
+    bool ReticleCaptureFollowsArt(GameTitle title)
+    {
+        return title == GameTitle::Halo2 || title == GameTitle::Halo3 || title == GameTitle::Halo3ODST ||
+               title == GameTitle::HaloReach || title == GameTitle::HaloCE;
+    }
     // The centre of the art now in the swapchain; invalid while it holds
     // procedural art or art nobody measured.
     AuthoredReticleArtCentre g_authoredReticlePublishedCentre{};
@@ -1004,6 +1074,11 @@ namespace
     // captured once at start (and again on "re-center").
     XrQuaternionf g_centerRot{0, 0, 0, 1};
     XrVector3f g_centerPos{0, 0, 0};
+    // The VR menu's own place: where the head stood, facing level, when the menu last opened. The menu stays there in
+    // the room, in gameplay as in the main menu, and comes back in front of the player each time it opens -- head-locked,
+    // its side panel did not fit in view.
+    XrPosef g_menuCenter{{0, 0, 0, 1}, {0, 0, 0}};
+    bool g_haveMenuCenter = false;
     bool g_haveCenter = false;
     // Recenter requests can originate on the input/game camera threads. Only
     // Present owns g_haveCenter and the OpenXR locate used to replace it.
@@ -8620,6 +8695,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    // Puts the menu in front of the head, level (g_menuCenter); false until the head is tracked.
+    bool PlaceMenuInFront()
+    {
+        if (!g_headPoseValid)
+            return false;
+        const XrVector3f fwd = Rotate(g_headPose.orientation, {0, 0, -1});
+        float yaw = 0.0f;
+        if (fabsf(fwd.x) > 1e-4f || fabsf(fwd.z) > 1e-4f)
+            yaw = atan2f(-fwd.x, -fwd.z);
+        g_menuCenter = {{0, sinf(yaw * 0.5f), 0, cosf(yaw * 0.5f)}, g_headPose.position};
+        g_haveMenuCenter = true;
+        return true;
+    }
+
     // Store the head pose for the game camera hook to read. Called once near
     // the end of Present with the NEXT frame's predicted display time, so Halo
     // renders the upcoming image from its matching pose instead of a stale one.
@@ -9292,6 +9381,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_authoredReticleCentreStaging->Release();
             g_authoredReticleCentreStaging = nullptr;
         }
+        if (g_authoredReticleSnapshot)
+        {
+            g_authoredReticleSnapshot->Release();
+            g_authoredReticleSnapshot = nullptr;
+        }
+        g_authoredReticleSnapshotQueued = false;
         if (g_authoredReticleProbeFence)
         {
             g_authoredReticleProbeFence->Release();
@@ -9428,6 +9523,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             if (FAILED(g_device->CreateTexture2D(
                     &centreDesc, nullptr, &g_authoredReticleCentreStaging)))
                 g_authoredReticleCentreStaging = nullptr;
+            // Optional too: without it Halo 4 captures only between readbacks.
+            if (FAILED(g_device->CreateTexture2D(&goodDesc, nullptr, &g_authoredReticleSnapshot)))
+                g_authoredReticleSnapshot = nullptr;
         }
         LOG("M3: authored crosshair capture target ready (%ux%u); blank-art "
             "guard %s; art-centre readback %s",
@@ -9532,6 +9630,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     g_authoredReticleCentreStaging, 0, 0, 0, 0,
                     g_authoredReticleTexture, centreMip, nullptr);
                 g_authoredReticleCentreSerial = g_authoredReticleSerial;
+                g_authoredReticleCentreZoom = g_authoredReticleCaptureZoom.load(std::memory_order_relaxed);
             }
         };
 
@@ -9540,6 +9639,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             if (!g_authoredReticleProbePending)
             {
                 queueReadback();
+                // Halo 4: the capture as judged goes aside, and the capture target is free for the next frame.
+                g_authoredReticleSnapshotQueued = AuthoredReticlePipelined();
+                if (g_authoredReticleSnapshotQueued)
+                {
+                    g_context->CopySubresourceRegion(g_authoredReticleSnapshot, 0, 0, 0, 0,
+                                                     g_authoredReticleTexture, 0, nullptr);
+                    g_authoredReticleSnapshotSerial = g_authoredReticleSerial;
+                    g_authoredReticleSnapshotZoom = g_authoredReticleCaptureZoom.load(std::memory_order_relaxed);
+                }
                 g_context->End(g_authoredReticleProbeFence);
                 g_authoredReticleProbePending = true;
                 return kAuthoredReticleCoveragePending;
@@ -9551,6 +9659,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                    D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
                 !complete)
             {
+                ++g_authoredReticleReadbackLate;
                 return kAuthoredReticleCoveragePending;
             }
             g_authoredReticleProbePending = false;
@@ -9559,6 +9668,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         {
             // Bootstrap once so the player receives art before the defer policy
             // has a known-good image to hold.
+            g_authoredReticleSnapshotQueued = false;
             queueReadback();
         }
 
@@ -9651,15 +9761,27 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 g_context->Unmap(g_authoredReticleCentreStaging, 0);
                 if (g_authoredReticleMeasuredCentre.valid)
                     g_authoredReticleLatestMeasured = g_authoredReticleMeasuredCentre;
-                // Halo 2: the capture window follows the art it has just been shown.
-                if (TitleAdapter_GetActiveTitle() == GameTitle::Halo2 &&
-                    g_halo2ReticleFollow.Step(g_authoredReticleMeasuredCentre, g_authoredReticleCentreSerial,
-                                              g_preparedFrame.serial, static_cast<float>(kReticleSize),
-                                              kHalo2ReticleFollowEngage, kHalo2ReticleFollowDeadband,
-                                              kHalo2ReticleFollowLimit, kHalo2ReticleFollowBlankLimit))
+                // Halo 4: the next capture takes in as much as this one's art reached.
+                if (TitleAdapter_GetActiveTitle() == GameTitle::Halo4 &&
+                    g_halo4ReticleFit.Step(g_authoredReticleMeasuredCentre, g_authoredReticleCentreZoom,
+                                           kHalo4ReticleFill, kHalo4ReticleMinimumZoom, kHalo4ReticleFitConfirm))
                 {
-                    g_halo2ReticleWindowX.store(g_halo2ReticleFollow.x, std::memory_order_relaxed);
-                    g_halo2ReticleWindowY.store(g_halo2ReticleFollow.y, std::memory_order_relaxed);
+                    g_halo4ReticleZoom.store(g_halo4ReticleFit.zoom, std::memory_order_relaxed);
+                    LOG("Halo 4 reticle: the art reached %.0f%% of the way to the capture's edge%s at zoom x%.2f; "
+                        "captures are now drawn at x%.2f of the layout's magnification (widened %u times)",
+                        g_authoredReticleMeasuredCentre.reach * 100.0f,
+                        g_authoredReticleMeasuredCentre.touchesEdge ? " and was cut off by it" : "",
+                        g_authoredReticleCentreZoom, g_halo4ReticleFit.zoom, g_halo4ReticleFit.widenings);
+                }
+                // Halo 2, Halo 3, ODST, Reach and CE: the capture window follows the art it has just been shown.
+                if (ReticleCaptureFollowsArt(TitleAdapter_GetActiveTitle()) &&
+                    g_reticleFollow.Step(g_authoredReticleMeasuredCentre, g_authoredReticleCentreSerial,
+                                         g_preparedFrame.serial, static_cast<float>(kReticleSize),
+                                         kReticleFollowEngage, kReticleFollowDeadband,
+                                         kReticleFollowLimit, kReticleFollowBlankLimit))
+                {
+                    g_reticleWindowX.store(g_reticleFollow.x, std::memory_order_relaxed);
+                    g_reticleWindowY.store(g_reticleFollow.y, std::memory_order_relaxed);
                 }
             }
         }
@@ -9841,6 +9963,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // Where this art sits in its texture, when its readback measured it;
         // art nobody measured publishes no centre.
         AuthoredReticleArtCentre publishedCentre{};
+        // The capture this publish is of: the one in the capture target, or Halo 4's copy of an earlier one
+        // whose readback has just come back (g_authoredReticleSnapshot).
+        ID3D11Texture2D* judged = g_authoredReticleTexture;
+        uint64_t judgedSerial = g_authoredReticleSerial;
+        float judgedZoom = g_authoredReticleCaptureZoom.load(std::memory_order_relaxed);
         if (g_authoredReticleProbeUsable && g_authoredReticleGoodTexture)
         {
             const uint32_t ink = MeasureAuthoredReticleCoverage();
@@ -9850,6 +9977,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 // failure and must never let a blank capture replace it.
                 g_authoredReticleHeldBlank = true;
                 return false;
+            }
+            if (g_authoredReticleSnapshotQueued)
+            {
+                g_authoredReticleSnapshotQueued = false;
+                judged = g_authoredReticleSnapshot;
+                judgedSerial = g_authoredReticleSnapshotSerial;
+                judgedZoom = g_authoredReticleSnapshotZoom;
             }
             g_authoredReticleLastCoverage = ink;
             // The bar to clear: something at all, and at least half the ink of
@@ -9918,7 +10052,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             // the check and the swapchain image does not.
             g_context->CopySubresourceRegion(
                 g_authoredReticleGoodTexture, 0, 0, 0, 0,
-                g_authoredReticleTexture, 0, nullptr);
+                judged, 0, nullptr);
             g_authoredReticleConsecutiveHolds = 0;
             if (ink >= kAuthoredReticleArtAlphaThreshold)
             {
@@ -9926,10 +10060,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 g_authoredReticleGoodInk = ink;
             }
             source = g_authoredReticleGoodTexture;
-            publishedCentre = SettleAuthoredReticleArtCentre(
+            publishedCentre = g_authoredReticleCentreSettle.Step(
                 g_authoredReticlePublishedCentre,
                 g_authoredReticleMeasuredCentre,
-                kAuthoredReticleCentreDeadband);
+                kAuthoredReticleCentreDeadband, kAuthoredReticleCentreConfirm);
         }
 
         uint32_t index = 0;
@@ -9937,6 +10071,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
         wait.timeout = 1000000000;
         XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+        LARGE_INTEGER costStart{}, costWaited{}, costReleased{};
+        QueryPerformanceCounter(&costStart);
         const XrResult acquireResult =
             xrAcquireSwapchainImage(g_reticleChain, &acquire, &index);
         if (requireSuccessfulRelease && acquireResult != XR_SUCCESS)
@@ -9964,6 +10100,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         }
         else if (XR_FAILED(waitResult))
             return false;
+        QueryPerformanceCounter(&costWaited);
 
         D3D11_TEXTURE2D_DESC sourceDesc{};
         source->GetDesc(&sourceDesc);
@@ -10000,6 +10137,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             FinishReticleImage(index);
         const XrResult releaseResult =
             xrReleaseSwapchainImage(g_reticleChain, &release);
+        QueryPerformanceCounter(&costReleased);
+        {
+            AuthoredReticleUploadCost& cost = g_authoredReticleUploadCost;
+            const LONGLONG acquireWait = costWaited.QuadPart - costStart.QuadPart;
+            const LONGLONG copyRelease = costReleased.QuadPart - costWaited.QuadPart;
+            ++cost.timed;
+            cost.acquireWait += acquireWait;
+            cost.copyRelease += copyRelease;
+            cost.acquireWaitMax = std::max(cost.acquireWaitMax, acquireWait);
+            cost.copyReleaseMax = std::max(cost.copyReleaseMax, copyRelease);
+        }
         const bool released = requireSuccessfulRelease
             ? RequireExactSwapchainCompletion(
                   releaseResult,
@@ -10008,16 +10156,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (!copied || ((requireSuccessfulRelease ||
                          TitleAdapter_GetActiveTitle() == GameTitle::HaloCE) && !released))
             return false;
-        g_authoredReticleUploadedSerial = g_authoredReticleSerial;
+        g_authoredReticleUploadedSerial = judgedSerial;
         g_reticleContainsAuthored = true;
         g_authoredReticlePublishedCentre = publishedCentre;
+        g_authoredReticlePublishedZoom = judgedZoom;
         return true;
     }
 
+    // Not head-locked, the quad stands at `anchor` (the screen's centre if none).
     XrCompositionLayerQuad MakeQuad(XrSwapchain chain, int32_t imgW, int32_t imgH,
                                     float widthMeters, float distMeters, float yOffset,
                                     XrCompositionLayerFlags flags, bool headLocked,
-                                    float xOffset = 0.0f);
+                                    float xOffset = 0.0f, const XrPosef* anchor = nullptr);
 
     // A rotation whose +X, +Y and +Z are the given unit axes (a right-handed, orthonormal basis).
     XrQuaternionf QuatFromAxes(const XrVector3f& x, const XrVector3f& y, const XrVector3f& z)
@@ -10127,7 +10277,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     XrCompositionLayerQuad MakeQuad(XrSwapchain chain, int32_t imgW, int32_t imgH,
                                     float widthMeters, float distMeters, float yOffset,
                                     XrCompositionLayerFlags flags, bool headLocked,
-                                    float xOffset)
+                                    float xOffset, const XrPosef* anchor)
     {
         XrCompositionLayerQuad q{XR_TYPE_COMPOSITION_LAYER_QUAD};
         q.layerFlags = flags;
@@ -10145,9 +10295,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         else
         {
             q.space = g_localSpace;
-            q.pose.orientation = g_centerRot;
-            const XrVector3f off = Rotate(g_centerRot, {xOffset, yOffset, -distMeters});
-            q.pose.position = {g_centerPos.x + off.x, g_centerPos.y + off.y, g_centerPos.z + off.z};
+            const XrPosef at = anchor ? *anchor : XrPosef{g_centerRot, g_centerPos};
+            q.pose.orientation = at.orientation;
+            const XrVector3f off = Rotate(at.orientation, {xOffset, yOffset, -distMeters});
+            q.pose.position = {at.position.x + off.x, at.position.y + off.y, at.position.z + off.z};
         }
         q.size = {widthMeters, widthMeters * (float)imgH / (float)imgW};
         return q;
@@ -10700,7 +10851,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     VrPadState g_padState{};
     ControllerFingerSample g_controllerFingerSample{};
     float g_nativePointerTrigger = 0;
-    float g_nativePointerStickY = 0.0f; // beside the trigger: the pointer's input consumes the stick
+    float g_nativePointerStickX = 0.0f, g_nativePointerStickY = 0.0f; // beside the trigger: the pointer's input consumes the stick
 
     bool CreateControllerActions()
     {
@@ -15120,6 +15271,43 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 #endif
     }
 
+    // Frames in which the right controller gave no usable pose, by cause; logged every 5 s while any frame lost
+    // it. Without that pose the arms fall back to the game's own, so a player's log can say whether the runtime
+    // stopped giving input (the sync failed or the action went inactive, as when the session is not focused) or
+    // located the controller without valid flags.
+    enum class ControllerPoseLoss : uint8_t { None, SyncFailed, Inactive, LocateFailed, NotValid, Count };
+    struct ControllerPoseLossWindow
+    {
+        uint32_t frames{}, lost[static_cast<size_t>(ControllerPoseLoss::Count)]{};
+        XrResult lastResult{XR_SUCCESS};
+        XrSpaceLocationFlags lastFlags{};
+        uint64_t startMs{};
+    };
+    ControllerPoseLossWindow g_controllerPoseLoss;
+
+    void NoteControllerPoseLoss(ControllerPoseLoss loss, XrResult result = XR_SUCCESS, XrSpaceLocationFlags flags = 0)
+    {
+        auto& w = g_controllerPoseLoss;
+        const uint64_t now = GetTickCount64();
+        if (!w.startMs) w.startMs = now;
+        ++w.frames;
+        ++w.lost[static_cast<size_t>(loss)];
+        if (loss == ControllerPoseLoss::SyncFailed || loss == ControllerPoseLoss::LocateFailed) w.lastResult = result;
+        if (loss == ControllerPoseLoss::NotValid) w.lastFlags = flags;
+        if (now - w.startMs < 5000) return;
+        const uint32_t lostFrames = w.frames - w.lost[static_cast<size_t>(ControllerPoseLoss::None)];
+        if (lostFrames)
+            LOG("Right controller: no usable pose in %u of %u frames in %.1f s (session %s): sync failed %u, "
+                "action inactive %u, locate failed %u (last %s), not valid %u (last flags 0x%llX)",
+                lostFrames, w.frames, (now - w.startMs) / 1000.0, SessionStateName(g_sessionState),
+                w.lost[static_cast<size_t>(ControllerPoseLoss::SyncFailed)],
+                w.lost[static_cast<size_t>(ControllerPoseLoss::Inactive)],
+                w.lost[static_cast<size_t>(ControllerPoseLoss::LocateFailed)], XrStr(w.lastResult),
+                w.lost[static_cast<size_t>(ControllerPoseLoss::NotValid)],
+                static_cast<unsigned long long>(w.lastFlags));
+        w = {};
+    }
+
     bool CaptureRightControllerPose(XrTime time)
     {
         g_controllerFingerSample={};
@@ -15136,8 +15324,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         XrActionsSyncInfo sync{XR_TYPE_ACTIONS_SYNC_INFO};
         sync.countActiveActionSets = 1;
         sync.activeActionSets = &active;
-        if (XR_FAILED(xrSyncActions(g_session, &sync)))
+        if (const XrResult synced = xrSyncActions(g_session, &sync); XR_FAILED(synced))
         {
+            NoteControllerPoseLoss(ControllerPoseLoss::SyncFailed, synced);
             g_thumbrestDpadSampleMs.store(0, std::memory_order_release);
             g_supportGripPoseFresh.store(false, std::memory_order_release);
             InvalidateWeaponInteractionSample();
@@ -15150,13 +15339,19 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         bool valid = false;
         XrSpaceVelocity velocity{XR_TYPE_SPACE_VELOCITY};
         XrSpaceLocation location{XR_TYPE_SPACE_LOCATION, &velocity};
-        if (XR_SUCCEEDED(xrGetActionStatePose(g_session, &get, &state)) && state.isActive &&
-            XR_SUCCEEDED(xrLocateSpace(g_rightAimSpace, g_localSpace, time, &location)))
+        if (!XR_SUCCEEDED(xrGetActionStatePose(g_session, &get, &state)) || !state.isActive)
+            NoteControllerPoseLoss(ControllerPoseLoss::Inactive);
+        else if (const XrResult located = xrLocateSpace(g_rightAimSpace, g_localSpace, time, &location);
+                 XR_FAILED(located))
+            NoteControllerPoseLoss(ControllerPoseLoss::LocateFailed, located);
+        else
         {
             constexpr XrSpaceLocationFlags required =
                 XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;
             valid = (location.locationFlags & required) == required &&
                     NormalizeTrackedPose(location.pose);
+            NoteControllerPoseLoss(valid ? ControllerPoseLoss::None : ControllerPoseLoss::NotValid,
+                XR_SUCCESS, location.locationFlags);
         }
         // Left hand: position only matters (D-pad gesture), same locate path.
         bool leftValid = false;
@@ -15507,6 +15702,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         // Keep the pointer click private while suppressing all gameplay
         // consumers (including camera snapshots that bypass XInput).
         g_nativePointerTrigger=pad.trigR;
+        g_nativePointerStickX=pad.turnX;
         g_nativePointerStickY=pad.turnY;
         Input_StepHeadKeys(pad);
         pad.dualWield=SecondaryWeaponPresentationActive();
@@ -15681,14 +15877,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             // A shake presses that hand's reload exactly as the game binds it: the same shared input a
             // flat player's button makes, never a call into the simulation (co-op is one simulation).
             // Slot 0 is the primary weapon (the game's Reload); slot 1 the secondary, Halo 3's own
-            // left-weapon reload binding. Halo 2's is not established, so its left shake does nothing.
+            // left-weapon reload binding. Halo 2 has only Reload, which reloads both guns.
             uint32_t dualPress=0;bool secondaryUnbound=false;
             if(dual.enabled&&dual.ready&&reloadSlots) {
-                if(reloadSlots&1u) dualPress|=WeaponGestureBinding(sample.title,vr_mapping::Reload,inputNow);
-                if(reloadSlots&2u) {
-                    const uint32_t secondary=Game_SecondaryReloadTransport(sample.title,inputNow);
-                    if(secondary) dualPress|=secondary; else secondaryUnbound=true;
-                }
+                const auto press=dual_wield_shake::ReloadButtons(sample.title,reloadSlots,
+                    WeaponGestureBinding(sample.title,vr_mapping::Reload,inputNow),
+                    Game_SecondaryReloadTransport(sample.title,inputNow));
+                dualPress=press.buttons;secondaryUnbound=press.secondaryUnbound;
             }
             if(!dual.enabled||!dual.ready) g_dualReloadPulse=0;
             if(dualPress) {g_dualReloadPulse=dualPress;g_dualReloadPulseUntil=inputNow+120;}
@@ -15914,38 +16109,35 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (hit) clickLock.Apply(g_nativePointerTrigger,u,v);
         else clickLock.Reset();
         g_nativePointerFrame = {hit, pressed, u, v};
-        NativeMenuPointer_PublishScroll(hit ? g_nativePointerStickY : 0.0f);
+        NativeMenuPointer_PublishScroll(hit ?
+            game_menu_pointer::StickWheelAxis(g_nativePointerStickX, g_nativePointerStickY) : 0.0f);
         NativeMenuPointer_FrameStatus(hit ? "hit" : "ray-miss");
     }
 
     // The menu's side panel (Menu_SidePanelShown): the strip right of the menu in the same texture, on a quad of its
     // own hinged a little way off the menu's right edge and turned toward the player. Built from the same config as
     // the menu's quad, so the pointer and the picture agree.
-    XrCompositionLayerQuad MenuSideQuad(bool headLocked)
+    XrCompositionLayerQuad MenuSideQuad()
     {
         constexpr float kGapM = 0.01f, kTurn = 0.35f;   // about 20 degrees
         const float width = g_config.menu_width_m * MENU_SIDE_W / MENU_W;
         XrCompositionLayerQuad q = MakeQuad(g_menuChain, MENU_SIDE_W, MENU_H, width, g_config.menu_distance_m,
             g_config.menu_height_m, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
-                XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT, headLocked, g_config.menu_side_m);
+                XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT, false, g_config.menu_side_m, &g_menuCenter);
         q.subImage.imageRect.offset.x = MENU_W;
         const float c = std::cos(kTurn), s = std::sin(kTurn);
         const float hingeX = g_config.menu_side_m + g_config.menu_width_m * 0.5f + kGapM;
         const XrVector3f local{hingeX + c * width * 0.5f, g_config.menu_height_m,
                                -g_config.menu_distance_m + s * width * 0.5f};
-        const XrQuaternionf base = headLocked ? XrQuaternionf{0, 0, 0, 1} : g_centerRot;
+        const XrQuaternionf base = g_menuCenter.orientation;
         q.pose.orientation = QuatFromAxes(Rotate(base, {c, 0, s}), Rotate(base, {0, 1, 0}), Rotate(base, {-s, 0, c}));
-        if (headLocked)
-            q.pose.position = local;
-        else
-        {
-            const XrVector3f off = Rotate(base, local);
-            q.pose.position = {g_centerPos.x + off.x, g_centerPos.y + off.y, g_centerPos.z + off.z};
-        }
+        const XrVector3f off = Rotate(base, local);
+        q.pose.position = {g_menuCenter.position.x + off.x, g_menuCenter.position.y + off.y,
+                           g_menuCenter.position.z + off.z};
         return q;
     }
 
-    void UpdateMenuPointer(bool headLocked)
+    void UpdateMenuPointer()
     {
         static bool triggerPressed = false;
         static bool hadHit = false;
@@ -15954,8 +16146,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         static uint64_t lastDiagMs = 0;
         static bool dragging = false;
         static float grabOffsetX = 0.0f, grabOffsetY = 0.0f;
-        if (!g_rightAimPoseValid || (headLocked && !g_headPoseValid) ||
-            (!headLocked && !g_haveCenter))
+        if (!g_rightAimPoseValid || !g_haveMenuCenter)
         {
             triggerPressed = false;
             hadHit = false;
@@ -15971,9 +16162,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             return;
         }
 
-        const XrPosef anchor = headLocked
-            ? g_headPose
-            : XrPosef{g_centerRot, g_centerPos};
+        const XrPosef anchor = g_menuCenter;
         const XrQuaternionf inverseAnchor{
             -anchor.orientation.x, -anchor.orientation.y,
             -anchor.orientation.z, anchor.orientation.w};
@@ -15999,7 +16188,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         if (!hit.hit && Menu_SidePanelShown())
         {
             float u = 0.0f, v = 0.0f;
-            if (game_menu_pointer::RayHit(MenuSideQuad(headLocked), g_rightAimPose, g_headPose, headLocked, u, v))
+            if (game_menu_pointer::RayHit(MenuSideQuad(), g_rightAimPose, g_headPose, false, u, v))
             {
                 anyHit = onSide = true;
                 textureU = (MENU_W + u * MENU_SIDE_W) / static_cast<float>(MENU_TEX_W);
@@ -16108,10 +16297,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         {
             lastDiagMs = now;
             LOG("menu pointer: hit=%d uv=(%.3f,%.3f) origin=(%.2f,%.2f,%.2f) "
-                "dir=(%.2f,%.2f,%.2f) trigger=%.2f stickY=%.2f headLocked=%d",
+                "dir=(%.2f,%.2f,%.2f) trigger=%.2f stickY=%.2f",
                 hit.hit ? 1 : 0, hit.u, hit.v,
                 origin[0], origin[1], origin[2], direction[0], direction[1], direction[2],
-                g_padState.trigR, g_padState.turnY, headLocked ? 1 : 0);
+                g_padState.trigR, g_padState.turnY);
         }
     }
 
@@ -19097,6 +19286,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             reticleTitle == GameTitle::Halo3 &&
                             ResolveAuthoredAnimationGapFrames(
                                 g_config.crosshair_animation_frames) != 0;
+                        const uint64_t authoredUploadGap =
+                            g_authoredReticleUploadGap.load(std::memory_order_relaxed);
                         const AuthoredReticleRefreshPolicy refreshPolicy =
                             reticleTitle == GameTitle::HaloReach ||
                             reticleTitle == GameTitle::Halo4 ||
@@ -19133,7 +19324,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 authoredCrosshairDraws,
                                 g_preparedFrame.serial,
                                 reticleOwnerEpoch,
-                                s_refreshState);
+                                s_refreshState,
+                                authoredUploadGap);
                         const bool authoredArtAlreadyPublished =
                             authoredReticleThisFrame && reticleUploadAdmitted &&
                             !shouldUploadAuthoredReticle;
@@ -19157,10 +19349,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         {
                             if (authoredCrosshairKey != 0)
                             {
+                                // The frame the published capture was taken on: the
+                                // cadence is the captures', not the readback's.
                                 MarkAuthoredReticleUploaded(
                                     s_refreshState, authoredCrosshairKey,
                                     authoredColorState, authoredCrosshairDraws,
-                                    g_preparedFrame.serial);
+                                    g_authoredReticleUploadedSerial
+                                        ? g_authoredReticleUploadedSerial
+                                        : g_preparedFrame.serial);
                             }
                             ++s_uploadsDone;
                         }
@@ -19183,6 +19379,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     "reticle is showing its procedural art "
                                     "this frame instead of the game's widget");
                         }
+                        // Halo 4: the readback that just came back published the previous frame's capture; this
+                        // frame's goes to its readback now, so the next frame publishes it. A frame behind the
+                        // game, every frame.
+                        if (shouldUploadAuthoredReticle && AuthoredReticlePipelined() &&
+                            !g_authoredReticleProbePending && g_authoredReticleReady &&
+                            g_authoredReticleSerial == g_preparedFrame.serial &&
+                            g_authoredReticleUploadedSerial != g_authoredReticleSerial)
+                            (void)UploadAuthoredReticle(false, authoredIdentityChanged);
                         // A crosshair slider moved and nothing new was published this frame.
                         if (reticleUploadAdmitted)
                             RetintReticleIfChanged();
@@ -19235,6 +19439,34 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     s_refreshState.lastPublishedDraws,
                                     g_authoredReticleLastCoverage,
                                     g_authoredReticleBlankHeld);
+                                {
+                                    AuthoredReticleUploadCost& cost = g_authoredReticleUploadCost;
+                                    // The next window's floor: every frame while a publish is measured cheap.
+                                    const uint64_t gapBefore = authoredUploadGap;
+                                    const uint64_t gapAfter = cost.timed
+                                        ? AuthoredReticleUploadGapForCost(
+                                              gapBefore, cost.timed,
+                                              QpcMs(cost.acquireWait + cost.copyRelease) / cost.timed,
+                                              QpcMs(cost.acquireWaitMax) + QpcMs(cost.copyReleaseMax))
+                                        : gapBefore;
+                                    g_authoredReticleUploadGap.store(gapAfter, std::memory_order_relaxed);
+                                    if (cost.timed)
+                                        LOG("reticle upload cost: %u timed; swapchain acquire+wait "
+                                            "%.3f ms mean, %.3f max; copy+release %.3f ms mean, %.3f max; "
+                                            "publishes at most every %llu frame(s)%s; %s; readback not back yet "
+                                            "on %u polls",
+                                            cost.timed, QpcMs(cost.acquireWait) / cost.timed,
+                                            QpcMs(cost.acquireWaitMax), QpcMs(cost.copyRelease) / cost.timed,
+                                            QpcMs(cost.copyReleaseMax),
+                                            static_cast<unsigned long long>(gapAfter),
+                                            gapAfter != gapBefore ? " from now" : "",
+                                            AuthoredReticlePipelined()
+                                                ? "captures while each readback is in flight"
+                                                : "captures between readbacks",
+                                            g_authoredReticleReadbackLate);
+                                    cost = {};
+                                    g_authoredReticleReadbackLate = 0;
+                                }
                                 // Where the art sits in its texture, as a
                                 // fraction of it: the quad is shifted by this
                                 // so the art's centre is on the aim point.
@@ -19243,11 +19475,19 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     if (g_authoredReticlePublishedCentre.valid)
                                         LOG("Halo 4 reticle art centre: %+.3f right, %+.3f down "
                                             "of the texture centre (ink %llu); the quad puts it on "
-                                            "the aim point",
+                                            "the aim point; drawn at x%.2f of the layout's "
+                                            "magnification on a quad x%.2f as wide; the latest "
+                                            "capture's art reaches %.0f%% of the way to its edge%s",
                                             g_authoredReticlePublishedCentre.u - 0.5f,
                                             g_authoredReticlePublishedCentre.v - 0.5f,
                                             static_cast<unsigned long long>(
-                                                g_authoredReticlePublishedCentre.ink));
+                                                g_authoredReticlePublishedCentre.ink),
+                                            g_authoredReticlePublishedZoom,
+                                            g_authoredReticlePublishedZoom > 0.0f
+                                                ? 1.0f / g_authoredReticlePublishedZoom : 1.0f,
+                                            g_authoredReticleLatestMeasured.reach * 100.0f,
+                                            g_authoredReticleLatestMeasured.touchesEdge
+                                                ? " (cut off by it)" : "");
                                     else
                                         LOG("Halo 4 reticle art centre: not measured (%s); the "
                                             "quad is centred on the texture",
@@ -19258,14 +19498,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 // The other titles' quads are centred on the texture: the line says how
                                 // far that leaves the art from the aim point (degrees of the crosshair's
                                 // configured size, which the quad keeps at every distance).
-                                else if (reticleTitle == GameTitle::Halo2 &&
+                                else if (ReticleCaptureFollowsArt(reticleTitle) &&
                                          g_authoredReticlePublishedCentre.valid)
                                     LOG("RETICLE art centre (title %d): %+.3f right, %+.3f down of the "
                                         "texture centre = %+.2f deg right, %+.2f deg down of the aim point "
                                         "for a %.2f deg crosshair (ink %llu); the capture window follows the "
-                                        "art: it sits %+.0f px right, %+.0f px down of the view's centre "
+                                        "art: it sits %+.0f right, %+.0f down of the view's centre (texels) "
                                         "after %u moves; the latest capture's art is %.2f times as wide as "
-                                        "it is tall (ink %llu, spread %.3f across, %.3f down)",
+                                        "it is tall (ink %llu, spread %.3f across, %.3f down) and reaches "
+                                        "%.0f%% of the way to the texture's edge%s",
                                         static_cast<int>(reticleTitle),
                                         g_authoredReticlePublishedCentre.u - 0.5f,
                                         g_authoredReticlePublishedCentre.v - 0.5f,
@@ -19276,18 +19517,21 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         g_config.crosshair_size_deg,
                                         static_cast<unsigned long long>(
                                             g_authoredReticlePublishedCentre.ink),
-                                        g_halo2ReticleFollow.x, g_halo2ReticleFollow.y,
-                                        g_halo2ReticleFollow.moves,
+                                        g_reticleFollow.x, g_reticleFollow.y,
+                                        g_reticleFollow.moves,
                                         AuthoredReticleArtAspect(g_authoredReticleLatestMeasured),
                                         static_cast<unsigned long long>(g_authoredReticleLatestMeasured.ink),
                                         g_authoredReticleLatestMeasured.spreadU,
-                                        g_authoredReticleLatestMeasured.spreadV);
+                                        g_authoredReticleLatestMeasured.spreadV,
+                                        g_authoredReticleLatestMeasured.reach * 100.0f,
+                                        g_authoredReticleLatestMeasured.touchesEdge ? " (cut off by it)" : "");
                                 else if (g_authoredReticlePublishedCentre.valid)
                                     LOG("RETICLE art centre (title %d): %+.3f right, %+.3f down of the "
                                         "texture centre = %+.2f deg right, %+.2f deg down of the aim point "
                                         "for a %.2f deg crosshair (ink %llu); the quad is centred on the "
                                         "texture, not on the art; the latest capture's art is %.2f times as "
-                                        "wide as it is tall (ink %llu, spread %.3f across, %.3f down); capture "
+                                        "wide as it is tall (ink %llu, spread %.3f across, %.3f down) and reaches "
+                                        "%.0f%% of the way to the texture's edge%s; capture "
                                         "fitted x%.3f across, x%.3f down for the HUD's own scale, magnified x%.2f",
                                         static_cast<int>(reticleTitle),
                                         g_authoredReticlePublishedCentre.u - 0.5f,
@@ -19303,6 +19547,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         static_cast<unsigned long long>(g_authoredReticleLatestMeasured.ink),
                                         g_authoredReticleLatestMeasured.spreadU,
                                         g_authoredReticleLatestMeasured.spreadV,
+                                        g_authoredReticleLatestMeasured.reach * 100.0f,
+                                        g_authoredReticleLatestMeasured.touchesEdge ? " (cut off by it)" : "",
                                         g_authoredReticleFitAcross.load(std::memory_order_relaxed),
                                         g_authoredReticleFitDown.load(std::memory_order_relaxed),
                                         g_authoredReticleCaptureScale.load(std::memory_order_relaxed));
@@ -19312,6 +19558,26 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         g_authoredReticleCentreStaging
                                             ? "no measured art on the quad yet"
                                             : "art-centre readback unavailable");
+                                if (ReticleCaptureFollowsArt(reticleTitle))
+                                {
+                                    const uint32_t most = g_reticleTallyMost.exchange(0, std::memory_order_relaxed);
+                                    const uint32_t multi = g_reticleTallyMulti.exchange(0, std::memory_order_relaxed);
+                                    if (multi)
+                                        LOG("RETICLE captures (title %d): up to %u in one displayed frame, %u "
+                                            "frame(s) with more than one; the last such frame's first in eye %d "
+                                            "(widget viewport top %.0f, height %.0f), its latest in eye %d (top "
+                                            "%.0f, height %.0f)",
+                                            static_cast<int>(reticleTitle), most, multi,
+                                            g_reticleTallyEye[0].load(std::memory_order_relaxed),
+                                            g_reticleTallyTop[0].load(std::memory_order_relaxed),
+                                            g_reticleTallyHeight[0].load(std::memory_order_relaxed),
+                                            g_reticleTallyEye[1].load(std::memory_order_relaxed),
+                                            g_reticleTallyTop[1].load(std::memory_order_relaxed),
+                                            g_reticleTallyHeight[1].load(std::memory_order_relaxed));
+                                    else if (most)
+                                        LOG("RETICLE captures (title %d): one per displayed frame",
+                                            static_cast<int>(reticleTitle));
+                                }
                                 g_authoredReticleBlankHeld = 0;
                                 s_uploadsDone = 0;
                                 s_uploadsSkipped = 0;
@@ -20051,11 +20317,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 }
                             }
 #endif
-                            const float w = tracedReticle
+                            const float sizedWidth = tracedReticle
                                 ? tracedPlacement.width_m
                                 : limitFromEye ? limitPlacement.width_m
                                 : 2.0f * dist *
                                   tanf(g_config.crosshair_size_deg * 0.5f * 0.0174533f);
+                            // Halo 4 art captured less magnified to fit it whole (ReticleCaptureFit) is shown
+                            // on a quad as much wider, at the size the setting gives it.
+                            const float publishedZoom = g_authoredReticlePublishedZoom;
+                            const float w = reticleTitle == GameTitle::Halo4 && g_reticleContainsAuthored &&
+                                    !dualReticles && publishedZoom > 0.0f && publishedZoom < 1.0f
+                                ? sizedWidth / publishedZoom
+                                : sizedWidth;
                             reticleQuad.size = {w, w};
                             // Halo 4's capture does not centre its art in the
                             // texture (the framing is fitted per HUD layout),
@@ -20674,14 +20947,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
 
                 // The menu is submitted in BOTH modes (it used to live only in
                 // the mono-screen branch, which made F1 invisible in stereo).
-                // In stereo it head-locks so it is always in front of you.
+                // It stands in the room where it opened, in front of the head (PlaceMenuInFront).
                 const bool mirrorAttached = Menu_MirrorBeat();
+                static bool menuWasOpen = false;
                 if (Menu_IsOpen())
                 {
-                    const bool menuHeadLocked =
-                        pausedPresentation || stereo ||
-                        (g_screenFollow.load() && Game_IsHeadTracking());
-                    UpdateMenuPointer(menuHeadLocked);
+                    if (!menuWasOpen)
+                        g_haveMenuCenter = false;
+                    menuWasOpen = true;
+                    if (!g_haveMenuCenter)
+                        PlaceMenuInFront();
+                    UpdateMenuPointer();
                     if (ID3D11Texture2D* menuTex = Menu_Render())
                     {
                         uint32_t idx = 0;
@@ -20707,12 +20983,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                                 g_config.menu_height_m,
                                                 XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
                                                     XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT,
-                                                menuHeadLocked,
-                                                g_config.menu_side_m);
-                            layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&menuQuad));
-                            if (Menu_SidePanelShown())
+                                                false,
+                                                g_config.menu_side_m, &g_menuCenter);
+                            // Until the head is tracked the menu has no place in front of it yet.
+                            if (g_haveMenuCenter)
+                                layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&menuQuad));
+                            if (g_haveMenuCenter && Menu_SidePanelShown())
                             {
-                                menuSideQuad = MenuSideQuad(menuHeadLocked);
+                                menuSideQuad = MenuSideQuad();
                                 layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&menuSideQuad));
                             }
                         }
@@ -20720,6 +20998,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 }
                 else
                 {
+                    menuWasOpen = false;
                     Menu_ClearVrPointer();
                     if (mirrorAttached)
                         Menu_Render();
@@ -21738,7 +22017,10 @@ bool VR_Halo2CompleteSynchronousMonoPair(
     {
         return false;
     }
-    VR_NoteMonoFrameRendered(GameTitle::Halo2, eye);
+    // AIM FRAME ZOOM in one pass (3D in the frame off): the core said this picture was the frame's before publishing
+    // it. Cleared here, the frame was never shown and the zoom showed nothing.
+    VR_NoteMonoFrameRendered(GameTitle::Halo2, eye,
+                             g_aimFramePicture.eye.load(std::memory_order_acquire) == eye);
     return true;
 }
 
@@ -23126,16 +23408,23 @@ void VR_DetachGamePresentation()
     g_authoredReticleUploadedSerial = 0;
     g_reticleContainsAuthored = false;
     g_authoredReticlePublishedCentre = {};
+    g_authoredReticleCentreSettle = {};
     g_authoredReticleLatestMeasured = {};
     g_authoredReticleMeasuredCentre = {};
     g_authoredReticleCentreQueued = false;
-    g_halo2ReticleFollow = {};
-    g_halo2ReticleWindowX.store(0.0f, std::memory_order_relaxed);
-    g_halo2ReticleWindowY.store(0.0f, std::memory_order_relaxed);
+    g_reticleFollow = {};
+    g_reticleWindowX.store(0.0f, std::memory_order_relaxed);
+    g_reticleWindowY.store(0.0f, std::memory_order_relaxed);
+    g_halo4ReticleFit = {};
+    g_halo4ReticleZoom.store(1.0f, std::memory_order_relaxed);
+    g_authoredReticleCaptureZoom.store(1.0f, std::memory_order_relaxed);
+    g_authoredReticleCentreZoom = 1.0f;
+    g_authoredReticlePublishedZoom = 1.0f;
     // Known-good art belongs to the title that captured it; a new title must
     // measure its own before anything is held on its behalf.
     g_authoredReticleGoodValid = false;
     g_authoredReticleProbePending = false;
+    g_authoredReticleSnapshotQueued = false;
     g_authoredReticleHeldBlank = false;
     g_authoredReticleGoodInk = 0;
     g_authoredReticleConsecutiveHolds = 0;
@@ -24686,10 +24975,13 @@ static void Halo4FrameAuthoredReticleDraw(ID3D11DeviceContext* context)
     float liveBaseY = 0.0f;
     float liveHideShift = 0.0f;
     (void)Game_Halo4LiveCuiCanvas(liveBaseY, liveHideShift);
+    // ...less magnified when the art has reached past what that framing holds (ReticleCaptureFit).
     if (!Halo4BuildCuiCaptureDrawViewport(
             input, backbufferWidth, backbufferHeight,
             Halo4CuiLiveVerticalBiasRatio(liveBaseY),
-            Halo4CuiLiveCaptureScale(liveHideShift), framed))
+            Halo4CuiLiveCaptureScale(liveHideShift) *
+                g_authoredReticleCaptureZoom.load(std::memory_order_relaxed),
+            framed))
     {
         return;
     }
@@ -25894,6 +26186,10 @@ static bool BeginAuthoredReticleCaptureInternal(
         g_context->ClearRenderTargetView(g_authoredReticleRtv, clear);
         g_authoredReticleSerial = serial;
         g_authoredReticleReady = false;
+        // Every draw of this capture is framed at one zoom (Halo4FrameAuthoredReticleDraw), the one its art keeps.
+        g_authoredReticleCaptureZoom.store(
+            captureTitle == GameTitle::Halo4 ? g_halo4ReticleZoom.load(std::memory_order_relaxed) : 1.0f,
+            std::memory_order_relaxed);
         // New displayed frame: start the art-identity accumulation clean so a
         // static crosshair produces the same key every frame.
         Game_ResetAuthoredCrosshairKey();
@@ -25909,6 +26205,30 @@ static bool BeginAuthoredReticleCaptureInternal(
         saved.scissorCount =
             D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
         g_context->RSGetScissorRects(&saved.scissorCount, saved.scissors);
+    }
+    if (publishAuthored && saved.viewportCount && ReticleCaptureFollowsArt(captureTitle))
+    {
+        auto& tally = g_reticleTally;
+        if (tally.serial != serial)
+            tally = {serial};
+        const uint32_t slot = tally.count ? 1u : 0u;
+        tally.eye[slot] = g_rasterEye.load(std::memory_order_relaxed);
+        tally.top[slot] = saved.viewports[0].TopLeftY;
+        tally.height[slot] = saved.viewports[0].Height;
+        ++tally.count;
+        if (tally.count > g_reticleTallyMost.load(std::memory_order_relaxed))
+            g_reticleTallyMost.store(tally.count, std::memory_order_relaxed);
+        if (tally.count >= 2)
+        {
+            if (tally.count == 2)
+                g_reticleTallyMulti.fetch_add(1, std::memory_order_relaxed);
+            for (int i = 0; i < 2; ++i)
+            {
+                g_reticleTallyEye[i].store(tally.eye[i], std::memory_order_relaxed);
+                g_reticleTallyTop[i].store(tally.top[i], std::memory_order_relaxed);
+                g_reticleTallyHeight[i].store(tally.height[i], std::memory_order_relaxed);
+            }
+        }
     }
 
     D3D11_VIEWPORT captureViewport{};
@@ -25998,12 +26318,13 @@ static bool BeginAuthoredReticleCaptureInternal(
         (static_cast<float>(kReticleSize) - captureViewport.Width) * 0.5f;
     captureViewport.TopLeftY =
         (static_cast<float>(kReticleSize) - captureViewport.Height) * 0.5f;
-    // Halo 2 draws some reticles away from the view's centre (a vehicle's sits well below it); its window is
-    // cut about the point the art was last measured at instead (ReticleCaptureFollow).
-    if (captureTitle == GameTitle::Halo2)
+    // Halo 2 draws some reticles away from the view's centre (a vehicle's sits well below it), and Halo 3, ODST,
+    // Reach and CE every crosshair when MCC's crosshair location is not centred; their window is cut about the point the art was
+    // last measured at instead (ReticleCaptureFollow).
+    if (ReticleCaptureFollowsArt(captureTitle))
     {
-        captureViewport.TopLeftX -= g_halo2ReticleWindowX.load(std::memory_order_relaxed);
-        captureViewport.TopLeftY -= g_halo2ReticleWindowY.load(std::memory_order_relaxed);
+        captureViewport.TopLeftX -= g_reticleWindowX.load(std::memory_order_relaxed);
+        captureViewport.TopLeftY -= g_reticleWindowY.load(std::memory_order_relaxed);
     }
     if (ceCapture)
         captureViewport.TopLeftY += captureViewport.Height * g_ceReticleLift.load(std::memory_order_relaxed);
@@ -26041,8 +26362,10 @@ bool VR_ShouldCaptureAuthoredReticleThisFrame()
         return true;
 
     // Do not overwrite the captured source while its prior coverage request is
-    // in flight; SubmitPreparedFrame will poll it without blocking.
-    if (g_authoredReticleProbePending)
+    // in flight; SubmitPreparedFrame will poll it without blocking. Halo 4 has
+    // copied that capture aside (g_authoredReticleSnapshot) where it publishes
+    // every frame, so its next capture is drawn meanwhile.
+    if (g_authoredReticleProbePending && !g_authoredReticleSnapshotQueued)
         return false;
 
     // ODST's captured quad is static between weapon and state changes, so it
@@ -26055,7 +26378,8 @@ bool VR_ShouldCaptureAuthoredReticleThisFrame()
     {
     case GameTitle::Halo3:
         gapFrames = ResolveAuthoredAnimationGapFrames(
-            g_config.crosshair_animation_frames);
+            g_config.crosshair_animation_frames,
+            g_authoredReticleUploadGap.load(std::memory_order_relaxed));
         // Holding one image still needs a slow re-sample so a weapon swap is
         // eventually noticed; it just never animates between those.
         if (gapFrames == 0)
@@ -26063,7 +26387,8 @@ bool VR_ShouldCaptureAuthoredReticleThisFrame()
         break;
     case GameTitle::Halo4:
         gapFrames = ResolveAuthoredAnimationGapFrames(
-            g_config.crosshair_animation_frames);
+            g_config.crosshair_animation_frames,
+            g_authoredReticleUploadGap.load(std::memory_order_relaxed));
         // H4EK's transform ID is not proven art identity. With animation off,
         // retain only a slow sample so a weapon swap can still replace art.
         if (gapFrames == 0)
@@ -26740,9 +27065,10 @@ bool VR_MonoRenderThisFrame(GameTitle title, float coverFov[4])
 // The one pass of a mono frame of `title` has been drawn and captured as `eye`: its picture is both eyes' for this
 // frame. What the present asks of a pair before it shows one (an image for each eye, each eye's frame serial) is
 // answered for the other eye by this one's.
-void VR_NoteMonoFrameRendered(GameTitle title, int eye)
+void VR_NoteMonoFrameRendered(GameTitle title, int eye, bool aimFramePicture)
 {
-    g_aimFramePicture.eye.store(-1, std::memory_order_release);
+    if (!aimFramePicture)
+        g_aimFramePicture.eye.store(-1, std::memory_order_release);
     if (eye != 0 && eye != 1)
         return;
     const int other = 1 - eye;
@@ -26999,7 +27325,8 @@ void VR_ReportDualWieldReloadInput(GameTitle title)
     const auto& s=g_dualReloadInputStats[title==GameTitle::Halo2?0:1];
     LOG("Dual shake reload game=%s samples=%llu ready=%llu gestures=%llu buttonPresses=%llu leftReloadUnbound=%llu "
         "coarseClockRepeats=%llu trackingBlocked=%llu ownerBlocked=%llu actionsBlocked=%llu busyHandSamples=%llu "
-        "(presses the game's own reload binding per hand; gesture clock=OpenXR pose)",
+        "(presses the game's own reload binding per hand; Halo 2's one Reload reloads both guns; "
+        "gesture clock=OpenXR pose)",
         title==GameTitle::Halo2?"Halo 2":"Halo 3",s.samples.load(),s.ready.load(),s.gestures.load(),s.pressed.load(),
         s.secondaryUnbound.load(),s.coarseRepeats.load(),s.trackingBlocked.load(),s.ownerBlocked.load(),
         s.actionsBlocked.load(),s.busyHands.load());

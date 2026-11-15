@@ -11,6 +11,7 @@ of them fits, see [Asking for help](#asking-for-help) at the end.
 - [Project Reclaimer is very slow or crashes in fullscreen](#project-reclaimer-is-very-slow-or-crashes-in-fullscreen)
 - [You can't choose Yes in a menu, or a menu won't scroll (more than one monitor)](#you-cant-choose-yes-in-a-menu-or-a-menu-wont-scroll-more-than-one-monitor)
 - [I updated, but nothing changed](#i-updated-but-nothing-changed)
+- [Antivirus flags the launcher](#antivirus-flags-the-launcher)
 - [Asking for help](#asking-for-help): where the logs are, and what to send
 
 ## Project Reclaimer stays flat, with no error message
@@ -95,6 +96,60 @@ installed, both run the copy installed in your MCC folder.
 you now have.
 
 **In the logs:** the first line of `HaloMCCVR.log` names the build that ran (`source ...`).
+
+## Antivirus flags the launcher
+
+Windows Security (Microsoft Defender) or another antivirus reports `HaloMCCVRLauncher.exe` as a "Trojan" and removes
+or blocks it. The names seen so far are `Trojan:Script/Wacatac.H!ml`, `Trojan:Win32/Wacatac.C!ml`,
+`Trojan:Win32/Bearfoos.A!ml`, `Trojan:Win32/Bearfoos.B!ml` and `Behavior:Win32/DefenseEvasion.A!ml`. An update can
+stop with a message from the launcher saying your antivirus blocked a file, or with `Cannot read file for SHA-256`.
+
+**Why it happens:** these are false alarms. The launcher isn't code-signed, and it does things malware also does: it
+downloads updates, replaces itself with the new version, and loads the VR mod into the game. Antivirus that guesses with
+machine learning can flag a program like that. The `!ml` at the end of the name means it is such a guess, not a known
+virus.
+
+**Check that your copy is genuine:** download it only from the release page. On that page, `SHA256.txt` lists the
+checksum of each ZIP. In PowerShell, `Get-FileHash <the ZIP>` shows your download's checksum; it must match. The full
+source of every release is published on the same page.
+
+**Try:**
+
+1. Open **Windows Security > Virus & threat protection > Protection history**, open the entry for the Halo MCC VR file,
+   and choose **Actions > Allow on device** (or **Restore**).
+2. **You may need to do this a couple of times.** Defender can flag the same launcher again under a different name (for
+   example `Wacatac.H!ml`, then `Wacatac.C!ml`). Allow each entry that names a Halo MCC VR file.
+3. **If files are missing afterwards, extract the ZIP again.** When Windows Security quarantined a file, allowing it
+   doesn't always put it back in the folder. Once you've allowed the entries, extract the release ZIP again (or
+   reinstall) so every file is there.
+4. Allowing goes by the detection's name, so it also lets other files with that name through. To allow only the mod
+   instead, add folder exclusions: **Virus & threat protection > Manage settings > Exclusions > Add an exclusion >
+   Folder**, for the folder you extracted the launcher to and for your `Halo_MCC_VR` folder. Then restore the file from
+   Protection history.
+5. Report it to Microsoft as wrongly detected at <https://www.microsoft.com/wdsi/filesubmission>. Each report helps
+   clear that file for everyone.
+
+**It isn't only this mod.** Defender's machine learning regularly flags VR mods that load into games, Wacatac in
+particular:
+
+- **UEVR**: Defender has flagged its `uevrinjector.exe` as `Trojan:Win32/Wacatac.H!ml`, the same name we see
+  ([UEVR issue #79](https://github.com/praydog/UEVR/issues/79)).
+- **REFramework**, praydog's framework behind his RE Engine VR mods: its `dinput8.dll` has been flagged as
+  `Trojan:Win32/Wacatac.B!ml`
+  ([Steam discussion](https://steamcommunity.com/app/2246340/discussions/0/599646477861552433)).
+- **FS25VR**, the Farming Simulator 25 VR mod: its author calls its Wacatac warning "a false positive from Microsoft's
+  machine-learning scanner, which distrusts VR injectors in general"
+  ([release notes](https://github.com/nick10180/FS25VR/releases/tag/v0.1.2)).
+- Microsoft explains false positives and how to report them:
+  [Address false positives in Microsoft Defender](https://learn.microsoft.com/en-us/defender-endpoint/defender-endpoint-false-positives-negatives)
+  and [how Defender names detections](https://learn.microsoft.com/en-us/defender-xdr/malware-naming).
+
+**What we're doing:** reporting these files to Microsoft, and working on ways to get Defender's machine learning to
+treat the mod's files as safe, such as code signing and keeping the part that loads the mod in a separate, unchanging
+file. That takes a bit of time.
+
+**In the logs:** Windows Security's Protection history names the file and the threat. The launcher's own message names
+the file it couldn't use.
 
 ## Asking for help
 

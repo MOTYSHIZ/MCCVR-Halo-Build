@@ -23,7 +23,7 @@ TITLES = ("halo3", "odst", "reach", "halo4", "ce", "halo2")
 ACTIONS = ("fire", "grenade", "jump", "melee", "reload", "interact", "switch_weapon",
            "switch_grenade", "equipment", "crouch", "zoom", "flashlight", "sprint")
 REQUIRED_PAYLOAD = {
-    "HaloMCCVR.dll", "HaloMCCVRSettings.exe", "halomccvr.cfg", "INSTALL-MANIFEST.sha256",
+    "HaloMCCVR.dll", "HaloMCCVRSettings.exe", "HaloMCCVRInject.exe", "halomccvr.cfg", "INSTALL-MANIFEST.sha256",
     "BUILD-IDENTITY.txt", "CREDITS.txt", "LICENSE", "MANUAL-README.txt", "THIRD-PARTY-LICENSES.txt",
     "RELEASE-NOTES.md", "nvngx_dlss.dll",
     "licenses/NVIDIA-DLSS/LICENSE.txt", "licenses/NVIDIA-DLSS/NOTICE.txt",
@@ -112,13 +112,26 @@ def config_values(data: bytes) -> dict[str, str]:
     return result
 
 
+# A VR Mappings input as halomccvr.cfg writes it (vr_mapping::FormatInput): up to two held controls, then the press, each
+# a vr_mapping::Source number, and " toggle" for a toggle.
+SOURCE_COUNT = 22
+INPUT_PATTERN = re.compile(r"(\d+\+){0,2}\d+( toggle)?")
+
+
+def valid_input(value: str) -> bool:
+    return (INPUT_PATTERN.fullmatch(value) is not None and
+            all(int(part) < SOURCE_COUNT for part in value.removesuffix(" toggle").split("+")))
+
+
 def check_config(data: bytes) -> int:
     values = config_values(data)
+    # From vr_inputs_version 3 the file names only the rows that differ from the default controls; a row it names must
+    # be a valid input.
+    require(values.get("vr_inputs_version") == "3", "The packaged config must be vr_inputs_version 3")
     for title in TITLES:
         for action in ACTIONS:
             key = f"vr_bind_{title}_{action}"
-            require(key in values and values[key].isdigit() and 0 <= int(values[key]) < 16,
-                    f"Missing or invalid per-game binding: {key}")
+            require(key not in values or valid_input(values[key]), f"Invalid per-game binding: {key}")
         key = f"hide_muzzle_flash_{title}"
         require(values.get(key) in ("0", "1"), f"Missing per-game muzzle-flash setting: {key}")
         key = f"bloom_enabled_{title}"

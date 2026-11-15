@@ -3,6 +3,8 @@
 #include "../src/dll/native_vr_actions.h"
 #include "../src/common/config.h"
 #include "../src/common/input_preset.h"
+#include "../src/common/default_controls.h"
+#include "default_controls_fixture.inl"
 #include "../src/common/roomscale_recenter_logic.h"
 #include "../src/common/weapon_interaction_logic.h"
 #include "../src/common/scope_action_input.h"
@@ -266,6 +268,24 @@ void CheckInputPresets()
         !bodyLoaded.roomscale_recenter_moving&&std::fabs(bodyLoaded.roomscale_recenter_jump_s-.5f)<.002f&&
         std::fabs(bodyLoaded.haptic_intensity-.3f)<.002f&&!bodyLoaded.reclaimer_flight_buttons,
         "a preset keeps roomscale, controller vibration and Project Reclaimer flying");
+    Config aim{};
+    aim.independent_dual_aim=!aim.independent_dual_aim;aim.gun_barrel_aim=!aim.gun_barrel_aim;
+    for(int profile=0;profile<kTitleProfileCount;++profile) aim.title_profiles[profile].gun_pitch_deg=-13.f-profile;
+    aim.title_profiles[kTitleProfileReach].gun_yaw_deg=2.f;aim.title_profiles[kTitleProfileHalo4].gun_roll_deg=-4.f;
+    Config aimLoaded{};
+    input_preset::Parse(input_preset::Serialize(aim).c_str(),aimLoaded);
+    bool aimKept=aimLoaded.independent_dual_aim==aim.independent_dual_aim&&aimLoaded.gun_barrel_aim==aim.gun_barrel_aim&&
+        std::fabs(aimLoaded.title_profiles[kTitleProfileReach].gun_yaw_deg-2.f)<.002f&&
+        std::fabs(aimLoaded.title_profiles[kTitleProfileHalo4].gun_roll_deg+4.f)<.002f;
+    for(int profile=0;profile<kTitleProfileCount;++profile)
+        aimKept=aimKept&&std::fabs(aimLoaded.title_profiles[profile].gun_pitch_deg-(-13.f-profile))<.002f;
+    Check(aimKept&&input_preset::SameScheme(aim,aimLoaded)&&!input_preset::SameScheme(aim,Config{}),
+        "a preset keeps the crosshair and bullet direction, each game's angles its own");
+    Config aimApplied{};
+    input_preset::CopyScheme(aimApplied,aimLoaded);
+    Check(aimApplied.title_profiles[0].gun_pitch_deg==aimLoaded.title_profiles[0].gun_pitch_deg&&
+        aimApplied.title_profiles[0].gun_scale==Config{}.title_profiles[0].gun_scale,
+        "choosing it sets each game's aim angles, and leaves the gun's other placement alone");
     Config wild{};
     input_preset::Parse("roomscale_follow_law = 7\nhaptic_intensity = 5\nroomscale_recenter_jump_s = 90\n"
         "roomscale_recenter_moving_speed = -4\n",wild);
@@ -304,7 +324,9 @@ void CheckInputPresets()
             "an extra row's own input may be Automatic; a further one may not, nor any the support trigger's contexts");
         Check(NativeExtraAction(GameTitle::Halo3,BansheeBomb)==0x0A&&NativeExtraAction(GameTitle::Halo3,BansheeTrick)==0x1E&&
             NativeExtraAction(GameTitle::Halo3ODST,BansheeTrick)==0x1F&&NativeExtraAction(GameTitle::Halo2,BansheeBomb)==0x15&&
-            NativeExtraAction(GameTitle::HaloReach,BansheeBomb)==0x0A&&NativeExtraAction(GameTitle::Halo4,BansheeTrick)==0x0D&&
+            NativeExtraAction(GameTitle::HaloReach,BansheeBomb)==kNoAction&&
+            NativeExtraAction(GameTitle::Halo4,BansheeBomb)==kNoAction&&NativeExtraAction(GameTitle::Halo4,BansheeTrick)==0x0E&&
+            NativeExtraAction(GameTitle::HaloReach,BansheeTrick)==0x0D&&
             NativeExtraAction(GameTitle::HaloCE,BansheeBomb)==kNoAction&&NativeExtraAction(GameTitle::None,BansheeTrick)==kNoAction,
             "each game's own seat actions, and none where a game has no Banshee row");
         ExtraBindings rows=kExtraDefaults;
@@ -328,24 +350,75 @@ void CheckInputPresets()
         riding.Apply(0,seated,automatic,native);
         Check(riding.Apply(Bit(PrimaryGrip)|Bit(A)|Bit(RightClick),seated,automatic,native)==0&&
             ExtraControlBits(kAutomaticRow)==0,"an Automatic row presses nothing of its own and takes no control");
+        // With the game's layout known, an Automatic row follows it: boost on the left trigger is pressed by the VR
+        // support trigger whatever the action rows press. An unknown layout leaves the rows as set.
+        {
+            ExtraTransports layout{};
+            layout[VehicleSecondary]=1u<<16;layout[FlyDown]=0x100;layout[ReloadLeft]=0x100;
+            const auto followed=EffectiveExtraBindings(automatic,layout,true);
+            Check(followed[VehicleSecondary][0].press==SupportTrigger&&followed[FlyDown][0].press==SupportGrip&&
+                followed[ReloadLeft][0].press==SupportGrip,"an Automatic row takes the VR control at the game's button");
+            Check(EffectiveExtraBindings(automatic,layout,false)==automatic,"an unknown layout leaves rows Automatic");
+            ExtraMapper boost;
+            boost.Apply(0,seated,followed,layout);
+            Check(boost.Apply(Bit(SupportTrigger),seated,followed,layout)==(1u<<16),
+                "boost presses the game's boost button on its own");
+            Check(boost.Apply(Bit(SupportTrigger),ContextBit(ExtraContext::OnFoot),followed,layout)==0,
+                "and only in a seat");
+            // Fire left weapon has no row of its own: Grenade's names it, and a row a file still gives it presses
+            // nothing (on the support trigger it threw a grenade under Halo 2's gun-gripped zoom).
+            ExtraBindings left=automatic;
+            left[FireLeft][0]=Input{kNoneHeld,SupportTrigger};
+            ExtraTransports leftLayout{};
+            leftLayout[FireLeft]=1u<<16;
+            ExtraMapper onFoot;
+            onFoot.Apply(0,ContextBit(ExtraContext::OnFoot),left,leftLayout);
+            Check(RetiredExtra(FireLeft)&&
+                onFoot.Apply(Bit(SupportTrigger),ContextBit(ExtraContext::OnFoot),left,leftLayout)==0&&
+                !ExtraBridgeOnly(left,leftLayout,Transports{},Overrides{},nullptr),
+                "Fire left weapon's old row presses nothing");
+            Check(std::strstr(ActionName(GameTitle::Halo2,Grenade),"left gun")&&
+                std::strstr(ActionName(GameTitle::Halo3,Grenade),"left gun")&&
+                !std::strstr(ActionName(GameTitle::Halo4,Grenade),"left gun"),
+                "Grenade's row names the left gun's fire where there is dual wielding");
+            ExtraBindings set=automatic;
+            set[VehicleSecondary][0]=Input{kNoneHeld,B};
+            Check(EffectiveExtraBindings(set,layout,true)[VehicleSecondary][0].press==B,"a row set by the player stays");
+        }
         // The other extra rows start Automatic, and each counts in its own context.
         bool automaticRows=true;
         for(unsigned a=BansheeTrick+1;a<ExtraCount;++a) automaticRows=automaticRows&&kExtraDefaults[a]==kAutomaticRow;
         Check(automaticRows,"every extra row past the Banshee's starts Automatic");
+        // Switch weapon in a seat: left Y is the cameras' there. In Reach and Halo 4, which have no bomb button, it takes
+        // the bomb's controls; the other games keep their bomb there and start it Automatic.
+        Check(ExtraDefaults(GameTitle::Halo4)[SeatSwitchWeapon]==kExtraDefaults[BansheeBomb]&&
+            ExtraDefaults(GameTitle::HaloReach)[SeatSwitchWeapon]==kExtraDefaults[BansheeBomb]&&
+            ExtraDefaults(GameTitle::Halo4)[BansheeBomb]==kAutomaticRow&&
+            ExtraDefaults(GameTitle::HaloReach)[BansheeBomb]==kAutomaticRow&&
+            ExtraDefaults(GameTitle::Halo3)==kExtraDefaults&&ExtraDefaults(GameTitle::Halo2)==kExtraDefaults&&
+            ExtraDefaults(GameTitle::HaloCE)==kExtraDefaults&&ExtraDefaults(GameTitle::Halo3ODST)==kExtraDefaults&&
+            kExtraContexts[SeatSwitchWeapon]==ExtraContext::Seat,
+            "a seat's Switch weapon starts on the bomb's controls in Reach and Halo 4 alone");
+        bool sameSwitch=true;
+        for(const auto game:{GameTitle::Halo3,GameTitle::Halo3ODST,GameTitle::HaloReach,GameTitle::Halo4,GameTitle::HaloCE,
+                GameTitle::Halo2})
+            sameSwitch=sameSwitch&&NativeExtraAction(game,SeatSwitchWeapon)==NativeAction(game,SwitchWeapon);
+        Check(sameSwitch,"a seat's Switch weapon is each game's own Switch weapon");
         Check(NativeExtraAction(GameTitle::Halo3,FireLeft)==0x41&&NativeExtraAction(GameTitle::Halo2,FireLeft)==0x17&&
             NativeExtraAction(GameTitle::Halo3ODST,FireLeft)==kNoAction&&NativeExtraAction(GameTitle::Halo3,ReloadLeft)==0x42&&
             NativeExtraAction(GameTitle::Halo3,DualWield)==0x1F&&NativeExtraAction(GameTitle::Halo2,DualWield)==kNoAction&&
             NativeExtraAction(GameTitle::HaloReach,PreviousGrenade)==0x48&&NativeExtraAction(GameTitle::Halo4,PreviousGrenade)==0x09&&
             NativeExtraAction(GameTitle::HaloCE,PreviousGrenade)==0x17&&NativeExtraAction(GameTitle::Halo3ODST,ActivateWaypoint)==0x25&&
             NativeExtraAction(GameTitle::Halo2,VehicleSecondary)==0x19&&NativeExtraAction(GameTitle::HaloCE,VehicleSecondary)==0x12&&
-            NativeExtraAction(GameTitle::Halo4,VehicleTrick2)==0x0E&&NativeExtraAction(GameTitle::Halo2,VehicleTrick2)==0x02&&NativeExtraAction(GameTitle::HaloReach,FlyUp)==0x0E&&
+            NativeExtraAction(GameTitle::Halo4,VehicleTrick2)==0x0D&&
+            NativeExtraAction(GameTitle::HaloReach,VehicleTrick2)==0x0C&&NativeExtraAction(GameTitle::Halo2,VehicleTrick2)==0x02&&NativeExtraAction(GameTitle::HaloReach,FlyUp)==0x0E&&
             NativeExtraAction(GameTitle::Halo3ODST,FlyDown)==0x24&&NativeExtraAction(GameTitle::Halo4,Scoreboard)==0x25&&
             NativeExtraAction(GameTitle::Halo2,Scoreboard)==kNoAction&&NativeExtraAction(GameTitle::HaloCE,Scoreboard)==kNoAction&&
             NativeExtraAction(GameTitle::Halo4,SpecialAction)==0x54&&NativeExtraAction(GameTitle::Halo3,SpecialAction)==kNoAction,
             "each game's own action for the other extra rows, and none where a game lacks it");
-        Check(NativeExtraAction(GameTitle::HaloReach,VehicleSecondary)==NativeExtraAction(GameTitle::HaloReach,BansheeBomb)&&
+        Check(NativeExtraAction(GameTitle::HaloReach,VehicleSecondary)==0x0A&&
             NativeExtraAction(GameTitle::Halo2,PreviousGrenade)==NativeAction(GameTitle::Halo2,SwitchGrenade),
-            "Reach's vehicle secondary fire is its Banshee bomb, Halo 2's previous grenade its grenade switch");
+            "Reach's vehicle secondary fire is its boost, Halo 2's previous grenade its grenade switch");
         Check(std::strcmp(ExtraName(GameTitle::Halo3ODST,Scoreboard),"Map / scoreboard")==0&&
             std::strcmp(ExtraName(GameTitle::Halo3,Scoreboard),"Scoreboard")==0,"ODST's Back is its map");
         {
@@ -520,14 +593,29 @@ void CheckInputPresets()
     Config described{};
     input_preset::Parse((input_preset::DescriptionLine("turn_snap_deg = 99")+input_preset::Serialize(scheme)).c_str(),described);
     Check(input_preset::SameScheme(described,scheme),"a description never reads as a setting");
-    Config def{},plain{};
+    Config legacyScheme{},plain{};
+    input_preset::BuiltIn(1,legacyScheme);
+    Check(!strcmp(input_preset::BuiltInName(1),"Legacy Default")&&input_preset::SameScheme(legacyScheme,plain)&&
+        !legacyScheme.vr_action_mapping&&legacyScheme.vr_inputs[0]==DefaultInputs(GameTitle::Halo3),
+        "Legacy Default is the struct's scheme: VR Mappings off, the stick as every game starts");
+    Config def{},saved{};
     input_preset::BuiltIn(0,def);
-    Check(input_preset::SameScheme(def,plain)&&!def.vr_action_mapping&&def.vr_inputs[0]==DefaultInputs(GameTitle::Halo3),"Default is the canon: nothing remapped, the stick as every game starts");
+    input_preset::Parse(kDefaultControlsPreset,saved);
+    Check(!strcmp(input_preset::BuiltInName(0),"Default")&&input_preset::SameScheme(def,saved),
+        "Default is the controls preset it was canonized from, setting for setting");
+    Check(def.vr_action_mapping&&def.gesture_melee&&def.gesture_melee_require_grip&&
+        def.vr_bindings[0][Zoom]==SupportTrigger&&def.vr_inputs[0][Zoom].held[0]==HandOnGun&&
+        def.vr_bindings[0][Grenade]==SupportTrigger&&def.vr_inputs[0][Equipment].more[1]==kAirEquipment,
+        "Default: the support trigger zooms on the gun, uses equipment on air, throws a grenade otherwise; melee with the grip");
+    Config defAgain{};
+    input_preset::Parse(input_preset::Serialize(def).c_str(),defAgain);
+    Check(input_preset::SameScheme(def,defAgain),"Default survives being saved as a preset file");
     Config vr{};
-    input_preset::BuiltIn(1,vr);
+    input_preset::BuiltIn(2,vr);
     Check(vr.vr_action_mapping&&vr.vr_bindings[2][Jump]==kDefaults[Jump],"the VR layout is written out in full");
     Check(input_preset::SafeName("  My: preset/1 ")=="My preset1"&&input_preset::SafeName("default").empty()&&
-        input_preset::SafeName("../..")=="","a preset name is a safe file name, and never a built-in's");
+        input_preset::SafeName("legacy default").empty()&&input_preset::SafeName("../..")=="",
+        "a preset name is a safe file name, and never a built-in's");
 }
 
 void CheckScopeAdmission()
@@ -831,7 +919,8 @@ void CheckDirectContextPassthrough()
         "Halo 2 index 5 is labelled as touch_device, not pick up");
     for(const auto title:{GameTitle::Halo3,GameTitle::Halo3ODST,GameTitle::HaloReach,GameTitle::Halo4,GameTitle::HaloCE,GameTitle::Halo2})
         for(unsigned a=0;a<Count;++a)
-            if(!(title==GameTitle::Halo2&&a==Interact))
+            if(!(title==GameTitle::Halo2&&a==Interact)&&
+               !((title==GameTitle::Halo2||title==GameTitle::Halo3)&&a==Grenade))
                 Check(std::strcmp(ActionName(title,static_cast<Action>(a)),kNames[a])==0,"other labels unchanged");
 }
 // Project Reclaimer: Start and Back are the client's; an action read on either goes to the bridge (2026-11-07: Halo 3's
@@ -963,6 +1052,68 @@ int main()
     ConfigSave();ConfigLoad(path.c_str());
     Check(g_config.vr_inputs[2][Jump]==jump&&g_config.vr_inputs[2][Fire].held[0]==SupportGrip&&
         g_config.vr_inputs[0]==DefaultInputs(GameTitle::Halo3),"a row's inputs survive save and reload");
+    // THE DEFAULT CONTROLS NAME EVERY ROW: none follows the player's flat MCC layout unless the player picks that.
+    {
+        bool named=true,triggerFree=true;
+        for(unsigned title=0;title<weapon_interaction::kTitleCount;++title)
+        {
+            Overrides rows{};Inputs inputs{};ExtraBindings extra{};
+            default_controls::Rows(static_cast<GameTitle>(title+1),rows,inputs,extra);
+            for(const int row:rows) named=named&&row!=Automatic;
+            for(const auto& row:extra) for(const auto& input:row) named=named&&input.press!=Automatic;
+            // On foot the support trigger is Grenade's and, with the hand on the gun, Zoom's chord; an extra row of
+            // its own there presses its game button under the chord too (Halo 2's fire left threw a grenade).
+            for(unsigned action=0;action<ExtraCount;++action)
+                if(kExtraContexts[action]!=ExtraContext::Seat)
+                    for(const auto& input:extra[action]) triggerFree=triggerFree&&input.press!=SupportTrigger;
+        }
+        Check(named,"the default controls leave no row on Automatic");
+        Check(triggerFree,"no default on-foot extra row is on the support trigger");
+        Overrides rows{};Inputs inputs{};ExtraBindings extra{};
+        default_controls::Rows(GameTitle::Halo4,rows,inputs,extra);
+        Check(rows[Fire]==PrimaryTrigger&&rows[Jump]==A&&rows[SwitchWeapon]==Y&&
+            extra[VehicleSecondary][0].press==SupportTrigger&&extra[FlyUp][0].press==A,
+            "Halo 4's fire, jump, switch and boost are named");
+    }
+    // A file from when the default left rows on Automatic, VR Mappings on: those rows take the default's control, a
+    // row the player set stays. VR Mappings off keeps its rows.
+    {std::ofstream file(path);file<<"vr_inputs_version = 2\nvr_action_mapping = 1\nvr_bind_halo4_fire = 0\n"
+        "vr_bind_halo4_melee = 6\n";}
+    ConfigLoad(path.c_str());
+    Check(g_config.vr_bindings[3][Fire]==PrimaryTrigger&&g_config.vr_bindings[3][Melee]==A&&
+        g_config.vr_extra_bindings[3][VehicleSecondary][0].press==SupportTrigger,
+        "an old file's Automatic rows take the default controls'");
+    {std::ofstream file(path);file<<"vr_inputs_version = 2\nvr_action_mapping = 0\nvr_bind_halo4_fire = 0\n";}
+    ConfigLoad(path.c_str());
+    Check(g_config.vr_bindings[3][Fire]==Automatic,"with VR Mappings off an old file's rows stay as they were");
+    // From version 3 only what differs from the default controls is written, and Automatic is a choice kept.
+    {
+        Config scheme{};
+        default_controls::Apply(scheme);
+
+        for(unsigned title=0;title<weapon_interaction::kTitleCount;++title)
+        {
+            g_config.vr_bindings[title]=scheme.vr_bindings[title];
+            g_config.vr_inputs[title]=scheme.vr_inputs[title];
+            g_config.vr_extra_bindings[title]=scheme.vr_extra_bindings[title];
+        }
+        g_config.vr_action_mapping=true;
+        g_config.vr_bindings[3][Fire]=Automatic;
+        g_config.vr_bindings[3][Jump]=B;
+        ConfigSave();
+        std::ifstream saved(path);
+        const std::string text((std::istreambuf_iterator<char>(saved)),std::istreambuf_iterator<char>());
+        size_t rowLines=0;
+        for(size_t at=text.find("\nvr_bind_");at!=std::string::npos;at=text.find("\nvr_bind_",at+1))
+            if(text.compare(at+1,13,"vr_bind_pause")) ++rowLines;
+        Check(rowLines==2&&text.find("vr_bind_halo4_fire = 0")!=std::string::npos&&
+            text.find("vr_bind_halo4_jump = 7")!=std::string::npos,"a file names only the rows a player changed");
+        ConfigLoad(path.c_str());
+        Check(g_config.vr_bindings[3][Fire]==Automatic&&g_config.vr_bindings[3][Jump]==B&&
+            g_config.vr_bindings[0]==scheme.vr_bindings[0]&&g_config.vr_inputs[2]==scheme.vr_inputs[2]&&
+            g_config.vr_extra_bindings[3]==scheme.vr_extra_bindings[3],
+            "the rest load as the default controls, and a chosen Automatic stays");
+    }
     // A file from before the rows held inputs: the right stick and the two Input combinations become inputs, once.
     {std::ofstream file(path);file<<"right_stick_crouch = 1\ngrip_contextual_trigger = 1\ntrigger_air_equipment = 1\n";}
     ConfigLoad(path.c_str());
