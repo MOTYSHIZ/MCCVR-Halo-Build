@@ -11341,6 +11341,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     std::atomic<uint64_t> g_manualReloadState{0};
     std::atomic<uint32_t> g_manualReloadTaps{0};
     std::atomic<uint32_t> g_manualReloadButton{0}; // the game button the manual reload presses (and takes taps of)
+    // The HUD's count: weapon handle << 32 | loaded << 16 | shown reserve; and title << 56 | the time (ms).
+    std::atomic<uint64_t> g_manualReloadHudWord{0}, g_manualReloadHudStamp{0};
+    std::atomic<uint64_t> g_manualReloadQuietUntil{0};  // ms: the game's reload is hidden until then
     uint32_t g_manualReloadTapsSeen = 0;
     std::atomic<uint32_t> g_manualReloadEvents[6]{}; // dropped, grabbed, seated, racked, pressed, lost
     std::atomic<int> g_manualReloadPhase{0};
@@ -16135,6 +16138,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 shown.owned=reloadOut.owned;shown.phase=reloadOut.phase;shown.pushDepth=reloadOut.pushDepth;
                 shown.droppedAt=reloadOut.droppedAt;shown.emptyAtDrop=reloadOut.emptyAtDrop;
                 shown.pressPending=reloadOut.pressPending;
+                shown.seats=g_manualReloadEvents[2].load(std::memory_order_relaxed)+(reloadOut.seated?1u:0u);
+                shown.racks=g_manualReloadEvents[3].load(std::memory_order_relaxed)+(reloadOut.racked?1u:0u);
+                if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle))
+                {
+                    const uint64_t until=inputNow+(reloadOut.pressed?2500u:300u);
+                    if(until>g_manualReloadQuietUntil.load(std::memory_order_relaxed))
+                        g_manualReloadQuietUntil.store(until,std::memory_order_release);
+                }
                 if(reloadOut.owned&&reloadOut.followValid&&g_config.manual_reload_hand_follow)
                 {
                     // The hand's move, into the gun-hand aim frame the palette carries it back out of.
@@ -16151,6 +16162,16 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 g_manualReloadCounts[0].store(reloadOut.loaded,std::memory_order_relaxed);
                 g_manualReloadCounts[1].store(reloadOut.reserve,std::memory_order_relaxed);
                 g_manualReloadCounts[2].store(reloadOut.chamber,std::memory_order_relaxed);
+                if(reloadOut.owned&&reloadIn.weaponId)
+                {
+                    const uint64_t loaded=uint64_t(std::clamp(reloadOut.loaded,0,0x7FFF));
+                    const uint64_t reserve=uint64_t(std::clamp(reloadOut.reserve,0,0xFFFF));
+                    g_manualReloadHudWord.store((uint64_t(reloadIn.weaponId)<<32)|(loaded<<16)|reserve,
+                        std::memory_order_relaxed);
+                    g_manualReloadHudStamp.store((uint64_t(unsigned(sample.title)&0xFFu)<<56)|(inputNow&0x00FFFFFFFFFFFFFFull),
+                        std::memory_order_release);
+                }
+                else g_manualReloadHudStamp.store(0,std::memory_order_release);
                 if(reloadOut.buttons)
                 {
                     weaponGesture.buttons|=reloadOut.buttons;
@@ -26975,6 +26996,25 @@ void VR_PublishManualReloadSample(const manual_reload::GameSample& sample) noexc
     s.wellAxis=manual_reload::Normalized(s.wellAxis);
     s.rackBack=manual_reload::Normalized(s.rackBack);
     (void)g_manualReloadGame.Publish(s);
+}
+
+bool VR_ManualReloadHidesReload(GameTitle title) noexcept
+{
+    return VR_ManualReloadOwnsReload(title,TitleAdapter_GetGeneration(title))&&
+        GetTickCount64()<g_manualReloadQuietUntil.load(std::memory_order_acquire);
+}
+
+bool VR_ManualReloadHudCount(GameTitle title, uint32_t weapon, int& loaded, int& reserve) noexcept
+{
+    const uint64_t stamp=g_manualReloadHudStamp.load(std::memory_order_acquire);
+    const uint64_t word=g_manualReloadHudWord.load(std::memory_order_relaxed);
+    if(!stamp||unsigned(stamp>>56)!=(unsigned(title)&0xFFu)||uint32_t(word>>32)!=weapon) return false;
+    const uint64_t at=stamp&0x00FFFFFFFFFFFFFFull;
+    const uint64_t now=GetTickCount64()&0x00FFFFFFFFFFFFFFull;
+    if(now<at||now-at>250) return false;
+    loaded=int((word>>16)&0xFFFFu);
+    reserve=int(word&0xFFFFu);
+    return true;
 }
 
 bool VR_ManualReloadFollow(GameTitle title, float local[3]) noexcept

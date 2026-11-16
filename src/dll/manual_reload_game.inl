@@ -22,10 +22,11 @@ std::atomic<uint32_t> g_layoutSeq{0};
 struct Layout { size_t magazineBase, tagCount, tagAddress; };
 inline constexpr Layout kHalo3{0x230, 0x424, 0x428}, kOdst{0x228, 0x434, 0x438};
 
-bool ReadAmmo(GameTitle title, uint32_t& weapon, reload_ammo::Sim& sim)
+bool ReadAmmo(GameTitle title, uint32_t& weapon, reload_ammo::Sim& sim, const uint8_t** definitionOut = nullptr)
 {
     weapon = 0;
     sim = {};
+    if (definitionOut) *definitionOut = nullptr;
     const bool odst = title == GameTitle::Halo3ODST;
     const Layout& layout = odst ? kOdst : kHalo3;
     uint32_t unit = UINT32_MAX, weapons[2]{UINT32_MAX, UINT32_MAX};
@@ -66,6 +67,7 @@ bool ReadAmmo(GameTitle title, uint32_t& weapon, reload_ammo::Sim& sim)
     if (capacity < 1 || capacity > 999 || loaded < 0 || loaded > capacity || reserve < 0 || reserve > 9999) return false;
     weapon = weapons[0];
     sim = {loaded, reserve, capacity, state >= 1 && state <= 3};
+    if (definitionOut) *definitionOut = definition;
     return true;
 }
 
@@ -145,11 +147,27 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
 
         uint32_t weapon = 0;
         reload_ammo::Sim sim{};
-        const bool simValid = ReadAmmo(title, weapon, sim);
+        const uint8_t* definition = nullptr;
+        const bool simValid = ReadAmmo(title, weapon, sim, &definition);
         if (!simValid) ammoFailures.fetch_add(1, std::memory_order_relaxed);
         manual_reload::Presentation p{};
         const bool shown = VR_ManualReloadPresentation(title, generation, identity, p);
         const bool owned = shown && p.owned;
+        {
+            // The gun's own click as a magazine seats and as the handle is racked (once per event: this hook runs
+            // for each eye).
+            static uint32_t heardSeats = 0, heardRacks = 0;
+            static bool primed = false;
+            if (shown)
+            {
+                if (primed && owned && g_config.manual_reload_sounds && simValid &&
+                    (p.seats != heardSeats || p.racks != heardRacks))
+                    manual_reload_sound::PlayClick(title, definition, 1.0f);
+                heardSeats = p.seats;
+                heardRacks = p.racks;
+                primed = true;
+            }
+        }
         const double now = NowSeconds();
         const uint64_t nowMs = GetTickCount64();
 

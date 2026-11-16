@@ -2804,6 +2804,17 @@ namespace
         const BoneMatrix& root,BoneMatrix* scratch,const int32_t* boneMap);
     void Report();
     }
+    // The CHUD ammo readout shows the manual reload's own count (manual_reload_hud.inl).
+    bool InstallHalo3ManualReloadHud(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveHalo3ManualReloadHud();
+    bool InstallOdstManualReloadHud(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveOdstManualReloadHud();
+    // The game's hidden reload is silent; the gun's click at the seat and the rack (manual_reload_sound.inl).
+    bool InstallHalo3ManualReloadSound(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveHalo3ManualReloadSound();
+    bool InstallOdstManualReloadSound(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveOdstManualReloadSound();
+    void ReportManualReloadHud();
     bool LegacyApplyWorldCollision(
         GameTitle title, int hand, BoneMatrix& target,
         float* appliedCorrection = nullptr);
@@ -20307,6 +20318,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         if (!RemoveHalo3HeadRelative()) return false;
         RemoveHalo3HudNote();
         if (!RemoveHalo3PlayerTags()) return false;
+        if (!RemoveHalo3ManualReloadHud()) return false;
+        if (!RemoveHalo3ManualReloadSound()) return false;
         RemoveHalo3TagNames();
         RemoveHalo3StringIds();
         EngineExposureLockRelease(g_halo3Exposure);
@@ -21715,6 +21728,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
+        // The CHUD ammo readout shows the manual reload's own count (manual_reload_hud.inl); fails closed alone.
+        (void)InstallHalo3ManualReloadHud(base,size,runtimeGeneration);
+        (void)InstallHalo3ManualReloadSound(base,size,runtimeGeneration);
         // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the navpoint draw; fails closed alone.
         (void)InstallHalo3PlayerTags(base,size,runtimeGeneration);
         // Project Reclaimer's VISR (reclaimer_visr_camera.inl): one hook on the client's own camera for VISR, once per
@@ -23362,6 +23378,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         if(!RemoveOdstWeaponHaptics())return false;
         if(!RemoveOdstMuzzle())return false;
         if(!RemoveOdstPlayerTags())return false;
+        if(!RemoveOdstManualReloadHud())return false;
+        if(!RemoveOdstManualReloadSound())return false;
         if(!LegacyDriveRemove(GameTitle::Halo3ODST)) return false;
         // The seat aim rebase skip is retired further down, after the
         // all-detour quiescence: it is inert only once the camera thread can
@@ -23806,6 +23824,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // The vehicle camera note in the game's HUD messages (halo3_hud_note.inl): no hook of its own, it is posted
         // from the listener hook above; not bound, the note uses the mod's panel.
         (void)InstallOdstHudNote(base,size,runtimeGeneration);
+        (void)InstallOdstManualReloadHud(base,size,runtimeGeneration);
+        (void)InstallOdstManualReloadSound(base,size,runtimeGeneration);
 
         // The ownership block that used to sit here now runs the moment the
         // core hooks go live, above. In particular g_odstLastCamCopyMs is NOT
@@ -30731,8 +30751,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportReclaimerVisrCamera(); ReportOdstControllerFingers(); manual_reload_game::Report(); }
-        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();manual_reload_game::Report();}
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportReclaimerVisrCamera(); ReportOdstControllerFingers(); manual_reload_game::Report(); ReportManualReloadHud(); }
+        if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();manual_reload_game::Report();ReportManualReloadHud();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
                 "%u polls / %u unavailable, %u missing velocity, peak %.2f m/s, "
@@ -32286,7 +32306,16 @@ static constexpr bool kOdstMappedFpEnabled = false;
     #include "odst_independent_publication.inl"
     #include "odst_muzzle_lifecycle.inl"
     #include "odst_weapon_haptics.inl"
+    #include "manual_reload_sound.inl"
     #include "manual_reload_game.inl"
+    #include "manual_reload_hud.inl"
+    void ReportManualReloadHud()
+    {
+        manual_reload_hud::Report(manual_reload_hud::g_halo3);
+        manual_reload_hud::Report(manual_reload_hud::g_odst);
+        manual_reload_sound::Report(manual_reload_sound::g_halo3);
+        manual_reload_sound::Report(manual_reload_sound::g_odst);
+    }
     #include "odst_finger_pose.inl"
     #include "reach_muzzle_ownership.inl"
     #include "reach_muzzle_publication.inl"

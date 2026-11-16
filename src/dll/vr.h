@@ -1181,6 +1181,11 @@ bool VR_ManualReloadPresentation(GameTitle title, uint32_t generation, uint64_t 
     manual_reload::Presentation& out) noexcept;
 // The support hand's drawn target moves by this while it pushes a magazine in or works the rack part (aim frame, m).
 bool VR_ManualReloadFollow(GameTitle title, float local[3]) noexcept;
+// The player's own count for the HUD, if `weapon` is the gun the manual reload owns in `title` (fresh: 250 ms).
+bool VR_ManualReloadHudCount(GameTitle title, uint32_t weapon, int& loaded, int& reserve) noexcept;
+// The manual reload owns the gun in `title` and the game is (or is about to be) reloading it unseen: from the drop
+// until the magazine is in, and for 2.5 s after any press it sends. The game's own reload sound is dropped then.
+bool VR_ManualReloadHidesReload(GameTitle title) noexcept;
 bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;
 bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept;
 void VR_NoteManualReloadTap() noexcept;

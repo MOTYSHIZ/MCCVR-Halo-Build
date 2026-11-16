@@ -121,6 +121,7 @@ struct Presentation
     // The support hand rides the magazine or the rack part: its target moves by this (gun-hand-controller-local, m).
     bool followValid = false;
     Vec follow{};
+    uint32_t seats = 0, racks = 0;   // running counts (the palette hook plays the gun's click on each new one)
 };
 inline bool CurrentPresentation(const Presentation& p, GameTitle title, uint32_t generation, uint64_t identity,
                                 uint64_t now) noexcept
