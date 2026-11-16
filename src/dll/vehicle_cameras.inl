@@ -1484,6 +1484,14 @@ struct VehicleCameraRuntime
     std::string loggedLine;
     std::string readout;
     int frameSourceLogged = -1; // 0 = the drawn root node, 1 = the simulation's frame
+    // Why the drawn root node was not taken, over this seat stint (g_halo3RootCheckMisses, summed).
+    struct RootMisses
+    {
+        uint32_t checked = 0, missed = 0, unread = 0, outside = 0, offLine = 0, tooFar = 0, facing = 0, tilted = 0;
+        uint32_t worstSideCm = 0, worstAlongCm = 0, reachAtWorstCm = 0, worstFacingTenthsDeg = 0,
+                 worstTiltTenthsDeg = 0;
+    } rootMisses;
+    uint32_t rootTurnLogged = 0; // g_halo3RootAxisTurnLearned last said
     bool standInLogged = false;
     bool noTraceLogged = false;
     bool markerNoTraceLogged = false;
@@ -2489,6 +2497,19 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
                 "over %.2f s)", legacyName,
                 r.pivotStepCmStint, static_cast<double>(kHalo3RestPivotSmoothSeconds));
         r.pivotStepCmStint = 0;
+        {
+            const auto& m = r.rootMisses;
+            if (m.missed)
+                LOG("Vehicle cameras (%s): in that seat the camera was placed from the simulation's frame on %u frames; "
+                    "the drawn root node, checked %u times: not read %u, outside the vehicle's bounds %u, more than "
+                    "%.0f cm off the line of motion %u (worst %u cm), further along it than the speed allows %u "
+                    "(worst %u cm against %u cm allowed), facing more than 20 deg away %u (worst %.1f deg), its up "
+                    "more than 20 deg away %u (worst %.1f deg)", legacyName, m.missed, m.checked, m.unread,
+                    m.outside, static_cast<double>(kHalo3RootNodeRestReachWu * 304.8f), m.offLine, m.worstSideCm,
+                    m.tooFar, m.worstAlongCm, m.reachAtWorstCm, m.facing, m.worstFacingTenthsDeg * 0.1, m.tilted,
+                    m.worstTiltTenthsDeg * 0.1);
+            r.rootMisses = {};
+        }
         r.restLoggedWu = 0.0f;
         r.restSeenWu = 0.0f;
         g_halo3VehicleCameraRestWu.store(0.0f, std::memory_order_relaxed);
@@ -2508,6 +2529,30 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
 
     const uint32_t frames = g_halo3VehicleCameraFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t tickFrames = g_halo3VehicleCameraTickFrames.exchange(0, std::memory_order_relaxed);
+    {
+        Halo3RootCheckMisses& from = g_halo3RootCheckMisses;
+        auto& m = r.rootMisses;
+        m.missed += tickFrames;
+        m.checked += from.checked.exchange(0, std::memory_order_relaxed);
+        m.unread += from.unread.exchange(0, std::memory_order_relaxed);
+        m.outside += from.outside.exchange(0, std::memory_order_relaxed);
+        m.offLine += from.offLine.exchange(0, std::memory_order_relaxed);
+        m.tooFar += from.tooFar.exchange(0, std::memory_order_relaxed);
+        m.facing += from.facing.exchange(0, std::memory_order_relaxed);
+        m.tilted += from.tilted.exchange(0, std::memory_order_relaxed);
+        m.worstSideCm = (std::max)(m.worstSideCm, from.worstSideCm.exchange(0, std::memory_order_relaxed));
+        const uint32_t alongCm = from.worstAlongCm.exchange(0, std::memory_order_relaxed);
+        const uint32_t reachCm = from.reachAtWorstCm.exchange(0, std::memory_order_relaxed);
+        if (alongCm > m.worstAlongCm)
+        {
+            m.worstAlongCm = alongCm;
+            m.reachAtWorstCm = reachCm;
+        }
+        m.worstFacingTenthsDeg =
+            (std::max)(m.worstFacingTenthsDeg, from.worstFacingTenthsDeg.exchange(0, std::memory_order_relaxed));
+        m.worstTiltTenthsDeg =
+            (std::max)(m.worstTiltTenthsDeg, from.worstTiltTenthsDeg.exchange(0, std::memory_order_relaxed));
+    }
     const uint32_t standInFrames = g_halo3VehicleCameraStandInFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t collideFrames = g_halo3VehicleCameraCollideFrames.exchange(0, std::memory_order_relaxed);
     const uint32_t noTraceFrames = g_halo3VehicleCameraNoTraceFrames.exchange(0, std::memory_order_relaxed);
@@ -2558,6 +2603,21 @@ void VehicleCameras_ColdTick(uint64_t nowMs)
             "this seat, so the camera stands %.0f cm behind and %.0f cm above the vehicle's origin instead", legacyName,
             static_cast<double>(vehicle_camera_place::kStandInBehindCm),
             static_cast<double>(vehicle_camera_place::kStandInAboveCm));
+    }
+    if (const uint32_t turn = g_halo3RootAxisTurnLearned.load(std::memory_order_relaxed);
+        turn && turn != r.rootTurnLogged)
+    {
+        r.rootTurnLogged = turn;
+        static constexpr const char* kAxis[3] = {"forward", "left", "up"};
+        char said[3][16];
+        for (int i = 0; i < 3; ++i)
+        {
+            const uint32_t entry = (turn >> (8 * i)) & 0xFFu;
+            snprintf(said[i], sizeof(said[i]), "%s%s", (entry & 0x10u) ? "-" : "", kAxis[(entry & 0x3u) < 3 ? entry & 0x3u : 0]);
+        }
+        LOG("Vehicle cameras (%s): this vehicle's model is built turned on its root node (the object's forward is the "
+            "root's %s, its left the root's %s, its up the root's %s); the turn is undone, so the camera can follow "
+            "the vehicle as drawn", legacyName, said[0], said[1], said[2]);
     }
     if (frames)
     {

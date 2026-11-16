@@ -2,6 +2,7 @@
 // src/common/lifted_engine_logic.h the convention, lifted_engine_thunks.asm the register work.
 
 #include "lifted_engine.h"
+#include "reclaimer_capacity.h"
 
 #include <algorithm>
 #include <atomic>
@@ -196,15 +197,6 @@ bool Readable(const void* address, size_t size)
     return reinterpret_cast<uintptr_t>(address) + size <= end;
 }
 
-std::wstring EngineCodePath()
-{
-    wchar_t buffer[1024]{};
-    if (GetEnvironmentVariableW(L"HALOMCCVR_RECLAIMER_ENGINE_CODE", buffer, 1024) && buffer[0])
-        return buffer;
-    if (!GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, 1024))
-        return {};
-    return std::wstring(buffer) + L"\\ProjectReclaimer\\Cache\\native\\retail-engine\\engine.code";
-}
 
 bool LoadFile(const std::wstring& path, std::vector<uint8_t>& data)
 {
@@ -303,6 +295,78 @@ std::string LoadText(const std::wstring& path)
     return LoadFile(path, data) ? std::string(data.begin(), data.end()) : std::string();
 }
 
+std::wstring Variable(const wchar_t* name)
+{
+    wchar_t buffer[1024]{};
+    const DWORD length = GetEnvironmentVariableW(name, buffer, 1024);
+    return length && length < 1024 ? std::wstring(buffer, length) : std::wstring();
+}
+
+// The client's logs in a player folder, newest first, at most `count`: client.log and client.previous.log up to 0.10.2,
+// client-<date>-v<version>.log from 0.10.3 (2026-11-13).
+std::vector<std::wstring> NewestClientLogs(const std::wstring& player, size_t count)
+{
+    std::vector<std::pair<uint64_t, std::wstring>> logs;
+    WIN32_FIND_DATAW entry{};
+    const HANDLE find = FindFirstFileW((player + L"\\Logs\\client*.log").c_str(), &entry);
+    if (find != INVALID_HANDLE_VALUE)
+    {
+        unsigned seen = 0;
+        do
+        {
+            if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                logs.push_back({(uint64_t(entry.ftLastWriteTime.dwHighDateTime) << 32) | entry.ftLastWriteTime.dwLowDateTime,
+                                player + L"\\Logs\\" + entry.cFileName});
+        } while (++seen < 256 && FindNextFileW(find, &entry));
+        FindClose(find);
+    }
+    std::sort(logs.begin(), logs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::vector<std::wstring> newest;
+    for (size_t i = 0; i < logs.size() && i < count; ++i)
+        newest.push_back(std::move(logs[i].second));
+    return newest;
+}
+
+// The first `limit` bytes of a text file (a log's start, which names its folders), or nothing.
+std::string LoadTextHead(const std::wstring& path, DWORD limit)
+{
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return {};
+    std::string text(limit, '\0');
+    DWORD read = 0;
+    if (!ReadFile(file, text.data(), limit, &read, nullptr))
+        read = 0;
+    CloseHandle(file);
+    text.resize(read);
+    return text;
+}
+
+// Every place engine.code may be, the likeliest first: HALOMCCVR_RECLAIMER_ENGINE_CODE names the file outright;
+// otherwise the cache folder the running client's log names, then the client's own cache folder rules
+// (reclaimer_host::EngineCodeCandidates).
+std::vector<std::wstring> EngineCodePaths()
+{
+    const std::wstring named = Variable(L"HALOMCCVR_RECLAIMER_ENGINE_CODE");
+    if (!named.empty())
+        return {named};
+    std::wstring player = Variable(L"RECLAIMER_PROFILE_DIR");
+    if (player.empty())
+    {
+        const std::wstring local = Variable(L"LOCALAPPDATA");
+        if (!local.empty())
+            player = local + L"\\ProjectReclaimer";
+    }
+    const std::wstring note = player.empty() ? std::wstring() : Widen(LoadText(player + L"\\cache-folder.txt"));
+    // Only the newest log, which is this run's: the client names its folders on its log's first lines, long before
+    // it links the engine. An older run's cache folder may hold an older engine.code.
+    const std::vector<std::wstring> logs = player.empty() ? std::vector<std::wstring>() : NewestClientLogs(player, 1);
+    const std::wstring caches =
+        logs.empty() ? std::wstring() : reclaimer_host::CachesFromClientLog(Widen(LoadTextHead(logs[0], 64 * 1024)));
+    return reclaimer_host::EngineCodeCandidates(caches, Variable(L"RECLAIMER_CACHE_DIR"), note, player);
+}
+
 // One place halo3.dll may lie, and what said so.
 struct Halo3DllCandidate
 {
@@ -353,9 +417,13 @@ std::vector<Halo3DllCandidate> Halo3DllCandidates()
                 add(inMcc(folder), L"the folder the mod is installed in");
         }
     }
+    // The client's logs, newest first.
     if (!reclaimer.empty())
-        for (const wchar_t* log : {L"\\Logs\\client.log", L"\\Logs\\client.previous.log"})
-            add(Widen(halo3_dll_locate::LiftedDllFromClientLog(LoadText(reclaimer + log))), L"the client's log");
+    {
+        const std::vector<std::wstring> logs = NewestClientLogs(reclaimer, 3);
+        for (const auto& log : logs)
+            add(Widen(halo3_dll_locate::LiftedDllFromClientLog(LoadText(log))), L"the client's log");
+    }
     // Steam's libraries.
     for (const auto& [root, key, value] :
          {std::tuple{HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath"},
@@ -914,6 +982,8 @@ bool Poll()
 {
     if (Active())
     {
+        // The client's own list of the sizes it enlarged (its log), read once; nothing here holds the lock.
+        reclaimer_capacity::Poll();
         // Calls the mod could not run (no hooked game call on their thread), reported here, off the game's threads.
         AcquireSRWLockExclusive(&g_lock);
         const auto exe = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));
@@ -985,19 +1055,66 @@ bool Poll()
         return false; // not linked yet (or a client that still loads halo3.dll)
 
     AcquireSRWLockExclusive(&g_lock);
-    const std::wstring path = EngineCodePath();
+    // The client writes engine.code on its first start after an update, and the player may have moved its cache
+    // (Settings > Folders): look wherever the client may keep it, every second until it is there.
+    const std::vector<std::wstring> paths = EngineCodePaths();
+    std::wstring path;
+    for (const auto& candidate : paths)
+        if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            path = candidate;
+            break;
+        }
+    if (path.empty())
+    {
+        static bool reported = false;
+        if (!reported)
+        {
+            std::wstring looked;
+            for (const auto& candidate : paths)
+                looked += (looked.empty() ? L"" : L"; ") + candidate;
+            LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table "
+                "(engine.code) is not in %ls; looking again every second, and Halo 3 stays flat until it is found "
+                "(said once)", reinterpret_cast<void*>(guest), looked.empty() ? L"any known folder" : looked.c_str());
+        }
+        reported = true;
+        ReleaseSRWLockExclusive(&g_lock);
+        return false;
+    }
     std::vector<uint8_t> file;
     lifted_engine::Table table;
     lifted_engine::ParseResult parsed = lifted_engine::ParseResult::NotEngineCode;
     if (!LoadFile(path, file) ||
         (parsed = lifted_engine::Parse(file.data(), file.size(), table)) != lifted_engine::ParseResult::Ok)
     {
-        LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table %ls is %s; "
-            "Halo 3 stays flat", reinterpret_cast<void*>(guest), path.c_str(),
-            file.empty() ? "missing or unreadable" : lifted_engine::ParseResultName(parsed));
+        // A file missing or cut short may still be being written (the first launch after an update): look again
+        // every second for a minute before giving up. Another format or a file that disagrees with itself is final.
+        static unsigned waited = 0;
+        const bool unfinished = file.empty() || parsed == lifted_engine::ParseResult::Truncated;
+        if (unfinished && ++waited < 60)
+        {
+            if (waited == 1)
+                LOG("RECLAIMER 0.10: %ls is %s; looking again every second for a minute", path.c_str(),
+                    file.empty() ? "missing or unreadable" : "cut short");
+            ReleaseSRWLockExclusive(&g_lock);
+            return false;
+        }
+        LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table %ls is %s "
+            "(format %u; this build reads 2 and 3); Halo 3 stays flat", reinterpret_cast<void*>(guest), path.c_str(),
+            file.empty() ? "missing or unreadable" : lifted_engine::ParseResultName(parsed), table.version);
         g_ruledOut = true;
         ReleaseSRWLockExclusive(&g_lock);
         return false;
+    }
+    {
+        static bool said = false;
+        if (!said)
+            LOG("RECLAIMER 0.10: %ls is format %u%s: %zu functions, %zu bytes of code", path.c_str(), table.version,
+                table.probed ? ", newer than this build knows, read by the earlier layout that fits it exactly (used "
+                               "only if that code is found in memory)"
+                             : "",
+                table.records.size(), table.codeLength);
+        said = true;
     }
     // 16 bytes from each of 64 bodies spread over the table, where they hold no relocation (the client fills those
     // in, so they differ from the file; a body's first bytes can be one).

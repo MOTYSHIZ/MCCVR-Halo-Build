@@ -179,10 +179,71 @@ int main()
     Check(version[kReclaimerVersionCallRel - 1] == 0xE8 && Wild(version, kReclaimerVersionCallRel, 4) &&
               version[kReclaimerVersionCallRel + 4] == 0x84 && version[kReclaimerVersionCallRel + 5] == 0xC0,
           "Reclaimer: its version calls its own draw and tests what it says");
-    const auto countRead = Tokens(kReclaimerCountPattern);
-    Check(countRead[0] == 0x48 && countRead[1] == 0x8B && countRead[2] == 0x3D &&
-              Wild(countRead, kReclaimerCountDisp, 4) && countRead.back() == static_cast<int>(kEntryStride),
-          "Reclaimer: the count is read rip-relative and multiplied by the entry stride");
+    // Both clients' versions match the register-wildcard pattern (0.10.0 rbx/rdi, 0.10.4 r14/rbx).
+    {
+        const auto matches = [&](const std::vector<uint8_t>& bytes) {
+            if (bytes.size() < version.size())
+                return false;
+            for (size_t i = 0; i < version.size(); ++i)
+                if (version[i] >= 0 && version[i] != bytes[i])
+                    return false;
+            return true;
+        };
+        Check(matches({0x48, 0x8B, 0x59, 0x08, 0x48, 0x8B, 0x79, 0x10, 0x48, 0x89, 0xD9, 0x89, 0xFA, 0xE8, 0xD0, 0x02,
+                       0xF2, 0xFF, 0x84, 0xC0, 0x75}),
+              "Reclaimer 0.10.0's version");
+        Check(matches({0x4C, 0x8B, 0x71, 0x08, 0x48, 0x8B, 0x59, 0x10, 0x4C, 0x89, 0xF1, 0x89, 0xDA, 0xE8, 0xBB, 0xFB,
+                       0xE7, 0xFF, 0x84, 0xC0}),
+              "Reclaimer 0.10.4's version");
+        Check(!matches({0x4C, 0x8B, 0x71, 0x08, 0x48, 0x8B, 0x59, 0x18, 0x4C, 0x89, 0xF1, 0x89, 0xDA, 0xE8, 0xBB, 0xFB,
+                        0xE7, 0xFF, 0x84, 0xC0}),
+              "another field is not the user");
+    }
+    // 0.10.4's pass-through in front of the version: exe+0x4614750 calls exe+0x3BDEEE0.
+    {
+        const std::vector<uint8_t> thunk = {0x48, 0x83, 0xEC, 0x28, 0xE8, 0x87, 0xA7, 0x5C, 0xFF, 0x90, 0x48, 0x83, 0xC4,
+                                            0x28, 0xC3, 0xE8};
+        int64_t offset = 0;
+        Check(ThunkCallee(thunk.data(), thunk.size(), offset) && 0x4614750 + offset == 0x3BDEEE0,
+              "Reclaimer 0.10.4: the pass-through's callee");
+        std::vector<uint8_t> noNop = {0x48, 0x83, 0xEC, 0x28, 0xE8, 0x10, 0x00, 0x00, 0x00, 0x48, 0x83, 0xC4, 0x28, 0xC3,
+                                      0xCC, 0xCC};
+        Check(ThunkCallee(noNop.data(), noNop.size(), offset) && offset == 9 + 0x10, "without the nop");
+        const std::vector<uint8_t> jump = {0xE9, 0xFB, 0xFF, 0xFF, 0xFF};
+        Check(ThunkCallee(jump.data(), jump.size(), offset) && offset == 0, "a jmp rel32");
+        std::vector<uint8_t> body = thunk;
+        body[13] = 0x30;   // add rsp,0x30: not the frame it made
+        Check(!ThunkCallee(body.data(), body.size(), offset), "a frame not undone is no pass-through");
+        const std::vector<uint8_t> real = {0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x56, 0x57, 0x55, 0x53, 0x48,
+                                           0x83, 0xEC, 0x58};
+        Check(!ThunkCallee(real.data(), real.size(), offset), "a real function is not followed");
+    }
+    // The count read, found by its shape in both clients' draws.
+    {
+        const std::vector<uint8_t> v0100 = {0x90, 0x48, 0x8B, 0x3D, 0x11, 0x22, 0x33, 0x44, 0x48, 0x85, 0xFF, 0x0F, 0x84,
+                                            0x10, 0x00, 0x00, 0x00, 0x48, 0x6B, 0x07, 0x74, 0x90};
+        Check(FindReclaimerCountRead(v0100.data(), v0100.size()) == 4, "Reclaimer 0.10.0: mov rdi; test; jz; imul [rdi]");
+        const std::vector<uint8_t> v0104 = {0x48, 0x8B, 0x05, 0x54, 0xD6, 0xF7, 0x02, 0x48, 0x85, 0xC0, 0x0F, 0x84, 0x09,
+                                            0x1F, 0x00, 0x00, 0x48, 0x89, 0x84, 0x24, 0x90, 0x00, 0x00, 0x00, 0x48, 0x6B,
+                                            0x00, 0x74, 0x41, 0x8B, 0x4C, 0x04, 0x08};
+        Check(FindReclaimerCountRead(v0104.data(), v0104.size()) == 3,
+              "Reclaimer 0.10.4: mov rax; test; jz; a store; imul [rax]");
+        std::vector<uint8_t> twice = v0104;
+        twice.insert(twice.end(), v0104.begin(), v0104.end());
+        Check(FindReclaimerCountRead(twice.data(), twice.size()) == -1, "two such reads are not told apart");
+        std::vector<uint8_t> otherStride = v0104;
+        otherStride[27] = 0x70;
+        Check(FindReclaimerCountRead(otherStride.data(), otherStride.size()) == -1, "another stride is not the count");
+        std::vector<uint8_t> otherBase = v0104;
+        otherBase[26] = 0x03;   // imul rax,[rbx],0x74
+        Check(FindReclaimerCountRead(otherBase.data(), otherBase.size()) == -1, "a multiply from another register");
+        std::vector<uint8_t> untested = v0104;
+        untested[9] = 0xDB;     // test rbx,rbx
+        Check(FindReclaimerCountRead(untested.data(), untested.size()) == -1, "the load must be tested for null");
+        const std::vector<uint8_t> r14 = {0x4C, 0x8B, 0x35, 1, 2, 3, 4, 0x4D, 0x85, 0xF6, 0x74, 0x08, 0x49, 0x6B, 0x06,
+                                          0x74};
+        Check(FindReclaimerCountRead(r14.data(), r14.size()) == 3, "an extended register and a short jz");
+    }
     Check(HostEntryCount(212) == 212 && HostEntryCount(20) == 20 && HostEntryCount(19) == 0 &&
               HostEntryCount(257) == 0 && HostEntryCount(0x1000000D4ull) == 0,
           "Reclaimer: its count is believed from twenty to the maximum");

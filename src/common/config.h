@@ -713,6 +713,9 @@ struct Config
     // by ear, and a moved listener changes the direction of every sound the game keeps at the player's own
     // position. Live.
     int audio_head_halo4_parts = 3;
+    // Which way the left stick walks on foot, every title: 0 = where the head looks, 1 = where the left
+    // controller points, 2 = the right controller (movement_direction_logic.h). Live; saved in Controls presets.
+    int movement_direction = 0;
     bool turn_smooth = true;           // false = snap turn, true = smooth turn
     bool vehicle_smooth_turn = false; // temporary smooth VR turning while seated
     float turn_snap_deg = 30.0f;       // degrees per snap
