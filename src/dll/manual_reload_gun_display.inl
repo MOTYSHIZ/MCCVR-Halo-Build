@@ -21,7 +21,9 @@ constexpr const char* kEntry =
 constexpr const char* kAmmoIds =
     "B8 ?? 02 00 00 44 3B D8 0F 84 ?? ?? ?? ?? 41 81 FB ?? 02 00 00 0F 84 ?? ?? ?? ?? 41 81 FB ?? 02 00 00 74 ?? "
     "41 81 FB ?? 02 00 00 0F 84";
-constexpr size_t kIdAt[4]{0x01, 0x11, 0x1F, 0x28};
+// mov eax,imm32 at +0x00, then cmp r11d,imm32 at +0x0E, +0x1B and +0x26 (their imm32 at +0x11, +0x1E, +0x29); read
+// from both retail binaries: 0x213-0x216 (H3), 0x218-0x21B (ODST).
+constexpr size_t kIdAt[4]{0x01, 0x11, 0x1E, 0x29};
 
 struct Lane
 {
