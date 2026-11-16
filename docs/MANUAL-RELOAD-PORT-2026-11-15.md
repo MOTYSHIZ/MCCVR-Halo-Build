@@ -216,8 +216,19 @@ does not swing the hand off (Campaign Evolved's lesson: one placement path for t
 - **The hook.** The detour writes the player's count into that record only for the call that returns into the CHUD
   fill (the fill's call-site signature, cross-checked against the getter's entry), and only for the gun the manual
   reload owns.
-- **Not done:** the assault rifle's on-gun counter. It is an object function value (`primary_ammunition_ones`/`_tens`)
-  that effects and attachments can also read, so no site was proven render-only.
+- **The guns' own counters** (`src/dll/manual_reload_gun_display.inl`, 2026-11-16):
+  - **Where the digits come from.** The assault rifle's and battle rifle's digit parts (first and third person, both
+    titles) take their frame from `primary_ammunition_ones` / `_tens`. The weapon type's compute-function-value
+    routine works these out (H3 `+0x36177C`, ODST `+0x3A78E8`).
+  - **Why changing them is local.** Both official kits were scanned whole: only those display shaders name the two
+    inputs. No engine code uses their ids outside the routine (H3 0x214/0x215, ODST 0x219/0x21A, read from the
+    routine's own comparisons).
+  - **The hook.** The detour rewrites only those two values, only for the gun the manual reload owns, with the
+    routine's own math.
+  - **Never touched:** `primary_ammunition` (loaded / maximum). Other guns' tags switch firing effects with it.
+  - **FA (MCC Halo 3 Forge):** the assault rifle's counter read 01, the player's count, while the game had 32. The
+    picture is `out/fa-gun-counter-01.png`.
+  - **Not installed in Project Reclaimer.**
 
 ### Sounds (MCC)
 
@@ -282,9 +293,8 @@ Two things this run turned up:
 
 ### Not ported, and why
 
-- **The assault rifle's on-gun counter.** It still shows the game's count; see the HUD section.
 - **Sound pieces.** The kits have none; the click stands in.
-- **Project Reclaimer: the HUD count and the sounds.** Its lifted engine runs its own copies of that code, so these
+- **Project Reclaimer: the HUD count, the guns' counters and the sounds.** Its lifted engine runs its own copies of that code, so these
   are not installed there. The hidden reload, the animation, the hand following and the shotgun do work there: they
   live in the palette hook.
 - **The reload ring and the empty-chamber tint.** MCC has no such HUD widget to tint. The HUD's own low and empty
