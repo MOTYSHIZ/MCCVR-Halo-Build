@@ -1,5 +1,6 @@
 #include "../common/legacy_weapon_visual_defaults.h"
 #include "hand_tracks.h"
+#include "reload_weapon_settings.h"
 #include "../common/reach_weapon_defaults.h"
 #include "../common/halo4_weapon_visual_defaults.h"
 #include "../common/authored_grab_zone.h"
@@ -11344,6 +11345,17 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // The HUD's count: weapon handle << 32 | loaded << 16 | shown reserve; and title << 56 | the time (ms).
     std::atomic<uint64_t> g_manualReloadHudWord{0}, g_manualReloadHudStamp{0};
     std::atomic<uint64_t> g_manualReloadQuietUntil{0};  // ms: the game's reload is hidden until then
+    // The held gun's kit model name (a catalogue string: stable), and whether the manual reload knows it.
+    std::atomic<const char*> g_manualReloadHeldGun{nullptr};
+    std::atomic<bool> g_manualReloadHeldBuiltIn{false};
+    // IN-HEADSET CALIBRATIONS (Controls > Reload and holsters): armed from the menu, taken from the next fresh squeeze
+    // of the support grip once the menu is closed. 1: the pouch goes where the hand is; 2: the held gun's handle is
+    // taken where the hand is (halomccvr_reloads.txt). The squeeze is not the game's, nor the reload's.
+    std::atomic<int> g_reloadCaptureRequest{0};   // 1, 2: arm; 3: cancel
+    std::atomic<int> g_reloadCaptureArmed{0};
+    std::atomic<uint32_t> g_reloadCaptures{0}, g_reloadCaptureTimeouts{0}, g_reloadCaptureRefusals{0};
+    std::atomic<bool> g_reloadCaptureSavePending{false};
+    struct ReloadCapture { int kind = 0; uint64_t armedAt = 0; bool released = false, holding = false; } g_reloadCapture;
     uint32_t g_manualReloadTapsSeen = 0;
     std::atomic<uint32_t> g_manualReloadEvents[6]{}; // dropped, grabbed, seated, racked, pressed, lost
     std::atomic<int> g_manualReloadPhase{0};
@@ -16088,6 +16100,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             manual_reload::Settings reloadSettings{};
             manual_reload::GameSample gameSide{};
             weapon_interaction::Quat aimRotationUsed{};
+            const char* reloadGunName=nullptr;
             {
                 reloadIn.now=inputNow;
                 reloadIn.ready=sample.ready&&!sample.dualWield;
@@ -16106,7 +16119,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 if(reloadIn.simValid&&gameSide.identity==sample.weaponGraph)
                 {
                     const auto* model=manual_reload::FindModel(sample.title,sample.weaponGraph);
-                    reloadIn.weapon=manual_reload::BuiltInWeapon(model?model->name:nullptr);
+                    reloadGunName=model?model->name:nullptr;
+                    reloadIn.weapon=manual_reload::BuiltInWeapon(reloadGunName);
                 }
                 else reloadIn.simValid=false;
                 const uint32_t taps=g_manualReloadTaps.load(std::memory_order_acquire);
@@ -16121,6 +16135,83 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadIn.pouch=pouch;
                 reloadSettings.rack=g_config.manual_reload_rack;
                 reloadSettings.pouchRadius=weapon_interaction::Setting(g_config.weapon_body_zone_radius_m,0.08f,0.40f,0.20f);
+                g_manualReloadHeldGun.store(reloadGunName,std::memory_order_release);
+                g_manualReloadHeldBuiltIn.store(reloadIn.weapon.enabled,std::memory_order_release);
+                {
+                    // halomccvr_reloads.txt: this gun's own settings over the built-in ones.
+                    reload_weapon_file::Entry entry{};
+                    if(reloadGunName&&reload_weapon_settings::Get(reloadGunName,entry))
+                    {
+                        if(entry.enabled==0) reloadIn.weapon.enabled=false;
+                        if(std::isfinite(entry.depth)) reloadIn.weapon.insertDepth=entry.depth*0.01f;
+                        if(std::isfinite(entry.grab)) reloadSettings.rackRadius=entry.grab*0.01f;
+                        if(std::isfinite(entry.travel)) reloadSettings.rackTravel=entry.travel*0.01f;
+                        if(entry.handleSet)
+                            for(int a=0;a<3;++a) reloadSettings.rackGrabOffset[a]=entry.handle[a]*0.01f;
+                    }
+                }
+                {
+                    // A CALIBRATION squeeze: armed in the menu, taken once the menu is closed.
+                    const int request=g_reloadCaptureRequest.exchange(0,std::memory_order_acq_rel);
+                    if(request==1||request==2) g_reloadCapture={request,inputNow,false,false};
+                    else if(request==3) g_reloadCapture.kind=0;
+                    auto& cap=g_reloadCapture;
+                    const float grip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
+                    const bool gripValid=std::isfinite(grip);
+                    if(cap.holding&&(!gripValid||grip<0.35f)) cap.holding=false;
+                    if(cap.kind)
+                    {
+                        if(Menu_IsOpen()) cap.armedAt=inputNow;
+                        else if(inputNow-cap.armedAt>30000) { cap.kind=0;g_reloadCaptureTimeouts.fetch_add(1); }
+                        else if(gripValid)
+                        {
+                            if(grip<0.35f) cap.released=true;
+                            if(cap.released&&grip>0.55f)
+                            {
+                                bool taken=false;
+                                if(cap.kind==1)
+                                {
+                                    // The pouch: the offset from its built-in spot that puts it at the hand.
+                                    weapon_interaction::Settings plain=settings;plain.pouchOffset={0,0,0};
+                                    weapon_interaction::Vec pouch0{},unused{},forward{},right{};
+                                    if(weapon_interaction::Zones(sample,plain,pouch0,unused)&&
+                                        weapon_interaction::BodyFrame(sample.headRotation,forward,right))
+                                    {
+                                        const weapon_interaction::Vec d=sample.support-pouch0;
+                                        const float side=leftHanded?-1.f:1.f;
+                                        g_config.weapon_pouch_offset_x_m=std::clamp(weapon_interaction::Dot(d,right)*side,-0.40f,0.40f);
+                                        g_config.weapon_pouch_offset_y_m=std::clamp(d.y,-0.40f,0.40f);
+                                        g_config.weapon_pouch_offset_z_m=std::clamp(weapon_interaction::Dot(d,forward),-0.40f,0.40f);
+                                        g_reloadCaptureSavePending.store(true,std::memory_order_release);
+                                        taken=true;
+                                    }
+                                }
+                                else if(cap.kind==2&&reloadGunName&&reloadIn.geometry.rackValid)
+                                {
+                                    // The handle: where the hand is, from the part, in the part's own frame (cm).
+                                    weapon_interaction::Vec back=manual_reload::Normalized(reloadIn.geometry.rackBack);
+                                    weapon_interaction::Vec up=reloadIn.geometry.wellValid?reloadIn.geometry.wellAxis:
+                                        weapon_interaction::Vec{0,1,0};
+                                    up=manual_reload::Normalized(up-back*weapon_interaction::Dot(up,back));
+                                    const weapon_interaction::Vec sideAxis{back.y*up.z-back.z*up.y,back.z*up.x-back.x*up.z,
+                                        back.x*up.y-back.y*up.x};
+                                    const weapon_interaction::Vec d=sample.support-reloadIn.geometry.rack;
+                                    const float cm[3]{std::clamp(weapon_interaction::Dot(d,back)*100.f,-30.f,30.f),
+                                        std::clamp(weapon_interaction::Dot(d,up)*100.f,-30.f,30.f),
+                                        std::clamp(weapon_interaction::Dot(d,sideAxis)*100.f,-30.f,30.f)};
+                                    reload_weapon_settings::SetHandle(reloadGunName,cm);
+                                    taken=true;
+                                }
+                                if(taken) { g_reloadCaptures.fetch_add(1);VR_PulseContactHaptics(true,0.6f); }
+                                else g_reloadCaptureRefusals.fetch_add(1);
+                                cap.kind=0;cap.holding=true;
+                            }
+                        }
+                    }
+                    g_reloadCaptureArmed.store(cap.kind,std::memory_order_release);
+                    // The calibrating squeeze takes nothing.
+                    if(cap.kind||cap.holding) reloadIn.supportGrip=std::numeric_limits<float>::quiet_NaN();
+                }
                 // The game's own reload button where its current layout is known (an MCC profile can move reload
                 // off X; FA 2026-11-15 found it on Right bumper), else the per-title setting.
                 const uint32_t nativeReload=Game_VrActionTransport(vr_mapping::Reload,inputNow);
@@ -16183,6 +16274,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     weaponGesture.pulseUntil=std::max<uint64_t>(weaponGesture.pulseUntil,reloadOut.pulseUntil);
                 }
                 if(reloadOut.consumeSupport) weaponGesture.consumeSupport=true;
+                if(g_reloadCapture.kind||g_reloadCapture.holding) weaponGesture.consumeSupport=true;
                 // The two-handed hold may not take (or keep) a hand the reload is using.
                 if(reloadOut.blockTwoHand) weaponGesture.releaseTwoHand=true;
                 weaponGesture.supportHaptic=std::max(weaponGesture.supportHaptic,reloadOut.supportHaptic);
@@ -27045,6 +27137,39 @@ void VR_PublishManualReloadSample(const manual_reload::GameSample& sample) noexc
     s.wellAxis=manual_reload::Normalized(s.wellAxis);
     s.rackBack=manual_reload::Normalized(s.rackBack);
     (void)g_manualReloadGame.Publish(s);
+}
+
+const char* VR_ManualReloadHeldGun(bool& builtIn) noexcept
+{
+    builtIn=g_manualReloadHeldBuiltIn.load(std::memory_order_acquire);
+    return g_manualReloadHeldGun.load(std::memory_order_acquire);
+}
+void VR_ReloadCaptureArm(int kind) noexcept
+{
+    g_reloadCaptureRequest.store(kind==1||kind==2?kind:3,std::memory_order_release);
+    g_reloadCaptureArmed.store(kind==1||kind==2?kind:0,std::memory_order_release);
+}
+int VR_ReloadCaptureArmed() noexcept { return g_reloadCaptureArmed.load(std::memory_order_acquire); }
+uint32_t VR_ReloadCaptureCount() noexcept { return g_reloadCaptures.load(std::memory_order_relaxed); }
+void VR_ReportReloadCapture() noexcept
+{
+    char line[256];
+    reload_weapon_settings::Poll(line,sizeof(line));
+    if(line[0]) LOG("%s",line);
+    static uint32_t timeouts=0,refusals=0;
+    const uint32_t t=g_reloadCaptureTimeouts.load(),r=g_reloadCaptureRefusals.load();
+    if(t!=timeouts) { timeouts=t;LOG("Manual reload calibration: no squeeze within 30 s; nothing was set"); }
+    if(r!=refusals)
+    {
+        refusals=r;
+        LOG("Manual reload calibration: the squeeze could not be used (no head pose for the pouch, or the held gun "
+            "has no rack part to set the handle from); nothing was set");
+    }
+    if(!g_reloadCaptureSavePending.exchange(false,std::memory_order_acq_rel)) return;
+    ConfigSave();
+    LOG("Manual reload calibration: the pouch is now %.0f cm to the weapon side, %.0f cm up and %.0f cm forward of "
+        "its built-in spot; saved",g_config.weapon_pouch_offset_x_m*100.f,g_config.weapon_pouch_offset_y_m*100.f,
+        g_config.weapon_pouch_offset_z_m*100.f);
 }
 
 bool VR_ManualReloadHidesReload(GameTitle title) noexcept

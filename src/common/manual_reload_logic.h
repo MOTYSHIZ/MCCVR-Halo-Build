@@ -37,6 +37,7 @@ struct Settings
     float seatDone = 0.01f;         // seated within this of home
     float rackRadius = 0.10f;       // the rack part's grab reach
     float rackTravel = 0.06f;       // the rack's full pull
+    float rackGrabOffset[3]{};      // metres back, up, side from the rack part: where it is taken (calibrated)
     uint32_t reloadButton = 0x4000; // the game's reload binding (weapon_interaction::ReloadButton)
 };
 
@@ -253,7 +254,7 @@ public:
                 }
                 if (in.weapon.rackChambers && c.rack && RackHasWork() && in.geometry.rackValid &&
                     (freshGrip || lateGrip) &&
-                    weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius))
+                    weapon_interaction::Near(in.support, RackZone(in, c), c.rackRadius))
                 {
                     phase_ = Phase::Racking;
                     rackByHold_ = false;
@@ -396,7 +397,7 @@ public:
             // A pump under the support hand is worked from the hold: the hold may keep the hand then.
             (in.weapon.supportGripRacks ? false :
             (RackHasWork() && c.rack && in.weapon.rackChambers && in.geometry.rackValid &&
-             weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius)));
+             weapon_interaction::Near(in.support, RackZone(in, c), c.rackRadius)));
         if (in.now < pulseUntil_) { out.buttons = c.reloadButton; out.pulseUntil = pulseUntil_; }
         out.loaded = ammo_.Loaded();
         out.reserve = ammo_.ShownReserve();
@@ -408,6 +409,13 @@ private:
     static float RackTravel(const Input& in, const Settings& c) noexcept
     {
         return in.geometry.rackTravel > 0 ? in.geometry.rackTravel : c.rackTravel;
+    }
+    // Where the hand takes the rack part: the part, moved by the gun's calibrated grab spot.
+    static Vec RackZone(const Input& in, const Settings& c) noexcept
+    {
+        Vec back{}, up{}, side{};
+        RackFrame(in, back, up, side);
+        return in.geometry.rack + back * c.rackGrabOffset[0] + up * c.rackGrabOffset[1] + side * c.rackGrabOffset[2];
     }
     static void RackFrame(const Input& in, Vec& back, Vec& up, Vec& side) noexcept
     {
@@ -436,13 +444,13 @@ private:
             m.pouchReach = c.pouchRadius;
             m.rackReach = c.rackRadius;
             if (in.pouchValid) m.pouchDistance = Length(in.support - in.pouch);
-            if (in.geometry.rackValid) m.rackDistance = Length(in.support - in.geometry.rack);
+            if (in.geometry.rackValid) m.rackDistance = Length(in.support - RackZone(in, c));
             const bool nearPouch = m.pouchDistance >= 0 && m.pouchDistance <= c.pouchRadius * kMissNear;
             const bool nearRack = m.rackDistance >= 0 && m.rackDistance <= c.rackRadius * kMissNear;
             // The block as it will stand this update (worked out again below for the output).
             m.blockTwoHand = phase_ == Phase::MagOut ||
                 (m.rackWork && m.rackEnabled && in.geometry.rackValid &&
-                 weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius));
+                 weapon_interaction::Near(in.support, RackZone(in, c), c.rackRadius));
             if (nearPouch || nearRack || m.trackingLost)
             {
                 miss_ = m;

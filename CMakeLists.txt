@@ -305,6 +305,7 @@ add_library(halo3xr SHARED
     src/dll/native_reload_policy.cpp
     src/dll/hand_tracks.cpp
     src/dll/reload_clip_store.cpp
+    src/dll/reload_weapon_settings.cpp
     src/dll/host_unload_gate.cpp
     src/dll/native_vehicle_first_person.cpp
     src/dll/menu.cpp
@@ -1823,6 +1824,10 @@ if(BUILD_TESTING)
     target_include_directories(reload_clip_logic_tests PRIVATE src/common)
     target_compile_options(reload_clip_logic_tests PRIVATE /W4 /WX /EHsc)
     add_test(NAME reload_clip_logic COMMAND reload_clip_logic_tests)
+    add_executable(reload_weapon_file_tests tests/reload_weapon_file_tests.cpp)
+    target_include_directories(reload_weapon_file_tests PRIVATE src/common)
+    target_compile_options(reload_weapon_file_tests PRIVATE /W4 /WX /EHsc)
+    add_test(NAME reload_weapon_file COMMAND reload_weapon_file_tests)
     add_executable(hand_tracks_runtime_tests
         tests/hand_tracks_runtime_tests.cpp
         src/dll/hand_tracks.cpp

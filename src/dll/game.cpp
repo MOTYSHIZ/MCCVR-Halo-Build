@@ -53124,6 +53124,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
             HostUnloadGate_Report();   // UNLOAD GATE <title>: MCC's reload of a game DLL waited for our teardown / not
             VR_ReportStandingFollow();   // VIEW HEIGHT title=N: the neutral height began to follow the standing height
             VR_ReportHolsterCapture();   // HOLSTER SPOT set by hand: saves the config after a calibration
+            VR_ReportReloadCapture();    // halomccvr_reloads.txt, and the manual reload's calibrations
 #if HALOMCCVR_DEV_DIAGNOSTICS
             DevViewAboveEyeReport();   // VIEW HEIGHT (dev): the published view above the character's own eye
 #endif

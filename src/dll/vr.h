@@ -1186,6 +1186,14 @@ bool VR_ManualReloadHudCount(GameTitle title, uint32_t weapon, int& loaded, int&
 // The manual reload owns the gun in `title` and the game is (or is about to be) reloading it unseen: from the drop
 // until the magazine is in, and for 2.5 s after any press it sends. The game's own reload sound is dropped then.
 bool VR_ManualReloadHidesReload(GameTitle title) noexcept;
+// The held gun's kit model name (null: none known) and whether the manual reload knows how to reload it.
+const char* VR_ManualReloadHeldGun(bool& builtIn) noexcept;
+// In-headset calibrations: 1 the pouch, 2 the held gun's handle grab spot, 0 cancel. Armed() says which is waiting.
+void VR_ReloadCaptureArm(int kind) noexcept;
+int VR_ReloadCaptureArmed() noexcept;
+uint32_t VR_ReloadCaptureCount() noexcept;
+// The cold worker: halomccvr_reloads.txt and a calibration's save and log line.
+void VR_ReportReloadCapture() noexcept;
 bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;
 bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept;
 void VR_NoteManualReloadTap() noexcept;

@@ -38,6 +38,7 @@
 #include "../common/config.h"
 #include "hand_tracks.h"
 #include "reload_clip_store.h"
+#include "reload_weapon_settings.h"
 #include "../common/input_preset.h"
 #include "../common/default_controls.h"
 #include "../common/menu_mirror.h"
@@ -2416,6 +2417,46 @@ namespace
             ImGui::TextDisabled("Your support hand is drawn on the magazine as you push it in, and on the charging\n"
                 "handle or slide as you pull it, so it rides the gun when you turn it.");
             SettingGap();
+#if !HALOMCCVR_SETTINGS_WINDOW
+            {
+                // THE HELD GUN (halomccvr_reloads.txt) and the in-headset calibrations.
+                bool builtIn = false;
+                const char* gun = VR_ManualReloadHeldGun(builtIn);
+                reload_weapon_file::Entry entry{};
+                const bool listed = gun && reload_weapon_settings::Get(gun, entry);
+                if (gun && builtIn)
+                {
+                    bool byHand = !(listed && entry.enabled == 0);
+                    ImGui::Text("Gun in hand: %s", gun);
+                    if (ImGui::Checkbox("Reload this gun by hand", &byHand)) reload_weapon_settings::SetEnabled(gun, byHand);
+                    if (ImGui::Button("Set the handle grab spot to my hand")) VR_ReloadCaptureArm(2);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset grab spot")) reload_weapon_settings::ClearHandle(gun);
+                    if (listed && entry.handleSet)
+                        ImGui::TextDisabled("Grab spot: %.0f cm back, %.0f cm up, %.0f cm aside of the handle.",
+                                            entry.handle[0], entry.handle[1], entry.handle[2]);
+                }
+                else if (gun && listed && entry.enabled == 0)
+                {
+                    bool byHand = false;
+                    ImGui::Text("Gun in hand: %s", gun);
+                    if (ImGui::Checkbox("Reload this gun by hand", &byHand)) reload_weapon_settings::SetEnabled(gun, true);
+                }
+                else
+                    ImGui::TextDisabled(gun ? "The gun in hand reloads the game's way." :
+                                              "Hold a gun to set it up here.");
+                if (ImGui::Button("Set the pouch to my hand")) VR_ReloadCaptureArm(1);
+                const int armed = VR_ReloadCaptureArmed();
+                if (armed)
+                {
+                    ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "Close the menu, put your support hand where the %s "
+                        "should be and squeeze its grip.", armed == 1 ? "pouch" : "handle grab spot");
+                    if (ImGui::Button("Cancel")) VR_ReloadCaptureArm(0);
+                }
+                ImGui::TextDisabled("Per-gun settings are kept in halomccvr_reloads.txt beside halomccvr.cfg.");
+            }
+            SettingGap();
+#endif
             changed |= ImGui::Checkbox("Show reload zones", &g_config.manual_reload_show_zones);
             ImGui::TextDisabled("See-through spheres where your support hand works: the pouch, the well while you\n"
                 "hold a magazine, and the charging handle. Green: your hand is in it and it will take. Amber: in it,\n"
