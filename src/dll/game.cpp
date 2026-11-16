@@ -19893,6 +19893,88 @@ static constexpr bool kOdstMappedFpEnabled = false;
         }
     }
 
+    // PROJECT RECLAIMER 0.10.5+: ITS OWN WIDGET DRAW ASKS THE CROSSHAIR GATE THROUGH SHIMS OF ITS OWN.
+    // reclaimer_client::FindWidgetCrosshairGate has the why. The gate's shim answers yes to the widget draw's first ask
+    // (as the playback check's hook does for the game's own gate), and the crosshair shim is answered by the same
+    // HudCrosshairVisibleHook as the game's own check, which begins the capture of the crosshair's art. Each shim is
+    // asked from the widget draw alone (the find proves it), so nothing else changes.
+    using ReclaimerWidgetGateFn = bool(__fastcall*)();
+    using ReclaimerCrosshairShimFn = bool(__fastcall*)(int userIndex);
+    ReclaimerWidgetGateFn g_reclaimerWidgetGateOriginal = nullptr;
+    ReclaimerCrosshairShimFn g_reclaimerCrosshairShimOriginal = nullptr;
+    std::atomic<uint32_t> g_reclaimerWidgetGateOpened{0};
+
+    __declspec(noinline) bool __fastcall ReclaimerWidgetGateHook()
+    {
+        if (t_halo3ClassGateAsk)
+        {
+            t_halo3ClassGateAsk = false;
+            g_reclaimerWidgetGateOpened.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        }
+        return g_reclaimerWidgetGateOriginal();
+    }
+
+    __declspec(noinline) bool __fastcall ReclaimerCrosshairShimHook(int userIndex)
+    {
+        // In VR the answer is the mod's (HudCrosshairVisibleHook never asks the game then); flat, the client's own.
+        if (g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled())
+            return HudCrosshairVisibleHook(userIndex);
+        return g_reclaimerCrosshairShimOriginal(userIndex);
+    }
+
+    // Install thread, with the crosshair redirect, Project Reclaimer only: the widget draw is the one its version of
+    // the game's widget draw (`hudElem`, hooked just before) passes through to. False with the reason logged.
+    bool InstallReclaimerWidgetGate(uintptr_t hudElem)
+    {
+        if (g_reclaimerWidgetGateOriginal)
+            return true;   // hooked by an earlier install; the client's code does not move within a launch
+        reclaimer_client::Image image;
+        if (!reclaimer_client::ClientImageInMemory(image))
+        {
+            LOG("Project Reclaimer HUD: StockFallback: the client executable's headers do not read; the crosshair "
+                "keeps the game's gate");
+            return false;
+        }
+        const auto exe = reinterpret_cast<uintptr_t>(image.base);
+        const auto version = reinterpret_cast<uintptr_t>(lifted::ClientVersion(reinterpret_cast<void*>(hudElem)));
+        if (!version || version <= exe || version - exe >= image.size)
+        {
+            LOG("Project Reclaimer HUD: the client has no version of its own of the widget draw; the crosshair keeps "
+                "the game's gate");
+            return false;
+        }
+        const uint32_t widgetDraw = reclaimer_client::PastPassThroughs(image, static_cast<uint32_t>(version - exe));
+        const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image, widgetDraw);
+        if (gate.missing)
+        {
+            LOG("Project Reclaimer HUD: its widget draw (exe+0x%X): %s not found; the crosshair keeps the game's gate "
+                "(as up to 0.10.4)", widgetDraw, gate.missing);
+            return false;
+        }
+        void* const gateTarget = reinterpret_cast<void*>(exe + gate.gate);
+        void* const crosshairTarget = reinterpret_cast<void*>(exe + gate.crosshair);
+        const bool gateOk = MH_CreateHook(gateTarget, reinterpret_cast<void*>(&ReclaimerWidgetGateHook),
+                                          reinterpret_cast<void**>(&g_reclaimerWidgetGateOriginal)) == MH_OK;
+        const bool crosshairOk =
+            gateOk && MH_CreateHook(crosshairTarget, reinterpret_cast<void*>(&ReclaimerCrosshairShimHook),
+                                    reinterpret_cast<void**>(&g_reclaimerCrosshairShimOriginal)) == MH_OK;
+        if (!crosshairOk || MH_EnableHook(gateTarget) != MH_OK || MH_EnableHook(crosshairTarget) != MH_OK)
+        {
+            (void)MH_RemoveHook(crosshairTarget);
+            (void)MH_RemoveHook(gateTarget);
+            g_reclaimerWidgetGateOriginal = nullptr;
+            g_reclaimerCrosshairShimOriginal = nullptr;
+            LOG("Project Reclaimer HUD: StockFallback: its widget draw's crosshair gate could not be hooked; the "
+                "crosshair keeps the game's gate");
+            return false;
+        }
+        LOG("Project Reclaimer HUD: its own widget draw (exe+0x%X) asks the crosshair gate through its own shims "
+            "(gate exe+0x%X, crosshair exe+0x%X): both hooked, so the crosshair follows the gun again",
+            gate.widgetDraw, gate.gate, gate.crosshair);
+        return true;
+    }
+
     __declspec(noinline) void __fastcall GuardedHudDrawWidgetHook(int userIndex, void* descriptor,
                                       unsigned short widgetIndex,
                                       unsigned char useAlternatePath,
@@ -21127,6 +21209,10 @@ static constexpr bool kOdstMappedFpEnabled = false;
                                     RememberInstalledGameHook(reinterpret_cast<void*>(playbackTarget));
                                     gateOpen = MH_QueueEnableHook(reinterpret_cast<void*>(playbackTarget)) == MH_OK;
                                 }
+                                // 0.10.5+: the client's widget draw asks through its own shims instead.
+                                if (drawHookReady && g_hostIsProjectReclaimer &&
+                                    InstallReclaimerWidgetGate(hudElem))
+                                    gateOpen = true;
                                 g_halo3LiftedClassGate = gateOpen;
                             }
                             else if (VirtualProtect(classGate, 2, PAGE_EXECUTE_READWRITE,
