@@ -16236,9 +16236,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 shown.pressPending=reloadOut.pressPending;
                 shown.seats=g_manualReloadEvents[2].load(std::memory_order_relaxed)+(reloadOut.seated?1u:0u);
                 shown.racks=g_manualReloadEvents[3].load(std::memory_order_relaxed)+(reloadOut.racked?1u:0u);
-                if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle))
+                // Also while the gun's last round is in it: Halo 3 starts its own reload the moment a magazine runs
+                // dry, and its sound plays at that animation's first frame, before this thread could see it
+                // (FA 2026-11-16).
+                const bool lastRound=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.loaded<=1&&reloadIn.sim.reserve>0;
+                if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle||lastRound))
                 {
-                    const uint64_t until=inputNow+(reloadOut.pressed?2500u:300u);
+                    const uint64_t until=inputNow+(reloadOut.pressed||lastRound?2500u:300u);
                     if(until>g_manualReloadQuietUntil.load(std::memory_order_relaxed))
                         g_manualReloadQuietUntil.store(until,std::memory_order_release);
                 }
