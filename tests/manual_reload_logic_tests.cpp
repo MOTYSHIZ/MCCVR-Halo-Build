@@ -223,6 +223,31 @@ int main()
             "after a long gap (a death, a cinematic) the gun is taken as the game has it");
     }
     {
+        // A GRIP THAT TAKES NOTHING says why, once the late-grip window has passed.
+        GripMiss seen{};
+        auto missesOver=[&seen](Rig& rig,unsigned ms){int n=0;for(unsigned t=0;t<ms;t+=11){rig.Step();if(rig.out.gripMissed){++n;seen=rig.out.miss;}}return n;};
+        Rig rig;rig.Tap();
+        rig.in.support=kPouch+Vec{0.25f,0,0};rig.Step();rig.Grip(false);rig.Grip(true);
+        Check(!rig.out.gripMissed,"not judged at the press (a hand still arriving can take one)");
+        Check(missesOver(rig,500)==1,"just outside the pouch's reach: one miss");
+        Check(seen.phase==Phase::MagOut&&seen.magazineOut&&seen.blockTwoHand&&
+            std::fabs(seen.pouchDistance-0.25f)<1e-3f&&std::fabs(seen.pouchReach-0.20f)<1e-6f,
+            "it gives the phase, the distance and the reach");
+        Rig taken;taken.Tap();
+        taken.in.support=kPouch+Vec{0.25f,0,0};taken.Step();taken.Grip(false);taken.Grip(true);
+        taken.in.support=kPouch;
+        Check(missesOver(taken,500)==0&&taken.out.phase==Phase::MagHeld,"a grip that arrives in time took one: no miss");
+        Rig far;far.Tap();
+        far.in.support=kPouch+Vec{0.6f,0,0};far.Step();far.Grip(false);far.Grip(true);
+        Check(missesOver(far,500)==0,"a grip far from every zone is not the reload's");
+        Rig two;  // no rack work: a grip on the gun is the two-handed hold's
+        two.in.support=kRack+Vec{0.03f,0,0};two.Step();two.Grip(false);two.in.twoHandHeld=true;two.Grip(true);
+        Check(missesOver(two,500)==0,"a grip the two-handed hold took is no miss");
+        Rig lost;lost.Tap();
+        lost.in.support={};lost.Step();lost.Grip(false);lost.Grip(true);
+        Check(missesOver(lost,500)==1&&seen.trackingLost,"a hand reading 0,0,0 says its tracking was lost");
+    }
+    {
         // Not owned (no simulation read): nothing is held back.
         Rig rig;rig.in.simValid=false;rig.Step();
         Check(!rig.out.owned&&!rig.out.triggerHeld&&!rig.out.hideMagazine,"no reading of the gun: the game's reload");

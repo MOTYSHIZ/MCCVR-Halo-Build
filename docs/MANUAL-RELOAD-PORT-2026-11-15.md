@@ -138,6 +138,29 @@ Seen, not changed:
   at its fire rate). The count floors it, as in Campaign Evolved.
 - The rifle's on-gun counter shows the game's count, not the player's.
 
+## Catch-up with Campaign Evolved development `6a14718` (later on 2026-11-15)
+
+Campaign Evolved added 18 reload commits after `e2c63ad`. Its ammo model and built-in weapon traits did not change.
+Taken:
+- **GRIP TOOK NOTHING** (`418e7a5`): a support grip closed near the pouch or the rack part that has, 350 ms later
+  (past the late-grip window), taken neither a magazine, the rack nor the two-handed hold logs every gate as it
+  stood at the press. Log: `Manual reload: GRIP TOOK NOTHING (<phase>): pouch .. cm away (reach ..), magazine to
+  fetch ..; rack part .. cm away (reach ..), racked by hand .., has a round to chamber ..; two-handed hold held off
+  by the reload ..`, plus a lost-tracking note when the hand read 0,0,0. A distance of -100 cm means that zone
+  was not there.
+- **The belt grab's pulse** (`718d716`): the support hand's pulse on taking a magazine is 0.7, Campaign Evolved's
+  strength (was 0.5), so the hand knows it has one without looking.
+
+Not taken, because this port has no counterpart yet:
+- the gun posed from its own animations (push-in and insert ranges for an empty and a full gun, the charge handle by
+  animation, the body lock, the parts that show the rounds);
+- the per-weapon file's sounds (grab, insert) and calibrations (grab zones, the support grip zone tube);
+- the hand riding the gun's frame on the magazine slide;
+- the empty-chamber HUD tint;
+- the state-hold log (this port does not hold the game's reload state).
+
+The Needle Rifle items are Reach's and do not apply to Halo 3 or ODST.
+
 ## Not ported yet (Campaign Evolved has these)
 
 - The shotgun's shells one at a time and its pump; the Covenant magazines by the weapon's own animation

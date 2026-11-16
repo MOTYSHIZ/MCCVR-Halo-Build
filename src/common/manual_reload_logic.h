@@ -66,6 +66,23 @@ struct Input
     Vec pouch{};
     bool pouchValid = false;
     Geometry geometry{};
+    bool twoHandHeld = false;        // the two-handed hold has the support hand (a grip it took is not a miss)
+};
+
+// WHY A GRIP TOOK NOTHING (Campaign Evolved 418e7a5, user 2026-11-15: "sometimes I have trouble interacting with either
+// the handle or the support grip"). A fresh support grip closed near the pouch or the rack part that, once the late-grip
+// window has passed, holds neither (nor a magazine, nor the two-handed hold) is reported with every gate as it stood at
+// the press. Distances are metres; a negative distance is a zone that was not there.
+struct GripMiss
+{
+    Phase phase = Phase::Idle;       // the phase at the press
+    float pouchDistance = -1, pouchReach = 0;
+    float rackDistance = -1, rackReach = 0;
+    bool magazineOut = false;        // a magazine is to be fetched (the pouch can give one)
+    bool rackEnabled = false;        // this gun is racked by hand (the setting and the weapon)
+    bool rackWork = false;           // the rack has a round to chamber
+    bool blockTwoHand = false;       // the reload held the two-handed hold off the support hand
+    bool trackingLost = false;       // the support hand's pose read 0,0,0
 };
 
 struct Output
@@ -85,6 +102,8 @@ struct Output
     float supportHaptic = 0, primaryHaptic = 0;
     // What happened this update (the log).
     bool dropped = false, grabbed = false, seated = false, racked = false, pressed = false, lost = false;
+    bool gripMissed = false;         // `miss` is new this update
+    GripMiss miss{};
     int loaded = 0, reserve = 0, chamber = 0;
 };
 
@@ -103,6 +122,8 @@ public:
     static constexpr uint64_t kCatchUpMs = 1500;     // between catch-up presses
     static constexpr int kCatchUpPresses = 3;
     static constexpr uint64_t kLateGripMs = 300;     // a grip closed this long before reaching a zone still takes
+    static constexpr uint64_t kMissCheckMs = kLateGripMs + 50; // a grip that has taken nothing by now is a miss
+    static constexpr float kMissNear = 1.5f;         // ... reported only if it closed this many reaches from a zone
     static constexpr float kGripOn = 0.55f, kGripOff = 0.35f;
     static constexpr float kRackDone = 0.92f, kRackRearm = 0.50f;
     // No reading of the held gun for this long (a death and checkpoint revert, a cinematic, a vehicle, a level load):
@@ -141,6 +162,7 @@ public:
             weaponId_ = 0;
             pulseUntil_ = 0;
             pressPending_ = false;
+            missPending_ = false;
             return out;
         }
         unownedSince_ = 0;
@@ -204,7 +226,7 @@ public:
                     grabbedAt_ = Magazine(in);
                     gripOwned_ = true;
                     out.grabbed = true;
-                    out.supportHaptic = 0.5f;
+                    out.supportHaptic = 0.7f; // the hand knows it has one without looking (Campaign Evolved 718d716)
                 }
                 break;
             case Phase::MagHeld:
@@ -236,6 +258,7 @@ public:
             }
         }
         if (phase_ != Phase::Racking) rackPull_ = 0;
+        NoteGrip(in, c, freshGrip, gripHeld, out);
 
         // The game's side: check a press took, catch up a game left behind, never leave it behind for good.
         const reload_ammo::Sim& game = in.sim;
@@ -285,6 +308,47 @@ public:
     }
 
 private:
+    bool HandHasSomething(const Input& in) const noexcept
+    {
+        return phase_ == Phase::MagHeld || phase_ == Phase::Pushing || phase_ == Phase::Racking || in.twoHandHeld;
+    }
+    void NoteGrip(const Input& in, const Settings& c, bool freshGrip, bool gripHeld, Output& out) noexcept
+    {
+        if (freshGrip && in.ready && !HandHasSomething(in))
+        {
+            GripMiss m{};
+            m.phase = phase_;
+            m.magazineOut = !ammo_.MagIn();
+            m.rackEnabled = c.rack && in.weapon.rackChambers;
+            m.rackWork = RackHasWork();
+            m.trackingLost = std::fabs(in.support.x) < 1e-6f && std::fabs(in.support.y) < 1e-6f &&
+                             std::fabs(in.support.z) < 1e-6f;
+            m.pouchReach = c.pouchRadius;
+            m.rackReach = c.rackRadius;
+            if (in.pouchValid) m.pouchDistance = Length(in.support - in.pouch);
+            if (in.geometry.rackValid) m.rackDistance = Length(in.support - in.geometry.rack);
+            const bool nearPouch = m.pouchDistance >= 0 && m.pouchDistance <= c.pouchRadius * kMissNear;
+            const bool nearRack = m.rackDistance >= 0 && m.rackDistance <= c.rackRadius * kMissNear;
+            // The block as it will stand this update (worked out again below for the output).
+            m.blockTwoHand = phase_ == Phase::MagOut ||
+                (m.rackWork && m.rackEnabled && in.geometry.rackValid &&
+                 weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius));
+            if (nearPouch || nearRack || m.trackingLost)
+            {
+                miss_ = m;
+                missAt_ = in.now;
+                missPending_ = true;
+            }
+        }
+        if (!missPending_) return;
+        if (!gripHeld || HandHasSomething(in) || !in.ready) { missPending_ = false; return; }
+        if (in.now >= missAt_ && in.now - missAt_ >= kMissCheckMs)
+        {
+            missPending_ = false;
+            out.gripMissed = true;
+            out.miss = miss_;
+        }
+    }
     bool RackHasWork() const noexcept
     {
         const auto* r = ammo_.HeldRecord();
@@ -345,6 +409,9 @@ private:
     uint64_t pulseUntil_ = 0, pressAt_ = 0, catchUpAt_ = 0;
     bool pressPending_ = false, pressRetried_ = false, pressedSinceDrop_ = false;
     int pressLoaded_ = 0, catchUp_ = 0;
+    GripMiss miss_{};
+    uint64_t missAt_ = 0;
+    bool missPending_ = false;
 };
 
 // THE RELOAD BUTTON: a tap drops the magazine, a hold is the game's (Halo 3's reload button is also pick up and

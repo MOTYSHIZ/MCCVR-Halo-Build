@@ -11347,6 +11347,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         bool wellValid = false, rackValid = false;
         weapon_interaction::Vec well{}, wellAxis{}, rack{}, rackBack{}, support{};
         uint64_t identity = 0;
+        uint32_t misses = 0;                 // grips that took nothing (the last one is `miss`)
+        manual_reload::GripMiss miss{};
     };
     SRWLOCK g_manualReloadLogLock = SRWLOCK_INIT;
     ManualReloadLogState g_manualReloadLog{};
@@ -16096,6 +16098,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadIn.support=sample.support;
                 reloadIn.supportRotation=sample.supportRotation;
                 reloadIn.supportGrip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
+                reloadIn.twoHandHeld=g_twoHandLatched.load(std::memory_order_acquire);
                 weapon_interaction::Vec pouch{},holster{};
                 reloadIn.pouchValid=weapon_interaction::Zones(sample,settings,pouch,holster);
                 reloadIn.pouch=pouch;
@@ -16148,6 +16151,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     log.rack=reloadIn.geometry.rack;log.rackBack=reloadIn.geometry.rackBack;
                     log.support=reloadIn.support;log.identity=sample.weaponGraph;
                     AcquireSRWLockExclusive(&g_manualReloadLogLock);
+                    log.misses=g_manualReloadLog.misses;log.miss=g_manualReloadLog.miss;
+                    if(reloadOut.gripMissed) {++log.misses;log.miss=reloadOut.miss;}
                     g_manualReloadLog=log;
                     ReleaseSRWLockExclusive(&g_manualReloadLogLock);
                 }
@@ -26111,6 +26116,20 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
                 log.well.x,log.well.y,log.well.z,log.wellAxis.x,log.wellAxis.y,log.wellAxis.z,
                 log.rackValid?"":"none",log.rack.x,log.rack.y,log.rack.z,log.rackBack.x,log.rackBack.y,log.rackBack.z,
                 log.support.x,log.support.y,log.support.z);
+        }
+        // A support grip near the pouch or the rack part that took nothing: every gate as it stood at the press
+        // (Campaign Evolved's GRIP TOOK NOTHING). Only on such a press.
+        static uint32_t loggedMisses=0;
+        if(log.misses!=loggedMisses)
+        {
+            loggedMisses=log.misses;
+            const auto& m=log.miss;
+            LOG("Manual reload: GRIP TOOK NOTHING (%s): pouch %.1f cm away (reach %.1f), magazine to fetch %u; "
+                "rack part %.1f cm away (reach %.1f), racked by hand %u, has a round to chamber %u; "
+                "two-handed hold held off by the reload %u%s",
+                manual_reload::kPhaseNames[int(m.phase)<5?int(m.phase):0],m.pouchDistance*100.0f,m.pouchReach*100.0f,
+                m.magazineOut?1u:0u,m.rackDistance*100.0f,m.rackReach*100.0f,m.rackEnabled?1u:0u,m.rackWork?1u:0u,
+                m.blockTwoHand?1u:0u,m.trackingLost?"; THE SUPPORT HAND'S TRACKING WAS LOST (its pose read 0,0,0)":"");
         }
         // The manual reload: each event once, with the player's count beside the game's.
         static uint32_t previousEvents[6]{};
