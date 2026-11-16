@@ -256,6 +256,25 @@ does not swing the hand off (Campaign Evolved's lesson: one placement path for t
 - **Taking a calibration.** A calibration takes the next fresh squeeze of the support grip once the menu is closed.
   That squeeze reaches neither the game nor the reload.
 
+### Headless (FA) results, 2026-11-16
+
+These ran on MCC Halo 3 Forge (Construct) with the assault rifle, under the Meta XR Simulator. The logs are
+`reloadanim-1` and `reloadanim-2` in the fa-helpers worktree's `out/fa/logs`, and the learned clips are in
+`out/fa-reloadanim-clips.bin`.
+
+| Check | Result |
+| --- | --- |
+| Hooks | The CHUD getter and the first-person event handler both installed. The HUD showed the player's count throughout, with no faults. |
+| The game's reload hidden | During the game's reload the gun was drawn in its resting pose; a picture during the reload confirms it. The game's reload sound was dropped. |
+| Learned | A full and an empty reload were learned and saved: magazine out 0.43-0.50 s, in 0.93-1.03 s, the rack stroke 0.0192 units. The first analysis took the whole 43 cm return as the push; it was fixed to the last straight stretch, mostly up. |
+| By hand | Tap: the way out played and the game reloaded unseen. The magazine was taken at the hip and pushed in along the learned way in: 32 in, with a click. |
+| Dry gun | Seated with the chamber empty, so the trigger was held. The handle pull went along the learned stroke and chambered a round, with a click. The trigger was then free and the gun fired. |
+
+Two things this run turned up:
+- **Fixed:** Halo 3 reloads by itself the moment a magazine runs dry, and its sound could slip out before the VR
+  thread saw it. The sound is now also muted while the last round is in the gun.
+- **Not covered:** the shotgun, the Covenant guns, ODST and Project Reclaimer were not run this time.
+
 ### New settings (all in Controls presets)
 
 `manual_reload_animation`, `manual_reload_hand_follow`, `manual_reload_sounds` (default on);
