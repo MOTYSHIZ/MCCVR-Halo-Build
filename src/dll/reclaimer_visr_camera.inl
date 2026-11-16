@@ -186,6 +186,12 @@ bool InstallReclaimerVisrCamera()
 // Cold worker: once, when VISR first asked and was answered with the eye's field of view.
 void ReportReclaimerVisrCamera()
 {
+    static bool reportedGate = false;
+    if (!reportedGate && g_reclaimerWidgetGateOpened.load(std::memory_order_relaxed))
+    {
+        reportedGate = true;
+        LOG("Project Reclaimer HUD: its widget draw's crosshair gate opened for the crosshair's capture");
+    }
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     static bool reportedWorld = false;
     if (!reportedWorld && VR_ReclaimerSceneCopiesFromEye())

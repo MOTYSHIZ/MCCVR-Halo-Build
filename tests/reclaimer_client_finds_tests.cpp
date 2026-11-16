@@ -128,6 +128,38 @@ int main()
         CHECK(FindVisrCamera(f.View()).missing != nullptr && FindVisrConstants(f.View()).missing != nullptr);
     }
 
+    // The widget draw's crosshair gate: the draw at 0x2000 calls the gate 0x2400 and, after the class test, the
+    // crosshair check 0x2600; a pass-through at 0x2800 calls the draw.
+    {
+        Fake f;
+        f.Function(0x2000, 0x2200);
+        f.Function(0x2400, 0x2480);
+        f.Function(0x2600, 0x2680);
+        f.Function(0x2800, 0x280F);
+        f.Call(0x2050, 0x2400);
+        f.Put(0x2055, {0x8B, 0x4C, 0x24, 0x34, 0x84, 0xC0, 0x74, 0x18, 0x66, 0x83, 0xFD, 0x02, 0x75, 0x12});
+        f.Call(0x2063, 0x2600);
+        f.Put(0x2800, {0x48, 0x83, 0xEC, 0x28});
+        f.Call(0x2804, 0x2000);
+        f.Put(0x2809, {0x90, 0x48, 0x83, 0xC4, 0x28, 0xC3});
+        const Image image = f.View();
+        const WidgetGate g = FindWidgetCrosshairGate(image);
+        CHECK(!g.missing && g.widgetDraw == 0x2000 && g.gate == 0x2400 && g.crosshair == 0x2600);
+        CHECK(PastPassThroughs(image, 0x2800) == 0x2000);
+        const WidgetGate inDraw = FindWidgetCrosshairGate(image, 0x2000);
+        CHECK(!inDraw.missing && inDraw.gate == 0x2400);
+        CHECK(FindWidgetCrosshairGate(image, 0x2400).missing != nullptr);   // not the function holding it
+        // The gate asked from somewhere else too: refused.
+        Fake g2 = f;
+        g2.Function(0x3800, 0x3880);
+        g2.Call(0x3810, 0x2400);
+        CHECK(FindWidgetCrosshairGate(g2.View()).missing != nullptr);
+        // The crosshair check not at a function's start: refused.
+        Fake g3 = f;
+        g3.Call(0x2063, 0x2604);
+        CHECK(FindWidgetCrosshairGate(g3.View()).missing != nullptr);
+    }
+
     // The navpoint draw: a pass-through at 0x3000 to the version at 0x3100, which calls the draw at 0x3400.
     {
         Fake f;
