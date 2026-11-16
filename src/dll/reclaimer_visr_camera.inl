@@ -18,6 +18,12 @@
 // after the client builds them: +0x10 and +0x40 get the eye's own tanX. Only a block that holds exactly that shape,
 // built from the eye's vertical field of view, is touched.
 //
+// THE WORLD ITSELF is not drawn from these: with VISR on, Reclaimer draws the world from the game's own view
+// preparation, which game.cpp's ReclaimerPrepareViewHook gives the eye's projection (that was the stretch the user
+// saw; these two hooks never changed it). They stay because VISR's shader rebuilds each pixel's distance from the
+// depth with these constants (how bright an outline is with distance, and the ping): with the world now drawn with the
+// eye's projection, the constants have to describe that projection too.
+//
 // FOUND BY ITS SHAPE (both 0.10.0 and 0.10.4 checked offline, unique in each): the camera's three reads,
 // mov e?x,[r?x+0x28]; mov e?x,[r?x+0x64]; mov e?x,[r?x+0x68]; test e?x,e?x, followed by the stores into the answer,
 // mov [r?x+4]; mov [r?x+8]; mov [r?x+0xC]. The hook goes on the function whose extent holds both. Not found, or more
@@ -181,6 +187,12 @@ bool InstallReclaimerVisrCamera()
 // Cold worker: once, when VISR first asked and was answered with the eye's field of view.
 void ReportReclaimerVisrCamera()
 {
+    static bool reportedWorld = false;
+    if (!reportedWorld && g_reclaimerPreparesStamped.load(std::memory_order_relaxed))
+    {
+        reportedWorld = true;
+        LOG("Project Reclaimer VISR: the game's own view preparation got the eye's projection (the world VISR shows)");
+    }
     static bool reportedWidth = false;
     if (!reportedWidth && g_reclaimerVisrWidthsFixed.load(std::memory_order_relaxed))
     {
