@@ -24678,6 +24678,32 @@ ID3D11Resource* VR_RedirectNativeHudCopySource(ID3D11Resource* source)
     return g_eyeCache[route.eye];
 }
 
+// PROJECT RECLAIMER: ODST'S VISR READS THE EYE IT IS DRAWN IN. Reclaimer 0.10's VISR tints a copy of the game's
+// scene colour (its HUD camera pass samples that copy). While an eye is drawn the scene goes to the eye's own image
+// (the redirect above), so the game's texture still held the frame's first, flat-screen render: with VISR on the world
+// was that picture, 0.90 as wide and 1.09 as tall as the eye's, the same in both eyes (no depth). Measured headless
+// 2026-11-15, stereo and mono. A copy out of the game's scene colour made while an eye is drawn now reads that eye's
+// image (as ODST's native HUD copies and Halo 4's frame copies do): each eye's VISR tints its own picture. Project
+// Reclaimer only; the first test is one compare.
+std::atomic<uint64_t> g_reclaimerSceneCopiesFromEye{0};
+
+ID3D11Resource* VR_RedirectReclaimerSceneCopySource(ID3D11DeviceContext* context, ID3D11Resource* destination,
+                                                    ID3D11Resource* source)
+{
+    if (!source || source != g_sceneColorResource || !g_hostIsProjectReclaimer || !VR_IsEyeRasterActive(context))
+        return source;
+    const int eye = g_rasterEye.load(std::memory_order_acquire);
+    if (eye < 0 || eye > 1 || !g_rasterRedirected[eye] || !g_eyeCache[eye] || destination == g_eyeCache[eye])
+        return source;
+    g_reclaimerSceneCopiesFromEye.fetch_add(1, std::memory_order_relaxed);
+    return g_eyeCache[eye];
+}
+
+uint64_t VR_ReclaimerSceneCopiesFromEye()
+{
+    return g_reclaimerSceneCopiesFromEye.load(std::memory_order_relaxed);
+}
+
 void VR_GetNativeHudRouteStats(unsigned& completedPhaseScopes,
                                unsigned& provenOmMatches,
                                unsigned& exactCopyScopes,

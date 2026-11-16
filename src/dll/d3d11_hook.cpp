@@ -3652,6 +3652,7 @@ static void STDMETHODCALLTYPE CopyResourceHook(ID3D11DeviceContext* context,
 #endif
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     source = VR_RedirectNativeHudCopySource(source);
+    source = VR_RedirectReclaimerSceneCopySource(context, destination, source);
 #endif
 #if HALOMCCVR_EXPERIMENTAL_HALO4_CAMERA
     source = VR_RedirectSceneCopySource(context, destination, source);
