@@ -11363,6 +11363,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     SRWLOCK g_manualReloadLogLock = SRWLOCK_INIT;
     ManualReloadLogState g_manualReloadLog{};
     WeaponAccessoryRenderer g_weaponAccessoryRenderer;
+    // The manual reload's zones, drawn see-through when "Show reload zones" is on (tracking space; the input tick
+    // writes them, the eye draw reads them, as with g_weaponAccessory).
+    weapon_accessory::Marker g_reloadMarkers[3]{};
+    size_t g_reloadMarkerCount = 0;
+    uint64_t g_reloadMarkersAt = 0;
     weapon_accessory::Presentation g_weaponAccessory; // compositor thread only
     std::atomic<HRESULT> g_weaponAccessoryResult{S_FALSE};
     std::atomic<unsigned> g_weaponGestureGrabs{0},g_weaponReloadRequests{0},g_weaponSwapRequests{0};
@@ -16204,6 +16209,35 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             const auto& supportQ=leftLocation.pose.orientation;
             g_weaponAccessory=weapon_accessory::Build(sample,settings,weaponGesture,
                 {supportQ.x,supportQ.y,supportQ.z,supportQ.w});
+            g_reloadMarkerCount=0;
+            if(g_config.manual_reload_show_zones&&reloadOut.owned)
+            {
+                // Green: the hand is in it and it would take. Amber: in it, but there is nothing to do there now.
+                // Red: out of reach. Only zones that mean something for this gun.
+                static constexpr float kGreen[3]{0.15f,1.f,0.25f},kAmber[3]{1.f,0.55f,0.05f},kRed[3]{1.f,0.2f,0.2f};
+                auto add=[&](weapon_interaction::Vec at,float radius,bool inside,bool useful) {
+                    if(g_reloadMarkerCount>=std::size(g_reloadMarkers)) return;
+                    auto& m=g_reloadMarkers[g_reloadMarkerCount++];
+                    m.position=at;m.radius=radius;
+                    const float* rgb=inside?(useful?kGreen:kAmber):kRed;
+                    m.color[0]=rgb[0];m.color[1]=rgb[1];m.color[2]=rgb[2];m.color[3]=0.28f;
+                };
+                const auto& g=reloadIn.geometry;
+                const bool perRound=reloadIn.weapon.traits.feed==reload_ammo::Feed::PerRound;
+                const bool canTake=perRound?reloadOut.loaded<reloadIn.sim.capacity&&reloadOut.reserve>0:
+                    reloadOut.phase==manual_reload::Phase::MagOut;
+                if(reloadIn.pouchValid)
+                    add(reloadIn.pouch,reloadSettings.pouchRadius,
+                        weapon_interaction::Near(reloadIn.support,reloadIn.pouch,reloadSettings.pouchRadius),canTake);
+                if(g.wellValid&&(reloadOut.phase==manual_reload::Phase::MagHeld||
+                                  reloadOut.phase==manual_reload::Phase::Pushing))
+                    add(g.well,reloadSettings.seatLateral,reloadOut.phase==manual_reload::Phase::Pushing,true);
+                if(g.rackValid&&reloadIn.weapon.rackChambers&&reloadSettings.rack)
+                    add(g.rack,reloadSettings.rackRadius,
+                        weapon_interaction::Near(reloadIn.support,g.rack,reloadSettings.rackRadius),
+                        reloadOut.triggerHeld&&reloadOut.chamber==0);
+                g_reloadMarkersAt=inputNow;
+            }
             // Pushing in, the magazine rides the well's axis (drawn by the mod: nothing is spawned in the game).
             if(reloadOut.owned&&reloadOut.magazineOnAxis&&g_weaponAccessory.model) g_weaponAccessory.pose.position=reloadOut.magazine;
             pad.weaponButtons=weaponGesture.buttons;
@@ -19256,15 +19290,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     const GameTitle title=TitleAdapter_GetActiveTitle();
                                     const uint32_t generation=TitleAdapter_GetGeneration(title);
                                     const uint64_t space=g_contactSpaceEpoch.load(std::memory_order_acquire);
-                                    if(eyeUploaded && targetEye<projectionViews.size() &&
-                                        weapon_accessory::Current(g_weaponAccessory,title,generation,space,
-                                            VR_GetWeaponModelIdentity(title,generation,space,now),now,
-                                            g_config.manual_reload,
-                                            g_sessionState==XR_SESSION_STATE_FOCUSED &&
-                                            TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay &&
-                                            !Menu_IsOpen()&&!VR_IsPausePresentation()&&
-                                            !VR_IsPausePresentationTarget()&&!SecondaryWeaponPresentationActive()))
+                                    const bool accessorySceneOk=g_sessionState==XR_SESSION_STATE_FOCUSED &&
+                                        TitleAdapter_GetRuntimeMode()==RuntimeMode::Gameplay &&
+                                        !Menu_IsOpen()&&!VR_IsPausePresentation()&&
+                                        !VR_IsPausePresentationTarget()&&!SecondaryWeaponPresentationActive();
+                                    const bool accessoryNow=weapon_accessory::Current(g_weaponAccessory,title,generation,
+                                        space,VR_GetWeaponModelIdentity(title,generation,space,now),now,
+                                        g_config.manual_reload,accessorySceneOk);
+                                    const bool markersNow=accessorySceneOk&&g_reloadMarkerCount&&
+                                        now>=g_reloadMarkersAt&&now-g_reloadMarkersAt<=100;
+                                    if(eyeUploaded && targetEye<projectionViews.size() && (accessoryNow||markersNow))
                                     {
+                                        if(!accessoryNow) g_weaponAccessory={};
                                         if(g_weaponAccessory.model==&weapon_model::kGenericReloadModel &&
                                             !g_config.weapon_unknown_reload_visual) g_weaponAccessory={};
                                         const auto& view=projectionViews[targetEye];
@@ -19279,9 +19316,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                             p={(a.x+b.x)*0.5f,(a.y+b.y)*0.5f,(a.z+b.z)*0.5f};
                                         }
                                         weapon_accessory::Constants constants{};
-                                        if(weapon_accessory::Projection(g_weaponAccessory,
+                                        weapon_accessory::Constants markerConstants[std::size(g_reloadMarkers)]{};
+                                        size_t markerCount=0;
+                                        if(markersNow)
+                                            for(size_t m=0;m<g_reloadMarkerCount;++m)
+                                                if(weapon_accessory::MarkerProjection(g_reloadMarkers[m],
+                                                    {{p.x,p.y,p.z},{q.x,q.y,q.z,q.w}},view.fov.angleLeft,
+                                                    view.fov.angleRight,view.fov.angleDown,view.fov.angleUp,
+                                                    markerConstants[markerCount])) ++markerCount;
+                                        const bool itemProjected=g_weaponAccessory.model&&
+                                            weapon_accessory::Projection(g_weaponAccessory,
                                             {{p.x,p.y,p.z},{q.x,q.y,q.z,q.w}},view.fov.angleLeft,
-                                            view.fov.angleRight,view.fov.angleDown,view.fov.angleUp,constants))
+                                            view.fov.angleRight,view.fov.angleDown,view.fov.angleUp,constants);
+                                        if(!itemProjected) g_weaponAccessory.model=nullptr;
+                                        if(itemProjected||markerCount)
                                         {
                                             const auto& rect=view.subImage.imageRect;
                                             const D3D11_VIEWPORT viewport{static_cast<float>(rect.offset.x),
@@ -19289,7 +19337,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                                 static_cast<float>(rect.extent.height),0,1};
                                             const HRESULT accessoryResult=g_weaponAccessoryRenderer.Draw(
                                                 g_device,g_context,targetRtv,g_stereoW,g_stereoH,viewport,
-                                                g_weaponAccessory,constants,&accessoryCommands[targetEye]);
+                                                g_weaponAccessory,constants,&accessoryCommands[targetEye],
+                                                markerConstants,markerCount);
                                             if(!FAILED(accessoryPairResult)) accessoryPairResult=accessoryResult;
                                         }
                                     }

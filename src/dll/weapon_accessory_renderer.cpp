@@ -3,13 +3,15 @@
 #include "../common/weapon_generic_magazine.h"
 #include "../common/weapon_surfaces.generated.h"
 #include <d3dcompiler.h>
+#include <cmath>
 #include <cstring>
 #include <iterator>
+#include <vector>
 
 namespace
 {
 constexpr char shader[]=R"(
-cbuffer Transform : register(b0) { float4 objectQ,objectP,eyeQ,eyeP,tangents,color; };
+cbuffer Transform : register(b0) { float4 objectQ,objectP,eyeQ,eyeP,tangents,color,scale; };
 Texture2D surface : register(t0);
 SamplerState surfaceSampler : register(s0);
 float3 rotate(float4 q,float3 p) { return p+2*cross(q.xyz,cross(q.xyz,p)+q.w*p); }
@@ -17,7 +19,7 @@ struct V { float3 p:POSITION; float3 n:NORMAL; float2 uv:TEXCOORD; };
 struct O { float4 p:SV_Position; float3 n:NORMAL; float2 uv:TEXCOORD; };
 O vs_main(V v) {
     O o;
-    float3 p=rotate(eyeQ,rotate(objectQ,v.p)+objectP.xyz-eyeP.xyz);
+    float3 p=rotate(eyeQ,rotate(objectQ,v.p*scale.xyz)+objectP.xyz-eyeP.xyz);
     float z=-p.z;
     o.p=float4((2*p.x-(tangents.y+tangents.x)*z)/(tangents.y-tangents.x),
         (2*p.y-(tangents.w+tangents.z)*z)/(tangents.w-tangents.z),
@@ -26,13 +28,36 @@ O vs_main(V v) {
 }
 float4 ps_main(O i):SV_Target {
     float light=0.35+0.65*abs(dot(normalize(i.n),normalize(float3(-0.3,0.8,0.5))));
+    if(scale.w>0.5) return float4(color.xyz*light,color.w);
     return float4(surface.Sample(surfaceSampler,i.uv).rgb*color.xyz*light,1);
 }
 )";
+// A unit sphere (radius 1), for the see-through zone markers.
+std::vector<weapon_model::Vertex> SphereVertices()
+{
+    constexpr int kAround=16,kDown=10;
+    constexpr float kPi=3.14159265f;
+    std::vector<weapon_model::Vertex> out;
+    auto point=[](int a,int d) {
+        const float t=2*kPi*float(a)/float(kAround),p=kPi*float(d)/float(kDown);
+        weapon_model::Vertex v{};
+        v.position[0]=std::sin(p)*std::cos(t);v.position[1]=std::cos(p);v.position[2]=std::sin(p)*std::sin(t);
+        for(int i=0;i<3;++i) v.normal[i]=v.position[i];
+        return v;
+    };
+    for(int d=0;d<kDown;++d)
+        for(int a=0;a<kAround;++a)
+        {
+            const auto p00=point(a,d),p10=point(a+1,d),p01=point(a,d+1),p11=point(a+1,d+1);
+            out.insert(out.end(),{p00,p01,p10,p10,p01,p11});
+        }
+    return out;
+}
 }
 void WeaponAccessoryRenderer::Reset() noexcept
 {
     if(context_) context_->ClearState();
+    sphere_.Reset();blend_.Reset();markerDepth_.Reset();sphereVertices_=0;
     depth_.Reset();depthState_.Reset();raster_.Reset();constants_.Reset();vertices_.Reset();genericVertices_.Reset();
     surface_.Reset();sampler_.Reset();
     layout_.Reset();ps_.Reset();vs_.Reset();context_.Reset();device_.Reset();
@@ -87,6 +112,26 @@ HRESULT WeaponAccessoryRenderer::Prepare(ID3D11Device* device,unsigned width,uns
         D3D11_DEPTH_STENCIL_DESC depth{};depth.DepthEnable=TRUE;
         depth.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL;depth.DepthFunc=D3D11_COMPARISON_LESS;
         if(SUCCEEDED(hr)) hr=device->CreateDepthStencilState(&depth,&depthState_);
+        // The markers: tested against the item, written nowhere, blended over the picture.
+        depth.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ZERO;
+        if(SUCCEEDED(hr)) hr=device->CreateDepthStencilState(&depth,&markerDepth_);
+        D3D11_BLEND_DESC blend{};
+        blend.RenderTarget[0].BlendEnable=TRUE;
+        blend.RenderTarget[0].SrcBlend=D3D11_BLEND_SRC_ALPHA;blend.RenderTarget[0].DestBlend=D3D11_BLEND_INV_SRC_ALPHA;
+        blend.RenderTarget[0].BlendOp=D3D11_BLEND_OP_ADD;
+        blend.RenderTarget[0].SrcBlendAlpha=D3D11_BLEND_ZERO;blend.RenderTarget[0].DestBlendAlpha=D3D11_BLEND_ONE;
+        blend.RenderTarget[0].BlendOpAlpha=D3D11_BLEND_OP_ADD;
+        blend.RenderTarget[0].RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;
+        if(SUCCEEDED(hr)) hr=device->CreateBlendState(&blend,&blend_);
+        if(SUCCEEDED(hr))
+        {
+            const auto sphere=SphereVertices();
+            D3D11_BUFFER_DESC sphereDesc{};sphereDesc.ByteWidth=UINT(sphere.size()*sizeof(weapon_model::Vertex));
+            sphereDesc.Usage=D3D11_USAGE_IMMUTABLE;sphereDesc.BindFlags=D3D11_BIND_VERTEX_BUFFER;
+            D3D11_SUBRESOURCE_DATA sphereData{sphere.data()};
+            hr=device->CreateBuffer(&sphereDesc,&sphereData,&sphere_);
+            if(SUCCEEDED(hr)) sphereVertices_=UINT(sphere.size());
+        }
         prepared_=hr;
         if(FAILED(hr)) return hr;
     }
@@ -106,22 +151,26 @@ HRESULT WeaponAccessoryRenderer::Prepare(ID3D11Device* device,unsigned width,uns
 }
 HRESULT WeaponAccessoryRenderer::Draw(ID3D11Device* device,ID3D11DeviceContext* immediate,
     ID3D11RenderTargetView* target,unsigned width,unsigned height,const D3D11_VIEWPORT& viewport,
-    const weapon_accessory::Presentation& item,const weapon_accessory::Constants& constants,ID3D11CommandList** staged)
+    const weapon_accessory::Presentation& item,const weapon_accessory::Constants& constants,ID3D11CommandList** staged,
+    const weapon_accessory::Constants* markers,size_t markerCount)
 {
     if(staged) *staged=nullptr;
     const auto* model=item.model;
     const bool generic=weapon_model::UsesTokenGeometry(model);
     const size_t available=generic?std::size(weapon_model::kGenericVertices):std::size(weapon_model::kVertices);
-    if(!immediate||!target||!model||!model->vertexCount||
-        model->firstVertex>available||
-        model->vertexCount>available-model->firstVertex||
-        model->vertexCount%3) return E_INVALIDARG;
+    const bool drawItem=model&&model->vertexCount&&model->firstVertex<=available&&
+        model->vertexCount<=available-model->firstVertex&&!(model->vertexCount%3);
+    if(!markers) markerCount=0;
+    if(!immediate||!target||(!drawItem&&!markerCount)) return E_INVALIDARG;
     HRESULT hr=Prepare(device,width,height);
     if(FAILED(hr)) return hr;
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    hr=context_->Map(constants_.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped);
-    if(FAILED(hr)) return hr;
-    std::memcpy(mapped.pData,&constants,sizeof(constants));context_->Unmap(constants_.Get(),0);
+    if(drawItem)
+    {
+        hr=context_->Map(constants_.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped);
+        if(FAILED(hr)) return hr;
+        std::memcpy(mapped.pData,&constants,sizeof(constants));context_->Unmap(constants_.Get(),0);
+    }
     context_->OMSetRenderTargets(1,&target,depth_.Get());
     context_->ClearDepthStencilView(depth_.Get(),D3D11_CLEAR_DEPTH,1,0);
     context_->OMSetDepthStencilState(depthState_.Get(),0);
@@ -137,7 +186,21 @@ HRESULT WeaponAccessoryRenderer::Draw(ID3D11Device* device,ID3D11DeviceContext* 
     ID3D11ShaderResourceView* surface=surface_.Get();ID3D11SamplerState* sampler=sampler_.Get();
     context_->PSSetShaderResources(0,1,&surface);context_->PSSetSamplers(0,1,&sampler);
     context_->VSSetShader(vs_.Get(),nullptr,0);context_->PSSetShader(ps_.Get(),nullptr,0);
-    context_->Draw(model->vertexCount,model->firstVertex);
+    if(drawItem) context_->Draw(model->vertexCount,model->firstVertex);
+    if(markerCount&&sphere_&&sphereVertices_)
+    {
+        // The see-through zones, over the item and the picture.
+        context_->OMSetBlendState(blend_.Get(),nullptr,0xFFFFFFFF);
+        context_->OMSetDepthStencilState(markerDepth_.Get(),0);
+        ID3D11Buffer* sphere=sphere_.Get();
+        context_->IASetVertexBuffers(0,1,&sphere,&stride,&offset);
+        for(size_t i=0;i<markerCount;++i)
+        {
+            if(FAILED(context_->Map(constants_.Get(),0,D3D11_MAP_WRITE_DISCARD,0,&mapped))) break;
+            std::memcpy(mapped.pData,&markers[i],sizeof(markers[i]));context_->Unmap(constants_.Get(),0);
+            context_->Draw(sphereVertices_,0);
+        }
+    }
     Ptr<ID3D11CommandList> commands;
     hr=context_->FinishCommandList(FALSE,&commands);
     if(SUCCEEDED(hr))

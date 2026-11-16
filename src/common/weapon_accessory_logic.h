@@ -61,7 +61,31 @@ inline bool Current(const Presentation& p,GameTitle title,uint32_t generation,
         weapon_interaction::Fresh(now,p.sampled,title,p.title,generation,p.generation,gameplay);
 }
 // Shader layout: six float4s. OpenXR is right handed and looks along -Z.
-struct Constants { float objectQ[4],objectP[4],eyeQ[4],eyeP[4],tangents[4],color[4]; };
+// scale: xyz scale the mesh; w > 0.5 draws it as a see-through marker in `color` (rgb, alpha) instead of the surface.
+struct Constants { float objectQ[4],objectP[4],eyeQ[4],eyeP[4],tangents[4],color[4];float scale[4]{1,1,1,0}; };
+
+// A see-through sphere the player can see (the manual reload's zones: the pouch, the rack part, the well).
+struct Marker
+{
+    Vec position{};
+    float radius = 0;
+    float color[4]{};
+};
+inline bool MarkerProjection(const Marker& m,const Pose& eye,
+    float left,float right,float down,float up,Constants& out) noexcept
+{
+    using namespace weapon_interaction;
+    if(!Finite(m.position)||!std::isfinite(m.radius)||m.radius<=0.001f||m.radius>1.f||
+        !Finite(eye.position)||!Normal(eye.orientation)) return false;
+    for(float a:{left,right,down,up}) if(!std::isfinite(a)||std::fabs(a)>=1.56f) return false;
+    const float l=std::tan(left),r=std::tan(right),d=std::tan(down),u=std::tan(up);
+    if(r-l<0.01f||u-d<0.01f) return false;
+    const auto e=eye.orientation;
+    out={{0,0,0,1},{m.position.x,m.position.y,m.position.z,0},
+        {-e.x,-e.y,-e.z,e.w},{eye.position.x,eye.position.y,eye.position.z,0},{l,r,d,u},
+        {m.color[0],m.color[1],m.color[2],m.color[3]},{m.radius,m.radius,m.radius,1}};
+    return true;
+}
 inline bool Projection(const Presentation& p,const Pose& eye,
     float left,float right,float down,float up,Constants& out) noexcept
 {

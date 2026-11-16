@@ -2416,6 +2416,11 @@ namespace
             ImGui::TextDisabled("Your support hand is drawn on the magazine as you push it in, and on the charging\n"
                 "handle or slide as you pull it, so it rides the gun when you turn it.");
             SettingGap();
+            changed |= ImGui::Checkbox("Show reload zones", &g_config.manual_reload_show_zones);
+            ImGui::TextDisabled("See-through spheres where your support hand works: the pouch, the well while you\n"
+                "hold a magazine, and the charging handle. Green: your hand is in it and it will take. Amber: in it,\n"
+                "nothing to do there now. Red: out of reach.");
+            SettingGap();
             changed |= ImGui::Checkbox("Reload sounds", &g_config.manual_reload_sounds);
             ImGui::TextDisabled("The game's own reload sound is not played (its reload is hidden); the gun clicks\n"
                 "as a magazine goes in and as you rack the handle. Only you hear these.");

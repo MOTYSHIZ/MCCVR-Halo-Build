@@ -11,7 +11,8 @@ public:
     HRESULT Draw(ID3D11Device* device,ID3D11DeviceContext* immediate,
         ID3D11RenderTargetView* target,unsigned width,unsigned height,
         const D3D11_VIEWPORT& viewport,const weapon_accessory::Presentation& item,
-        const weapon_accessory::Constants& constants,ID3D11CommandList** staged=nullptr);
+        const weapon_accessory::Constants& constants,ID3D11CommandList** staged=nullptr,
+        const weapon_accessory::Constants* markers=nullptr,size_t markerCount=0);
     void Reset() noexcept;
 private:
     HRESULT Prepare(ID3D11Device* device,unsigned width,unsigned height);
@@ -21,7 +22,10 @@ private:
     Ptr<ID3D11VertexShader> vs_;
     Ptr<ID3D11PixelShader> ps_;
     Ptr<ID3D11InputLayout> layout_;
-    Ptr<ID3D11Buffer> vertices_,genericVertices_,constants_;
+    Ptr<ID3D11Buffer> vertices_,genericVertices_,constants_,sphere_;
+    Ptr<ID3D11BlendState> blend_;
+    Ptr<ID3D11DepthStencilState> markerDepth_;
+    unsigned sphereVertices_{};
     Ptr<ID3D11RasterizerState> raster_;
     Ptr<ID3D11DepthStencilState> depthState_;
     Ptr<ID3D11DepthStencilView> depth_;
