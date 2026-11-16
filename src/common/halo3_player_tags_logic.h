@@ -131,6 +131,36 @@ inline constexpr int kOdstViewReadDisp = 3;
 inline constexpr char kReclaimerVersionPattern[] = "?? 8B ?? 08 ?? 8B ?? 10 ?? 89 ?? 89 ?? E8 ?? ?? ?? ?? 84 C0";
 inline constexpr int kReclaimerVersionCallRel = 14;
 inline constexpr size_t kReclaimerVersionBytes = 0x60;
+// 0.10.4 put a pass-through in front of the version (its stub's target: sub rsp,0x28; call <version>; nop; add rsp,
+// 0x28; ret), so the call above was not in the first bytes searched (2026-11-15). ThunkCallee follows such a
+// pass-through, or a jmp rel32, to the function it calls.
+
+// Where the pass-through at `code` goes, relative to `code`: sub rsp,imm8; call rel32; [nop;] add rsp,imm8; ret, or
+// jmp rel32. False for anything else.
+inline bool ThunkCallee(const uint8_t* code, size_t size, int64_t& offset)
+{
+    const auto rel32 = [&](size_t at) {
+        int32_t rel = 0;
+        for (int i = 3; i >= 0; --i)
+            rel = static_cast<int32_t>((static_cast<uint32_t>(rel) << 8) | code[at + static_cast<size_t>(i)]);
+        return rel;
+    };
+    if (size >= 5 && code[0] == 0xE9)
+    {
+        offset = 5 + static_cast<int64_t>(rel32(1));
+        return true;
+    }
+    if (size < 15 || code[0] != 0x48 || code[1] != 0x83 || code[2] != 0xEC || code[4] != 0xE8)
+        return false;
+    size_t at = 9;
+    if (code[at] == 0x90)
+        ++at;
+    if (at + 5 > size || code[at] != 0x48 || code[at + 1] != 0x83 || code[at + 2] != 0xC4 || code[at + 3] != code[3] ||
+        code[at + 4] != 0xC3)
+        return false;
+    offset = 9 + static_cast<int64_t>(rel32(5));
+    return true;
+}
 //   In its own draw: mov <r>,[rip+<count block>]; test <r>,<r>; jz; ... imul <x>,[<r>],0x74 (the block's first word,
 //   times the entry stride). Found by that shape, not by its bytes (FindReclaimerCountRead): 0.10.0 read it into rdi
 //   and multiplied at once, 0.10.4 into rax and stored it on the stack in between.

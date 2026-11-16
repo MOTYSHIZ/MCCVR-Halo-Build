@@ -18,4 +18,6 @@ namespace reclaimer_capacity
 void Poll();
 // The first-person node capacities to try (64, then the client's stated value, then 128). Any thread.
 NodeCandidates FpNodes();
+// The client's stated navpoints a HUD keeps (hud.markers), 0 until its list is read. Any thread.
+uint32_t HudMarkers();
 } // namespace reclaimer_capacity

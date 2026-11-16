@@ -199,6 +199,25 @@ int main()
                         0xE7, 0xFF, 0x84, 0xC0}),
               "another field is not the user");
     }
+    // 0.10.4's pass-through in front of the version: exe+0x4614750 calls exe+0x3BDEEE0.
+    {
+        const std::vector<uint8_t> thunk = {0x48, 0x83, 0xEC, 0x28, 0xE8, 0x87, 0xA7, 0x5C, 0xFF, 0x90, 0x48, 0x83, 0xC4,
+                                            0x28, 0xC3, 0xE8};
+        int64_t offset = 0;
+        Check(ThunkCallee(thunk.data(), thunk.size(), offset) && 0x4614750 + offset == 0x3BDEEE0,
+              "Reclaimer 0.10.4: the pass-through's callee");
+        std::vector<uint8_t> noNop = {0x48, 0x83, 0xEC, 0x28, 0xE8, 0x10, 0x00, 0x00, 0x00, 0x48, 0x83, 0xC4, 0x28, 0xC3,
+                                      0xCC, 0xCC};
+        Check(ThunkCallee(noNop.data(), noNop.size(), offset) && offset == 9 + 0x10, "without the nop");
+        const std::vector<uint8_t> jump = {0xE9, 0xFB, 0xFF, 0xFF, 0xFF};
+        Check(ThunkCallee(jump.data(), jump.size(), offset) && offset == 0, "a jmp rel32");
+        std::vector<uint8_t> body = thunk;
+        body[13] = 0x30;   // add rsp,0x30: not the frame it made
+        Check(!ThunkCallee(body.data(), body.size(), offset), "a frame not undone is no pass-through");
+        const std::vector<uint8_t> real = {0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54, 0x56, 0x57, 0x55, 0x53, 0x48,
+                                           0x83, 0xEC, 0x58};
+        Check(!ThunkCallee(real.data(), real.size(), offset), "a real function is not followed");
+    }
     // The count read, found by its shape in both clients' draws.
     {
         const std::vector<uint8_t> v0100 = {0x90, 0x48, 0x8B, 0x3D, 0x11, 0x22, 0x33, 0x44, 0x48, 0x85, 0xFF, 0x0F, 0x84,

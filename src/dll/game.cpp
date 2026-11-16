@@ -38,6 +38,7 @@
 #include "title_image_guard.h"
 #include "native_forward.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/movement_direction_logic.h"
 #include "../common/manual_vr_recovery.h"
 #include "../common/manual_vr_recovery_logic.h"
 #include "../common/pitch_trim_logic.h"
@@ -141,6 +142,7 @@
 #include "../common/drive_sites.h"
 #include "drive_cascade.h"
 #include "reclaimer_capacity.h"
+#include "reclaimer_client_image.h"
 #include "halo3_hook_watch_mark.h"
 #include "install_search_cache.h"
 #include "drive_install.h"
@@ -2846,6 +2848,9 @@ namespace
     void Halo3HudNotePost();
     // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the HUD's navpoint draw, per title.
     bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation);
+    // Project Reclaimer's VISR gets the headset eye's field of view (reclaimer_visr_camera.inl).
+    bool InstallReclaimerVisrCamera();
+    void ReportReclaimerVisrCamera();
     bool RemoveHalo3PlayerTags();
     void ReportHalo3PlayerTags();
     bool InstallOdstPlayerTags(uintptr_t base, size_t size, uint32_t generation);
@@ -10717,6 +10722,106 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         return rawOk && Halo3MatrixValid(out);
     }
 
+    // Vehicle cameras: why the drawn root node was not taken for the vehicle's frame, by test (a frame can fail more
+    // than one), with the worst miss of each. Written by the seat sampler only; read and reset by the vehicle
+    // cameras' cold log (vehicle_cameras.inl), once a poll.
+    struct Halo3RootCheckMisses
+    {
+        std::atomic<uint32_t> checked{0}, unread{0}, outside{0}, offLine{0}, tooFar{0}, facing{0}, tilted{0};
+        std::atomic<uint32_t> worstSideCm{0}, worstAlongCm{0}, reachAtWorstCm{0};
+        std::atomic<uint32_t> worstFacingTenthsDeg{0}, worstTiltTenthsDeg{0};
+    };
+    Halo3RootCheckMisses g_halo3RootCheckMisses;
+
+    uint32_t Halo3RootMissUnits(float value, float scale)
+    {
+        const float v = value * scale;
+        return std::isfinite(v) && v > 0.0f ? static_cast<uint32_t>(v < 1.0e8f ? v : 1.0e8f) : 0u;
+    }
+
+    void Halo3RaiseTo(std::atomic<uint32_t>& slot, uint32_t value)
+    {
+        if (value > slot.load(std::memory_order_relaxed))
+            slot.store(value, std::memory_order_relaxed);
+    }
+
+    void Halo3NoteRootCheck(bool inBounds, const float away[3], const Halo3StepSpeed& speed, float facingDot,
+                            float upDot)
+    {
+        Halo3RootCheckMisses& m = g_halo3RootCheckMisses;
+        m.checked.fetch_add(1, std::memory_order_relaxed);
+        if (!inBounds)
+            m.outside.fetch_add(1, std::memory_order_relaxed);
+        float d2 = 0.0f, along = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            d2 += away[i] * away[i];
+            along += away[i] * speed.dir[i];
+        }
+        const float side = std::sqrt(d2 - along * along > 0.0f ? d2 - along * along : 0.0f);
+        const float reach = Halo3RootNodeReachWu(speed.speed);
+        if (side > kHalo3RootNodeRestReachWu)
+        {
+            m.offLine.fetch_add(1, std::memory_order_relaxed);
+            Halo3RaiseTo(m.worstSideCm, Halo3RootMissUnits(side, 304.8f));
+        }
+        if (std::fabs(along) > reach)
+        {
+            m.tooFar.fetch_add(1, std::memory_order_relaxed);
+            const uint32_t alongCm = Halo3RootMissUnits(std::fabs(along), 304.8f);
+            if (alongCm > m.worstAlongCm.load(std::memory_order_relaxed))
+            {
+                m.worstAlongCm.store(alongCm, std::memory_order_relaxed);
+                m.reachAtWorstCm.store(Halo3RootMissUnits(reach, 304.8f), std::memory_order_relaxed);
+            }
+        }
+        constexpr float kTenthsDegPerRadian = 572.9578f;
+        if (!(facingDot > 0.94f))
+        {
+            m.facing.fetch_add(1, std::memory_order_relaxed);
+            Halo3RaiseTo(m.worstFacingTenthsDeg,
+                         Halo3RootMissUnits(std::acos(std::clamp(facingDot, -1.0f, 1.0f)), kTenthsDegPerRadian));
+        }
+        if (!(upDot > 0.94f))
+        {
+            m.tilted.fetch_add(1, std::memory_order_relaxed);
+            Halo3RaiseTo(m.worstTiltTenthsDeg,
+                         Halo3RootMissUnits(std::acos(std::clamp(upDot, -1.0f, 1.0f)), kTenthsDegPerRadian));
+        }
+    }
+
+    // Vehicle cameras: the last non-identity root turn learned (Halo3RootAxisTurn), for the cold log: 0 = none,
+    // else 0x80000000 | axis[i] << (8 * i) | (sign[i] < 0) << (8 * i + 4).
+    std::atomic<uint32_t> g_halo3RootAxisTurnLearned{0};
+
+    // The drawn root node through its vehicle's learned turn (halo3_vehicle_logic.h Halo3RootAxisTurn): `root`'s axes
+    // become the object's axes as drawn. The turn is learned from a root that already stands where the object does
+    // (`placeOk`); until then, and for a model learned unturned, `root` is left as read. Seat samplers only.
+    void Halo3TurnRootToObject(Halo3RootAxisTurn& turn, const float objectFwd[3], const float objectUp[3],
+                               bool placeOk, Halo3Matrix4x3& root)
+    {
+        const float objectLeft[3] = {objectUp[1] * objectFwd[2] - objectUp[2] * objectFwd[1],
+                                     objectUp[2] * objectFwd[0] - objectUp[0] * objectFwd[2],
+                                     objectUp[0] * objectFwd[1] - objectUp[1] * objectFwd[0]};
+        const float* const object[3] = {objectFwd, objectLeft, objectUp};
+        const float* const axes[3] = {root.forward, root.left, root.up};
+        if (!turn.learned && placeOk && Halo3LearnRootAxisTurn(object, axes, turn) &&
+            !Halo3RootAxisTurnIsIdentity(turn))
+        {
+            uint32_t code = 0x80000000u;
+            for (int i = 0; i < 3; ++i)
+                code |= (static_cast<uint32_t>(turn.axis[i]) | (turn.sign[i] < 0 ? 0x10u : 0u)) << (8 * i);
+            g_halo3RootAxisTurnLearned.store(code, std::memory_order_relaxed);
+        }
+        if (!turn.learned || Halo3RootAxisTurnIsIdentity(turn))
+            return;
+        float turned[3][3];
+        Halo3ApplyRootAxisTurn(turn, axes, turned);
+        memcpy(root.forward, turned[0], sizeof(root.forward));
+        memcpy(root.left, turned[1], sizeof(root.left));
+        memcpy(root.up, turned[2], sizeof(root.up));
+    }
+
     // Copy one live world-space node matrix. ON follows Halo's exact
     // render-interpolated node bank; a false accessor result takes the same raw
     // fallback the visible renderer takes. OFF intentionally selects raw as an
@@ -11735,9 +11840,12 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                     // (Halo3RootNodeReachWu): the drawn vehicle trails the simulation by up to a tick or two.
                     static thread_local Halo3StepSpeed s_rootSpeed;
                     static thread_local int s_rootSpeedObject = -1;
+                    // A model built turned on its root (the Banshee): the turn learned for this vehicle.
+                    static thread_local Halo3RootAxisTurn s_rootTurn;
                     if (s_rootSpeedObject != nodeObject)
                     {
                         s_rootSpeed = Halo3StepSpeed{};
+                        s_rootTurn = Halo3RootAxisTurn{};
                         s_rootSpeedObject = nodeObject;
                     }
                     (void)Halo3StepSpeedUpdate(s_rootSpeed, world.pos, Halo3NowSeconds());
@@ -11747,13 +11855,22 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                         const float away[3] = {rootNode.position[0] - world.pos[0],
                                                rootNode.position[1] - world.pos[1],
                                                rootNode.position[2] - world.pos[2]};
-                        rootValid =
-                            Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f) &&
-                            Halo3RootNodeWithinReach(away, s_rootSpeed) &&
-                            rootNode.forward[0] * world.fwd[0] + rootNode.forward[1] * world.fwd[1] +
-                                    rootNode.forward[2] * world.fwd[2] > 0.94f &&
-                            rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +
-                                    rootNode.up[2] * world.up[2] > 0.94f;
+                        const bool inBounds =
+                            Halo3AnchorWithinBounds(rootNode.position, frameBoundsCenter, frameBoundsRadius, 2.0f);
+                        Halo3TurnRootToObject(s_rootTurn, world.fwd, world.up,
+                                              inBounds && Halo3RootNodeWithinReach(away, s_rootSpeed), rootNode);
+                        const float facingDot = rootNode.forward[0] * world.fwd[0] +
+                                                rootNode.forward[1] * world.fwd[1] + rootNode.forward[2] * world.fwd[2];
+                        const float upDot = rootNode.up[0] * world.up[0] + rootNode.up[1] * world.up[1] +
+                                            rootNode.up[2] * world.up[2];
+                        rootValid = inBounds && Halo3RootNodeWithinReach(away, s_rootSpeed) && facingDot > 0.94f &&
+                                    upDot > 0.94f;
+                        Halo3NoteRootCheck(inBounds, away, s_rootSpeed, facingDot, upDot);
+                    }
+                    else
+                    {
+                        g_halo3RootCheckMisses.checked.fetch_add(1, std::memory_order_relaxed);
+                        g_halo3RootCheckMisses.unread.fetch_add(1, std::memory_order_relaxed);
                     }
                 }
 
@@ -14288,61 +14405,17 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         memcpy(eyeUpOut, eyeUp, sizeof(eyeUp));
     }
 
-    // PROJECT RECLAIMER'S VISR SEES EACH EYE'S FIELD OF VIEW. Reclaimer draws ODST's VISR itself (0.10.x): for each
-    // view it keeps a pointer to the game's camera, the one the engine copies into view+0x08 (view+0x2A8, the client's
-    // camera copy at exe+0x41C3140 in 0.10.4), and builds VISR's screen-to-view constants from that camera's vertical
-    // field of view (+0x28, radians; near +0x64, far +0x68; exe+0x3775E80 / +0x377B7B0) and the picture's width over
-    // height. The mod gives each eye its own projection in view+0x98, so with VISR on the client rebuilt every eye
-    // at the flat game's 43.5 degrees and the whole world looked stretched and zoomed (2026-11-15). During each eye's
-    // render the game camera holds that eye's vertical field of view; it is put back right after, unless the game has
-    // written it meanwhile. Reclaimer only; the camera is checked as the client checks it before anything is written.
-    struct ReclaimerEyeFov
-    {
-        float* at = nullptr;
-        uint32_t savedBits = 0, writtenBits = 0;
-    };
-    __declspec(noinline) ReclaimerEyeFov ReclaimerEyeFovBegin(void* view, float tanY) noexcept
-    {
-        ReclaimerEyeFov state{};
-        if (!g_hostIsProjectReclaimer || !view || !(tanY > 0.05f && tanY < 20.0f))
-            return state;
-        __try
-        {
-            auto* source = *reinterpret_cast<uint8_t**>(reinterpret_cast<uint8_t*>(view) + 0x2A8);
-            if (!source)
-                return state;
-            float fov = 0.0f, nearZ = 0.0f, farZ = 0.0f;
-            memcpy(&fov, source + 0x28, sizeof(fov));
-            memcpy(&nearZ, source + 0x64, sizeof(nearZ));
-            memcpy(&farZ, source + 0x68, sizeof(farZ));
-            if (!(fov > 0.05f && fov < 3.0f) || !(nearZ > 0.0f) || !(farZ > nearZ))
-                return state;
-            const float eyeFov = 2.0f * atanf(tanY);
-            state.at = reinterpret_cast<float*>(source + 0x28);
-            memcpy(&state.savedBits, &fov, sizeof(fov));
-            memcpy(&state.writtenBits, &eyeFov, sizeof(eyeFov));
-            *reinterpret_cast<volatile uint32_t*>(state.at) = state.writtenBits;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-            state = ReclaimerEyeFov{};
-        }
-        return state;
-    }
-    __declspec(noinline) void ReclaimerEyeFovEnd(const ReclaimerEyeFov& state) noexcept
-    {
-        if (!state.at)
-            return;
-        __try
-        {
-            auto* bits = reinterpret_cast<volatile uint32_t*>(state.at);
-            if (*bits == state.writtenBits)
-                *bits = state.savedBits;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER)
-        {
-        }
-    }
+    // PROJECT RECLAIMER'S VISR: the vertical field of view of the eye last rendered (radians, 0 = none yet), handed to
+    // the client's VISR camera by reclaimer_visr_camera.inl. Written by each eye's render, read by the client's VISR.
+    std::atomic<float> g_reclaimerEyeVerticalFov{0.0f};
+    std::atomic<float> g_reclaimerEyeTanX{0.0f};
+    // PROJECT RECLAIMER'S VISR WORLD (ReclaimerPrepareViewHook): the view the eye loop last rendered, and the eye
+    // camera's two visibility tangents (camera +0x28/+0x2C) and projection terms p0/p5 it rendered with.
+    std::atomic<void*> g_reclaimerStereoView{nullptr};
+    std::atomic<float> g_reclaimerEyeCullX{0.0f}, g_reclaimerEyeCullY{0.0f};
+    std::atomic<float> g_reclaimerEyeP0{0.0f}, g_reclaimerEyeP5{0.0f};
+    // Render hooks this thread is inside (the mod's own view preparations run inside them).
+    thread_local int t_renderViewDepth = 0;   // and its horizontal half-width (tangent), from the same projection
 
     void __fastcall RenderViewHook(void* view)
     {
@@ -14733,26 +14806,24 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             g_aimFramePass.store(aimFrameFrame, std::memory_order_release);
             if (g_prepareView)
                 g_prepareView(view, 0);
-            const float* eyeProjection =
-                reinterpret_cast<const float*>(reinterpret_cast<const char*>(view) + 0x98 + 0x78);
-            const ReclaimerEyeFov reclaimerEyeFov = ReclaimerEyeFovBegin(
-                view, fabsf(eyeProjection[5]) > 0.01f ? 1.0f / fabsf(eyeProjection[5]) : 0.0f);
-            if (reclaimerEyeFov.at)
+            if (g_hostIsProjectReclaimer)
             {
-                static std::atomic<bool> s_reported{false};
-                if (!s_reported.exchange(true, std::memory_order_relaxed))
+                // The eye's field of view, for Project Reclaimer's VISR (reclaimer_visr_camera.inl).
+                const float* p = reinterpret_cast<const float*>(reinterpret_cast<const char*>(view) + 0x98 + 0x78);
+                const float p0 = fabsf(p[0]), p5 = fabsf(p[5]);
+                if (p0 > 0.05f && p0 < 20.0f && p5 > 0.05f && p5 < 20.0f)
                 {
-                    float before = 0.0f, after = 0.0f;
-                    memcpy(&before, &reclaimerEyeFov.savedBits, sizeof(before));
-                    memcpy(&after, &reclaimerEyeFov.writtenBits, sizeof(after));
-                    LOG("Project Reclaimer VISR: each eye's render gives the game camera that eye's vertical field of "
-                        "view (%.1f deg instead of %.1f; the eye is %.3f wide for 1 high, VISR takes the picture's "
-                        "width over height)", after * 57.29578f, before * 57.29578f,
-                        fabsf(eyeProjection[5]) / (fabsf(eyeProjection[0]) > 0.01f ? fabsf(eyeProjection[0]) : 1.0f));
+                    g_reclaimerEyeTanX.store(1.0f / p0, std::memory_order_relaxed);
+                    g_reclaimerEyeVerticalFov.store(2.0f * atanf(1.0f / p5), std::memory_order_relaxed);
+                    const float* cull = reinterpret_cast<const float*>(camera + 0x28);
+                    g_reclaimerEyeCullX.store(cull[0], std::memory_order_relaxed);
+                    g_reclaimerEyeCullY.store(cull[1], std::memory_order_relaxed);
+                    g_reclaimerEyeP0.store(p[0], std::memory_order_relaxed);
+                    g_reclaimerEyeP5.store(p[5], std::memory_order_relaxed);
+                    g_reclaimerStereoView.store(view, std::memory_order_relaxed);
                 }
             }
             g_origRenderView(view);
-            ReclaimerEyeFovEnd(reclaimerEyeFov);
             g_aimFramePass.store(false, std::memory_order_release);
             g_eyeFpView.store(nullptr, std::memory_order_release);
             monoCaptured = VR_CaptureRenderedEye(eye);
@@ -16302,9 +16373,19 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         {
             const float away[3] = {out.root.position[0] - out.hull.pos[0], out.root.position[1] - out.hull.pos[1],
                                    out.root.position[2] - out.hull.pos[2]};
+            const bool placeOk = Halo3AnchorWithinBounds(out.root.position, out.boundsCenter, out.boundsRadius, 2.0f) &&
+                                 away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= 1.0f;
+            // A model built turned on its root (the Banshee): the turn learned for this vehicle (Halo 3's rule).
+            static thread_local Halo3RootAxisTurn s_turn;
+            static thread_local int s_turnOwner = -1;
+            if (s_turnOwner != owner)
+            {
+                s_turn = Halo3RootAxisTurn{};
+                s_turnOwner = owner;
+            }
+            Halo3TurnRootToObject(s_turn, out.hull.fwd, out.hull.up, placeOk, out.root);
             out.rootValid =
-                Halo3AnchorWithinBounds(out.root.position, out.boundsCenter, out.boundsRadius, 2.0f) &&
-                away[0] * away[0] + away[1] * away[1] + away[2] * away[2] <= 1.0f &&
+                placeOk &&
                 out.root.forward[0] * out.hull.fwd[0] + out.root.forward[1] * out.hull.fwd[1] +
                         out.root.forward[2] * out.hull.fwd[2] > 0.94f &&
                 out.root.up[0] * out.hull.up[0] + out.root.up[1] * out.hull.up[1] + out.root.up[2] * out.hull.up[2] >
@@ -19987,11 +20068,74 @@ static constexpr bool kOdstMappedFpEnabled = false;
     {
         Halo3HookCalled(Halo3Hook::RenderView);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
+        ++t_renderViewDepth;
         __try
         {
             if (!g_halo3InstallReady.load(std::memory_order_acquire))
                 return g_origRenderView(view);
             return RenderViewHook(view);
+        }
+        __finally
+        {
+            --t_renderViewDepth;
+            g_halo3CoreCallbacks.fetch_sub(1, std::memory_order_acq_rel);
+        }
+    }
+
+    // PROJECT RECLAIMER: ODST'S VISR DRAWS ITS WORLD FROM THE GAME'S OWN VIEW PREPARATION.
+    //
+    // Each frame the engine prepares the player's view once (halo3.dll's view preparation, kPrepareViewSig) and then
+    // renders it, which the stereo path turns into one preparation and render per eye with the headset eye's camera.
+    // Reclaimer 0.10's VISR builds the world it shows from the frame's first preparation, the game's own, still with
+    // the flat-screen camera: with VISR on the world was narrower and taller by exactly the flat projection over the
+    // eye's (0.90 across, 1.09 high, measured headless 2026-11-15, stereo and mono; giving that one preparation the
+    // eye's projection removed it). So the game's own preparation of the view the eye loop renders gets the eye's
+    // projection: the camera keeps this frame's position and orientation, takes the eye camera's visibility tangents,
+    // the engine rebuilds its matrices from it exactly as the eye loop does, and p0/p5 become the eye's. Both are put
+    // back after the call, so the eye loop starts from the game's camera as before. The mod's own preparations (inside
+    // the render hook) pass straight through. Project Reclaimer only; nothing here until an eye has rendered.
+    using ReclaimerPrepareViewFn = void(__fastcall*)(void* view, int viewIndex);
+    ReclaimerPrepareViewFn g_reclaimerPrepareViewOriginal = nullptr;
+    std::atomic<uint32_t> g_reclaimerPreparesStamped{0};
+
+    __declspec(noinline) void __fastcall ReclaimerPrepareViewHook(void* view, int viewIndex)
+    {
+        const float cullX = g_reclaimerEyeCullX.load(std::memory_order_relaxed);
+        const float cullY = g_reclaimerEyeCullY.load(std::memory_order_relaxed);
+        const float p0 = g_reclaimerEyeP0.load(std::memory_order_relaxed);
+        const float p5 = g_reclaimerEyeP5.load(std::memory_order_relaxed);
+        if (t_renderViewDepth != 0 || !view || view != g_reclaimerStereoView.load(std::memory_order_relaxed) ||
+            !g_enabled.load(std::memory_order_relaxed) || !VR_IsStereoEnabled() || !g_buildViewport ||
+            !g_buildMatrices || !(cullX > 0.05f && cullX < 20.0f) || !(cullY > 0.05f && cullY < 20.0f) ||
+            !(fabsf(p0) > 0.05f && fabsf(p0) < 20.0f) || !(fabsf(p5) > 0.05f && fabsf(p5) < 20.0f))
+            return g_reclaimerPrepareViewOriginal(view, viewIndex);
+        char* const v = static_cast<char*>(view);
+        alignas(16) unsigned char camera[0x90], derived[0x90];
+        memcpy(camera, v + 8, sizeof(camera));
+        memcpy(derived, v + 0x98, sizeof(derived));
+        float* tangents = reinterpret_cast<float*>(v + 8 + 0x28);
+        tangents[0] = cullX;
+        tangents[1] = cullY;
+        alignas(16) unsigned char temporary[0x40]{};
+        g_buildViewport(v + 8, temporary);
+        g_buildMatrices(v + 8, temporary, v + 0x98, 0.0f);
+        float* projection = reinterpret_cast<float*>(v + 0x98 + 0x78);
+        projection[0] = p0;
+        projection[5] = p5;
+        g_reclaimerPrepareViewOriginal(view, viewIndex);
+        memcpy(v + 8, camera, sizeof(camera));
+        memcpy(v + 0x98, derived, sizeof(derived));
+        g_reclaimerPreparesStamped.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    __declspec(noinline) void __fastcall GuardedReclaimerPrepareViewHook(void* view, int viewIndex)
+    {
+        g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
+        __try
+        {
+            if (!g_halo3InstallReady.load(std::memory_order_acquire))
+                return g_reclaimerPrepareViewOriginal(view, viewIndex);
+            return ReclaimerPrepareViewHook(view, viewIndex);
         }
         __finally
         {
@@ -21513,6 +21657,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
         (void)InstallHalo3HudNote(base,size,runtimeGeneration);
         // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the navpoint draw; fails closed alone.
         (void)InstallHalo3PlayerTags(base,size,runtimeGeneration);
+        // Project Reclaimer's VISR (reclaimer_visr_camera.inl): one hook on the client's own camera for VISR, once per
+        // process; fails closed alone.
+        (void)InstallReclaimerVisrCamera();
         // The loaded map's tag names (halo3_tag_names.inl): two sites, no hook, read-only; not bound, vehicles are
         // identified by their physics alone, as before.
         (void)InstallHalo3TagNames(base,size,runtimeGeneration);
@@ -21572,6 +21719,26 @@ static constexpr bool kOdstMappedFpEnabled = false;
         RememberInstalledGameHook(reinterpret_cast<void*>(renderHit));
         Halo3HookWatchInstalled(Halo3Hook::RenderView, renderHit);
         g_renderHooked = true;
+        if (g_hostIsProjectReclaimer)
+        {
+            if (MH_CreateHook(reinterpret_cast<void*>(prepareHit),
+                              reinterpret_cast<void*>(&GuardedReclaimerPrepareViewHook),
+                              reinterpret_cast<void**>(&g_reclaimerPrepareViewOriginal)) == MH_OK &&
+                MH_QueueEnableHook(reinterpret_cast<void*>(prepareHit)) == MH_OK)
+            {
+                RememberInstalledGameHook(reinterpret_cast<void*>(prepareHit));
+                LOG("Project Reclaimer VISR: the game's own view preparation (halo3.dll+0x%llX) gets the headset "
+                    "eye's projection; VISR draws its world from it",
+                    (unsigned long long)(prepareHit - base));
+            }
+            else
+            {
+                (void)MH_RemoveHook(reinterpret_cast<void*>(prepareHit));
+                g_reclaimerPrepareViewOriginal = nullptr;
+                LOG("Project Reclaimer VISR: StockFallback: the view preparation could not be hooked; with VISR on "
+                    "the world keeps the flat-screen projection");
+            }
+        }
         LOG("M2: inner per-view double-render hook installed at halo3.dll+0x%llX",
             (unsigned long long)(renderHit - base));
         return true;
@@ -30524,7 +30691,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); }
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportReclaimerVisrCamera(); }
         if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
@@ -32069,6 +32236,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     #include "halo3_head_relative.inl"
     #include "halo3_hud_note.inl"
     #include "halo3_player_tags.inl"
+    #include "reclaimer_visr_camera.inl"
     #include "halo3_tracker_hud_height.inl"
     #include "odst_contact_melee_runtime.inl"
     #include "odst_physical_crouch.inl"
@@ -61561,8 +61729,25 @@ bool Game_GetSeatLimitReticle(float outDir[3], float& outRangeM, bool& outSurfac
     return true;
 }
 
-void Game_MapMoveStick(float& mx, float& my)
+// movement_direction: the angle from the head's heading to the chosen controller's (looking right positive), 0
+// for the head. Every title's rotation below adds it to the head's heading, so the stick walks where that
+// controller points. Only the input poll calls this.
+static float MoveDirectionOffset(bool fromStick)
 {
+    static movement_direction::Tracker tracker;
+    if (!fromStick)
+        return 0.0f;
+    const int wanted = movement_direction::Clamp(g_config.movement_direction);
+    float head[4]{}, hand[4]{}, position[3]{};
+    const bool headValid = wanted != movement_direction::Head && VR_GetHeadPose(head, position);
+    const bool handValid = headValid &&
+        VR_GetPhysicalControllerPose(wanted == movement_direction::LeftHand ? 0 : 1, hand, position);
+    return tracker.Offset(wanted, headValid, head, handValid, hand, GetTickCount64());
+}
+
+void Game_MapMoveStick(float& mx, float& my, bool fromStick)
+{
+    const float handOffset = MoveDirectionOffset(fromStick);
 #if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
     // ODST has its own generation/liveness-checked seat state. The shared
     // H3 movement branch below cannot detect it through Halo3VehicleFpActive.
@@ -61573,7 +61758,7 @@ void Game_MapMoveStick(float& mx, float& my)
     if (TitleAdapter_GetActiveTitle()==GameTitle::HaloCE)
     {
         float x{},y{};
-        if (Game_CeControllerFeaturesRequested()&&HaloCEControls_MapMoveStick(mx,my,x,y))
+        if (Game_CeControllerFeaturesRequested()&&HaloCEControls_MapMoveStick(mx,my,x,y,handOffset))
         { mx=x;my=y; }
         return;
     }
@@ -61598,7 +61783,7 @@ void Game_MapMoveStick(float& mx, float& my)
         const float x = q[0], y = q[1], z = q[2], w = q[3];
         const float fx = -2.0f * (w * y + x * z);
         const float fz = -(1.0f - 2.0f * (x * x + y * y));
-        const float hy = atan2f(fx, -fz);
+        const float hy = atan2f(fx, -fz) + handOffset;
 #if HALOMCCVR_EXPERIMENTAL_REACH_RENDER_CANDIDATE
         float gameYawReference=0.0f;
         float headYawReference=0.0f;
@@ -61647,7 +61832,7 @@ void Game_MapMoveStick(float& mx, float& my)
         const float x = q[0], y = q[1], z = q[2], w = q[3];
         const float fx = -2.0f * (w * y + x * z);
         const float fz = -(1.0f - 2.0f * (x * x + y * y));
-        const float hy = atan2f(fx, -fz);
+        const float hy = atan2f(fx, -fz) + handOffset;
         const float gaze = gameYawReference +
             g_yawSign.load() * WrapPi(hy - headYawReference);
         const float aimYaw = atan2f(aimForward[1], aimForward[0]);
@@ -61681,6 +61866,8 @@ void Game_MapMoveStick(float& mx, float& my)
         {
             return;
         }
+        // Halo 2's yaw grows turning left (Blam, Z up); the hand offset grows turning right.
+        delta = WrapPi(delta - handOffset);
         const float c = cosf(delta), s = sinf(delta);
         const float nx = mx * c - my * s;
         const float ny = mx * s + my * c;
@@ -61709,7 +61896,7 @@ void Game_MapMoveStick(float& mx, float& my)
     const float x = q[0], y = q[1], z = q[2], w = q[3];
     const float fx = -2.0f * (w * y + x * z);
     const float fz = -(1.0f - 2.0f * (x * x + y * y));
-    const float hy = atan2f(fx, -fz);
+    const float hy = atan2f(fx, -fz) + handOffset;
     const float headYaw = g_gameYawRef + g_yawSign.load() * WrapPi(hy - g_headYawRef);
     const float aimYaw = atan2f(g_aimFwdY.load(), g_aimFwdX.load());
     const float delta = WrapPi(headYaw - aimYaw);

@@ -364,7 +364,10 @@ void Game_Halo2MaintainDisabledAimAssist();
 void Game_Halo2RestoreAimAssist();
 // Rotates a move-stick vector so pushing forward walks toward the gaze
 // instead of the hand-steered aim heading. No-op when VR aim is inactive.
-void Game_MapMoveStick(float& mx, float& my);
+// `fromStick`: the vector is the player's stick, so it follows the chosen
+// movement_direction (head or a hand); false for roomscale steps, which are
+// the head's own motion and always stay head-relative.
+void Game_MapMoveStick(float& mx, float& my, bool fromStick = true);
 // True only while the game is actually consuming the left stick to move the
 // player (gameplay/vehicle/turret). False in menus, pause, loading, cutscene,
 // death and the shell, where the same stick navigates the game's own menus and

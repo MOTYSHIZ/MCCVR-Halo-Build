@@ -14,6 +14,7 @@ namespace reclaimer_capacity
 namespace
 {
 std::atomic<uint32_t> g_statedFpNodes{0};   // the client's fp_nodes, 0 until read
+std::atomic<uint32_t> g_statedHudMarkers{0}; // its hud.markers, 0 until read
 
 struct LogFile
 {
@@ -154,6 +155,9 @@ void Poll()
     if (manifest.Empty())
         return;
     done = true;
+    if (const Entry* markers = manifest.Find("hud.markers"))
+        if (markers->host > 0 && markers->host <= 0x10000)
+            g_statedHudMarkers.store(static_cast<uint32_t>(markers->host), std::memory_order_release);
     if (const Entry* fp = manifest.Find("fp_nodes"))
         if (fp->host > 64 && fp->host <= 1024)
             g_statedFpNodes.store(static_cast<uint32_t>(fp->host), std::memory_order_release);
@@ -172,6 +176,11 @@ void Poll()
         return;
     }
     Report(logs.front(), manifest, nullptr, nullptr);
+}
+
+uint32_t HudMarkers()
+{
+    return g_statedHudMarkers.load(std::memory_order_acquire);
 }
 
 NodeCandidates FpNodes()

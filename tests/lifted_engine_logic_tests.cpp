@@ -155,8 +155,29 @@ int main()
         CHECK(Parse(v4odd.data(), v4odd.size(), t4) == ParseResult::OtherVersion);
         CHECK(t4.version == 4 && t4.records.empty());
         std::vector<uint8_t> v4hash = v4;
-        v4hash[12] = 0x40;                   // another hash length: the header itself has changed
+        v4hash[12] = 0x40;                   // another hash length, the rest left as it was: nothing fits
         CHECK(Parse(v4hash.data(), v4hash.size(), t4) == ParseResult::OtherVersion);
+        // A version with a 0x40-byte hash, laid out as format 3 after it: read, and said to be probed.
+        {
+            std::vector<uint8_t> wide = v4;
+            wide[12] = 0x40;
+            wide.insert(wide.begin() + 0x30, 0x20, 0xAB);   // 0x20 more hash bytes before the body length
+            Table tw;
+            CHECK(Parse(wide.data(), wide.size(), tw) == ParseResult::Ok);
+            CHECK(tw.probed && tw.version == 4 && tw.codeLength == code && tw.records.size() == 3 &&
+                  tw.codeOffset + code + 0x20 == wide.size());
+            std::vector<uint8_t> wide3 = wide;
+            wide3[8] = 3;                     // format 3 keeps its 0x20-byte hash
+            CHECK(Parse(wide3.data(), wide3.size(), tw) == ParseResult::OtherVersion);
+        }
+        // A trailer as long as the hash, or none, after format 3's layout.
+        {
+            std::vector<uint8_t> bare = v4;
+            bare.resize(bare.size() - 0x20);
+            Table tb;
+            CHECK(Parse(bare.data(), bare.size(), tb) == ParseResult::Ok && tb.probed &&
+                  tb.codeOffset + code == bare.size());
+        }
         std::vector<uint8_t> cut = file;
         cut.resize(cut.size() - 1);
         CHECK(Parse(cut.data(), cut.size(), table) == ParseResult::Inconsistent);   // the header's length disagrees
