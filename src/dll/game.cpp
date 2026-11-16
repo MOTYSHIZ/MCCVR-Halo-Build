@@ -14295,14 +14295,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
     // PROJECT RECLAIMER'S VISR: the vertical field of view of the eye last rendered (radians, 0 = none yet), handed to
     // the client's VISR camera by reclaimer_visr_camera.inl. Written by each eye's render, read by the client's VISR.
     std::atomic<float> g_reclaimerEyeVerticalFov{0.0f};
-    std::atomic<float> g_reclaimerEyeTanX{0.0f};
-    // PROJECT RECLAIMER'S VISR WORLD (ReclaimerPrepareViewHook): the view the eye loop last rendered, and the eye
-    // camera's two visibility tangents (camera +0x28/+0x2C) and projection terms p0/p5 it rendered with.
-    std::atomic<void*> g_reclaimerStereoView{nullptr};
-    std::atomic<float> g_reclaimerEyeCullX{0.0f}, g_reclaimerEyeCullY{0.0f};
-    std::atomic<float> g_reclaimerEyeP0{0.0f}, g_reclaimerEyeP5{0.0f};
-    // Render hooks this thread is inside (the mod's own view preparations run inside them).
-    thread_local int t_renderViewDepth = 0;   // and its horizontal half-width (tangent), from the same projection
+    std::atomic<float> g_reclaimerEyeTanX{0.0f};   // and its horizontal half-width (tangent), from the same projection
 
     void __fastcall RenderViewHook(void* view)
     {
@@ -14702,12 +14695,6 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 {
                     g_reclaimerEyeTanX.store(1.0f / p0, std::memory_order_relaxed);
                     g_reclaimerEyeVerticalFov.store(2.0f * atanf(1.0f / p5), std::memory_order_relaxed);
-                    const float* cull = reinterpret_cast<const float*>(camera + 0x28);
-                    g_reclaimerEyeCullX.store(cull[0], std::memory_order_relaxed);
-                    g_reclaimerEyeCullY.store(cull[1], std::memory_order_relaxed);
-                    g_reclaimerEyeP0.store(p[0], std::memory_order_relaxed);
-                    g_reclaimerEyeP5.store(p[5], std::memory_order_relaxed);
-                    g_reclaimerStereoView.store(view, std::memory_order_relaxed);
                 }
             }
             g_origRenderView(view);
@@ -19945,74 +19932,11 @@ static constexpr bool kOdstMappedFpEnabled = false;
     {
         Halo3HookCalled(Halo3Hook::RenderView);
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
-        ++t_renderViewDepth;
         __try
         {
             if (!g_halo3InstallReady.load(std::memory_order_acquire))
                 return g_origRenderView(view);
             return RenderViewHook(view);
-        }
-        __finally
-        {
-            --t_renderViewDepth;
-            g_halo3CoreCallbacks.fetch_sub(1, std::memory_order_acq_rel);
-        }
-    }
-
-    // PROJECT RECLAIMER: ODST'S VISR DRAWS ITS WORLD FROM THE GAME'S OWN VIEW PREPARATION.
-    //
-    // Each frame the engine prepares the player's view once (halo3.dll's view preparation, kPrepareViewSig) and then
-    // renders it, which the stereo path turns into one preparation and render per eye with the headset eye's camera.
-    // Reclaimer 0.10's VISR builds the world it shows from the frame's first preparation, the game's own, still with
-    // the flat-screen camera: with VISR on the world was narrower and taller by exactly the flat projection over the
-    // eye's (0.90 across, 1.09 high, measured headless 2026-11-15, stereo and mono; giving that one preparation the
-    // eye's projection removed it). So the game's own preparation of the view the eye loop renders gets the eye's
-    // projection: the camera keeps this frame's position and orientation, takes the eye camera's visibility tangents,
-    // the engine rebuilds its matrices from it exactly as the eye loop does, and p0/p5 become the eye's. Both are put
-    // back after the call, so the eye loop starts from the game's camera as before. The mod's own preparations (inside
-    // the render hook) pass straight through. Project Reclaimer only; nothing here until an eye has rendered.
-    using ReclaimerPrepareViewFn = void(__fastcall*)(void* view, int viewIndex);
-    ReclaimerPrepareViewFn g_reclaimerPrepareViewOriginal = nullptr;
-    std::atomic<uint32_t> g_reclaimerPreparesStamped{0};
-
-    __declspec(noinline) void __fastcall ReclaimerPrepareViewHook(void* view, int viewIndex)
-    {
-        const float cullX = g_reclaimerEyeCullX.load(std::memory_order_relaxed);
-        const float cullY = g_reclaimerEyeCullY.load(std::memory_order_relaxed);
-        const float p0 = g_reclaimerEyeP0.load(std::memory_order_relaxed);
-        const float p5 = g_reclaimerEyeP5.load(std::memory_order_relaxed);
-        if (t_renderViewDepth != 0 || !view || view != g_reclaimerStereoView.load(std::memory_order_relaxed) ||
-            !g_enabled.load(std::memory_order_relaxed) || !VR_IsStereoEnabled() || !g_buildViewport ||
-            !g_buildMatrices || !(cullX > 0.05f && cullX < 20.0f) || !(cullY > 0.05f && cullY < 20.0f) ||
-            !(fabsf(p0) > 0.05f && fabsf(p0) < 20.0f) || !(fabsf(p5) > 0.05f && fabsf(p5) < 20.0f))
-            return g_reclaimerPrepareViewOriginal(view, viewIndex);
-        char* const v = static_cast<char*>(view);
-        alignas(16) unsigned char camera[0x90], derived[0x90];
-        memcpy(camera, v + 8, sizeof(camera));
-        memcpy(derived, v + 0x98, sizeof(derived));
-        float* tangents = reinterpret_cast<float*>(v + 8 + 0x28);
-        tangents[0] = cullX;
-        tangents[1] = cullY;
-        alignas(16) unsigned char temporary[0x40]{};
-        g_buildViewport(v + 8, temporary);
-        g_buildMatrices(v + 8, temporary, v + 0x98, 0.0f);
-        float* projection = reinterpret_cast<float*>(v + 0x98 + 0x78);
-        projection[0] = p0;
-        projection[5] = p5;
-        g_reclaimerPrepareViewOriginal(view, viewIndex);
-        memcpy(v + 8, camera, sizeof(camera));
-        memcpy(v + 0x98, derived, sizeof(derived));
-        g_reclaimerPreparesStamped.fetch_add(1, std::memory_order_relaxed);
-    }
-
-    __declspec(noinline) void __fastcall GuardedReclaimerPrepareViewHook(void* view, int viewIndex)
-    {
-        g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
-        __try
-        {
-            if (!g_halo3InstallReady.load(std::memory_order_acquire))
-                return g_reclaimerPrepareViewOriginal(view, viewIndex);
-            return ReclaimerPrepareViewHook(view, viewIndex);
         }
         __finally
         {
@@ -21596,26 +21520,6 @@ static constexpr bool kOdstMappedFpEnabled = false;
         RememberInstalledGameHook(reinterpret_cast<void*>(renderHit));
         Halo3HookWatchInstalled(Halo3Hook::RenderView, renderHit);
         g_renderHooked = true;
-        if (g_hostIsProjectReclaimer)
-        {
-            if (MH_CreateHook(reinterpret_cast<void*>(prepareHit),
-                              reinterpret_cast<void*>(&GuardedReclaimerPrepareViewHook),
-                              reinterpret_cast<void**>(&g_reclaimerPrepareViewOriginal)) == MH_OK &&
-                MH_QueueEnableHook(reinterpret_cast<void*>(prepareHit)) == MH_OK)
-            {
-                RememberInstalledGameHook(reinterpret_cast<void*>(prepareHit));
-                LOG("Project Reclaimer VISR: the game's own view preparation (halo3.dll+0x%llX) gets the headset "
-                    "eye's projection; VISR draws its world from it",
-                    (unsigned long long)(prepareHit - base));
-            }
-            else
-            {
-                (void)MH_RemoveHook(reinterpret_cast<void*>(prepareHit));
-                g_reclaimerPrepareViewOriginal = nullptr;
-                LOG("Project Reclaimer VISR: StockFallback: the view preparation could not be hooked; with VISR on "
-                    "the world keeps the flat-screen projection");
-            }
-        }
         LOG("M2: inner per-view double-render hook installed at halo3.dll+0x%llX",
             (unsigned long long)(renderHit - base));
         return true;
