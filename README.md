@@ -101,7 +101,9 @@ closes the game on any memory fault, even one the mod would survive in MCC; if i
 Say which release you run, the game and mission, Steam or Store (or Project Reclaimer and its version), your
 headset and OpenXR runtime, and what you did. Attach from your `Halo_MCC_VR` folder:
 
-- `HaloMCCVR.log`, `HaloMCCVR-native-faults.log` and `HaloMCCVRLauncher.log`;
+- `HaloMCCVR.log`, `HaloMCCVR-native-faults.log` and `HaloMCCVRLauncher.log`; if you have launched the
+  game again since the problem, send instead the `HaloMCCVR` and `HaloMCCVR-native-faults` files in the
+  `Logs` folder named for the time that run started (the last ten runs are kept there);
 - for Project Reclaimer, also `HaloMCCVRReclaimerRelay.log` and Project Reclaimer's
   `Documents\My Games\Project Reclaimer\Logs\client.log`;
 - if the headset froze or the PC restarted, SteamVR's `Steam\logs\vrcompositor.txt`.
