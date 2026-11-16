@@ -151,24 +151,124 @@ Taken:
 - **The belt grab's pulse** (`718d716`): the support hand's pulse on taking a magazine is 0.7, Campaign Evolved's
   strength (was 0.5), so the hand knows it has one without looking.
 
-Not taken, because this port has no counterpart yet:
-- the gun posed from its own animations (push-in and insert ranges for an empty and a full gun, the charge handle by
-  animation, the body lock, the parts that show the rounds);
-- the per-weapon file's sounds (grab, insert) and calibrations (grab zones, the support grip zone tube);
+Not taken in that catch-up (the second round below then built most of it):
+- the gun posed from its own animations;
+- the per-weapon file's sounds and calibrations;
 - the hand riding the gun's frame on the magazine slide;
 - the empty-chamber HUD tint;
 - the state-hold log (this port does not hold the game's reload state).
 
 The Needle Rifle items are Reach's and do not apply to Halo 3 or ODST.
 
-## Not ported yet (Campaign Evolved has these)
+## Second round: the rest of Campaign Evolved's manual reload (2026-11-16)
 
-- The shotgun's shells one at a time and its pump; the Covenant magazines by the weapon's own animation
-  (carbine, spike rifle, mauler).
-- The per-weapon data file and its in-headset calibrations (grab zones, holds, ranges).
-- The hand following the magazine on the gun (place 4) and the hand on the charging handle (place 2). The
-  support hand stays on the controller.
-- Hiding the game's own reload animation. Campaign Evolved holds a local first-person state; MCC's only way
-  so far wrote the simulation and is retired.
-- The HUD showing the player's count (the game's counter is shown).
-- The reload ring, the empty-chamber tint, and the sounds.
+The user asked for the bigger work: the features the first port left out. Every piece is local to this player
+(AGENTS.md multiplayer rule): the first-person palette, the CHUD's own stack record, a first-person sound event and
+a local 2D sound, and the mod's own renderer.
+
+### The game's reload is hidden, and the gun moves through its own reload animation
+
+`src/common/reload_clip_logic.h`, `src/dll/reload_clip_store.*`, `src/dll/manual_reload_game.inl`.
+
+Campaign Evolved poses the gun from stretches of its reload animation, decoded offline. MCC's first-person
+animations are computed by the game, so the palette hook **records** them instead. The game reloads at the drop
+(unseen, as before). While the manual reload has the gun:
+- **The gun is drawn in its resting pose.** The gun's root is held where it rests on the gun hand's wrist, and every
+  part where it rests relative to the root. The game's own reload animation is no longer shown.
+- **The animation is learned.** Each node is recorded relative to the gun's root into a clip: once per gun and kind
+  (the gun had rounds left, or was empty).
+- **The clip is analysed.** From it come the magazine's way out, its final way in, and the rack part's stroke. With a
+  clip:
+  - the drop plays the way out, then the magazine is hidden;
+  - the push scrubs the way in by how far the hand has pushed, and the gun's own magazine is drawn on it;
+  - the rack scrubs the stroke by the pull;
+  - the well, its axis, the insert depth and the rack travel are all the animation's own.
+- **Clips persist** in `halomccvr_reload_clips.bin` beside the settings, so each gun learns its reload once. F1 ›
+  Controls › Reload and holsters can forget them.
+- **The first reload of a built-in gun** is already by hand, with the catalogue's well, as in the first round. It is
+  recorded while hidden.
+- **Covenant guns and the shotgun** (carbine, spiker, mauler, shotgun) are by hand once their reload is learned. Their
+  first reload is the game's own, and it is recorded. The shotgun's shell is the kit's `bullet` node.
+
+Holding the root on the wrist also gives Campaign Evolved's "body lock" for free: the gun cannot shift in the hand
+while posed. The magazine node's position at the clip's first frame is the well. Whatever frame the hand's push and
+the clip's distances are in cancels out (both are the gun's root-relative distances, converted with the gun's live
+scale).
+
+### The hand rides the magazine and the handle
+
+`ApplyManualReloadFollow` (game.cpp), before the left arm's IK:
+- **Pushing a magazine in:** the support hand's drawn target is moved by how far the drawn magazine sits from where
+  the controller carries it (on the axis, or where the animation put it last frame).
+- **Racking:** the target rides the rack part, keeping where the hand took it in the part's own frame.
+
+The move is published in the gun-hand aim frame and carried back out through the same aim pose, so turning the gun
+does not swing the hand off (Campaign Evolved's lesson: one placement path for the whole interaction).
+
+### The HUD shows the player's count (MCC)
+
+`src/dll/manual_reload_hud.inl`. Research: a background RE pass on the pinned modules.
+- **The getter.** The CHUD builds its weapon slots from one display getter (H3 `+0x362A60`, ODST `+0x3A8C6C`). It
+  fills a stack record: rounds loaded `+0x2C`/`+0x30`, maximum `+0x2E`/`+0x32`, reserve `+0x30`/`+0x34`.
+- **Its callers.** It has four in each title, all display: the CHUD weapon-slot fill, a CHUD pickup check, and the
+  training hints. Firing, AI and the network serializer never call it. Every 16-bit reader of the rounds fields was
+  listed.
+- **The hook.** The detour writes the player's count into that record only for the call that returns into the CHUD
+  fill (the fill's call-site signature, cross-checked against the getter's entry), and only for the gun the manual
+  reload owns.
+- **Not done:** the assault rifle's on-gun counter. It is an object function value (`primary_ammunition_ones`/`_tens`)
+  that effects and attachments can also read, so no site was proven render-only.
+
+### Sounds (MCC)
+
+`src/dll/manual_reload_sound.inl`.
+- **Why the game's sound goes.** The game's reload sound is one ~2 s clip, fired at frame 0 of the first-person reload
+  animation by the first-person animation event handler (H3 `+0x2C2A94`, ODST `+0x2EB030`, local users only). Its
+  sound events are dropped while the manual reload hides the game's reload: from the drop until the magazine is in,
+  and 2.5 s after any press.
+- **What plays instead.** The gun's own pickup click (weapon definition `+0x3AC`/`+0x3BC`) plays through the local 2D
+  sound call (H3 `+0x158244`, ODST `+0x185CA4`; ODST's own code calls it for local players and networks remote ones)
+  as a magazine seats and as the handle is racked. It is called from the palette hook (the game's thread).
+- **Why only clicks.** The kits have no separate grab, insert or rack sounds. Each gun's reload is one clip.
+
+### The shotgun: a shell at a time, and the pump after every shot
+
+`manual_reload_logic.h` (`InsertShell`, `rackByHold_`).
+- **Taking a shell.** A shell is taken at the pouch. The game is asked to load as the first one leaves, and again
+  whenever it has stopped.
+- **Putting it in.** The shell goes into the loading port along the learned way in. It is counted once the game has
+  loaded a round for it; else it waits up to 3 s. A shell the game cannot take is dropped.
+- **The pump.** Every shot empties the chamber. Drawing the support hand back along the gun works the pump, either
+  from the two-handed hold (which keeps the hand: Campaign Evolved's `supportGripRacks`) or by gripping the pump.
+
+### Per-gun settings and in-headset calibrations
+
+`src/common/reload_weapon_file.h`, `src/dll/reload_weapon_settings.*`.
+- **The file.** `halomccvr_reloads.txt` beside the settings has one line per first-person gun (the kit's model name):
+  `enabled`, `grab` (cm), `handle` (cm back, up, side), `depth`, `travel`.
+- **F1 › Controls › Reload and holsters:**
+  - the gun in hand, with "Reload this gun by hand";
+  - "Set the handle grab spot to my hand" (this gun's line) and "Reset grab spot";
+  - "Set the pouch to my hand" (`weapon_pouch_offset_*`);
+  - "Show reload zones": see-through spheres at the pouch, the well while a magazine is in hand, and the rack part.
+    Green: the hand is in it and it would take. Amber: in it, nothing to do. Red: out of reach. Drawn by the mod's
+    accessory renderer.
+- **Taking a calibration.** A calibration takes the next fresh squeeze of the support grip once the menu is closed.
+  That squeeze reaches neither the game nor the reload.
+
+### New settings (all in Controls presets)
+
+`manual_reload_animation`, `manual_reload_hand_follow`, `manual_reload_sounds` (default on);
+`manual_reload_show_zones` (default off).
+
+### Not ported, and why
+
+- **The assault rifle's on-gun counter.** It still shows the game's count; see the HUD section.
+- **Sound pieces.** The kits have none; the click stands in.
+- **Project Reclaimer: the HUD count and the sounds.** Its lifted engine runs its own copies of that code, so these
+  are not installed there. The hidden reload, the animation, the hand following and the shotgun do work there: they
+  live in the palette hook.
+- **The reload ring and the empty-chamber tint.** MCC has no such HUD widget to tint. The HUD's own low and empty
+  flash now follows the player's count.
+- **Campaign Evolved's per-range animation calibrations.** The ranges are found automatically from the learned clip.
+  If one is wrong, turn off "Move the gun with its own reload animation" or forget the learned animations.

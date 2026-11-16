@@ -269,8 +269,11 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         if (hold && metresPerUnit > 0)
         {
             memcpy(pose, g_gun.idleRel, sizeof(reload_clip::Bone) * size_t(nodes));
-            auto sampleAll = [&](const reload_clip::Clip& clip, float t) {
-                for (int i = 1; i < nodes; ++i) pose[i] = reload_clip::Sample(clip, t, i);
+            // Only the part being worked is posed from the animation; the rest of the gun keeps its resting pose
+            // (FA 2026-11-16: Halo 3's assault rifle pulls its handle back at the start of its reload and holds it
+            // there, so the whole gun posed from the push showed the handle back while the magazine went in).
+            auto samplePart = [&](const reload_clip::Clip& clip, float t, int node) {
+                if (node > 0 && node < nodes) pose[node] = reload_clip::Sample(clip, t, node);
             };
             const auto& ms = magazineClip.segments;
             if (p.phase == manual_reload::Phase::Pushing && haveMagazine)
@@ -278,7 +281,7 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                 // The magazine rides the animation's way in; the hand's push picks the time.
                 const float t = reload_clip::TimeAtDistance(*magazineClip.clip, parts->magazineNode, ms.in, ms.seat,
                                                             p.pushDepth / metresPerUnit);
-                sampleAll(*magazineClip.clip, t);
+                samplePart(*magazineClip.clip, t, parts->magazineNode);
                 magazineShown = true;
                 posedMagazineValid = true;
                 clipPosed.fetch_add(1, std::memory_order_relaxed);
@@ -287,7 +290,7 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                      float(nowMs - p.droppedAt) * 0.001f < ms.outEnd - ms.outStart)
             {
                 // The drop: the animation's way out plays, then the magazine is gone.
-                sampleAll(*magazineClip.clip, ms.outStart + float(nowMs - p.droppedAt) * 0.001f);
+                samplePart(*magazineClip.clip, ms.outStart + float(nowMs - p.droppedAt) * 0.001f, parts->magazineNode);
                 magazineShown = true;
                 ejectPlayed.fetch_add(1, std::memory_order_relaxed);
             }
@@ -296,7 +299,7 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                 const auto& rs = rackClip.segments;
                 const float t = reload_clip::TimeAtDistance(*rackClip.clip, parts->rackNode, rs.rackStart, rs.rackFull,
                                                             std::fmin(p.rackPull, 1.f) * rs.rackTravel);
-                sampleAll(*rackClip.clip, t);
+                samplePart(*rackClip.clip, t, parts->rackNode);
                 rackByClip = true;
                 clipPosed.fetch_add(1, std::memory_order_relaxed);
             }

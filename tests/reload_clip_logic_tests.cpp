@@ -58,8 +58,8 @@ int main()
     Check(s.magazine, "the magazine leaves and comes back");
     Check(s.outStart > 0.2f && s.outStart < 0.25f, "it starts to leave at 0.2 s");
     Check(s.outEnd > 0.35f && s.outEnd < 0.42f, "and is gone once 60% out");
-    Check(Near(s.window, 0.15f, 0.01f), "the push begins 0.15 below home (the fresh magazine)");
-    Check(s.in >= 1.0f && s.in <= 1.2f, "at 1.0-1.2 s");
+    Check(s.window > 0.09f && s.window <= 0.105f + 1e-4f, "the push begins no further than 35% of the way out");
+    Check(s.in >= 1.30f && s.in <= 1.37f, "on the way home, at 1.3 s");
     Check(s.seat >= 1.58f && s.seat <= 1.62f, "and is home at 1.6 s");
     Check(Near(s.approach.y, 1.f, 1e-3f), "going in is up");
     Check(s.rack && Near(s.rackTravel, 0.06f, 0.002f), "the handle makes a 6 cm stroke");
@@ -78,6 +78,34 @@ int main()
     Check(Near(pull, 2.1f, 0.03f), "a half pull is 2.1 s");
     Check(Near(Sample(c, pull, 2).translation[0], 0.02f, 0.004f), "with the handle 3 cm back");
 
+    {
+        // HALO 3'S ASSAULT RIFLE, as the game played it (FA 2026-11-16, root frame: x forward, y left, z up): the
+        // magazine is pulled down and back ~0.15 units, then brought all the way in again. Only the last straight
+        // stretch up into the well is the push.
+        static const float kPath[][4]{
+            {0.000f, 0, 0, 0}, {0.364f, 0, 0, 0}, {0.397f, -0.0001f, -0.0001f, -0.0021f},
+            {0.430f, -0.0030f, -0.0003f, -0.0163f}, {0.464f, -0.0221f, 0.0001f, -0.0447f},
+            {0.497f, -0.0639f, -0.0007f, -0.0629f}, {0.531f, -0.1012f, -0.0177f, -0.0664f},
+            {0.564f, -0.1107f, -0.0245f, -0.0674f}, {0.598f, -0.1159f, -0.0255f, -0.0695f},
+            {0.630f, -0.1203f, -0.0255f, -0.0717f}, {0.665f, -0.1233f, -0.0246f, -0.0739f},
+            {0.698f, -0.1244f, -0.0231f, -0.0758f}, {0.730f, -0.1230f, -0.0209f, -0.0774f},
+            {0.764f, -0.1181f, -0.0182f, -0.0785f}, {0.797f, -0.1031f, -0.0136f, -0.0784f},
+            {0.831f, -0.0706f, -0.0049f, -0.0762f}, {0.865f, -0.0402f, 0.0048f, -0.0676f},
+            {0.898f, -0.0290f, 0.0118f, -0.0492f}, {0.933f, -0.0192f, 0.0099f, -0.0351f},
+            {0.964f, -0.0013f, 0.0002f, -0.0146f}, {1.000f, 0.0028f, 0.0004f, -0.0036f},
+            {1.031f, 0, 0, 0}, {1.064f, 0, 0, 0}, {1.300f, 0, 0, 0}};
+        Clip ar{};
+        for (const auto& row : kPath)
+        {
+            Bone n[2]{};
+            for (int a = 0; a < 3; ++a) n[1].translation[a] = row[1 + a];
+            Append(ar, row[0], n, 2);
+        }
+        const Segments g = Analyze(ar, 1, -1);
+        Check(g.magazine && g.window > 0.03f && g.window < 0.052f, "the assault rifle's push is its last ~4 hundredths");
+        Check(g.approach.z > 0.7f, "and goes up into the well");
+        Check(g.outStart > 0.39f && g.outStart < 0.44f && g.seat > 1.0f && g.seat < 1.04f, "out at 0.4 s, home at 1.03 s");
+    }
     {
         // A clip in which the magazine never comes back (cut short) gives no insertion.
         Clip cut{};

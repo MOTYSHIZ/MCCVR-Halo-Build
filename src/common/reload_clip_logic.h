@@ -73,6 +73,8 @@ struct Segments
 inline constexpr float kLeftFraction = 0.04f;    // "has left": this fraction of the furthest the part went
 inline constexpr float kHomeFraction = 0.02f;    // "home": within this fraction
 inline constexpr float kOutFraction = 0.6f;      // eject: gone once this fraction out (then hidden)
+inline constexpr float kPushFraction = 0.35f;    // the push begins no further out than this fraction
+inline constexpr float kPushAlign = 0.7f;        // ... and only while the magazine moves along its line home
 
 inline float NodeDistance(const Clip& c, int frame, int node) noexcept
 {
@@ -104,18 +106,27 @@ inline Segments Analyze(const Clip& c, int magazineNode, int rackNode) noexcept
                 if (NodeDistance(c, f, magazineNode) <= farthest * kHomeFraction) seat = f;
             if (left >= 0 && gone >= 0 && seat > farFrame)
             {
-                // Back from the seat while the magazine keeps moving away, smoothly: the final approach. It ends
-                // (going back in time) where the magazine stood still or jumped (a fresh magazine appearing in
-                // the hand, or held below the well).
+                // Back from the seat while the magazine keeps moving away, smoothly and along the line it goes home
+                // on: the final push into the well. It ends (going back in time) where the magazine stood still,
+                // jumped (a fresh magazine appearing in the hand), turned off that line, or got further than a push
+                // reaches. FA 2026-11-16, Halo 3's assault rifle: its magazine node is pulled ~43 cm down and back
+                // and brought all the way in again; the whole return taken as the push made a 45 cm diagonal.
+                const float* home = c.bone[0][magazineNode].translation;
+                int j = seat - 1;
+                while (j > farFrame && NodeDistance(c, j, magazineNode) < farthest * 0.05f) --j;
+                const V3 line = Unit(Sub(home, c.bone[j][magazineNode].translation));
                 int in = seat;
                 while (in > farFrame)
                 {
                     const float step = NodeDistance(c, in - 1, magazineNode) - NodeDistance(c, in, magazineNode);
                     if (step <= farthest * 0.001f || step > farthest * 0.2f) break;
+                    if (NodeDistance(c, in - 1, magazineNode) > farthest * kPushFraction) break;
+                    const V3 move = Unit(Sub(c.bone[in][magazineNode].translation, c.bone[in - 1][magazineNode].translation));
+                    if (move.x * line.x + move.y * line.y + move.z * line.z < kPushAlign) break;
                     --in;
                 }
                 const float window = NodeDistance(c, in, magazineNode);
-                if (window > farthest * 0.1f)
+                if (window > farthest * 0.05f)
                 {
                     s.magazine = true;
                     s.outStart = c.time[left];
