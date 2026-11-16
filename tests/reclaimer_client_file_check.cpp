@@ -147,6 +147,9 @@ int main()
     report("navpoint version", draw.version, draw.missing);
     report("navpoint draw", draw.draw, draw.missing);
     report("navpoint count read", draw.countDisp, draw.missing);
+    const reclaimer_client::OdstPrompt prompt = reclaimer_client::FindOdstPrompt(image);
+    report("ODST prompt setter", prompt.setter, prompt.missing);
+    report("ODST prompt bytes", prompt.flags, prompt.missing);
     std::printf("%s: %d find(s) failed\n", path, failures);
     return failures ? 1 : 0;
 }

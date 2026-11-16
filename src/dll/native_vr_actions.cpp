@@ -12,6 +12,7 @@
 #include "../common/minhook_lifecycle.h"
 #include "../common/odst_prompt_resolve.h"
 #include "drive_cascade.h"
+#include "reclaimer_client_image.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
@@ -446,9 +447,57 @@ void NativeVrActions_Publish(const void* raw,GameTitle requested,uint64_t now,
     publication.sequence.store(before+2,std::memory_order_release);
     pollPublished=true;
 }
+// PROJECT RECLAIMER'S ODST PROMPTS (reclaimer_client::FindOdstPrompt): its client runs ODST's prompt natives itself and
+// keeps a byte per controller, a bit per waiting prompt (0 confirm, 1 cancel, 2 retrain). Found once, by shape and
+// cross-checked, on the worker the first time an ODST level runs on Reclaimer; read from any thread (a plain byte of the
+// client's data). Reclaimer's VISR map is its own screen and is not found: there the map rows stay off.
+namespace reclaimer_odst_prompt {
+std::atomic<uintptr_t> flags{0};
+std::atomic<bool> attempted{false};
+__declspec(noinline) bool Find(reclaimer_client::OdstPrompt& found) noexcept {
+    __try {
+        reclaimer_client::Image image;
+        if(!reclaimer_client::ClientImageInMemory(image)) return false;
+        found=reclaimer_client::FindOdstPrompt(image);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Worker: once per process, when an ODST level runs on Reclaimer and remapping is on.
+void Poll() {
+    if(!g_hostIsProjectReclaimer || attempted.load(std::memory_order_relaxed) || !g_config.vr_action_mapping ||
+       !Game_ReclaimerOdstLevel()) return;
+    attempted.store(true,std::memory_order_relaxed);
+    reclaimer_client::OdstPrompt found{};
+    if(!Find(found))
+        LOG("ODST prompt and map rows (Project Reclaimer): off, normal controls kept; the client executable could not be "
+            "read");
+    else if(found.missing)
+        LOG("ODST prompt and map rows (Project Reclaimer): off, normal controls kept; not found: %s",found.missing);
+    else {
+        flags.store(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))+found.flags,std::memory_order_release);
+        LOG("ODST prompt and map rows (Project Reclaimer): its prompts are found (setter exe+0x%X, prompt bytes "
+            "exe+0x%X); confirm and reject answer them. Its VISR map is not found: the map rows stay off there",
+            found.setter,found.flags);
+    }
+}
+__declspec(noinline) bool Read(uint8_t& value) noexcept {
+    const uintptr_t at=flags.load(std::memory_order_acquire);
+    if(!at) return false;
+    __try { value=*reinterpret_cast<const volatile uint8_t*>(at); return true; }   // controller 0
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+}
 bool NativeVrActions_OdstPromptState(uint64_t now,bool& prompt,bool& map,uint32_t* raw) noexcept {
     prompt=map=false;
     if(raw) *raw=0;
+    if(g_hostIsProjectReclaimer) {
+        uint8_t value=0;
+        if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo3 || !Game_ReclaimerOdstLevel() ||
+           !reclaimer_odst_prompt::Read(value)) return false;
+        prompt=(value&0x3u)!=0;   // a prompt waiting on confirm or cancel
+        if(raw) *raw=value&0xFu;
+        return true;
+    }
     auto& p=native_odst::prompt;
     if(!p.proved.load(std::memory_order_acquire) || TitleAdapter_GetActiveTitle()!=GameTitle::Halo3ODST) return false;
     const uint64_t stamp=p.stampMs.load(std::memory_order_acquire);
@@ -475,6 +524,7 @@ void NativeVrActions_Halo3CoreRetired() {
     native_h3::Poll();
 }
 void NativeVrActions_Poll() {
+    reclaimer_odst_prompt::Poll();
     native_ce::Poll();
     native_h3::Poll();
     native_odst::Poll();

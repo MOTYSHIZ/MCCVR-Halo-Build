@@ -80,10 +80,65 @@ Fake Visr()
     f.Call(0x1850, 0x1400);
     return f;
 }
+
+// ODST's prompts: the setter at 0x1000 (its store at 0x1010), the control step's clear at 0x2000, both naming the
+// prompt bytes at 0x3F80; the two natives at 0x1200 and 0x1240 calling the setter; their names and table entries.
+void Lea(Fake& f, uint32_t at, uint32_t target)
+{
+    const int32_t rel = static_cast<int32_t>(target) - static_cast<int32_t>(at + 7);
+    std::memcpy(&f.image[at + 3], &rel, 4);
+}
+void Pointer(Fake& f, uint32_t at, uint64_t value) { std::memcpy(&f.image[at], &value, 8); }
+Fake Prompts()
+{
+    Fake f;
+    f.Function(0x1000, 0x1100);
+    f.Put(0x1010, {0x48, 0x8D, 0x15, 0, 0, 0, 0, 0x41, 0xB0, 0x01, 0x89, 0xD9, 0x41, 0xD2, 0xE0, 0x4C, 0x89, 0x74, 0x24,
+                   0x30, 0xF0, 0x45, 0x08, 0x04, 0x16});
+    Lea(f, 0x1010, 0x3F80);
+    f.Function(0x1F00, 0x2100);
+    f.Put(0x2000, {0x48, 0x8D, 0x0D, 0, 0, 0, 0, 0xC6, 0x04, 0x08, 0x00, 0x0F, 0xB6, 0x44, 0x24, 0x3E, 0xA8, 0x01, 0x75,
+                   0x31, 0xA8, 0x02, 0x75, 0x37, 0xA8, 0x04, 0x75});
+    Lea(f, 0x2000, 0x3F80);
+    f.Function(0x1200, 0x1220);
+    f.Put(0x1200, {0x48, 0x83, 0xEC, 0x28, 0x48, 0x8B, 0x01, 0x8B, 0x08, 0x31, 0xD2});
+    f.Call(0x120B, 0x1000);
+    f.Function(0x1240, 0x1260);
+    f.Put(0x1240, {0x48, 0x83, 0xEC, 0x28, 0x48, 0x8B, 0x01, 0x8B, 0x08, 0xB2, 0x01});
+    f.Call(0x124B, 0x1000);
+    const char* confirm = "unit_confirm_message";
+    const char* cancel = "unit_confirm_cancel_message";
+    std::memcpy(&f.image[0x3000], confirm, std::strlen(confirm));
+    std::memcpy(&f.image[0x3040], cancel, std::strlen(cancel));
+    const uint64_t base = reinterpret_cast<uint64_t>(f.image.data());
+    Pointer(f, 0x3100, base + 0x3000);
+    Pointer(f, 0x3108, std::strlen(confirm));
+    Pointer(f, 0x3130, base + 0x1200);
+    Pointer(f, 0x3180, base + 0x3040);
+    Pointer(f, 0x3188, std::strlen(cancel));
+    Pointer(f, 0x31B0, base + 0x1240);
+    return f;
+}
 } // namespace
 
 int main()
 {
+    // ODST's prompts: found, agreeing, and refused when a piece is missing or names other bytes.
+    {
+        Fake f = Prompts();
+        const OdstPrompt found = FindOdstPrompt(f.View());
+        CHECK(!found.missing && found.flags == 0x3F80 && found.setter == 0x1000);
+        Fake moved = Prompts();
+        Lea(moved, 0x2000, 0x3F90);
+        CHECK(FindOdstPrompt(moved.View()).missing != nullptr && FindOdstPrompt(moved.View()).flags == 0);
+        Fake unnamed = Prompts();
+        Pointer(unnamed, 0x31B0, 0);
+        CHECK(FindOdstPrompt(unnamed.View()).missing != nullptr);
+        Fake elsewhere = Prompts();
+        elsewhere.Call(0x124B, 0x1F00);
+        CHECK(FindOdstPrompt(elsewhere.View()).missing != nullptr);
+    }
+
     // Patterns.
     const std::vector<int> p = ParsePattern("8B ?? 28 ff");
     CHECK(p.size() == 4 && p[0] == 0x8B && p[1] == -1 && p[2] == 0x28 && p[3] == 0xFF);

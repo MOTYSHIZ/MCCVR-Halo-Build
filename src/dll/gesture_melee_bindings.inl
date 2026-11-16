@@ -104,9 +104,10 @@ void RefreshGestureMeleeBinding(const TitleDescriptor* title,bool levelRunning,u
         if(native!=vr_mapping::kNoAction&&!GestureReadNativeBindings(d,g_gestureBinding.state,vehicle[action],native))
             for(auto& transport:vehicle[action]) transport=0;
     }
-    // ODST's prompts wait on accept (0x12) and cancel (0x13); no MCC control moves them (the engine's A and B).
+    // ODST's prompts wait on accept (0x12) and cancel (0x13); no MCC control moves them (the engine's A and B). Project
+    // Reclaimer answers ODST's prompts from Halo 3's own records for the same two actions (reclaimer_client::FindOdstPrompt).
     uint32_t odstPrompt[2][4]{};
-    if(readable&&d.title==GameTitle::Halo3ODST)
+    if(readable&&(d.title==GameTitle::Halo3ODST||(d.title==GameTitle::Halo3&&g_hostIsProjectReclaimer)))
         for(unsigned i=0;i<2;++i)
             if(!GestureReadNativeBindings(d,g_gestureBinding.state,odstPrompt[i],vr_mapping::kOdstAcceptAction+i))
                 for(auto& transport:odstPrompt[i]) transport=0;
@@ -209,7 +210,8 @@ bool Game_ReadOdstPromptButtons(uint32_t& accept,uint32_t& cancel,uint64_t now)
 {
     accept=cancel=0;
     const GameTitle title=TitleAdapter_GetActiveTitle();
-    if(title!=GameTitle::Halo3ODST) return false;
+    if(title!=GameTitle::Halo3ODST&&!(title==GameTitle::Halo3&&g_hostIsProjectReclaimer&&Game_ReclaimerOdstLevel()))
+        return false;
     const uint64_t observed=g_gestureBinding.observedMs.load(std::memory_order_acquire);
     if(!observed||now<observed||now-observed>150) return false;
     uint32_t read[2]{};
