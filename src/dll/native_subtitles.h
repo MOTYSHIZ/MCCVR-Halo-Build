@@ -27,6 +27,10 @@ void NativeSubtitles_SetReachSources(uint32_t generation,
 // it, and NativeNotice_Read gives the render thread the image until it expires.
 void NativeNotice_Show(const wchar_t* text, float seconds) noexcept;
 std::shared_ptr<const NativeSubtitleImage> NativeNotice_Read();
+// THE LABEL: a short word for a waypoint of the mod's own (the manual reload's "PULL" at the charging handle). It
+// stays until changed (an empty text clears it); the worker rasterizes it, the render thread places it.
+void NativeLabel_Set(const wchar_t* text) noexcept;
+std::shared_ptr<const NativeSubtitleImage> NativeLabel_Read();
 
 // Bounded, nonblocking ingress for independently verified title sources.
 // Copies UTF-16 immediately; never retains an engine-owned string pointer.

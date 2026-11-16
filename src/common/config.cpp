@@ -1460,6 +1460,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"manual_reload_hand_follow")) { g_config.manual_reload_hand_follow=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_sounds")) { g_config.manual_reload_sounds=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_show_zones")) { g_config.manual_reload_show_zones=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_pull_prompt")) { g_config.manual_reload_pull_prompt=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_stow")) { g_config.weapon_stow=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_slide")) { g_config.weapon_holster_slide=atoi(val)!=0;continue; }
         if (!strcmp(key,"weapon_holster_click")) { g_config.weapon_holster_click=atoi(val)!=0;continue; }
@@ -3785,6 +3786,9 @@ void ConfigSave()
     fprintf(f, "# manual_reload_show_zones: see-through spheres at the pouch, the well and the rack part (green: in it and it\n");
     fprintf(f, "# would take; amber: in it, nothing to do; red: out of reach). (default %d)\n", d.manual_reload_show_zones ? 1 : 0);
     fprintf(f, "manual_reload_show_zones = %d\n", g_config.manual_reload_show_zones?1:0);
+    fprintf(f, "# manual_reload_pull_prompt: a PULL waypoint at the charging handle when a round has waited 2 s to be\n");
+    fprintf(f, "# chambered. (default %d)\n", d.manual_reload_pull_prompt ? 1 : 0);
+    fprintf(f, "manual_reload_pull_prompt = %d\n", g_config.manual_reload_pull_prompt?1:0);
     fprintf(f, "# 1 = while manual reload or holsters are on, the game's reload and weapon-switch buttons do nothing; gestures only.\n");
     fprintf(f, "gesture_only_weapon_input = %d\n", g_config.gesture_only_weapon_input?1:0);
     fprintf(f, "manual_reload_disable_auto = %d\nmanual_reload_skip_animations = %d\n",

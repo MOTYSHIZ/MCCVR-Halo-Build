@@ -116,6 +116,8 @@ struct Output
     uint64_t droppedAt = 0;          // the magazine left (the animation's way out plays from here)
     bool emptyAtDrop = false;        // the game's gun was empty when it left (the game plays its empty reload)
     bool pressPending = false;       // a reload press is out, not yet taken by the game
+    bool promptRack = false;         // the rack has been due this long and is not being done: show "PULL" here
+    Vec prompt{};
     bool gripMissed = false;         // `miss` is new this update
     GripMiss miss{};
     int loaded = 0, reserve = 0, chamber = 0;
@@ -145,6 +147,9 @@ public:
     // and level loads). FA 2026-11-15: a Legendary death reverted the game to a full gun while the player's count
     // still had its magazine out.
     static constexpr uint64_t kForgetMs = 2000;
+    // A rack left undone this long gets its prompt (user 2026-11-16: "say pull, but only after 2 seconds of the
+    // player not doing so").
+    static constexpr uint64_t kRackPromptMs = 2000;
     static constexpr float kMagazineTopLocal[3]{0, 1, 0}; // the drawn magazine's top, in the controller's frame
 
     void Reset() noexcept { *this = Engine{}; }
@@ -389,6 +394,19 @@ public:
             out.follow = target - in.support;
             out.followValid = weapon_interaction::Finite(out.follow) && Length(out.follow) < 0.3f;
         }
+        {
+            // The rack is due: a round to chamber, the hand not on it (a pump under the two-handed hold counts as
+            // not working it until it moves).
+            const bool due = in.ready && c.rack && in.weapon.rackChambers && in.geometry.rackValid && RackHasWork() &&
+                             (phase_ == Phase::Idle || (phase_ == Phase::Racking && rackByHold_ && rackPull_ < 0.1f));
+            if (!due) rackDueSince_ = 0;
+            else if (!rackDueSince_) rackDueSince_ = in.now ? in.now : 1;
+            if (due && in.now >= rackDueSince_ && in.now - rackDueSince_ >= kRackPromptMs)
+            {
+                out.promptRack = true;
+                out.prompt = RackZone(in, c);
+            }
+        }
         out.consumeSupport = phase_ == Phase::MagHeld || (phase_ == Phase::Pushing && !shellHome_) ||
                              (phase_ == Phase::Racking && !rackByHold_) || (gripOwned_ && gripHeld && !rackByHold_);
         // The two-handed hold may not take a hand that is fetching, holding or pushing a magazine, working the
@@ -558,6 +576,7 @@ private:
     bool emptyAtDrop_ = false;
     float rackGrab_[3]{};
     bool rackByHold_ = false, shellHome_ = false;
+    uint64_t rackDueSince_ = 0;
     uint64_t shellHomeAt_ = 0;
     bool missPending_ = false;
 };

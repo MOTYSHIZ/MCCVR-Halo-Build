@@ -56,6 +56,12 @@ uint32_t g_noticeLength = 0;
 uint64_t g_noticeExpires = 0, g_noticeSerial = 0;
 uint64_t g_noticeRasterized = 0; // worker
 std::shared_ptr<const NativeSubtitleImage> g_noticeImage;
+// The label (NativeLabel_Set): the same, without an expiry.
+SRWLOCK g_labelLock = SRWLOCK_INIT;
+wchar_t g_labelText[64]{};
+uint32_t g_labelLength = 0;
+uint64_t g_labelSerial = 0, g_labelRasterized = 0;
+std::shared_ptr<const NativeSubtitleImage> g_labelImage;
 
 bool CopyText(const wchar_t* source, Event& event) noexcept {
     if (!source || (reinterpret_cast<uintptr_t>(source) & 1)) return false;
@@ -285,6 +291,21 @@ std::shared_ptr<const NativeSubtitleImage> NativeNotice_Read() {
     return std::atomic_load_explicit(&g_noticeImage,std::memory_order_acquire);
 }
 
+void NativeLabel_Set(const wchar_t* text) noexcept {
+    AcquireSRWLockExclusive(&g_labelLock);
+    uint32_t length = 0;
+    while (text && length + 1 < _countof(g_labelText) && text[length]) { g_labelText[length] = text[length]; ++length; }
+    const bool changed = length != g_labelLength || memcmp(g_labelText, text ? text : L"", length * sizeof(wchar_t));
+    g_labelText[length] = 0;
+    g_labelLength = length;
+    if (changed) ++g_labelSerial;
+    ReleaseSRWLockExclusive(&g_labelLock);
+}
+
+std::shared_ptr<const NativeSubtitleImage> NativeLabel_Read() {
+    return std::atomic_load_explicit(&g_labelImage,std::memory_order_acquire);
+}
+
 void NativeSubtitles_SetReachSources(uint32_t generation,
     uintptr_t gameplayReturn,uintptr_t theatreReturn) noexcept {
     const SubtitleSource sources[]={{gameplayReturn,0,false},{theatreReturn,0,true}};
@@ -349,6 +370,22 @@ void NativeSubtitles_Poll(bool levelRunning) {
             if (auto image = Rasterize(notice, 132))
                 std::atomic_store_explicit(&g_noticeImage,
                     std::shared_ptr<const NativeSubtitleImage>(std::move(image)),std::memory_order_release);
+        }
+    }
+    // The label: rasterized when its text changes, as large as the image allows (a word read at arm's length).
+    {
+        RasterCaption label{};
+        uint64_t serial = 0;
+        AcquireSRWLockShared(&g_labelLock);
+        serial = g_labelSerial;
+        label.length = g_labelLength;
+        memcpy(label.text, g_labelText, sizeof(wchar_t) * (g_labelLength + 1));
+        ReleaseSRWLockShared(&g_labelLock);
+        if (serial != g_labelRasterized) {
+            g_labelRasterized = serial;
+            label.expires = UINT64_MAX;
+            auto image = label.length ? Rasterize(label, 300) : std::shared_ptr<const NativeSubtitleImage>{};
+            std::atomic_store_explicit(&g_labelImage, std::move(image), std::memory_order_release);
         }
     }
     const auto dropped=g_dropped.exchange(0,std::memory_order_relaxed);

@@ -248,6 +248,24 @@ int main()
         Check(std::fabs(dry.out.rackTravel - 0.04f) < 1e-6f, "a learned 4 cm stroke is the rack's travel");
     }
     {
+        // THE PULL PROMPT: 2 s after a round is waiting to be chambered, gone once racked.
+        Rig dry;
+        dry.game = Game{1, 96, 32};
+        dry.Step();
+        dry.game.Shoot(1); dry.Step();                           // the last round: the gun is empty
+        dry.Tap(); dry.Wait(800);                                // the magazine drops; the game reloads unseen
+        dry.FetchAndSeat();
+        dry.Grip(false);
+        Check(dry.out.chamber == 0 && !dry.out.promptRack, "seated into an empty gun: no prompt at once");
+        dry.Wait(1800);
+        Check(!dry.out.promptRack, "nor before 2 s");
+        dry.Wait(400);
+        Check(dry.out.promptRack && std::fabs(dry.out.prompt.y - kRack.y) < 1e-4f, "after 2 s: PULL at the handle");
+        dry.in.support = kRack; dry.Step(); dry.Grip(true);
+        dry.in.support = kRack + kRackBack * 0.065f; dry.Step();
+        Check(dry.out.racked && !dry.out.promptRack, "racked: the prompt goes");
+    }
+    {
         // THE SHOTGUN: a shell at a time, and the pump after every shot.
         Rig sg("fp_shotgun");
         sg.game = Game{6, 18, 6};

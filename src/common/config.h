@@ -1710,6 +1710,8 @@ struct Config
     bool manual_reload_sounds = true;
     // ... see-through zones where the hand works: the pouch, the well while a magazine is in hand, the rack part.
     bool manual_reload_show_zones = false;
+    // ... a "PULL" waypoint at the charging handle when a round is waiting to be chambered and 2 s have gone by.
+    bool manual_reload_pull_prompt = true;
     // Stow the gun at the other shoulder: the weapon hand reaches to the holster spot mirrored to the other side
     // of the body and squeezes; the gun is put away (hidden, its trigger ignored) until the same squeeze there
     // again, or the holster. The Halo: Campaign Evolved VR mod's left-shoulder "emote mode". Halo 3 and ODST.

@@ -293,6 +293,14 @@ namespace
     uint64_t g_noticeUploaded = 0, g_noticeRetryMs = 0;
     uint32_t g_noticeAcquiredIndex = 0;
     bool g_noticeAcquired = false, g_noticeFailed = false;
+    // The manual reload's PULL waypoint (NativeLabel_Read): its own swapchain, placed in the world at the handle.
+    XrSwapchain g_reloadPromptChain = XR_NULL_HANDLE;
+    std::vector<ID3D11Texture2D*> g_reloadPromptImages;
+    std::vector<ID3D11RenderTargetView*> g_reloadPromptRtvs;
+    uint64_t g_reloadPromptUploaded = 0, g_reloadPromptRetryMs = 0;
+    uint32_t g_reloadPromptAcquiredIndex = 0;
+    bool g_reloadPromptAcquired = false, g_reloadPromptFailed = false;
+    struct ReloadPrompt { bool valid = false; XrVector3f at{}, head{}; uint64_t when = 0; } g_reloadPrompt;
     XrSwapchain g_dualReticleChain = XR_NULL_HANDLE;
     std::vector<ID3D11Texture2D*> g_dualReticleImages;
     std::vector<ID3D11RenderTargetView*> g_dualReticleRtvs;
@@ -10439,6 +10447,85 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return true;
     }
 
+    // The manual reload's PULL waypoint: the label (NativeLabel_Read) over the charging handle, in the world, turned
+    // to face the head. Like the notice: its upload never waits, and a failure only turns the waypoint off.
+    bool PrepareReloadPrompt(XrCompositionLayerQuad& quad)
+    {
+        const uint64_t now = GetTickCount64();
+        const ReloadPrompt p = g_reloadPrompt;
+        if (!p.valid || now < p.when || now - p.when > 150 || g_reloadPromptFailed) return false;
+        const auto image = NativeLabel_Read();
+        const bool format = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM ||
+            g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+            g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM ||
+            g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        if (!image || !format || !image->rgba || image->rgba->size() != image->width * image->height * 4) return false;
+        if (g_reloadPromptChain == XR_NULL_HANDLE) {
+            if (now < g_reloadPromptRetryMs) return false;
+            g_reloadPromptRetryMs = now + 5000;
+            if (!CreateChain(image->width,image->height,g_reloadPromptChain,g_reloadPromptImages,g_reloadPromptRtvs,
+                    "reload prompt")) return false;
+        }
+        if (g_reloadPromptUploaded != image->revision || g_reloadPromptAcquired) {
+            XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            wait.timeout = 0;
+            if (!g_reloadPromptAcquired) {
+                if (xrAcquireSwapchainImage(g_reloadPromptChain,&acquire,&g_reloadPromptAcquiredIndex) != XR_SUCCESS)
+                    return false;
+                g_reloadPromptAcquired = true;
+            }
+            const XrResult ready = xrWaitSwapchainImage(g_reloadPromptChain,&wait);
+            if (ready == XR_TIMEOUT_EXPIRED) return false;
+            if (ready != XR_SUCCESS) {
+                g_reloadPromptFailed = true;
+                LOG("Reload prompt: swapchain wait failed (%d); the PULL waypoint is off for this session",ready);
+                return false;
+            }
+            const bool valid = g_reloadPromptAcquiredIndex < g_reloadPromptImages.size();
+            if (valid) g_context->UpdateSubresource(g_reloadPromptImages[g_reloadPromptAcquiredIndex],
+                0,nullptr,image->rgba->data(),image->width*4,0);
+            const XrResult released = xrReleaseSwapchainImage(g_reloadPromptChain,&release);
+            g_reloadPromptAcquired = false;
+            if (!valid || released != XR_SUCCESS) {
+                g_reloadPromptFailed = true;
+                LOG("Reload prompt: swapchain release failed (%d, image=%d); the PULL waypoint is off for this session",
+                    released,valid?1:0);
+                return false;
+            }
+            g_reloadPromptUploaded = image->revision;
+        }
+        // Facing the head, upright: the quad's +Z toward the eyes, its +Y the world's up as far as it can be.
+        XrVector3f f{p.head.x-p.at.x,p.head.y-p.at.y,p.head.z-p.at.z};
+        const float fl=std::sqrt(f.x*f.x+f.y*f.y+f.z*f.z);
+        if (!(fl>1e-3f)) return false;
+        f={f.x/fl,f.y/fl,f.z/fl};
+        XrVector3f r{f.z,0,-f.x};   // up (0,1,0) x forward
+        const float rl=std::sqrt(r.x*r.x+r.z*r.z);
+        if (!(rl>1e-3f)) return false;
+        r={r.x/rl,0,r.z/rl};
+        const XrVector3f u{f.y*r.z-f.z*r.y,f.z*r.x-f.x*r.z,f.x*r.y-f.y*r.x};
+        // Rotation matrix columns r, u, f -> quaternion.
+        const float m00=r.x,m11=u.y,m22=f.z;
+        XrQuaternionf q{};
+        const float trace=m00+m11+m22;
+        if (trace>0) { const float s=std::sqrt(trace+1.f)*2.f; q.w=0.25f*s; q.x=(u.z-f.y)/s; q.y=(f.x-r.z)/s; q.z=(r.y-u.x)/s; }
+        else if (m00>m11&&m00>m22) { const float s=std::sqrt(1.f+m00-m11-m22)*2.f; q.w=(u.z-f.y)/s; q.x=0.25f*s; q.y=(u.x+r.y)/s; q.z=(f.x+r.z)/s; }
+        else if (m11>m22) { const float s=std::sqrt(1.f+m11-m00-m22)*2.f; q.w=(f.x-r.z)/s; q.x=(u.x+r.y)/s; q.y=0.25f*s; q.z=(f.y+u.z)/s; }
+        else { const float s=std::sqrt(1.f+m22-m00-m11)*2.f; q.w=(r.y-u.x)/s; q.x=(f.x+r.z)/s; q.y=(f.y+u.z)/s; q.z=0.25f*s; }
+        quad = XrCompositionLayerQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        quad.subImage.swapchain = g_reloadPromptChain;
+        quad.subImage.imageRect = {{0,0},{int32_t(image->width),int32_t(image->height)}};
+        quad.space = g_localSpace;
+        quad.pose.orientation = q;
+        quad.pose.position = p.at;
+        quad.size = {0.20f,0.20f*float(image->height)/float(image->width)};
+        return true;
+    }
+
     float UpdatePauseTransition()
     {
         enum class Phase { Idle, FadeOut, FadeIn };
@@ -16305,6 +16392,21 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             const auto& supportQ=leftLocation.pose.orientation;
             g_weaponAccessory=weapon_accessory::Build(sample,settings,weaponGesture,
                 {supportQ.x,supportQ.y,supportQ.z,supportQ.w});
+            {
+                // THE PULL WAYPOINT: 5 cm over the handle's grab spot, while its prompt holds.
+                static bool labelSet=false;
+                if(!labelSet) { NativeLabel_Set(L"PULL");labelSet=true; }
+                ReloadPrompt prompt{};
+                if(g_config.manual_reload_pull_prompt&&reloadOut.owned&&reloadOut.promptRack&&
+                    weapon_interaction::Finite(reloadOut.prompt)&&weapon_interaction::Finite(sample.head))
+                {
+                    prompt.valid=true;
+                    prompt.at={reloadOut.prompt.x,reloadOut.prompt.y+0.05f,reloadOut.prompt.z};
+                    prompt.head={sample.head.x,sample.head.y,sample.head.z};
+                    prompt.when=inputNow;
+                }
+                g_reloadPrompt=prompt;
+            }
             g_reloadMarkerCount=0;
             if(g_config.manual_reload_show_zones&&reloadOut.owned)
             {
@@ -18594,6 +18696,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             !Menu_IsOpen() && PrepareNativeSubtitle(nativeSubtitleQuad);
         const bool noticeReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
             !Menu_IsOpen() && PrepareNotice(noticeQuad);
+        XrCompositionLayerQuad reloadPromptQuad{XR_TYPE_COMPOSITION_LAYER_QUAD};
+        const bool reloadPromptReady=fs.shouldRender && comfortFadeAlpha<=0.01f &&
+            !Menu_IsOpen() && PrepareReloadPrompt(reloadPromptQuad);
 #if HALOMCCVR_EXPERIMENTAL_HALO2_TEMPORAL_STEREO || \
     HALOMCCVR_HALO2_STEREO6DOF
         bool halo2ProjectionQueued = false;
@@ -21483,6 +21588,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&nativeSubtitleQuad));
         if (noticeReady && !layers.empty())
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&noticeQuad));
+        if (reloadPromptReady && !layers.empty())
+            layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&reloadPromptQuad));
         // Evaluate against this frame's actual native quad before composition.
         // The cursor follows the last successfully delivered smoothed mouse UV.
         // MONO: nothing in the one picture has disparity, so a layer left at its true distance would be the only
