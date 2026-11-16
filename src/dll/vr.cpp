@@ -10521,9 +10521,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         quad.subImage.imageRect = {{0,0},{int32_t(image->width),int32_t(image->height)}};
         quad.space = g_localSpace;
         quad.pose.orientation = q;
-        // The chevron's tip (the image's bottom centre) 2 cm over the handle's grab spot.
+        // The chevron's tip (the image's bottom centre) 6 cm over the handle's grab spot: clear of the gun, whose
+        // own counter sits right by the assault rifle's handle (FA 2026-11-16: at 2 cm the word covered it).
         quad.size = {0.16f,0.16f*float(image->height)/float(image->width)};
-        const float lift = 0.02f + quad.size.height * 0.5f;
+        const float lift = 0.06f + quad.size.height * 0.5f;
         quad.pose.position = {p.at.x+u.x*lift,p.at.y+u.y*lift,p.at.z+u.z*lift};
         return true;
     }
