@@ -124,15 +124,109 @@ inline constexpr int kOdstViewReadDisp = 3;
 // version of chud_draw_navpoints (lifted::ClientVersion), which first calls a draw of the client's: it draws every
 // entry up to a count it keeps in a global, reading each entry's alpha (+0x14) and fade but sizing them itself (it never
 // reads +0x38), and says whether it drew. Only when it did not does the 20-entry translated body run.
-//   The version: mov rbx,[rcx+8] (the navpoints); mov rdi,[rcx+0x10] (the user); mov rcx,rbx; mov edx,edi;
-//   call <its own draw>; test al,al; jnz. The call's rel32 at +14. Searched in its first kReclaimerVersionBytes.
-inline constexpr char kReclaimerVersionPattern[] = "48 8B 59 08 48 8B 79 10 48 89 D9 89 FA E8 ?? ?? ?? ?? 84 C0 75";
+//   The version: mov <a>,[rcx+8] (the navpoints); mov <b>,[rcx+0x10] (the user); mov rcx,<a>; mov edx,<b>;
+//   call <its own draw>; test al,al. Registers are wildcards: 0.10.0 used rbx/rdi (48 8B 59 08 48 8B 79 10 48 89 D9
+//   89 FA), 0.10.4 r14/rbx (4C 8B 71 08 48 8B 59 10 4C 89 F1 89 DA), and with the old bytes the settings reached only
+//   the game's first 20 tags (2026-11-15). The call's rel32 at +14. Searched in its first kReclaimerVersionBytes.
+inline constexpr char kReclaimerVersionPattern[] = "?? 8B ?? 08 ?? 8B ?? 10 ?? 89 ?? 89 ?? E8 ?? ?? ?? ?? 84 C0";
 inline constexpr int kReclaimerVersionCallRel = 14;
-inline constexpr size_t kReclaimerVersionBytes = 0x40;
-//   In its own draw: mov rdi,[rip+<count block>]; test rdi,rdi; jz; imul rax,[rdi],0x74 (the block's first word, times
-//   the entry stride). Its disp32 at +3. Searched in the draw's extent in .pdata.
-inline constexpr char kReclaimerCountPattern[] = "48 8B 3D ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 48 6B 07 74";
-inline constexpr int kReclaimerCountDisp = 3;
+inline constexpr size_t kReclaimerVersionBytes = 0x60;
+// 0.10.4 put a pass-through in front of the version (its stub's target: sub rsp,0x28; call <version>; nop; add rsp,
+// 0x28; ret), so the call above was not in the first bytes searched (2026-11-15). ThunkCallee follows such a
+// pass-through, or a jmp rel32, to the function it calls.
+
+// Where the pass-through at `code` goes, relative to `code`: sub rsp,imm8; call rel32; [nop;] add rsp,imm8; ret, or
+// jmp rel32. False for anything else.
+inline bool ThunkCallee(const uint8_t* code, size_t size, int64_t& offset)
+{
+    const auto rel32 = [&](size_t at) {
+        int32_t rel = 0;
+        for (int i = 3; i >= 0; --i)
+            rel = static_cast<int32_t>((static_cast<uint32_t>(rel) << 8) | code[at + static_cast<size_t>(i)]);
+        return rel;
+    };
+    if (size >= 5 && code[0] == 0xE9)
+    {
+        offset = 5 + static_cast<int64_t>(rel32(1));
+        return true;
+    }
+    if (size < 15 || code[0] != 0x48 || code[1] != 0x83 || code[2] != 0xEC || code[4] != 0xE8)
+        return false;
+    size_t at = 9;
+    if (code[at] == 0x90)
+        ++at;
+    if (at + 5 > size || code[at] != 0x48 || code[at + 1] != 0x83 || code[at + 2] != 0xC4 || code[at + 3] != code[3] ||
+        code[at + 4] != 0xC3)
+        return false;
+    offset = 9 + static_cast<int64_t>(rel32(5));
+    return true;
+}
+//   In its own draw: mov <r>,[rip+<count block>]; test <r>,<r>; jz; ... imul <x>,[<r>],0x74 (the block's first word,
+//   times the entry stride). Found by that shape, not by its bytes (FindReclaimerCountRead): 0.10.0 read it into rdi
+//   and multiplied at once, 0.10.4 into rax and stored it on the stack in between.
+inline constexpr size_t kReclaimerCountImulWindow = 32;   // the furthest the multiply is looked for past the jz
+
+namespace detail
+{
+// mov r64, [rip + disp32]: the register, or -1.
+inline int RipLoadRegister(const uint8_t* code, size_t size, size_t at)
+{
+    if (at + 7 > size || (code[at] & 0xFB) != 0x48 || code[at + 1] != 0x8B || (code[at + 2] & 0xC7) != 0x05)
+        return -1;
+    return ((code[at] & 0x04) << 1) | ((code[at + 2] >> 3) & 7);
+}
+// test r64, r64 on `reg` at `at`: its length, or 0.
+inline size_t TestSelf(const uint8_t* code, size_t size, size_t at, int reg)
+{
+    const uint8_t rex = static_cast<uint8_t>(0x48 | (reg >= 8 ? 0x05 : 0));
+    const uint8_t modrm = static_cast<uint8_t>(0xC0 | ((reg & 7) << 3) | (reg & 7));
+    return at + 3 <= size && code[at] == rex && code[at + 1] == 0x85 && code[at + 2] == modrm ? 3 : 0;
+}
+// jz rel8 / jz rel32 at `at`: its length, or 0.
+inline size_t JumpIfZero(const uint8_t* code, size_t size, size_t at)
+{
+    if (at + 2 <= size && code[at] == 0x74)
+        return 2;
+    return at + 6 <= size && code[at] == 0x0F && code[at + 1] == 0x84 ? 6 : 0;
+}
+// imul r64, [base], imm8 (mod 00, no SIB, no displacement) with this immediate.
+inline bool MultipliesFrom(const uint8_t* code, size_t size, size_t at, int base, uint8_t imm)
+{
+    if (at + 4 > size || (code[at] & 0xF8) != 0x48 || code[at + 1] != 0x6B || code[at + 3] != imm)
+        return false;
+    const uint8_t modrm = code[at + 2];
+    if ((modrm & 0xC0) != 0 || (modrm & 7) == 4 || (modrm & 7) == 5)
+        return false;
+    return (((code[at] & 0x01) << 3) | (modrm & 7)) == base;
+}
+} // namespace detail
+
+// Where in `code` (its own draw) the count block's disp32 is: the one rip-relative load into a register that is then
+// tested, jumped over when null, and multiplied from by the entry stride. -1 when none is, or more than one.
+inline long FindReclaimerCountRead(const uint8_t* code, size_t size)
+{
+    long found = -1;
+    int matches = 0;
+    for (size_t at = 0; at + 7 <= size; ++at)
+    {
+        const int reg = detail::RipLoadRegister(code, size, at);
+        if (reg < 0)
+            continue;
+        const size_t test = detail::TestSelf(code, size, at + 7, reg);
+        const size_t jump = test ? detail::JumpIfZero(code, size, at + 7 + test) : 0;
+        if (!jump)
+            continue;
+        const size_t from = at + 7 + test + jump;
+        for (size_t m = from; m < from + kReclaimerCountImulWindow && m + 4 <= size; ++m)
+            if (detail::MultipliesFrom(code, size, m, reg, static_cast<uint8_t>(0x74)))
+            {
+                found = static_cast<long>(at + 3);
+                ++matches;
+                break;
+            }
+    }
+    return matches == 1 ? found : -1;
+}
 
 // ---- the entry (ADDR-HYGIENE: structural; proven in place by the patterns above, see the header) ----
 inline constexpr int kStockEntryCount = 20;

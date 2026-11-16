@@ -1431,6 +1431,16 @@ namespace
         if (SectionHeader("Movement##section", ImGuiTreeNodeFlags_None))
         {
         {
+        if (g_config.movement_direction < 0 || g_config.movement_direction > 2)
+            g_config.movement_direction = 0;
+        changed |= Combo("Walking direction", &g_config.movement_direction,
+            "Head\0Left controller\0Right controller\0");
+        ImGui::TextDisabled("Pushing the left stick forward walks where your head looks,\n"
+            "or where the chosen controller points. Every game, on foot.\n"
+            "Roomscale steps and physical running always follow your head.");
+        SettingGap();
+        }
+        {
         SettingGroup running("Physical running", SettingGroup::kNameOnly);
         changed |= ImGui::Checkbox("Physical running", &g_config.physical_running);
         if(g_config.physical_running) {

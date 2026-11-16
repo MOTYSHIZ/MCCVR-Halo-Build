@@ -483,36 +483,30 @@ bool InstallReclaimerPlayerTags(void* guestDraw)
         return false;
     }
     const auto version = reinterpret_cast<uintptr_t>(lifted::ClientVersion(guestDraw));
-    if (!version)
+    reclaimer_client::Image image;
+    if (!version || !reclaimer_client::ClientImageInMemory(image) || version < reinterpret_cast<uintptr_t>(image.base) ||
+        version - reinterpret_cast<uintptr_t>(image.base) >= image.size)
     {
         LOG("PLAYER TAGS Halo 3: Project Reclaimer has no navpoint draw of its own here; the settings reach the "
             "game's own draw (%d entries)", g_halo3PlayerTags.count.load(std::memory_order_relaxed));
         return false;
     }
-    const char* why = nullptr;
-    uintptr_t draw = 0, countRead = 0;
-    DWORD64 image = 0;
-    const uintptr_t call = mcc_clock::FindUnique(version, kReclaimerVersionBytes, kReclaimerVersionPattern);
-    const PRUNTIME_FUNCTION extent =
-        call ? RtlLookupFunctionEntry(draw = sig::RipTarget(call + kReclaimerVersionCallRel,
-                                                            call + kReclaimerVersionCallRel + 4),
-                                      &image, nullptr)
-             : nullptr;
-    if (!call)
-        why = "the call of its own draw in its version of the navpoint draw";
-    else if (!extent || image + extent->BeginAddress != draw)
-        why = "its own draw's extent";
-    else if (!(countRead = mcc_clock::FindUnique(draw, extent->EndAddress - extent->BeginAddress,
-                                                 kReclaimerCountPattern)))
-        why = "its own draw's read of the entry count";
-    if (why)
+    // reclaimer_client_finds.h, the same find the offline check runs: through its pass-throughs (0.10.4 has one), the
+    // call of its own draw, the draw's extent and its one count read, each found by shape.
+    const auto exe = reinterpret_cast<uintptr_t>(image.base);
+    const reclaimer_client::NavpointDraw found =
+        reclaimer_client::FindNavpointDrawFromVersion(image, static_cast<uint32_t>(version - exe));
+    if (found.missing)
     {
         LOG("PLAYER TAGS Halo 3: StockFallback: Project Reclaimer's own navpoint draw: %s did not prove; the settings "
-            "reach only the game's own draw (%d entries)", why, g_halo3PlayerTags.count.load(std::memory_order_relaxed));
+            "reach only the game's own draw (%d entries)", found.missing,
+            g_halo3PlayerTags.count.load(std::memory_order_relaxed));
         return false;
     }
-    hook.countBlock = reinterpret_cast<uint64_t* const*>(
-        sig::RipTarget(countRead + kReclaimerCountDisp, countRead + kReclaimerCountDisp + 4));
+    const uintptr_t draw = exe + found.draw, countRead = exe + found.countDisp;
+    // The global may hold no block yet; the detour reads the count on every call and applies nothing while it does not
+    // read as 20 to kMaxEntryCount (HostEntryCount).
+    hook.countBlock = reinterpret_cast<uint64_t* const*>(sig::RipTarget(countRead, countRead + 4));
     void* const detour = reinterpret_cast<void*>(&ReclaimerPlayerTagsDetour);
     DWORD64 detourImage = 0;
     if (!RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(detour), &detourImage, nullptr))
@@ -540,7 +534,6 @@ bool InstallReclaimerPlayerTags(void* guestDraw)
         LOG("PLAYER TAGS Halo 3: StockFallback: the hook on Project Reclaimer's own navpoint draw did not enable");
         return false;
     }
-    const auto exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     LOG("PLAYER TAGS Halo 3: Installed on Project Reclaimer's own navpoint draw too (exe+0x%llX, called from its "
         "version exe+0x%llX): it draws %d entries (its count, read from exe+0x%llX) and sizes them itself, so there "
         "show, opacity and the distance limit apply and the size setting does not",
@@ -647,6 +640,25 @@ void ReportHalo3PlayerTags()
     ReportPlayerTags(g_halo3PlayerTags);
     // Project Reclaimer's own draw: whether it drew the tags itself, when that changes (at most every 10 s).
     ReclaimerPlayerTagsHook& hook = g_reclaimerPlayerTags;
+    // Two independent reads of how many navpoints it keeps: the count its draw walks (found by shape) and its own list
+    // of sizes in its log (hud.markers). Said once when both are read; a disagreement means one of them is not what it
+    // was in 0.10.0 - 0.10.4.
+    {
+        static bool compared = false;
+        const int walked = hook.target ? ReclaimerPlayerTagsCount() : 0;
+        const uint32_t stated = reclaimer_capacity::HudMarkers();
+        if (!compared && walked && stated)
+        {
+            compared = true;
+            if (static_cast<uint32_t>(walked) == stated)
+                LOG("PLAYER TAGS Halo 3: Project Reclaimer's navpoint count %d agrees with its own list of sizes "
+                    "(hud.markers %u)", walked, stated);
+            else
+                LOG("PLAYER TAGS Halo 3: CHECK: Project Reclaimer's own draw walks %d navpoints, but its list of sizes "
+                    "says hud.markers %u; one of the two has changed (the settings follow the draw's count)", walked,
+                    stated);
+        }
+    }
     static uint64_t reportedMs = 0;
     static int reportedState = -1;
     const uint32_t calls = hook.calls.load(std::memory_order_relaxed);

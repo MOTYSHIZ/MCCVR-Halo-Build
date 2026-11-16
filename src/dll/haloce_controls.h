@@ -98,7 +98,8 @@ bool HaloCEControls_ZoomLevel(uint32_t expectedGeneration,int16_t& level) noexce
 bool HaloCEControls_GetNativePaused(bool& paused,bool* suppressed=nullptr,
     bool* inputKnown=nullptr) noexcept;
 bool HaloCEControls_OwnsLookStick() noexcept;
-bool HaloCEControls_MapMoveStick(float x,float y,float& outputX,float& outputY) noexcept;
+// `headingOffset`: radians added to the head's heading (movement_direction_logic.h), 0 for the head.
+bool HaloCEControls_MapMoveStick(float x,float y,float& outputX,float& outputY,float headingOffset=0.0f) noexcept;
 // Coherent on-foot owner and native CENTER camera/HMD/reference data. This
 // camera position is not claimed to be the unit's collision/body origin.
 bool HaloCEControls_GetLocomotionFrame(HaloCELocalPlayerState& state,

@@ -24,7 +24,10 @@ functions with its own versions, and enlarged several of its tables.
    input mapping users and controllers, HUD markers, simulation players and views, entity counts. Any mod read of
    one of these structures by a fixed stride or field offset is at risk. *Action:* audit the mod's reads against that
    list on each Reclaimer release, and prefer strides read from the engine's own code (an imul or lea in a proven
-   function) over constants.
+   function) over constants. *Now (2026-11-15):* the mod reads that list from the client's log at each launch
+   (reclaimer_capacity.cpp), logs the sizes its reads depend on, and logs which sizes changed since the newest log of
+   another client version, calling out the ones it depends on. The client's stated fp_nodes is tried (after retail's
+   64, before 128) by the first-person block's check, which still proves it in memory.
 
 2a. **The session reader (Co-op safe, automatic).** It believes the player count and machine mask only when the
    players array proves Halo 3's layout, with a maximum of 16 players. Reclaimer 0.10 raises players to 128 and
@@ -49,7 +52,35 @@ functions with its own versions, and enlarged several of its tables.
    merged into one buffer) leaves ODST's HUD at the game's size; the log then says "0 list(s) name ODST's whole block"
    instead of "the client draws its HUD from its own copy". *Resilient form:* find the client's ODST HUD globals
    from the code that reads them (the client's draw of ODST's HUD) rather than by the shape of its heap data, or ask
-   Reclaimer's developers for a HUD safe-area setting the mod can set.
+   Reclaimer's developers for a HUD safe-area setting the mod can set. *Now (2026-11-15):* once the shape search finds
+   the list, the mod learns what in the client points at it (a word in the executable's data, directly or through
+   one heap block), saves it per client executable (HaloMCCVR-reclaimer-anchors.txt) and follows it first. The shape
+   search stays and is the judge: the reference writes ahead of it only when confirmed earlier in the launch and since
+   re-pointed by the client (so never at a list left behind), a disagreement writes the shape search's list and
+   learns the reference again without the word that misled, and a client update (another executable) drops it.
+
+2d. **The translated code's file format.** Reclaimer 0.10.4 (2026-11-15) changed `engine.code` from format 2 to 3
+   (the body 8 bytes earlier, a 0x20-byte checksum after it), and the mod's reader refused anything but 2, so Halo 3
+   stayed flat. *Now:* 2 and 3 are read; an unknown version (with a hash of 0x10 to 0x40 bytes before the body
+   length, and a trailer of none, 0x20 bytes or the hash's length) is read by whichever layout fits it exactly (the
+   record table and the code's length must agree with the file's size), logged as such, and used only once that code
+   is found in memory; a missing or half-written file is retried for a minute instead of ruled out. *Keep:* on each
+   Reclaimer release, run `halomccvr_lifted_engine_file_check` against the new cache (every adapter must decode)
+   before the user does.
+2e. **The client's own code the mod hooks (VISR's camera and constants, the navpoint draw).** Reclaimer 0.10.4
+   recompiled its navpoint draw with other registers and put a pass-through in front of it, and both exact byte
+   patterns missed (player tags past the first 20 kept the game's look). *Now (2026-11-15):* every find in the
+   client executable lives in src/common/reclaimer_client_finds.h, by shape: register-wildcard patterns, a
+   pass-through followed, the count read found as "rip load, null test, jz, imul by the entry stride", each required
+   exactly once, its function taken from .pdata. Independent finds must agree before a hook goes on: VISR's camera
+   has exactly one calling function, which must also call VISR's constant builder; the navpoint count the draw walks
+   is compared with the client's own list of sizes (hud.markers) and a disagreement is logged. A find that fails
+   names what was missing, and only that hook stays off. *Offline:* tests/reclaimer_client_file_check.cpp runs the
+   same finds on the executable on disk (HALOMCCVR_RECLAIMER_CLIENT_EXE): run it on every new Reclaimer release
+   before anyone plays it (0.10.0 and 0.10.4 both pass).
+9b. **Where the host keeps halo3.dll and its logs.** 0.10.3 renamed its logs (`client-<date>-v<version>.log`) and
+   prefixed each line with the time, which hid the lifted halo3.dll's path from the mod. *Now:* the newest three
+   `client*.log` are read and the path is found anywhere on the line.
 
 ## Behaviour the mod assumes of its host
 
@@ -66,9 +97,9 @@ functions with its own versions, and enlarged several of its tables.
 ## Hooks and calls
 
 6. **Functions the host replaces.** A hook on a function the client runs its own version of never fires unless the
-   stub that calls that version is hooked too (lifted_engine.cpp). *Resilient form, mostly in place:* the 30 s
-   "hook calls / not called" line. Add: a hook that has never fired a minute into play is logged as such, with the
-   feature it serves, so a new client version shows at once which features went quiet.
+   stub that calls that version is hooked too (lifted_engine.cpp). *In place:* the 30 s "hook calls / not called"
+   line, and the Halo 3 hook watch (halo3_hook_watch.inl), which runs under Reclaimer too ("17 watched, all called"
+   in the 0.10.2/0.10.3 logs) and gives a never-called hook its own line, counting only time in play.
 7a. **What a replaced function does with what the mod hands it.** Shots from the muzzle answer the fire routine's
    barrel-marker query with the muzzle's position and the line to the target. Reclaimer 0.10's own fire routine takes
    the direction from that answer but starts the round at the eye, so rounds flew the muzzle's line from the eye

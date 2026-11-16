@@ -69,6 +69,7 @@ constexpr BoolField kBools[] = {
 };
 constexpr IntField kInts[] = {
     {"dpad_hand", &Config::dpad_hand},
+    {"movement_direction", &Config::movement_direction},
     {"weapon_holster_location", &Config::weapon_holster_location},
     {"weapon_pouch_location", &Config::weapon_pouch_location},
     {"roomscale_follow_law", &Config::roomscale_follow_law},

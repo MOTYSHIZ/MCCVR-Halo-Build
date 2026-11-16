@@ -718,6 +718,11 @@ void VR_EndNativeHudEyeDraw();
 void VR_BeginNativeHudTargetCopy();
 void VR_EndNativeHudTargetCopy();
 ID3D11Resource* VR_RedirectNativeHudCopySource(ID3D11Resource* source);
+// Project Reclaimer's VISR: a copy out of the game's scene colour made while an eye is drawn takes that eye's image.
+// Render thread (the CopyResource hook). The count of copies it changed: any thread.
+ID3D11Resource* VR_RedirectReclaimerSceneCopySource(ID3D11DeviceContext* context, ID3D11Resource* destination,
+                                                    ID3D11Resource* source);
+uint64_t VR_ReclaimerSceneCopiesFromEye();
 void VR_GetNativeHudRouteStats(unsigned& completedPhaseScopes,
                                unsigned& provenOmMatches,
                                unsigned& exactCopyScopes,

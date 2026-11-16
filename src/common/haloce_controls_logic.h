@@ -104,8 +104,10 @@ struct VehicleTurnFollow
 // Preserve stick magnitude while expressing head-relative input in the native
 // body-camera heading. A vertical/invalid physical heading leaves the caller
 // untouched; a native camera at its pitch pole uses the shared frame fallback.
+// `headingOffset` (radians, looking right positive) turns the head's heading toward a controller's for
+// movement_direction; the head is rotated about the tracking space's vertical (+Y) before projection.
 inline bool HeadRelativeMovement(const RenderContext& context,float x,float y,
-    float& outputX,float& outputY) noexcept
+    float& outputX,float& outputY,float headingOffset=0.0f) noexcept
 {
     if (!context.tracking.serial||!context.tracking.generation||!context.referenceRevision||
         !Valid(context.camera)||!Valid(context.reference.orientation)||
@@ -115,8 +117,11 @@ inline bool HeadRelativeMovement(const RenderContext& context,float x,float y,
         context.tracking.spaceEpoch!=context.reference.spaceEpoch) return false;
     Camera frame{};Quat inverse{};
     if (!BuildTrackingFrame(context.camera,context.reference,frame,inverse)) return false;
+    // A turn of -offset about +Y carries a forward heading h to h + offset (heading measured to the right).
+    const float half=std::isfinite(headingOffset)?-0.5f*headingOffset:0.0f;
+    const Quat turn{0.0f,std::sin(half),0.0f,std::cos(half)};
     const Vec3 head=ToNative(frame,Rotate(Multiply(inverse,
-        context.tracking.headOrientation),{0,0,-1}));
+        Multiply(turn,context.tracking.headOrientation)),{0,0,-1}));
     Vec3 forward=frame.forward,heading{head.x,head.y,0};
     const float fLength=std::sqrt(Dot(forward,forward)),hLength=std::sqrt(Dot(heading,heading));
     if (!std::isfinite(fLength)||!std::isfinite(hLength)||fLength<0.001f||hLength<0.001f) return false;

@@ -374,6 +374,8 @@ static void Clamp()
                                         -kMenuOffsetLimit, kMenuOffsetLimit);
     g_config.menu_side_m = std::clamp(g_config.menu_side_m,
                                       -kMenuOffsetLimit, kMenuOffsetLimit);
+    if (g_config.movement_direction < 0 || g_config.movement_direction > 2)
+        g_config.movement_direction = 0;
     g_config.turn_snap_deg = std::clamp(g_config.turn_snap_deg, 5.0f, 90.0f);
     g_config.turn_smooth_deg_s = std::clamp(g_config.turn_smooth_deg_s, 30.0f, 360.0f);
     g_config.vehicle_cam_forward_m =
@@ -1754,6 +1756,7 @@ void ConfigLoad(const wchar_t* path)
                 static_cast<float>(atof(val)), Config{}.roomscale_recenter_moving_speed);
             continue;
         }
+        if (!strcmp(key, "movement_direction")) { g_config.movement_direction = atoi(val); continue; }
         if (!strcmp(key, "tracker_follows_head")) { g_config.tracker_follows_head = atoi(val) != 0; continue; }
         if (!strcmp(key, "audio_follows_head")) { g_config.audio_follows_head = atoi(val) != 0; continue; }
         if (!strcmp(key, "title_unload_wait")) { g_config.title_unload_wait = atoi(val) != 0; continue; }
@@ -2688,6 +2691,11 @@ void ConfigSave()
     fprintf(f, "#  CONTROLS & TURNING\n");
     fprintf(f, "#  Universal controller choices used in every supported title.\n");
     fprintf(f, "# -------------------------------------------------------------------\n\n");
+    fprintf(f, "# Which way the left stick walks on foot: 0 = where your head looks,\n");
+    fprintf(f, "# 1 = where the left controller points, 2 = where the right controller points.\n");
+    fprintf(f, "# Roomscale steps and arm-swing running always follow your head.\n");
+    fprintf(f, "# (default %d)\n", d.movement_direction);
+    fprintf(f, "movement_direction = %d\n\n", g_config.movement_direction);
     fprintf(f, "# VR turning with the right controller stick: 0 = snap, 1 = smooth.\n");
     fprintf(f, "# (default %d)\n", d.turn_smooth ? 1 : 0);
     fprintf(f, "turn_smooth = %d\n\n", g_config.turn_smooth ? 1 : 0);
