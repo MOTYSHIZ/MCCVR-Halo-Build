@@ -133,6 +133,16 @@ namespace
     std::atomic<uintptr_t> g_rebuildMatrices{0};
     std::atomic<uintptr_t> g_cameraCommit{0};
     std::atomic<uintptr_t> g_cameraRefreshRect{0};
+    // The engine's no-view particle release (kHalo2SaberSceneFenceSignalRva),
+    // proven at install to signal the fence the scene render signals.
+    using SceneFenceSignalFn = void(__fastcall*)();
+    std::atomic<uintptr_t> g_sceneFenceSignal{0};
+    // Particle releases: by the call's final pass at the engine's own point,
+    // by the no-view signal after a call none of whose passes reached it, and
+    // the passes that ran with the release held.
+    std::atomic<uint64_t> g_particleReleasesInPass{0};
+    std::atomic<uint64_t> g_particleReleasesFallback{0};
+    std::atomic<uint64_t> g_particlePassesHeld{0};
     std::atomic<uint32_t> g_coverLoggedGeneration{0};
     std::atomic<uint32_t> g_activeCallbacks{0};
     std::atomic<uint64_t> g_lastCompletedSerial{0};
@@ -457,6 +467,37 @@ namespace
         }
         g_viewSlotsSeen.store(seen | filled, std::memory_order_relaxed);
         return true;
+    }
+
+    // After a scene pass that was handed the armed latch: the render clears it
+    // exactly when it signals the particle fence (kHalo2SaberSceneOnceLatchRva).
+    void NoteParticleRelease(uintptr_t base, bool& released) noexcept
+    {
+        int32_t now = 0;
+        if (!released && ReadGuarded(base + kHalo2SaberSceneOnceLatchRva, now) &&
+            now == kHalo2SaberSceneLatchHeld)
+        {
+            released = true;
+            g_particleReleasesInPass.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    // A call that owned this frame's particle release but none of whose passes
+    // reached it releases through the engine's own no-view signal, at the point
+    // the scene caller itself uses it: after the frame's views have rendered.
+    void ReleaseParticlesFallback() noexcept
+    {
+        const auto signal = reinterpret_cast<SceneFenceSignalFn>(
+            g_sceneFenceSignal.load(std::memory_order_acquire));
+        if (!signal)
+            return;
+        g_particleReleasesFallback.fetch_add(1, std::memory_order_relaxed);
+        const uintptr_t faultAnchor = OwnImageFault_Anchor();
+        __try { signal(); }
+        __except (GameFault(faultAnchor))
+        {
+            g_exceptions.fetch_add(1, std::memory_order_relaxed);
+        }
     }
 
     void CallStock(
@@ -955,6 +996,23 @@ namespace
         }
         const int passes = static_cast<int>(Halo2ExpectedEyePasses(mono));
 
+        // PARTICLE RELEASE (kHalo2SaberSceneOnceLatchRva): when the latch names
+        // this view, only the call's FINAL scene pass may release the particle
+        // simulation, at the engine's own point after its emitter walk. Every
+        // earlier pass holds it, as the engine's earlier split-screen views do.
+        // Released after eye 0, the workers grew buffers and destroyed emitters
+        // while the next pass walked them again: a write into freed heap that
+        // the game's allocator later trapped (halo2+0xC419B, Cairo -> Outskirts).
+        // The scope pass, when this frame will draw one, is the final pass; its
+        // decision is taken here, once, because asking advances the lens state.
+        const bool releasesParticles =
+            g_sceneFenceSignal.load(std::memory_order_acquire) != 0 &&
+            Halo2SceneCallReleasesParticles(haveLatch, savedLatch, viewIndex);
+        bool particlesReleased = false;
+        const bool scopeWanted = haveLatch &&
+            g_zoomFaultGeneration.load() != generation &&
+            VR_ScopeShouldRenderThisFrame();
+
         bool ok = true;
         // E-H2-34: the weapon re-anchor moves the first-person geometry to
         // the tracked centre THESE eyes are rendered from; no stale-camera
@@ -974,21 +1032,27 @@ namespace
                 ok = false;
                 break;
             }
-            if (eye != 0)
+            const int32_t passLatch = Halo2SceneLatchForPass(
+                releasesParticles, savedLatch,
+                eye == passes - 1 && !scopeWanted, particlesReleased);
+            if (eye != 0 || haveLatch)
             {
                 // Reproduce the caller preamble the engine performs before every
-                // scene render, and re-arm the once-per-frame latch the first
-                // pass consumed, or the second eye silently skips work.
+                // scene render, and hand this pass the particle release latch
+                // only if it is the call's final pass.
                 __try
                 {
-                    std::memcpy(
-                        reinterpret_cast<uint8_t*>(ctx) +
-                            kHalo2SaberSceneContextResetOffset,
-                        savedContext, kHalo2SaberSceneContextResetBytes);
+                    if (eye != 0)
+                    {
+                        std::memcpy(
+                            reinterpret_cast<uint8_t*>(ctx) +
+                                kHalo2SaberSceneContextResetOffset,
+                            savedContext, kHalo2SaberSceneContextResetBytes);
+                    }
                     if (haveLatch)
                     {
                         *reinterpret_cast<volatile int32_t*>(
-                            base + kHalo2SaberSceneOnceLatchRva) = savedLatch;
+                            base + kHalo2SaberSceneOnceLatchRva) = passLatch;
                     }
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
@@ -1083,6 +1147,13 @@ namespace
             __except (GameFault(faultAnchor))
             {
                 g_exceptions.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (releasesParticles)
+            {
+                if (passLatch == kHalo2SaberSceneLatchHeld)
+                    g_particlePassesHeld.fetch_add(1, std::memory_order_relaxed);
+                else
+                    NoteParticleRelease(base, particlesReleased);
             }
             // The raster-eye scope is closed whether or not the engine
             // returned normally; that is where the finished eye is copied.
@@ -1197,10 +1268,13 @@ namespace
             __try
             {
                 *reinterpret_cast<volatile int32_t*>(
-                    base + kHalo2SaberSceneOnceLatchRva) = savedLatch;
+                    base + kHalo2SaberSceneOnceLatchRva) =
+                    Halo2SceneLatchAfterCall(releasesParticles, savedLatch);
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
+        if (Halo2SceneNeedsFallbackRelease(releasesParticles, particlesReleased))
+            ReleaseParticlesFallback();
 
         if (ok && !restored)
             CountBail(Bail::CameraRestoreFailed);
@@ -1695,6 +1769,29 @@ namespace
             g_rejectedGeneration = generation;
             return false;
         }
+        // The particle release: the scene render's latch test and fence signal,
+        // and the engine's no-view signal, decoded and proven to be one fence.
+        // Two eye passes cannot be drawn safely without holding it.
+        uint8_t fenceSite[kHalo2SaberSceneFenceSiteBytes]{};
+        uint8_t fenceSignal[kHalo2SaberSceneFenceSignalBytes]{};
+        Halo2SaberSceneFence fence{};
+        const uintptr_t fenceSignalAt = base + kHalo2SaberSceneFenceSignalRva;
+        if (!IsExecutable(fenceSignalAt) ||
+            !CopyGuarded(fenceSite,
+                         reinterpret_cast<const void*>(base + kHalo2SaberSceneFenceSiteRva),
+                         sizeof(fenceSite)) ||
+            !CopyGuarded(fenceSignal, reinterpret_cast<const void*>(fenceSignalAt),
+                         sizeof(fenceSignal)) ||
+            !Halo2DecodeSaberSceneFence(fenceSite, fenceSignal, fence))
+        {
+            LOG("Halo 2 Anniversary stereo WITHHELD: the scene render's particle "
+                "release (+0x%X) and the engine's no-view release (+0x%X) are not "
+                "the proven pair; stock rendering is untouched",
+                static_cast<unsigned>(kHalo2SaberSceneFenceSiteRva),
+                static_cast<unsigned>(kHalo2SaberSceneFenceSignalRva));
+            g_rejectedGeneration = generation;
+            return false;
+        }
         HMODULE module = nullptr;
         if (!GetModuleHandleExW(
                 GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
@@ -1796,6 +1893,7 @@ namespace
         g_rebuildMatrices.store(rebuild, std::memory_order_release);
         g_cameraCommit.store(commit, std::memory_order_release);
         g_cameraRefreshRect.store(refresh, std::memory_order_release);
+        g_sceneFenceSignal.store(fenceSignalAt, std::memory_order_release);
         g_moduleBase.store(base, std::memory_order_release);
         g_observerResult.store(observerResult, std::memory_order_release);
         g_generation.store(generation, std::memory_order_release);
@@ -1936,6 +2034,12 @@ namespace
             g_annivPitchMilliDegrees.load(std::memory_order_relaxed) / 1000.0,
             g_annivPitchMaxMilliDegrees.load(std::memory_order_relaxed) / 1000.0,
             used ? reasons : "none");
+        LOG("Halo 2 Anniversary particles: released by the final pass %llu times, "
+            "by the engine's no-view release after the passes %llu times; %llu "
+            "earlier passes held them (the simulation never runs while an eye walks the emitters)",
+            static_cast<unsigned long long>(g_particleReleasesInPass.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_particleReleasesFallback.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(g_particlePassesHeld.load(std::memory_order_relaxed)));
         // E-H2-12: the projection read-back, whenever its verdict or its
         // numbers change. This line, not the written cover, says what
         // frustum the headset image really has.

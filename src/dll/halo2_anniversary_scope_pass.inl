@@ -1,4 +1,5 @@
-        if(ok&&haveLatch&&g_zoomFaultGeneration.load()!=generation&&VR_ScopeShouldRenderThisFrame()&&ViewSlotsIntact(base))
+        // scopeWanted (asked once, before the eyes) makes this the call's final pass: it alone may release the particles.
+        if(ok&&scopeWanted&&ViewSlotsIntact(base))
         {
             VR_InvalidateScopeImage();
             Halo2CameraBasis lensCamera{};float aspect=1;
@@ -10,7 +11,7 @@
                 lens.halfHorizontalRadians=atanf(tangents.horizontal);lens.halfVerticalRadians=atanf(tangents.vertical);
                 lens.horizontalDegrees=2*lens.halfHorizontalRadians*57.2957795f;
                 lens.verticalDegrees=2*lens.halfVerticalRadians*57.2957795f;
-                bool rendered=false,contextSaved=false;
+                bool rendered=false,contextSaved=false;int32_t scopeLatch=kHalo2SaberSceneLatchHeld;
                 unsigned char postEyeContext[kHalo2SaberSceneContextResetBytes];
                 const bool previousScope=Game_SetScopeRendering(true);
                 __try
@@ -20,10 +21,12 @@
                         memcpy(postEyeContext,reinterpret_cast<uint8_t*>(ctx)+kHalo2SaberSceneContextResetOffset,sizeof(postEyeContext));
                         contextSaved=true;
                         memcpy(reinterpret_cast<uint8_t*>(ctx)+kHalo2SaberSceneContextResetOffset,savedContext,kHalo2SaberSceneContextResetBytes);
-                        *reinterpret_cast<int32_t*>(base+kHalo2SaberSceneOnceLatchRva)=savedLatch;
+                        scopeLatch=Halo2SceneLatchForPass(releasesParticles,savedLatch,true,particlesReleased);
+                        *reinterpret_cast<int32_t*>(base+kHalo2SaberSceneOnceLatchRva)=scopeLatch;
                         if(ApplyEyeCamera(record,lensCamera,constants,lens))
                         {
                             original(ctx,rdx,viewIndex);
+                            if(releasesParticles&&scopeLatch!=kHalo2SaberSceneLatchHeld)NoteParticleRelease(base,particlesReleased);
                             float sx=0,sy=0;Halo2SymmetricHalfFovs actual{};
                             rendered=ReadGuarded(record+kHalo2SaberProjectionScaleXOffset,sx)&&
                                 ReadGuarded(record+kHalo2SaberProjectionScaleYOffset,sy)&&
