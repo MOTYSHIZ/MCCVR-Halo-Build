@@ -300,7 +300,7 @@ namespace
     uint64_t g_reloadPromptUploaded = 0, g_reloadPromptRetryMs = 0;
     uint32_t g_reloadPromptAcquiredIndex = 0;
     bool g_reloadPromptAcquired = false, g_reloadPromptFailed = false;
-    struct ReloadPrompt { bool valid = false; XrVector3f at{}, head{}; uint64_t when = 0; } g_reloadPrompt;
+    struct ReloadPrompt { bool valid = false; int slot = 0; XrVector3f at{}, head{}; uint64_t when = 0; } g_reloadPrompt;
     XrSwapchain g_dualReticleChain = XR_NULL_HANDLE;
     std::vector<ID3D11Texture2D*> g_dualReticleImages;
     std::vector<ID3D11RenderTargetView*> g_dualReticleRtvs;
@@ -10454,7 +10454,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const uint64_t now = GetTickCount64();
         const ReloadPrompt p = g_reloadPrompt;
         if (!p.valid || now < p.when || now - p.when > 150 || g_reloadPromptFailed) return false;
-        const auto image = NativeLabel_Read();
+        const auto image = NativeLabel_Read(p.slot);
         const bool format = g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM ||
             g_xrFormat == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
             g_xrFormat == DXGI_FORMAT_B8G8R8A8_UNORM ||
@@ -10521,10 +10521,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         quad.subImage.imageRect = {{0,0},{int32_t(image->width),int32_t(image->height)}};
         quad.space = g_localSpace;
         quad.pose.orientation = q;
-        // The chevron's tip (the image's bottom centre) 6 cm over the handle's grab spot: clear of the gun, whose
-        // own counter sits right by the assault rifle's handle (FA 2026-11-16: at 2 cm the word covered it).
-        quad.size = {0.16f,0.16f*float(image->height)/float(image->width)};
-        const float lift = 0.06f + quad.size.height * 0.5f;
+        // The chevron's tip (the image's bottom centre) the set height over the spot (default 6 cm: clear of the gun,
+        // whose own counter sits right by the assault rifle's handle; FA 2026-11-16: at 2 cm the word covered it).
+        // Size and height are read every frame: the menu's sliders show at once.
+        const float width=std::clamp(std::isfinite(g_config.manual_reload_prompt_width_m)?
+            g_config.manual_reload_prompt_width_m:0.16f,0.04f,0.50f);
+        const float over=std::clamp(std::isfinite(g_config.manual_reload_prompt_lift_m)?
+            g_config.manual_reload_prompt_lift_m:0.06f,0.0f,0.30f);
+        quad.size = {width,width*float(image->height)/float(image->width)};
+        const float lift = over + quad.size.height * 0.5f;
         quad.pose.position = {p.at.x+u.x*lift,p.at.y+u.y*lift,p.at.z+u.z*lift};
         return true;
     }
@@ -16220,6 +16225,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadIn.supportRotation=sample.supportRotation;
                 reloadIn.supportGrip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
                 reloadIn.twoHandHeld=g_twoHandLatched.load(std::memory_order_acquire);
+                reloadIn.trigger=pad.trigR;
                 weapon_interaction::Vec pouch{},holster{};
                 reloadIn.pouchValid=weapon_interaction::Zones(sample,settings,pouch,holster);
                 reloadIn.pouch=pouch;
@@ -16396,15 +16402,27 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_weaponAccessory=weapon_accessory::Build(sample,settings,weaponGesture,
                 {supportQ.x,supportQ.y,supportQ.z,supportQ.w});
             {
-                // THE PULL WAYPOINT: 5 cm over the handle's grab spot, while its prompt holds.
-                static bool labelSet=false;
-                if(!labelSet) { NativeLabel_Set(L"PULL");labelSet=true; }
-                ReloadPrompt prompt{};
-                if(g_config.manual_reload_pull_prompt&&reloadOut.owned&&reloadOut.promptRack&&
-                    weapon_interaction::Finite(reloadOut.prompt)&&weapon_interaction::Finite(sample.head))
+                // THE RELOAD PROMPTS: PULL over the handle's grab spot, MAG over the pouch (at most one is due).
                 {
+                    static float labelOpacity=-1.0f;
+                    const float opacity=std::clamp(std::isfinite(g_config.manual_reload_prompt_opacity)?
+                        g_config.manual_reload_prompt_opacity:0.92f,0.10f,1.0f);
+                    if(std::fabs(opacity-labelOpacity)>0.004f)
+                    {
+                        NativeLabel_Set(0,L"PULL",opacity);
+                        NativeLabel_Set(1,L"MAG",opacity);
+                        labelOpacity=opacity;
+                    }
+                }
+                ReloadPrompt prompt{};
+                const bool rack=reloadOut.promptRack&&weapon_interaction::Finite(reloadOut.prompt);
+                const bool mag=reloadOut.promptMag&&weapon_interaction::Finite(reloadOut.promptMagAt);
+                if(g_config.manual_reload_prompts&&reloadOut.owned&&(rack||mag)&&weapon_interaction::Finite(sample.head))
+                {
+                    const weapon_interaction::Vec at=rack?reloadOut.prompt:reloadOut.promptMagAt;
                     prompt.valid=true;
-                    prompt.at={reloadOut.prompt.x,reloadOut.prompt.y,reloadOut.prompt.z};
+                    prompt.slot=rack?0:1;
+                    prompt.at={at.x,at.y,at.z};
                     prompt.head={sample.head.x,sample.head.y,sample.head.z};
                     prompt.when=inputNow;
                 }

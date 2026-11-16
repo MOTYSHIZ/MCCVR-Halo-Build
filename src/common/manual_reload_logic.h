@@ -74,6 +74,7 @@ struct Input
     bool pouchValid = false;
     Geometry geometry{};
     bool twoHandHeld = false;        // the two-handed hold has the support hand (a grip it took is not a miss)
+    float trigger = 0;               // the gun hand's trigger as the player pulls it (before the hold)
 };
 
 // WHY A GRIP TOOK NOTHING (Campaign Evolved 418e7a5, user 2026-11-15: "sometimes I have trouble interacting with either
@@ -118,6 +119,8 @@ struct Output
     bool pressPending = false;       // a reload press is out, not yet taken by the game
     bool promptRack = false;         // the rack has been due this long and is not being done: show "PULL" here
     Vec prompt{};
+    bool promptMag = false;          // the trigger was pulled with the magazine out: show "MAG" at the pouch
+    Vec promptMagAt{};
     bool gripMissed = false;         // `miss` is new this update
     GripMiss miss{};
     int loaded = 0, reserve = 0, chamber = 0;
@@ -407,6 +410,17 @@ public:
                 out.prompt = RackZone(in, c);
             }
         }
+        {
+            // MAG: the trigger pulled with the magazine out and nothing left to fire marks the pouch, until a magazine
+            // is taken (user 2026-11-16).
+            if (phase_ != Phase::MagOut || !in.ready) magPrompt_ = false;
+            else if (out.triggerHeld && std::isfinite(in.trigger) && in.trigger > 0.5f) magPrompt_ = true;
+            if (magPrompt_ && in.pouchValid)
+            {
+                out.promptMag = true;
+                out.promptMagAt = in.pouch;
+            }
+        }
         out.consumeSupport = phase_ == Phase::MagHeld || (phase_ == Phase::Pushing && !shellHome_) ||
                              (phase_ == Phase::Racking && !rackByHold_) || (gripOwned_ && gripHeld && !rackByHold_);
         // The two-handed hold may not take a hand that is fetching, holding or pushing a magazine, working the
@@ -575,7 +589,7 @@ private:
     uint64_t missAt_ = 0, droppedAt_ = 0;
     bool emptyAtDrop_ = false;
     float rackGrab_[3]{};
-    bool rackByHold_ = false, shellHome_ = false;
+    bool rackByHold_ = false, shellHome_ = false, magPrompt_ = false;
     uint64_t rackDueSince_ = 0;
     uint64_t shellHomeAt_ = 0;
     bool missPending_ = false;

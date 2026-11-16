@@ -56,12 +56,16 @@ uint32_t g_noticeLength = 0;
 uint64_t g_noticeExpires = 0, g_noticeSerial = 0;
 uint64_t g_noticeRasterized = 0; // worker
 std::shared_ptr<const NativeSubtitleImage> g_noticeImage;
-// The label (NativeLabel_Set): the same, without an expiry.
+// The labels (NativeLabel_Set): the same, without an expiry, one per slot.
+struct Label {
+    wchar_t text[64]{};
+    uint32_t length = 0;
+    float opacity = 0.92f;
+    uint64_t serial = 0, rasterized = 0;
+    std::shared_ptr<const NativeSubtitleImage> image;
+};
 SRWLOCK g_labelLock = SRWLOCK_INIT;
-wchar_t g_labelText[64]{};
-uint32_t g_labelLength = 0;
-uint64_t g_labelSerial = 0, g_labelRasterized = 0;
-std::shared_ptr<const NativeSubtitleImage> g_labelImage;
+Label g_labels[kNativeLabelSlots];
 
 bool CopyText(const wchar_t* source, Event& event) noexcept {
     if (!source || (reinterpret_cast<uintptr_t>(source) & 1)) return false;
@@ -255,7 +259,7 @@ std::shared_ptr<const NativeSubtitleImage> Rasterize(const RasterCaption& event,
 // with Windows 10; Segoe UI where it is missing), with a soft blue glow instead of an outline, over a small
 // downward chevron whose tip is the image's bottom centre (the point it marks). Premultiplied alpha, slightly
 // see-through like the HUD.
-static std::shared_ptr<const NativeSubtitleImage> RasterizeLabel(const RasterCaption& event) {
+static std::shared_ptr<const NativeSubtitleImage> RasterizeLabel(const RasterCaption& event, float opacity) {
     if (!event.length) return {};
     constexpr int w = NativeSubtitleImage::width, h = NativeSubtitleImage::height;
     HDC dc = CreateCompatibleDC(nullptr);
@@ -336,7 +340,8 @@ static std::shared_ptr<const NativeSubtitleImage> RasterizeLabel(const RasterCap
     }
     // Halo 3's HUD blue (measured off the game's ammo bars and tracker in an FA capture) and a deeper blue glow.
     constexpr float kText[3]{0.47f, 0.82f, 1.00f}, kGlow[3]{0.12f, 0.52f, 1.00f};
-    constexpr float kOpacity = 0.92f, kGlowStrength = 1.6f;
+    const float kOpacity = std::clamp(opacity, 0.05f, 1.0f);
+    constexpr float kGlowStrength = 1.6f;
     auto rgba = std::make_shared<std::vector<uint8_t>>(size_t(w) * h * 4);
     for (int i = 0; i < w * h; ++i) {
         const float c = cover[i];
@@ -397,19 +402,27 @@ std::shared_ptr<const NativeSubtitleImage> NativeNotice_Read() {
     return std::atomic_load_explicit(&g_noticeImage,std::memory_order_acquire);
 }
 
-void NativeLabel_Set(const wchar_t* text) noexcept {
+void NativeLabel_Set(int slot, const wchar_t* text, float opacity) noexcept {
+    if (slot < 0 || slot >= kNativeLabelSlots) return;
     AcquireSRWLockExclusive(&g_labelLock);
+    Label& l = g_labels[slot];
+    wchar_t next[_countof(l.text)]{};
     uint32_t length = 0;
-    while (text && length + 1 < _countof(g_labelText) && text[length]) { g_labelText[length] = text[length]; ++length; }
-    const bool changed = length != g_labelLength || memcmp(g_labelText, text ? text : L"", length * sizeof(wchar_t));
-    g_labelText[length] = 0;
-    g_labelLength = length;
-    if (changed) ++g_labelSerial;
+    while (text && length + 1 < _countof(next) && text[length]) { next[length] = text[length]; ++length; }
+    const bool changed = length != l.length || memcmp(next, l.text, length * sizeof(wchar_t)) ||
+        std::fabs(opacity - l.opacity) > 0.004f;
+    if (changed) {
+        memcpy(l.text, next, sizeof(next));
+        l.length = length;
+        l.opacity = opacity;
+        ++l.serial;
+    }
     ReleaseSRWLockExclusive(&g_labelLock);
 }
 
-std::shared_ptr<const NativeSubtitleImage> NativeLabel_Read() {
-    return std::atomic_load_explicit(&g_labelImage,std::memory_order_acquire);
+std::shared_ptr<const NativeSubtitleImage> NativeLabel_Read(int slot) {
+    if (slot < 0 || slot >= kNativeLabelSlots) return {};
+    return std::atomic_load_explicit(&g_labels[slot].image,std::memory_order_acquire);
 }
 
 void NativeSubtitles_SetReachSources(uint32_t generation,
@@ -478,20 +491,22 @@ void NativeSubtitles_Poll(bool levelRunning) {
                     std::shared_ptr<const NativeSubtitleImage>(std::move(image)),std::memory_order_release);
         }
     }
-    // The label: rasterized when its text changes, as large as the image allows (a word read at arm's length).
-    {
+    // The labels: each rasterized when its text or opacity changes.
+    for (Label& l : g_labels) {
         RasterCaption label{};
         uint64_t serial = 0;
+        float opacity = 1.0f;
         AcquireSRWLockShared(&g_labelLock);
-        serial = g_labelSerial;
-        label.length = g_labelLength;
-        memcpy(label.text, g_labelText, sizeof(wchar_t) * (g_labelLength + 1));
+        serial = l.serial;
+        label.length = l.length;
+        opacity = l.opacity;
+        memcpy(label.text, l.text, sizeof(wchar_t) * (l.length + 1));
         ReleaseSRWLockShared(&g_labelLock);
-        if (serial != g_labelRasterized) {
-            g_labelRasterized = serial;
+        if (serial != l.rasterized) {
+            l.rasterized = serial;
             label.expires = UINT64_MAX;
-            auto image = label.length ? RasterizeLabel(label) : std::shared_ptr<const NativeSubtitleImage>{};
-            std::atomic_store_explicit(&g_labelImage, std::move(image), std::memory_order_release);
+            auto image = label.length ? RasterizeLabel(label, opacity) : std::shared_ptr<const NativeSubtitleImage>{};
+            std::atomic_store_explicit(&l.image, std::move(image), std::memory_order_release);
         }
     }
     const auto dropped=g_dropped.exchange(0,std::memory_order_relaxed);

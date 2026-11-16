@@ -56,7 +56,7 @@ constexpr BoolField kBools[] = {
     {"manual_reload_hand_follow", &Config::manual_reload_hand_follow},
     {"manual_reload_sounds", &Config::manual_reload_sounds},
     {"manual_reload_show_zones", &Config::manual_reload_show_zones},
-    {"manual_reload_pull_prompt", &Config::manual_reload_pull_prompt},
+    {"manual_reload_prompts", &Config::manual_reload_prompts},
     {"weapon_holster_slide", &Config::weapon_holster_slide},
     {"weapon_holster_click", &Config::weapon_holster_click},
     {"gesture_only_weapon_input", &Config::gesture_only_weapon_input},

@@ -2462,9 +2462,19 @@ namespace
                 "hold a magazine, and the charging handle. Green: your hand is in it and it will take. Amber: in it,\n"
                 "nothing to do there now. Red: out of reach.");
             SettingGap();
-            changed |= ImGui::Checkbox("PULL reminder at the handle", &g_config.manual_reload_pull_prompt);
-            ImGui::TextDisabled("When a fresh magazine is in an empty gun and you have not pulled the handle for 2\n"
-                "seconds, PULL floats over the charging handle until you do.");
+            changed |= ImGui::Checkbox("Show reload prompts", &g_config.manual_reload_prompts);
+            ImGui::TextDisabled("Waypoints for what the reload waits on. PULL over the charging handle when a round has\n"
+                "waited 2 seconds to be chambered; MAG over the pouch when you pull the trigger with the magazine\n"
+                "out (gone once you take one). Only you see them.");
+            if (g_config.manual_reload_prompts)
+            {
+                changed |= vr_menu::SliderFloat("Prompt size (m wide)", &g_config.manual_reload_prompt_width_m,
+                    0.04f, 0.50f, "%.2f");
+                changed |= vr_menu::SliderFloat("Prompt height over the spot (m)", &g_config.manual_reload_prompt_lift_m,
+                    0.0f, 0.30f, "%.2f");
+                changed |= vr_menu::SliderFloat("Prompt opacity", &g_config.manual_reload_prompt_opacity,
+                    0.10f, 1.0f, "%.2f");
+            }
             SettingGap();
             changed |= ImGui::Checkbox("Reload sounds", &g_config.manual_reload_sounds);
             ImGui::TextDisabled("The game's own reload sound is not played (its reload is hidden); the gun clicks\n"

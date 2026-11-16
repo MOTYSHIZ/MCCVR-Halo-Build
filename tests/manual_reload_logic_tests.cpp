@@ -266,6 +266,21 @@ int main()
         Check(dry.out.racked && !dry.out.promptRack, "racked: the prompt goes");
     }
     {
+        // THE MAG PROMPT: the trigger pulled with the magazine out and nothing to fire marks the pouch until one is
+        // taken.
+        Rig rig;
+        rig.Tap();                                   // the magazine drops; the chambered round is still there
+        rig.in.trigger = 1; rig.Step();
+        Check(!rig.out.promptMag, "a round still in the chamber: pulling the trigger fires it, no prompt");
+        rig.in.trigger = 0; rig.game.Shoot(1); rig.Step();
+        Check(rig.out.triggerHeld && !rig.out.promptMag, "the chamber fired: no prompt until the trigger is pulled");
+        rig.in.trigger = 1; rig.Step(); rig.in.trigger = 0; rig.Step();
+        Check(rig.out.promptMag && std::fabs(rig.out.promptMagAt.x - kPouch.x) < 1e-4f,
+              "pulled on nothing: MAG at the pouch, and it stays after the trigger is let go");
+        rig.in.support = kPouch; rig.Step(); rig.Grip(false); rig.Grip(true);
+        Check(rig.out.grabbed && !rig.out.promptMag, "a magazine taken: the prompt goes");
+    }
+    {
         // THE SHOTGUN: a shell at a time, and the pump after every shot.
         Rig sg("fp_shotgun");
         sg.game = Game{6, 18, 6};
