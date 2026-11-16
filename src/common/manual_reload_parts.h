@@ -58,6 +58,8 @@ struct Weapon
     // The magazine moves by the weapon's own animation only (it ejects out of the top, or is the support grip):
     // the reload is the player's once the palette hook has learned that animation from the game's own reload.
     bool needsLearning = false;
+    // The rack part is under the two-handed grip (the shotgun's pump): drawing that hand back works it.
+    bool supportGripRacks = false;
 };
 
 // The built-in weapons: magazine-fed guns whose magazine goes up into the gun and whose kit model has both a
@@ -97,6 +99,21 @@ inline Weapon BuiltInWeapon(const char* name) noexcept
             w.needsLearning = true;
             return w;
         }
+    // The shotgun: a shell at a time through the loading port, and the pump after every shot (Campaign Evolved's
+    // shell feed with `afterEveryShot`). Its shell's way in is the learned animation's (the kit's `bullet` node).
+    if (std::strcmp(name, "fp_shotgun") == 0)
+    {
+        w.enabled = true;
+        w.traits.feed = reload_ammo::Feed::PerRound;
+        w.traits.cycle = reload_ammo::Cycle::Manual;
+        w.traits.chamber = true;
+        w.traits.chamberRounds = 1;
+        w.rackChambers = true;
+        w.needsLearning = true;
+        w.supportGripRacks = true;
+        w.insertDepth = 0.06f;
+        return w;
+    }
     return w;
 }
 } // namespace manual_reload

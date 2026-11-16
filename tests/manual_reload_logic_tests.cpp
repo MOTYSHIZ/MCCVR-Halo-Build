@@ -248,6 +248,42 @@ int main()
         Check(std::fabs(dry.out.rackTravel - 0.04f) < 1e-6f, "a learned 4 cm stroke is the rack's travel");
     }
     {
+        // THE SHOTGUN: a shell at a time, and the pump after every shot.
+        Rig sg("fp_shotgun");
+        sg.game = Game{6, 18, 6};
+        sg.Step();
+        Check(!sg.out.owned, "the shotgun is the game's until its reload has been learned");
+        sg.in.geometry.learned = true; sg.in.geometry.insertDepth = 0.06f; sg.Step();
+        Check(sg.out.owned && sg.out.loaded == 6 && !sg.out.triggerHeld, "then it is the player's: 6 in, chambered");
+        sg.Tap();
+        Check(!sg.out.dropped && sg.out.phase == Phase::Idle, "the reload button drops nothing from a tube");
+        sg.game.Shoot(1); sg.Step();
+        Check(sg.out.triggerHeld && sg.out.loaded == 5, "a shot empties the chamber: nothing fires until it is pumped");
+        // Pumped from the two-handed hold, which keeps the hand.
+        sg.in.twoHandHeld = true; sg.in.support = kRack; sg.Step();
+        Check(sg.out.phase == Phase::Racking && !sg.out.consumeSupport && !sg.out.blockTwoHand,
+              "the hold's hand works the pump and keeps holding");
+        sg.in.support = kRack + kRackBack * 0.065f; sg.Step();
+        Check(sg.out.racked && !sg.out.triggerHeld, "drawn back: a shell is chambered");
+        sg.in.support = kRack; sg.Step(); sg.Step();
+        Check(sg.out.phase == Phase::Idle, "pushed home: the hold is a hold again");
+        // A shell from the pouch: the game is asked to load at once.
+        sg.in.twoHandHeld = false; sg.in.support = kPouch; sg.Step(); sg.Grip(false); sg.Grip(true);
+        Check(sg.out.grabbed && sg.out.phase == Phase::MagHeld && sg.out.pressed, "a shell is taken and the game loads");
+        sg.MoveMagazine(kWell + kAxis * -0.05f);
+        Check(sg.out.phase == Phase::Pushing, "at the port it goes onto its way in");
+        sg.MoveMagazine(kWell + kAxis * -0.005f, 3);
+        Check(sg.out.phase == Phase::Pushing && sg.out.loaded == 5, "home, it waits for the game to load a round for it");
+        sg.Wait(700);
+        Check(sg.out.loaded == 6 && sg.out.phase == Phase::Idle, "and is counted once the game has");
+        sg.Grip(false); sg.Grip(true);
+        Check(sg.out.phase == Phase::Idle && !sg.out.grabbed, "a full tube takes no more");
+        Rig drop("fp_shotgun");
+        drop.game = Game{3, 18, 6}; drop.in.geometry.learned = true; drop.Step();
+        drop.in.support = kPouch; drop.Step(); drop.Grip(false); drop.Grip(true); drop.Grip(false);
+        Check(drop.out.lost && drop.out.phase == Phase::Idle, "a shell let go of is gone; the tube is as it was");
+    }
+    {
         // A GRIP THAT TAKES NOTHING says why, once the late-grip window has passed.
         GripMiss seen{};
         auto missesOver=[&seen](Rig& rig,unsigned ms){int n=0;for(unsigned t=0;t<ms;t+=11){rig.Step();if(rig.out.gripMissed){++n;seen=rig.out.miss;}}return n;};

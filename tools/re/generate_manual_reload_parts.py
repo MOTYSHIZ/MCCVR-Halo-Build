@@ -6,6 +6,10 @@ magazine part (the node the reload catalogue selected) and of the part the hand 
 SMGs), `slide` (the pistols), `pump` (the shotgun). Node order in the evidence is the render model's own node
 order, so an index here is the palette's node index for that model (FpVisiblePaletteHook's boneMap index).
 
+A weapon fed one round at a time has no magazine the catalogue selects; its `bullet` node (the shell the hand
+carries into the loading port in its own reload animation: the shotgun's) stands in for it, so the learned reload
+animation (reload_clip_logic.h) can find the shell's way in.
+
 Run with --check to verify the checked-in header matches.
 """
 from pathlib import Path
@@ -25,6 +29,8 @@ def build():
             continue
         nodes = entry['nodes']
         mag = nodes.index(entry['selected'][0]) if entry['selected'] else -1
+        if mag < 0 and 'pump' in nodes and 'bullet' in nodes:
+            mag = nodes.index('bullet')
         rack, kind = -1, 'None'
         for name, k in RACK.items():
             if name in nodes:

@@ -225,11 +225,38 @@ public:
                     pressRetried_ = false;
                     break;
                 }
+                if (PerRound(in) && in.pouchValid && (freshGrip || lateGrip) &&
+                    weapon_interaction::Near(in.support, in.pouch, c.pouchRadius) &&
+                    ammo_.Loaded() < in.sim.capacity && ammo_.ShownReserve() > 0)
+                {
+                    // A SHELL from the pouch (Campaign Evolved's shell feed). The game loads its shells ahead, unseen:
+                    // it is asked as the first shell leaves the pouch, and again whenever it has stopped.
+                    phase_ = Phase::MagHeld;
+                    grabbedAt_ = Magazine(in);
+                    gripOwned_ = true;
+                    shellHome_ = false;
+                    out.grabbed = true;
+                    out.supportHaptic = 0.7f;
+                    if (ammo_.GameCanReload() && !in.sim.reloading && !pressPending_) { Press(in.now, out); pressRetried_ = false; }
+                    break;
+                }
+                if (in.weapon.supportGripRacks && in.twoHandHeld && in.weapon.rackChambers && c.rack && RackHasWork() &&
+                    in.geometry.rackValid)
+                {
+                    // THE PUMP UNDER THE SUPPORT HAND: the two-handed grip IS on it; drawing that hand back along the
+                    // gun works it, and the hold stays (Campaign Evolved's supportGripRacks).
+                    phase_ = Phase::Racking;
+                    rackByHold_ = true;
+                    rackFrom_ = in.support;
+                    rackArmed_ = true;
+                    break;
+                }
                 if (in.weapon.rackChambers && c.rack && RackHasWork() && in.geometry.rackValid &&
                     (freshGrip || lateGrip) &&
                     weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius))
                 {
                     phase_ = Phase::Racking;
+                    rackByHold_ = false;
                     rackFrom_ = in.support;
                     rackArmed_ = true;
                     {
@@ -257,21 +284,37 @@ public:
                 }
                 break;
             case Phase::MagHeld:
-                if (!gripHeld) { phase_ = Phase::MagOut; out.lost = true; break; }
+                if (!gripHeld) { phase_ = PerRound(in) ? Phase::Idle : Phase::MagOut; out.lost = true; break; }
                 if (in.geometry.wellValid && Capture(in, c)) phase_ = Phase::Pushing;
                 break;
             case Phase::Pushing:
             {
+                if (shellHome_) { InsertShell(in, out); break; }   // a shell in the port, waiting on the game
                 const float along = Along(in);
                 const Vec lateral = Lateral(in, along);
                 if (!in.geometry.wellValid || Length(lateral) > c.seatKeep) { phase_ = Phase::MagHeld; break; }
                 // Home, or let go on the way in: it goes in.
-                if (along >= -c.seatDone || !gripHeld) Seat(in, out);
+                if (along >= -c.seatDone || !gripHeld)
+                {
+                    if (PerRound(in)) { shellHome_ = true; shellHomeAt_ = in.now; InsertShell(in, out); }
+                    else Seat(in, out);
+                }
                 break;
             }
             case Phase::Racking:
             {
-                if (!gripHeld || !in.geometry.rackValid) { phase_ = Phase::Idle; break; }
+                if (!in.geometry.rackValid || (rackByHold_ ? !in.twoHandHeld : !gripHeld))
+                {
+                    phase_ = Phase::Idle;
+                    break;
+                }
+                if (rackByHold_)
+                {
+                    // Pumped from the hold: the stroke counts from the furthest-forward place the hand reached, and
+                    // the hold goes back to being a hold once the pump is home with nothing left to chamber.
+                    if (weapon_interaction::Dot(in.support - rackFrom_, in.geometry.rackBack) < 0) rackFrom_ = in.support;
+                    if (!RackHasWork() && rackPull_ < kRackRearm) { phase_ = Phase::Idle; break; }
+                }
                 const float pull = weapon_interaction::Dot(in.support - rackFrom_, in.geometry.rackBack);
                 rackPull_ = std::fmin(std::fmax(pull / std::fmax(RackTravel(in, c), 0.01f), 0.0f), 1.0f);
                 if (rackArmed_ && rackPull_ >= kRackDone)
@@ -284,7 +327,8 @@ public:
             }
             }
         }
-        if (phase_ != Phase::Racking) rackPull_ = 0;
+        if (phase_ != Phase::Racking) { rackPull_ = 0; rackByHold_ = false; }
+        if (phase_ != Phase::Pushing) shellHome_ = false;
         NoteGrip(in, c, freshGrip, gripHeld, out);
 
         // The game's side: check a press took, catch up a game left behind, never leave it behind for good.
@@ -335,7 +379,7 @@ public:
             out.follow = drawn - Magazine(in);
             out.followValid = weapon_interaction::Finite(out.follow) && Length(out.follow) < 0.3f;
         }
-        else if (phase_ == Phase::Racking && in.geometry.rackValid)
+        else if (phase_ == Phase::Racking && !rackByHold_ && in.geometry.rackValid)
         {
             Vec back{}, up{}, side{};
             RackFrame(in, back, up, side);
@@ -344,13 +388,15 @@ public:
             out.follow = target - in.support;
             out.followValid = weapon_interaction::Finite(out.follow) && Length(out.follow) < 0.3f;
         }
-        out.consumeSupport = phase_ == Phase::MagHeld || phase_ == Phase::Pushing || phase_ == Phase::Racking ||
-                             (gripOwned_ && gripHeld);
+        out.consumeSupport = phase_ == Phase::MagHeld || (phase_ == Phase::Pushing && !shellHome_) ||
+                             (phase_ == Phase::Racking && !rackByHold_) || (gripOwned_ && gripHeld && !rackByHold_);
         // The two-handed hold may not take a hand that is fetching, holding or pushing a magazine, working the
         // rack, or reaching into a rack zone with work to do (with no rack work the two-handed grip wins).
         out.blockTwoHand = out.consumeSupport || phase_ == Phase::MagOut ||
+            // A pump under the support hand is worked from the hold: the hold may keep the hand then.
+            (in.weapon.supportGripRacks ? false :
             (RackHasWork() && c.rack && in.weapon.rackChambers && in.geometry.rackValid &&
-             weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius));
+             weapon_interaction::Near(in.support, in.geometry.rack, c.rackRadius)));
         if (in.now < pulseUntil_) { out.buttons = c.reloadButton; out.pulseUntil = pulseUntil_; }
         out.loaded = ammo_.Loaded();
         out.reserve = ammo_.ShownReserve();
@@ -448,6 +494,31 @@ private:
         const float cosine = weapon_interaction::Dot(Normalized(top), in.geometry.wellAxis);
         return cosine >= std::cos(c.seatAlignDeg * 3.14159265f / 180.0f);
     }
+    static bool PerRound(const Input& in) noexcept { return in.weapon.traits.feed == reload_ammo::Feed::PerRound; }
+    // A shell at home in the port: counted once the game has loaded a round for it. A game that has stopped loading
+    // is asked again; a shell the game cannot take (full, nothing left) is dropped.
+    static constexpr uint64_t kShellWaitMs = 3000;
+    void InsertShell(const Input& in, Output& out) noexcept
+    {
+        switch (ammo_.InsertRound())
+        {
+        case reload_ammo::Insert::Accepted:
+            out.seated = true;
+            out.supportHaptic = 1.0f;
+            out.primaryHaptic = 0.5f;
+            phase_ = Phase::Idle;
+            gripOwned_ = true;
+            return;
+        case reload_ammo::Insert::Wait:
+            if (ammo_.GameCanReload() && !in.sim.reloading && !pressPending_) { Press(in.now, out); pressRetried_ = false; }
+            if (in.now >= shellHomeAt_ && in.now - shellHomeAt_ <= kShellWaitMs) return;
+            [[fallthrough]];
+        default:
+            out.lost = true;
+            phase_ = Phase::Idle;
+            return;
+        }
+    }
     void Seat(const Input& in, Output& out) noexcept
     {
         // The game has already loaded this magazine if a press went out since the drop and it has finished.
@@ -478,6 +549,8 @@ private:
     uint64_t missAt_ = 0, droppedAt_ = 0;
     bool emptyAtDrop_ = false;
     float rackGrab_[3]{};
+    bool rackByHold_ = false, shellHome_ = false;
+    uint64_t shellHomeAt_ = 0;
     bool missPending_ = false;
 };
 

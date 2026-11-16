@@ -15,7 +15,7 @@ inline constexpr Parts kParts[]{
     {GameTitle::Halo3,0x00000000171C0B10ull,"fp_smg",4,2,1,RackKind::Handle}, // objects/weapons/rifle/smg/fp_smg/fp_smg.render_model
     {GameTitle::Halo3,0x000000001A100F1Eull,"fp_automag",7,4,5,RackKind::Slide}, // objects/weapons/pistol/automag/fp_automag/fp_automag.render_model
     {GameTitle::Halo3,0x000000001E130811ull,"fp_smg_silenced",4,2,1,RackKind::Handle}, // objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model
-    {GameTitle::Halo3,0x000000001E1D0514ull,"fp_shotgun",5,-1,4,RackKind::Pump}, // objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model
+    {GameTitle::Halo3,0x000000001E1D0514ull,"fp_shotgun",5,1,4,RackKind::Pump}, // objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model
     {GameTitle::Halo3ODST,0x0000000011140D13ull,"fp_spike_rifle",7,1,6,RackKind::Slide}, // objects/weapons/rifle/spike_rifle/fp_spike_rifle/fp_spike_rifle.render_model
     {GameTitle::Halo3ODST,0x0000000012040E16ull,"fp_battle_rifle",4,1,2,RackKind::Handle}, // objects/weapons/rifle/battle_rifle/fp_battle_rifle/fp_battle_rifle.render_model
     {GameTitle::Halo3ODST,0x0000000013100C11ull,"fp_covenant_carbine",5,2,-1,RackKind::None}, // objects/weapons/rifle/covenant_carbine/fp_covenant_carbine/fp_covenant_carbine.render_model
@@ -27,6 +27,6 @@ inline constexpr Parts kParts[]{
     {GameTitle::Halo3ODST,0x000000001A100F1Eull,"fp_automag",7,4,5,RackKind::Slide}, // objects/weapons/pistol/automag/fp_automag/fp_automag.render_model
     {GameTitle::Halo3ODST,0x000000001B010D0Cull,"fp_sniper_rifle",6,3,4,RackKind::Handle}, // objects/weapons/rifle/sniper_rifle/fp_sniper_rifle/fp_sniper_rifle.render_model
     {GameTitle::Halo3ODST,0x000000001E130811ull,"fp_smg_silenced",4,2,1,RackKind::Handle}, // objects/weapons/rifle/smg_silenced/fp_smg_silenced/fp_smg_silenced.render_model
-    {GameTitle::Halo3ODST,0x000000001F000B10ull,"fp_shotgun",5,-1,4,RackKind::Pump}, // objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model
+    {GameTitle::Halo3ODST,0x000000001F000B10ull,"fp_shotgun",5,1,4,RackKind::Pump}, // objects/weapons/rifle/shotgun/fp_shotgun/fp_shotgun.render_model
 };
 }
