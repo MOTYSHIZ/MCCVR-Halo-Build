@@ -2814,6 +2814,11 @@ namespace
     bool RemoveHalo3ManualReloadSound();
     bool InstallOdstManualReloadSound(uintptr_t base, size_t size, uint32_t generation);
     bool RemoveOdstManualReloadSound();
+    // The AR's and BR's own counters show the manual reload's count (manual_reload_gun_display.inl).
+    bool InstallHalo3ManualReloadGunDisplay(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveHalo3ManualReloadGunDisplay();
+    bool InstallOdstManualReloadGunDisplay(uintptr_t base, size_t size, uint32_t generation);
+    bool RemoveOdstManualReloadGunDisplay();
     void ReportManualReloadHud();
     bool LegacyApplyWorldCollision(
         GameTitle title, int hand, BoneMatrix& target,
@@ -20320,6 +20325,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         if (!RemoveHalo3PlayerTags()) return false;
         if (!RemoveHalo3ManualReloadHud()) return false;
         if (!RemoveHalo3ManualReloadSound()) return false;
+        if (!RemoveHalo3ManualReloadGunDisplay()) return false;
         RemoveHalo3TagNames();
         RemoveHalo3StringIds();
         EngineExposureLockRelease(g_halo3Exposure);
@@ -21731,6 +21737,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // The CHUD ammo readout shows the manual reload's own count (manual_reload_hud.inl); fails closed alone.
         (void)InstallHalo3ManualReloadHud(base,size,runtimeGeneration);
         (void)InstallHalo3ManualReloadSound(base,size,runtimeGeneration);
+        (void)InstallHalo3ManualReloadGunDisplay(base,size,runtimeGeneration);
         // Teammates' service tags and arrows (halo3_player_tags.inl): one hook on the navpoint draw; fails closed alone.
         (void)InstallHalo3PlayerTags(base,size,runtimeGeneration);
         // Project Reclaimer's VISR (reclaimer_visr_camera.inl): one hook on the client's own camera for VISR, once per
@@ -23380,6 +23387,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         if(!RemoveOdstPlayerTags())return false;
         if(!RemoveOdstManualReloadHud())return false;
         if(!RemoveOdstManualReloadSound())return false;
+        if(!RemoveOdstManualReloadGunDisplay())return false;
         if(!LegacyDriveRemove(GameTitle::Halo3ODST)) return false;
         // The seat aim rebase skip is retired further down, after the
         // all-detour quiescence: it is inert only once the camera thread can
@@ -23826,6 +23834,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         (void)InstallOdstHudNote(base,size,runtimeGeneration);
         (void)InstallOdstManualReloadHud(base,size,runtimeGeneration);
         (void)InstallOdstManualReloadSound(base,size,runtimeGeneration);
+        (void)InstallOdstManualReloadGunDisplay(base,size,runtimeGeneration);
 
         // The ownership block that used to sit here now runs the moment the
         // core hooks go live, above. In particular g_odstLastCamCopyMs is NOT
@@ -32309,10 +32318,13 @@ static constexpr bool kOdstMappedFpEnabled = false;
     #include "manual_reload_sound.inl"
     #include "manual_reload_game.inl"
     #include "manual_reload_hud.inl"
+    #include "manual_reload_gun_display.inl"
     void ReportManualReloadHud()
     {
         manual_reload_hud::Report(manual_reload_hud::g_halo3);
         manual_reload_hud::Report(manual_reload_hud::g_odst);
+        manual_reload_gun_display::Report(manual_reload_gun_display::g_halo3);
+        manual_reload_gun_display::Report(manual_reload_gun_display::g_odst);
         manual_reload_sound::Report(manual_reload_sound::g_halo3);
         manual_reload_sound::Report(manual_reload_sound::g_odst);
     }
