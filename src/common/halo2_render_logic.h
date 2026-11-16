@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <initializer_list>
 
 // Halo 2-only render evidence and cold-observation policy. This header is
 // deliberately pure: no Windows APIs, logging, allocation, hooks, or engine
@@ -3098,9 +3099,145 @@ inline constexpr uint8_t kHalo2SaberHostUiCallbackEntryBytes[] = {
 inline constexpr uint32_t kHalo2SaberCameraCommitRvaAlias =
     kHalo2SaberCameraCommitRva;
 
-// The scene render consumes a once-per-frame latch and clears it to -1, so a
-// second pass in the same frame must restore it or silently skip work.
+// The particle release latch. The scene caller 0x2DEC00 sets it to the index of
+// the LAST main view it will render (0x2DF089); when that view's scene render
+// reaches 0x2E0E3A, after its per-frame emitter walk (0x4713F0 writes every
+// live emitter's definition +0x39C) and list frees (0x474630), it signals the
+// fence 0xE68700 and clears the latch to -1. The fence is what releases the
+// particle simulation workers (0x3F6AD0 over the emitter table 0x1DC9CF0, via
+// the gate 0xE675A0), which grow particle buffers through the game's realloc
+// and destroy emitters (0x3331D0, 0x3C2AB0) without the walk's lock 0x1DD04A8.
+// So no scene render may walk the emitters after the fence: in split-screen
+// every earlier view renders in full with it held. Nothing else is gated by
+// the latch (r12 is -1 on both paths, 0x2E0E5E / 0x2E0E6E).
 inline constexpr uint32_t kHalo2SaberSceneOnceLatchRva = 0x00E21D30;
+// The value the scene render leaves in the latch, and the one that holds the
+// fence for a pass: no view index equals it.
+inline constexpr int32_t kHalo2SaberSceneLatchHeld = -1;
+// Where the scene render signals the fence (0x2E0E36..0x2E0E6C):
+//   mov esi,[rsp+60] / cmp esi,[latch] / jne / cmp byte [mt],0 / je /
+//   lea rdx,[fence] / mov rcx,[jobs] / call 0xA8050 / mov r12,-1 / mov [latch],r12d
+inline constexpr uint32_t kHalo2SaberSceneFenceSiteRva = 0x002E0E36;
+inline constexpr size_t kHalo2SaberSceneFenceSiteBytes = 0x36;
+// The engine's own fence signal for a frame with no main view (called by the
+// scene caller at 0x2DEF9E): the same flag test, the same three writes as
+// 0xA8050 (job+0x60 = jobs, job+0xC = 1, lock xadd job+0x3C), the same fence.
+inline constexpr uint32_t kHalo2SaberSceneFenceSignalRva = 0x002DEBA0;
+inline constexpr size_t kHalo2SaberSceneFenceSignalBytes = 0x3E;
+
+struct Halo2SaberSceneFence
+{
+    uint32_t latchRva = 0;
+    uint32_t multithreadFlagRva = 0;
+    uint32_t jobSystemRva = 0;
+    uint32_t fenceRva = 0;
+};
+
+namespace halo2_scene_fence_detail
+{
+    inline bool Opcode(const uint8_t* code, size_t at, std::initializer_list<uint8_t> bytes) noexcept
+    {
+        size_t i = 0;
+        for (const uint8_t b : bytes)
+            if (code[at + i++] != b)
+                return false;
+        return true;
+    }
+    // The RVA a rip-relative operand names: the displacement at `at`, from the
+    // instruction that ends at `next`, in code that starts at `rva`.
+    inline uint32_t Target(const uint8_t* code, uint32_t rva, size_t at, size_t next) noexcept
+    {
+        int32_t displacement = 0;
+        for (int i = 3; i >= 0; --i)
+            displacement = static_cast<int32_t>(
+                (static_cast<uint32_t>(displacement) << 8) | code[at + static_cast<size_t>(i)]);
+        return static_cast<uint32_t>(
+            static_cast<int64_t>(rva) + static_cast<int64_t>(next) + displacement);
+    }
+}
+
+// Decodes both fence sites and proves they are one: the scene render reads and
+// clears kHalo2SaberSceneOnceLatchRva, and the no-view signal tests the same
+// multithread flag, reads the same job system and signals the same fence,
+// writing exactly its +0x60, +0xC and +0x3C. False for anything else.
+inline bool Halo2DecodeSaberSceneFence(
+    const uint8_t* site, const uint8_t* signal, Halo2SaberSceneFence& out) noexcept
+{
+    using namespace halo2_scene_fence_detail;
+    out = {};
+    if (!site || !signal)
+        return false;
+    const uint32_t s = kHalo2SaberSceneFenceSiteRva;
+    const uint32_t f = kHalo2SaberSceneFenceSignalRva;
+    if (!Opcode(site, 0x00, {0x8B, 0x74, 0x24, 0x60}) || !Opcode(site, 0x04, {0x3B, 0x35}) ||
+        !Opcode(site, 0x0A, {0x75}) || !Opcode(site, 0x0C, {0x80, 0x3D}) || site[0x12] != 0x00 ||
+        !Opcode(site, 0x13, {0x74}) || !Opcode(site, 0x15, {0x48, 0x8D, 0x15}) ||
+        !Opcode(site, 0x1C, {0x48, 0x8B, 0x0D}) || !Opcode(site, 0x23, {0xE8}) ||
+        !Opcode(site, 0x28, {0x49, 0xC7, 0xC4, 0xFF, 0xFF, 0xFF, 0xFF}) ||
+        !Opcode(site, 0x2F, {0x44, 0x89, 0x25}))
+        return false;
+    if (!Opcode(signal, 0x00, {0x48, 0x83, 0xEC, 0x28, 0x80, 0x3D}) || signal[0x0A] != 0x00 ||
+        !Opcode(signal, 0x0B, {0x74}) || !Opcode(signal, 0x0D, {0x48, 0x8B, 0x0D}) ||
+        !Opcode(signal, 0x14, {0xB8, 0xFF, 0xFF, 0xFF, 0xFF}) ||
+        !Opcode(signal, 0x19, {0x48, 0x89, 0x0D}) || !Opcode(signal, 0x20, {0xC7, 0x05}) ||
+        !Opcode(signal, 0x26, {0x01, 0x00, 0x00, 0x00}) ||
+        !Opcode(signal, 0x2A, {0xF0, 0x0F, 0xC1, 0x05}) ||
+        !Opcode(signal, 0x32, {0x83, 0xF8, 0x01}) || !Opcode(signal, 0x37, {0x48, 0x8D, 0x15}))
+        return false;
+    const uint32_t latchRead = Target(site, s, 0x06, 0x0A);
+    const uint32_t latchWrite = Target(site, s, 0x32, 0x36);
+    const uint32_t flag = Target(site, s, 0x0E, 0x13);
+    const uint32_t fence = Target(site, s, 0x18, 0x1C);
+    const uint32_t jobs = Target(site, s, 0x1F, 0x23);
+    if (latchRead != kHalo2SaberSceneOnceLatchRva || latchWrite != latchRead ||
+        Target(signal, f, 0x06, 0x0B) != flag || Target(signal, f, 0x10, 0x14) != jobs ||
+        Target(signal, f, 0x1C, 0x20) != fence + 0x60 ||
+        Target(signal, f, 0x22, 0x2A) != fence + 0x0C ||
+        Target(signal, f, 0x2E, 0x32) != fence + 0x3C ||
+        Target(signal, f, 0x3A, 0x3E) != fence)
+        return false;
+    out.latchRva = latchRead;
+    out.multithreadFlagRva = flag;
+    out.jobSystemRva = jobs;
+    out.fenceRva = fence;
+    return true;
+}
+
+// Whether this scene call is the one whose render releases the particle
+// simulation this frame: the latch names its view.
+inline bool Halo2SceneCallReleasesParticles(
+    bool haveLatch, int32_t latch, uint32_t viewIndex) noexcept
+{
+    return haveLatch && latch != kHalo2SaberSceneLatchHeld &&
+        static_cast<uint32_t>(latch) == viewIndex;
+}
+
+// The latch one of the call's scene passes starts with. Every pass but the
+// call's final one holds the fence, as the engine's own earlier split-screen
+// views do; the final pass may release it, once. A call that does not release
+// keeps the latch as it found it.
+inline int32_t Halo2SceneLatchForPass(
+    bool releases, int32_t savedLatch, bool finalPass, bool released) noexcept
+{
+    if (!releases)
+        return savedLatch;
+    return finalPass && !released ? savedLatch : kHalo2SaberSceneLatchHeld;
+}
+
+// What the latch holds when the call returns: consumed, as the engine leaves
+// it, when this call released the particles; otherwise as found.
+inline int32_t Halo2SceneLatchAfterCall(bool releases, int32_t savedLatch) noexcept
+{
+    return releases ? kHalo2SaberSceneLatchHeld : savedLatch;
+}
+
+// Whether the call must release the particles itself, through the engine's
+// no-view signal, because no pass reached the release (a bail before the final
+// pass, a final pass that faulted first, or a planned scope pass that did not run).
+inline bool Halo2SceneNeedsFallbackRelease(bool releases, bool released) noexcept
+{
+    return releases && !released;
+}
 
 // The scene render's per-view target slots: 12 records of 0x4E0 bytes (3 x 2 x 2, built by 0x4715D0), each with a
 // pointer at +0x4A8 that the scene render reads without a null check (0x4719B0 -> 0x1073B0, faulting at 0x107449).
