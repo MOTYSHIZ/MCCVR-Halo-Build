@@ -89,6 +89,13 @@ void Capture(EXCEPTION_POINTERS* exception)
     out.Add("\r\nrsp=");out.Hex(context.Rsp);out.Add(" rbp=");out.Hex(context.Rbp);
     out.Add(" rcx=");out.Hex(context.Rcx);out.Add(" rdx=");out.Hex(context.Rdx);
     out.Add(" r8=");out.Hex(context.R8);out.Add(" r9=");out.Hex(context.R9);
+    // The rest of the integer registers: a caller's values live in the
+    // nonvolatile ones (a heap trap's freed block was in r15, not logged).
+    out.Add("\r\nrax=");out.Hex(context.Rax);out.Add(" rbx=");out.Hex(context.Rbx);
+    out.Add(" rsi=");out.Hex(context.Rsi);out.Add(" rdi=");out.Hex(context.Rdi);
+    out.Add(" r10=");out.Hex(context.R10);out.Add(" r11=");out.Hex(context.R11);
+    out.Add("\r\nr12=");out.Hex(context.R12);out.Add(" r13=");out.Hex(context.R13);
+    out.Add(" r14=");out.Hex(context.R14);out.Add(" r15=");out.Hex(context.R15);
     // This is the exception-dispatch backtrace, not a claim that every frame
     // was unwound from the saved fault context. IP/registers above are exact.
     out.Add("\r\nexception-dispatch stack:\r\n");
@@ -128,11 +135,23 @@ bool NativeFaultProbe_Init(const wchar_t* directory,const char* source)
 {
     if(handler)return true;
     const std::wstring path=std::wstring(directory)+L"HaloMCCVR-native-faults.log";
+    // The run before's file goes into Logs\ as "HaloMCCVR-native-faults <when it started>.log", beside that run's
+    // HaloMCCVR log, and the newest ten are kept: a relaunch after a crash no longer replaces the crash's record.
+    LogArchivePrevious(path.c_str(),10);
     MoveFileExW(path.c_str(),(path+L".prev").c_str(),MOVEFILE_REPLACE_EXISTING);
     file=CreateFileW(path.c_str(),GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
         nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL|FILE_FLAG_WRITE_THROUGH,nullptr);
     if(file==INVALID_HANDLE_VALUE)return false;
     char header[512]{};Text out{header,0,sizeof(header)};
+    // The first line starts with the time, as HaloMCCVR.log's does: it names the run when the file is archived.
+    SYSTEMTIME now{};GetLocalTime(&now);
+    char stamp[]{"[00:00:00.000] "};
+    const unsigned parts[]{now.wHour,now.wMinute,now.wSecond,now.wMilliseconds};
+    for(int i=0;i<3;++i)
+    {stamp[1+i*3]=static_cast<char>('0'+parts[i]/10%10);stamp[2+i*3]=static_cast<char>('0'+parts[i]%10);}
+    stamp[10]=static_cast<char>('0'+parts[3]/100%10);stamp[11]=static_cast<char>('0'+parts[3]/10%10);
+    stamp[12]=static_cast<char>('0'+parts[3]%10);
+    out.Add(stamp);
     out.Add("HaloMCCVR native fault evidence; source=");out.Add(source);
     out.Add(" pid=");out.Hex(GetCurrentProcessId());out.Add("\r\n");
     DWORD written{};WriteFile(file,header,static_cast<DWORD>(out.count),&written,nullptr);

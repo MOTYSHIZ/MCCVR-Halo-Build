@@ -11157,6 +11157,120 @@ int main()
                       Halo2SaberViewTargetSlot(0, 1, 0) == 4 && Halo2SaberViewTargetSlot(2, 2, 1) == 12 &&
                       Halo2SaberViewTargetSlot(0, -1, 0) == UINT64_MAX,
                 "the view-target draw reads slot offset + half*2 + group*4 (Outskirts' load faulted on one)");
+            {
+                // The particle release: retail bytes of 0x2E0E36 and 0x2DEBA0.
+                const uint8_t site[kHalo2SaberSceneFenceSiteBytes]{
+                    0x8B, 0x74, 0x24, 0x60, 0x3B, 0x35, 0xF0, 0x0E, 0xB4, 0x00, 0x75, 0x2C, 0x80, 0x3D,
+                    0x67, 0x03, 0xBB, 0x01, 0x00, 0x74, 0x13, 0x48, 0x8D, 0x15, 0xAE, 0x78, 0xB8, 0x00,
+                    0x48, 0x8B, 0x0D, 0x8F, 0x41, 0x74, 0x01, 0xE8, 0xF2, 0x71, 0xDC, 0xFF, 0x49, 0xC7,
+                    0xC4, 0xFF, 0xFF, 0xFF, 0xFF, 0x44, 0x89, 0x25, 0xC4, 0x0E, 0xB4, 0x00};
+                const uint8_t signal[kHalo2SaberSceneFenceSignalBytes]{
+                    0x48, 0x83, 0xEC, 0x28, 0x80, 0x3D, 0x05, 0x26, 0xBB, 0x01, 0x00, 0x74, 0x48, 0x48,
+                    0x8B, 0x0D, 0x34, 0x64, 0x74, 0x01, 0xB8, 0xFF, 0xFF, 0xFF, 0xFF, 0x48, 0x89, 0x0D,
+                    0xA0, 0x9B, 0xB8, 0x00, 0xC7, 0x05, 0x42, 0x9B, 0xB8, 0x00, 0x01, 0x00, 0x00, 0x00,
+                    0xF0, 0x0F, 0xC1, 0x05, 0x6A, 0x9B, 0xB8, 0x00, 0x83, 0xF8, 0x01, 0x75, 0x1E, 0x48,
+                    0x8D, 0x15, 0x22, 0x9B, 0xB8, 0x00};
+                Halo2SaberSceneFence fence{};
+                Check(Halo2DecodeSaberSceneFence(site, signal, fence) &&
+                          fence.latchRva == kHalo2SaberSceneOnceLatchRva && fence.fenceRva == 0x00E68700 &&
+                          fence.multithreadFlagRva == 0x01E911B0 && fence.jobSystemRva == 0x01A24FE8,
+                      "the scene render and the no-view release signal one fence, 0xE68700, after the latch");
+                uint8_t s2[sizeof(site)];
+                uint8_t f2[sizeof(signal)];
+                std::memcpy(s2, site, sizeof(site));
+                std::memcpy(f2, signal, sizeof(signal));
+                f2[0x3A] ^= 0x10;
+                Check(!Halo2DecodeSaberSceneFence(site, f2, fence) && fence.fenceRva == 0,
+                      "a no-view release that names another fence is refused");
+                std::memcpy(f2, signal, sizeof(signal));
+                f2[0x2E] ^= 0x04;
+                Check(!Halo2DecodeSaberSceneFence(site, f2, fence),
+                      "a no-view release that counts down another word is refused");
+                s2[0x06] ^= 0x04;
+                Check(!Halo2DecodeSaberSceneFence(s2, signal, fence),
+                      "a scene render that tests another latch is refused");
+                std::memcpy(s2, site, sizeof(site));
+                s2[0x23] = 0x90;
+                Check(!Halo2DecodeSaberSceneFence(s2, signal, fence) &&
+                          !Halo2DecodeSaberSceneFence(nullptr, signal, fence),
+                      "a scene render whose signal is not a call is refused");
+
+                Check(Halo2SceneCallReleasesParticles(true, 0, 0) && Halo2SceneCallReleasesParticles(true, 2, 2) &&
+                          !Halo2SceneCallReleasesParticles(true, 1, 0) &&
+                          !Halo2SceneCallReleasesParticles(false, 0, 0) &&
+                          !Halo2SceneCallReleasesParticles(true, kHalo2SaberSceneLatchHeld, 0xFFFFFFFFu),
+                      "a call releases the particles only when the latch names its view");
+
+                // One scene call as the eye loop drives it, against the engine's
+                // latch semantics. Each pass walks the emitters, then signals if
+                // its latch names the view. Returns the number of signals and
+                // whether any walk ran after the simulation was released.
+                struct Frame { int signals = 0; bool walkAfterRelease = false; int32_t latchAfter = 0; };
+                auto run = [](int eyePasses, bool scopeWanted, bool scopeRuns, int bailBefore,
+                              int faultBeforeSignalAt) {
+                    const bool haveLatch = true;
+                    Frame f{};
+                    const uint32_t view = 0;
+                    const int32_t saved = 0;
+                    int32_t latch = saved;
+                    const bool releases = Halo2SceneCallReleasesParticles(haveLatch, saved, view);
+                    bool released = false;
+                    auto pass = [&](int32_t passLatch, bool faultBeforeSignal) {
+                        if (haveLatch)
+                            latch = passLatch;
+                        if (f.signals)
+                            f.walkAfterRelease = true;
+                        if (faultBeforeSignal)
+                            return;
+                        if (latch == static_cast<int32_t>(view))
+                        {
+                            ++f.signals;
+                            latch = kHalo2SaberSceneLatchHeld;
+                        }
+                        if (releases && passLatch != kHalo2SaberSceneLatchHeld &&
+                            latch == kHalo2SaberSceneLatchHeld)
+                            released = true;
+                    };
+                    bool ok = true;
+                    for (int eye = 0; eye < eyePasses; ++eye)
+                    {
+                        if (eye == bailBefore)
+                        {
+                            ok = false;
+                            break;
+                        }
+                        pass(Halo2SceneLatchForPass(releases, saved, eye == eyePasses - 1 && !scopeWanted,
+                                                    released),
+                             eye == faultBeforeSignalAt);
+                    }
+                    if (ok && scopeWanted && scopeRuns)
+                        pass(Halo2SceneLatchForPass(releases, saved, true, released), false);
+                    if (haveLatch)
+                        latch = Halo2SceneLatchAfterCall(releases, saved);
+                    if (Halo2SceneNeedsFallbackRelease(releases, released))
+                        ++f.signals;
+                    f.latchAfter = latch;
+                    return f;
+                };
+                for (int passes : {1, 2})
+                    for (bool scopeWanted : {false, true})
+                        for (bool scopeRuns : {false, true})
+                            for (int bail : {-1, 0, 1})
+                                for (int faultAt : {-1, 0, 1})
+                                {
+                                    const Frame f = run(passes, scopeWanted, scopeRuns, bail, faultAt);
+                                    Check(f.signals == 1,
+                                          "every frame releases the particle simulation exactly once");
+                                    Check(!f.walkAfterRelease,
+                                          "no eye or scope pass walks the emitters after the release");
+                                    Check(f.latchAfter == kHalo2SaberSceneLatchHeld,
+                                          "the latch is left consumed, as the engine leaves it");
+                                }
+                Check(Halo2SceneLatchForPass(false, 3, false, false) == 3 &&
+                          Halo2SceneLatchAfterCall(false, 3) == 3 &&
+                          !Halo2SceneNeedsFallbackRelease(false, false),
+                      "a call for a view the latch does not name keeps the latch as it found it");
+            }
             Check(Halo2SaberViewTargetPointerOffset(0, 0, 0) == 0x1DFF858 &&
                       Halo2SaberViewTargetPointerOffset(1, 2, 1) == 0x1DFF858 + 11 * 0x4E0 &&
                       Halo2SaberViewTargetPointerOffset(3, 2, 1) == 0x1DFF858 + 13 * 0x4E0 &&

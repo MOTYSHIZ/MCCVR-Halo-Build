@@ -48,7 +48,9 @@ static void ArchivePreviousLog(const wchar_t* filePath, unsigned keep)
     name = slash == std::wstring::npos ? name : name.substr(slash + 1);
     if (name.size() > 4 && _wcsicmp(name.c_str() + name.size() - 4, L".log") == 0)
         name.resize(name.size() - 4);
-    const std::wstring folder = g_directory + L"Logs\\";
+    std::wstring folder(filePath);
+    const size_t folderEnd = folder.find_last_of(L"\\/");
+    folder = (folderEnd == std::wstring::npos ? std::wstring() : folder.substr(0, folderEnd + 1)) + L"Logs\\";
     if (!CreateDirectoryW(folder.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
         return;
     if (!CopyFileW(filePath, (folder + log_archive::ArchiveName(name, start)).c_str(), FALSE))
@@ -66,6 +68,12 @@ static void ArchivePreviousLog(const wchar_t* filePath, unsigned keep)
     FindClose(search);
     for (const std::wstring& stale : log_archive::ToPrune(std::move(archived), keep))
         DeleteFileW((folder + stale).c_str());
+}
+
+void LogArchivePrevious(const wchar_t* filePath, unsigned keepRuns)
+{
+    if (filePath && keepRuns)
+        ArchivePreviousLog(filePath, keepRuns);
 }
 
 void LogInit(const wchar_t* filePath, unsigned keepRuns)
