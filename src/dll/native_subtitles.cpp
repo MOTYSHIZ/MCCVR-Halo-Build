@@ -250,6 +250,112 @@ std::shared_ptr<const NativeSubtitleImage> Rasterize(const RasterCaption& event,
 }
 }
 
+// A WAYPOINT LABEL in the style of Halo 3's own navpoints (user 2026-11-16: the caption look "doesn't really look
+// halo style"): the word in the HUD's light blue, in a condensed squared face like the HUD's (Bahnschrift, shipped
+// with Windows 10; Segoe UI where it is missing), with a soft blue glow instead of an outline, over a small
+// downward chevron whose tip is the image's bottom centre (the point it marks). Premultiplied alpha, slightly
+// see-through like the HUD.
+static std::shared_ptr<const NativeSubtitleImage> RasterizeLabel(const RasterCaption& event) {
+    if (!event.length) return {};
+    constexpr int w = NativeSubtitleImage::width, h = NativeSubtitleImage::height;
+    HDC dc = CreateCompatibleDC(nullptr);
+    if (!dc) return {};
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = w; info.bmiHeader.biHeight = -h;
+    info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) { if (bitmap) DeleteObject(bitmap); DeleteDC(dc); return {}; }
+    const auto previousBitmap = SelectObject(dc, bitmap);
+    memset(bits, 0, size_t(w) * h * 4);
+    SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(255,255,255));
+    // The word: the top 300 px, letters spaced a little as the HUD's are.
+    auto makeFont = [](const wchar_t* face) {
+        return CreateFontW(-250, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
+            CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, face);
+    };
+    HFONT font = makeFont(L"Bahnschrift SemiBold SemiConden");
+    HGDIOBJ previousFont = font ? SelectObject(dc, font) : nullptr;
+    wchar_t face[LF_FACESIZE]{};
+    if (font) GetTextFaceW(dc, LF_FACESIZE, face);
+    if (!font || _wcsnicmp(face, L"Bahnschrift", 11) != 0) {
+        if (font) { SelectObject(dc, previousFont); DeleteObject(font); }
+        font = makeFont(L"Bahnschrift");
+        if (font) previousFont = SelectObject(dc, font);
+        if (font) GetTextFaceW(dc, LF_FACESIZE, face);
+        if (font && _wcsnicmp(face, L"Bahnschrift", 11) != 0) {
+            SelectObject(dc, previousFont); DeleteObject(font);
+            font = makeFont(L"Segoe UI Semibold");
+            if (font) previousFont = SelectObject(dc, font);
+        }
+    }
+    if (!font) { SelectObject(dc, previousBitmap); DeleteObject(bitmap); DeleteDC(dc); return {}; }
+    SetTextCharacterExtra(dc, 18);
+    RECT text{0, 20, w, 320};
+    DrawTextW(dc, event.text, -1, &text, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    // The chevron: a downward V, open in the middle, its tip at the bottom centre.
+    {
+        HBRUSH white = CreateSolidBrush(RGB(255,255,255));
+        HPEN none = CreatePen(PS_NULL, 0, 0);
+        const auto previousBrush = SelectObject(dc, white);
+        const auto previousPen = SelectObject(dc, none);
+        const POINT outer[]{{w / 2 - 110, 345}, {w / 2 + 110, 345}, {w / 2, 490}};
+        Polygon(dc, outer, 3);
+        SelectObject(dc, GetStockObject(BLACK_BRUSH));
+        const POINT inner[]{{w / 2 - 62, 345}, {w / 2 + 62, 345}, {w / 2, 427}};
+        Polygon(dc, inner, 3);
+        SelectObject(dc, previousBrush); SelectObject(dc, previousPen);
+        DeleteObject(white); DeleteObject(none);
+    }
+    GdiFlush();
+    // Coverage, a blurred copy of it for the glow (two box passes), then colour.
+    const auto* pixels = static_cast<const uint8_t*>(bits);
+    std::vector<float> cover(size_t(w) * h), blur(size_t(w) * h), tmp(size_t(w) * h);
+    for (int i = 0; i < w * h; ++i) cover[i] = pixels[4 * i] / 255.0f;
+    constexpr int r = 14;
+    for (int pass = 0; pass < 2; ++pass) {
+        const std::vector<float>& src = pass == 0 ? cover : blur;
+        for (int y = 0; y < h; ++y) {
+            float sum = 0;
+            for (int x = -r; x <= r; ++x) sum += src[size_t(y) * w + std::clamp(x, 0, w - 1)];
+            for (int x = 0; x < w; ++x) {
+                tmp[size_t(y) * w + x] = sum / float(2 * r + 1);
+                sum += src[size_t(y) * w + std::min(x + r + 1, w - 1)] - src[size_t(y) * w + std::max(x - r, 0)];
+            }
+        }
+        for (int x = 0; x < w; ++x) {
+            float sum = 0;
+            for (int y = -r; y <= r; ++y) sum += tmp[size_t(std::clamp(y, 0, h - 1)) * w + x];
+            for (int y = 0; y < h; ++y) {
+                blur[size_t(y) * w + x] = sum / float(2 * r + 1);
+                sum += tmp[size_t(std::min(y + r + 1, h - 1)) * w + x] - tmp[size_t(std::max(y - r, 0)) * w + x];
+            }
+        }
+    }
+    // Halo 3's HUD blue (measured off the game's ammo bars and tracker in an FA capture) and a deeper blue glow.
+    constexpr float kText[3]{0.47f, 0.82f, 1.00f}, kGlow[3]{0.12f, 0.52f, 1.00f};
+    constexpr float kOpacity = 0.92f, kGlowStrength = 1.6f;
+    auto rgba = std::make_shared<std::vector<uint8_t>>(size_t(w) * h * 4);
+    for (int i = 0; i < w * h; ++i) {
+        const float c = cover[i];
+        const float g = std::min(blur[i] * kGlowStrength, 1.0f) * 0.55f * (1.0f - c);
+        const float a = std::min(c + g, 1.0f) * kOpacity;
+        for (int k = 0; k < 3; ++k) {
+            const float v = (kText[k] * c + kGlow[k] * g) * kOpacity;   // premultiplied
+            (*rgba)[4 * i + k] = uint8_t(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+        }
+        (*rgba)[4 * i + 3] = uint8_t(std::clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f);
+    }
+    SelectObject(dc, previousFont); DeleteObject(font);
+    SelectObject(dc, previousBitmap); DeleteObject(bitmap); DeleteDC(dc);
+    auto result = std::make_shared<NativeSubtitleImage>();
+    result->expiresAtMs = event.expires; result->revision = ++g_revision;
+    result->rgba = rgba;
+    return result;
+}
+
 void NativeSubtitles_Capture(GameTitle title, uint32_t generation,
     const wchar_t* text, float seconds, bool theatre, uint8_t channel, bool refreshed) noexcept {
     const uint32_t duration = subtitles::DurationMs(seconds);
@@ -384,7 +490,7 @@ void NativeSubtitles_Poll(bool levelRunning) {
         if (serial != g_labelRasterized) {
             g_labelRasterized = serial;
             label.expires = UINT64_MAX;
-            auto image = label.length ? Rasterize(label, 300) : std::shared_ptr<const NativeSubtitleImage>{};
+            auto image = label.length ? RasterizeLabel(label) : std::shared_ptr<const NativeSubtitleImage>{};
             std::atomic_store_explicit(&g_labelImage, std::move(image), std::memory_order_release);
         }
     }

@@ -10521,8 +10521,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         quad.subImage.imageRect = {{0,0},{int32_t(image->width),int32_t(image->height)}};
         quad.space = g_localSpace;
         quad.pose.orientation = q;
-        quad.pose.position = p.at;
-        quad.size = {0.20f,0.20f*float(image->height)/float(image->width)};
+        // The chevron's tip (the image's bottom centre) 2 cm over the handle's grab spot.
+        quad.size = {0.16f,0.16f*float(image->height)/float(image->width)};
+        const float lift = 0.02f + quad.size.height * 0.5f;
+        quad.pose.position = {p.at.x+u.x*lift,p.at.y+u.y*lift,p.at.z+u.z*lift};
         return true;
     }
 
@@ -16401,7 +16403,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     weapon_interaction::Finite(reloadOut.prompt)&&weapon_interaction::Finite(sample.head))
                 {
                     prompt.valid=true;
-                    prompt.at={reloadOut.prompt.x,reloadOut.prompt.y+0.05f,reloadOut.prompt.z};
+                    prompt.at={reloadOut.prompt.x,reloadOut.prompt.y,reloadOut.prompt.z};
                     prompt.head={sample.head.x,sample.head.y,sample.head.z};
                     prompt.when=inputNow;
                 }
