@@ -30,6 +30,13 @@ struct GameSample
     Vec well{}, wellAxis{};  // controller-local
     bool rackValid = false;
     Vec rack{}, rackBack{};  // controller-local
+    // The gun's reload as the game animates it, learned by the palette hook (reload_clip_logic.h). With it the well,
+    // its axis and the rack's line above are the animation's own, and these replace the built-in reaches.
+    bool learned = false;    // the magazine's way in is known
+    float insertDepth = 0;   // metres below home where the animation's push begins (0: the built-in depth)
+    float rackTravel = 0;    // metres of the animation's rack stroke (0: the built-in travel)
+    bool posedValid = false; // where the posed magazine was drawn last frame (pushing in), controller-local
+    Vec posedMagazine{};
 };
 
 // World point/direction -> gun-hand-controller-local, through the palette's own tracking transform.
@@ -83,6 +90,14 @@ inline bool ReadGameSample(const GameSample& s, GameTitle title, uint32_t genera
         geometry.rack = primary + weapon_interaction::Rotate(primaryRotation, s.rack);
         geometry.rackBack = Normalized(weapon_interaction::Rotate(primaryRotation, s.rackBack));
     }
+    geometry.learned = s.learned;
+    geometry.insertDepth = std::isfinite(s.insertDepth) && s.insertDepth > 0.01f && s.insertDepth < 0.4f ? s.insertDepth : 0.f;
+    geometry.rackTravel = std::isfinite(s.rackTravel) && s.rackTravel > 0.005f && s.rackTravel < 0.2f ? s.rackTravel : 0.f;
+    if (s.posedValid && weapon_interaction::Finite(s.posedMagazine))
+    {
+        geometry.posedValid = true;
+        geometry.posedMagazine = primary + weapon_interaction::Rotate(primaryRotation, s.posedMagazine);
+    }
     return true;
 }
 
@@ -96,6 +111,16 @@ struct Presentation
     bool hideMagazine = false;
     float rackPull = 0;      // 0..1
     float rackTravel = 0;    // metres
+    // The gun's look while the manual reload has it (the palette hook poses it from the learned animation).
+    bool owned = false;      // the manual reload owns this gun: the game's own reload is not shown
+    Phase phase = Phase::Idle;
+    float pushDepth = 0;     // pushing in: metres still to go
+    uint64_t droppedAt = 0;  // the magazine left (ms): the animation's way out plays from here
+    bool emptyAtDrop = false;
+    bool pressPending = false;
+    // The support hand rides the magazine or the rack part: its target moves by this (gun-hand-controller-local, m).
+    bool followValid = false;
+    Vec follow{};
 };
 inline bool CurrentPresentation(const Presentation& p, GameTitle title, uint32_t generation, uint64_t identity,
                                 uint64_t now) noexcept

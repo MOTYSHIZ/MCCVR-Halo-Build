@@ -16079,6 +16079,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             manual_reload::Input reloadIn{};
             manual_reload::Settings reloadSettings{};
             manual_reload::GameSample gameSide{};
+            weapon_interaction::Quat aimRotationUsed{};
             {
                 reloadIn.now=inputNow;
                 reloadIn.ready=sample.ready&&!sample.dualWield;
@@ -16089,6 +16090,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 weapon_interaction::Vec aimPosition=sample.primary;
                 weapon_interaction::Quat aimRotation=sample.primaryRotation;
                 if(VR_GetAimPose(aimQ,aimP)) {aimPosition={aimP[0],aimP[1],aimP[2]};aimRotation={aimQ[0],aimQ[1],aimQ[2],aimQ[3]};}
+                aimRotationUsed=aimRotation;
                 if(g_config.manual_reload&&g_config.manual_reload_magazine&&titleOk&&g_manualReloadGame.Read(gameSide))
                     (void)manual_reload::ReadGameSample(gameSide,sample.title,sample.generation,sample.space,leftHanded,
                         inputNow,aimPosition,aimRotation,reloadIn.geometry,reloadIn.weaponId,reloadIn.sim,
@@ -16129,7 +16131,18 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 manual_reload::Presentation shown{};
                 shown.title=sample.title;shown.generation=sample.generation;shown.identity=sample.weaponGraph;
                 shown.at=inputNow;shown.hideMagazine=reloadOut.owned&&reloadOut.hideMagazine;
-                shown.rackPull=reloadOut.rackPull;shown.rackTravel=reloadSettings.rackTravel;
+                shown.rackPull=reloadOut.rackPull;shown.rackTravel=reloadOut.rackTravel;
+                shown.owned=reloadOut.owned;shown.phase=reloadOut.phase;shown.pushDepth=reloadOut.pushDepth;
+                shown.droppedAt=reloadOut.droppedAt;shown.emptyAtDrop=reloadOut.emptyAtDrop;
+                shown.pressPending=reloadOut.pressPending;
+                if(reloadOut.owned&&reloadOut.followValid&&g_config.manual_reload_hand_follow)
+                {
+                    // The hand's move, into the gun-hand aim frame the palette carries it back out of.
+                    const weapon_interaction::Quat inverse{-aimRotationUsed.x,-aimRotationUsed.y,-aimRotationUsed.z,
+                        aimRotationUsed.w};
+                    shown.follow=weapon_interaction::Rotate(inverse,reloadOut.follow);
+                    shown.followValid=weapon_interaction::Finite(shown.follow);
+                }
                 (void)g_manualReloadShown.Publish(shown);
                 const bool events[6]{reloadOut.dropped,reloadOut.grabbed,reloadOut.seated,reloadOut.racked,
                     reloadOut.pressed,reloadOut.lost};
@@ -26951,20 +26964,28 @@ bool VR_ReadSupportGripOwnerEvidence(GameTitle title,
         evidence, revision);
 }
 
-void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint32_t weapon,
-    bool simValid, const reload_ammo::Sim& sim, bool wellValid, const weapon_interaction::Vec& well,
-    const weapon_interaction::Vec& wellAxis, bool rackValid, const weapon_interaction::Vec& rack,
-    const weapon_interaction::Vec& rackBack) noexcept
+void VR_PublishManualReloadSample(const manual_reload::GameSample& sample) noexcept
 {
-    if(!g_config.manual_reload||title!=TitleAdapter_GetActiveTitle()||generation!=TitleAdapter_GetGeneration(title))
+    if(!g_config.manual_reload||sample.title!=TitleAdapter_GetActiveTitle()||
+        sample.generation!=TitleAdapter_GetGeneration(sample.title))
         return;
-    manual_reload::GameSample s{};
-    s.title=title;s.generation=generation;s.identity=identity;
+    manual_reload::GameSample s=sample;
     s.space=g_contactSpaceEpoch.load(std::memory_order_acquire);s.at=GetTickCount64();
-    s.leftHanded=g_config.left_handed;s.weapon=weapon;s.simValid=simValid;s.sim=sim;
-    s.wellValid=wellValid;s.well=well;s.wellAxis=manual_reload::Normalized(wellAxis);
-    s.rackValid=rackValid;s.rack=rack;s.rackBack=manual_reload::Normalized(rackBack);
+    s.leftHanded=g_config.left_handed;
+    s.wellAxis=manual_reload::Normalized(s.wellAxis);
+    s.rackBack=manual_reload::Normalized(s.rackBack);
     (void)g_manualReloadGame.Publish(s);
+}
+
+bool VR_ManualReloadFollow(GameTitle title, float local[3]) noexcept
+{
+    manual_reload::Presentation p{};
+    if(!local||!g_manualReloadShown.Read(p)||p.title!=title||!p.owned||!p.followValid||!p.at)
+        return false;
+    const uint64_t now=GetTickCount64();
+    if(now<p.at||now-p.at>100) return false;
+    local[0]=p.follow.x;local[1]=p.follow.y;local[2]=p.follow.z;
+    return std::isfinite(local[0])&&std::isfinite(local[1])&&std::isfinite(local[2]);
 }
 
 bool VR_ManualReloadPresentation(GameTitle title, uint32_t generation, uint64_t identity,

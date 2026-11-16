@@ -55,6 +55,9 @@ struct Weapon
     // the player works it; with racking off, seating chambers the round).
     bool rackChambers = false;
     float insertDepth = 0.08f;   // metres below the well where a magazine is first taken onto the axis
+    // The magazine moves by the weapon's own animation only (it ejects out of the top, or is the support grip):
+    // the reload is the player's once the palette hook has learned that animation from the game's own reload.
+    bool needsLearning = false;
 };
 
 // The built-in weapons: magazine-fed guns whose magazine goes up into the gun and whose kit model has both a
@@ -76,6 +79,22 @@ inline Weapon BuiltInWeapon(const char* name) noexcept
             w.traits.chamber = true;
             w.traits.chamberRounds = row.chamberRounds;
             w.rackChambers = true;
+            return w;
+        }
+    // The Covenant magazine guns fire straight from the magazine: nothing stays in the gun with it out and
+    // nothing is racked (Campaign Evolved's `chamber: false`). Their magazines leave and arrive along the gun's
+    // own animation.
+    static constexpr const char* kLearned[]{"fp_covenant_carbine", "fp_spike_rifle", "fp_excavator"};
+    for (const char* learned : kLearned)
+        if (std::strcmp(learned, name) == 0)
+        {
+            w.enabled = true;
+            w.traits.feed = reload_ammo::Feed::Magazine;
+            w.traits.cycle = reload_ammo::Cycle::Auto;
+            w.traits.chamber = false;
+            w.traits.chamberRounds = 0;
+            w.rackChambers = false;
+            w.needsLearning = true;
             return w;
         }
     return w;

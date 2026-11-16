@@ -69,6 +69,50 @@ bool ReadAmmo(GameTitle title, uint32_t& weapon, reload_ammo::Sim& sim)
     return true;
 }
 
+// THE GUN'S LOOK WHILE THE MANUAL RELOAD HAS IT (reload_clip_logic.h). The game reloads at the drop, unseen:
+// while it does, the gun is drawn in its resting pose (held on the hand where it rests, every part where it rests),
+// and the game's own reload animation is recorded off this frame's palette into a clip, once per gun and kind
+// (reload_clip_store). From then on the gun is posed from that clip: the magazine's way out plays at the drop,
+// its way in is scrubbed by how far the hand has pushed, and the rack part's stroke by the hand's pull.
+// The hook's thread only; allocation-free.
+struct GunState
+{
+    uint64_t identity = 0;
+    uint32_t weapon = 0;
+    bool idleValid = false;
+    reload_clip::Bone idleRel[reload_clip::kMaxNodes]{};
+    BoneMatrix idleOnWrist{};         // the gun's root relative to the gun hand's wrist, at rest
+    bool reloading = false;
+    double reloadEndedAt = -1, lastShotAt = -1;
+    int16_t lastLoaded = -1;
+    reload_clip::Clip* recording = nullptr;
+    double recordStart = 0;
+    int16_t loadedAtStart = 0;
+    bool loadedRose = false;
+};
+GunState g_gun{};
+std::atomic<uint64_t> held{0}, clipPosed{0}, ejectPlayed{0}, clipsRecorded{0}, clipsRefused{0};
+
+double NowSeconds() noexcept
+{
+    static LARGE_INTEGER frequency{};
+    if (!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    return frequency.QuadPart ? double(counter.QuadPart) / double(frequency.QuadPart) : 0.0;
+}
+static_assert(sizeof(BoneMatrix) == sizeof(reload_clip::Bone), "a clip's bone is the palette's matrix");
+inline reload_clip::Bone ToBone(const BoneMatrix& m) noexcept { reload_clip::Bone b; memcpy(&b, &m, sizeof b); return b; }
+inline BoneMatrix ToMatrix(const reload_clip::Bone& b) noexcept { BoneMatrix m; memcpy(&m, &b, sizeof m); return m; }
+
+void EndRecording(bool complete) noexcept
+{
+    if (!g_gun.recording) return;
+    reload_clip_store::FinishRecording(g_gun.recording, complete);
+    (complete ? clipsRecorded : clipsRefused).fetch_add(1, std::memory_order_relaxed);
+    g_gun.recording = nullptr;
+}
+
 // Before the native palette call for the held fp gun (scratch is this frame's private copy).
 void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpolationContext& context,
            const BoneMatrix& root, BoneMatrix* scratch, const int32_t* boneMap)
@@ -89,19 +133,190 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         };
         const int rootSource = source(0);
         if (rootSource < 0 || !g_fpStereoSolveScope.armed || !g_baseCamValid.load()) return;
-        BoneMatrix held{};
-        float basis[9]{};
-        if (!ComposeBoneMatrices(root, scratch[rootSource], held) || !NormalizedBasis(held, basis)) return;
-
-        // Everything is measured from the gun hand's aim pose AS THE ARM SOLVER PLACES IT in this palette
-        // (ControllerWorldPoseEx, the pose DesiredWristWorld builds the hands from), less the gun's mount offsets, and
-        // published in that aim frame; the VR thread rebuilds it from the same aim pose (VR_GetAimPose). Whatever
-        // maps tracking space into the game (yaw references, the follow basis, the hands' origin) cancels out. A
-        // hand-built world transform put the well 40 cm low and the gun 58 degrees off in the first FA pass.
-        float aimBasis[9]{}, aimPos[3]{}, meshScale = 1.0f;
-        if (!ControllerWorldPoseEx(false, aimBasis, aimPos, meshScale)) return;
+        const int wrist = context.wrist;
+        if (wrist < 0 || wrist >= context.count) return;
+        const int nodes = parts->nodeCount < reload_clip::kMaxNodes ? parts->nodeCount : reload_clip::kMaxNodes;
+        int src[reload_clip::kMaxNodes]{};
+        for (int i = 0; i < nodes; ++i) src[i] = source(i);
+        const int magazineSource = source(parts->magazineNode);
+        const int rackSource = source(parts->rackNode);
         const float unitsPerMetre = g_worldScale.load();
         if (!std::isfinite(unitsPerMetre) || unitsPerMetre <= 0) return;
+
+        uint32_t weapon = 0;
+        reload_ammo::Sim sim{};
+        const bool simValid = ReadAmmo(title, weapon, sim);
+        if (!simValid) ammoFailures.fetch_add(1, std::memory_order_relaxed);
+        manual_reload::Presentation p{};
+        const bool shown = VR_ManualReloadPresentation(title, generation, identity, p);
+        const bool owned = shown && p.owned;
+        const double now = NowSeconds();
+        const uint64_t nowMs = GetTickCount64();
+
+        // The game's pose this frame: every node relative to the gun's root, and the root on the gun hand's wrist.
+        BoneMatrix inverseRoot{}, inverseWrist{}, onWrist{};
+        if (!InvertBoneMatrix(scratch[rootSource], inverseRoot) || !InvertBoneMatrix(scratch[wrist], inverseWrist) ||
+            !ComposeBoneMatrices(inverseWrist, scratch[rootSource], onWrist)) return;
+        reload_clip::Bone rel[reload_clip::kMaxNodes]{};
+        bool complete = true;
+        for (int i = 0; i < nodes; ++i)
+        {
+            BoneMatrix r{};
+            if (src[i] >= 0 && ComposeBoneMatrices(inverseRoot, scratch[src[i]], r)) rel[i] = ToBone(r);
+            else complete = false;
+        }
+
+        if (identity != g_gun.identity || (simValid && weapon != g_gun.weapon))
+        {
+            EndRecording(false);
+            g_gun = GunState{};
+            g_gun.identity = identity;
+            g_gun.weapon = weapon;
+        }
+        if (simValid)
+        {
+            if (sim.loaded != g_gun.lastLoaded) { g_gun.lastShotAt = now; g_gun.lastLoaded = sim.loaded; }
+            // RECORD the game's reload of this gun (the first of each kind), starting from the resting pose.
+            if (sim.reloading && !g_gun.reloading)
+            {
+                g_gun.reloading = true;
+                if (g_config.manual_reload_animation && g_gun.idleValid && !g_gun.recording && complete)
+                {
+                    const auto kind = sim.loaded == 0 ? reload_clip::Kind::Empty : reload_clip::Kind::Full;
+                    if (auto* clip = reload_clip_store::BeginRecording(title, identity, kind))
+                    {
+                        reload_clip::Append(*clip, 0.f, g_gun.idleRel, nodes);
+                        g_gun.recording = clip;
+                        g_gun.recordStart = now;
+                        g_gun.loadedAtStart = sim.loaded;
+                        g_gun.loadedRose = false;
+                    }
+                }
+            }
+            else if (!sim.reloading && g_gun.reloading)
+            {
+                g_gun.reloading = false;
+                g_gun.reloadEndedAt = now;
+            }
+            if (g_gun.recording)
+            {
+                const float at = float(now - g_gun.recordStart);
+                if (complete) (void)reload_clip::Append(*g_gun.recording, at, rel, nodes);
+                if (sim.loaded > g_gun.loadedAtStart) g_gun.loadedRose = true;
+                const bool tailDone = !g_gun.reloading && now - g_gun.reloadEndedAt > 0.35;
+                if (tailDone || at > reload_clip::kMaxSeconds || g_gun.recording->frames >= reload_clip::kMaxFrames)
+                    EndRecording(g_gun.loadedRose && tailDone);
+            }
+        }
+        // THE RESTING POSE, taken while nothing reloads, shoots or is held by the reload.
+        const bool recentReload = g_gun.reloadEndedAt >= 0 && now - g_gun.reloadEndedAt < 0.4;
+        const bool quiet = !shown || (p.phase == manual_reload::Phase::Idle && !p.hideMagazine && p.rackPull <= 0 &&
+                                      !p.pressPending);
+        if (simValid && complete && !sim.reloading && !recentReload && quiet &&
+            (g_gun.lastShotAt < 0 || now - g_gun.lastShotAt > 0.3))
+        {
+            memcpy(g_gun.idleRel, rel, sizeof(reload_clip::Bone) * size_t(nodes));
+            g_gun.idleOnWrist = onWrist;
+            g_gun.idleValid = true;
+        }
+
+        // What the gun has learned.
+        reload_clip_store::Learned magazineClip{}, rackClip{};
+        const auto preferred = owned && p.emptyAtDrop ? reload_clip::Kind::Empty : reload_clip::Kind::Full;
+        const auto other = preferred == reload_clip::Kind::Empty ? reload_clip::Kind::Full : reload_clip::Kind::Empty;
+        bool haveMagazine = reload_clip_store::Find(title, identity, preferred, magazineClip) &&
+                            magazineClip.segments.magazine;
+        if (!haveMagazine)
+            haveMagazine = reload_clip_store::Find(title, identity, other, magazineClip) && magazineClip.segments.magazine;
+        bool haveRack = reload_clip_store::Find(title, identity, reload_clip::Kind::Empty, rackClip) &&
+                        rackClip.segments.rack;
+        if (!haveRack)
+            haveRack = reload_clip_store::Find(title, identity, reload_clip::Kind::Full, rackClip) && rackClip.segments.rack;
+        if (!g_config.manual_reload_animation) haveMagazine = haveRack = false;
+        if (haveMagazine && (magazineClip.clip->nodes != nodes || magazineClip.magazineNode != parts->magazineNode))
+            haveMagazine = false;
+        if (haveRack && (rackClip.clip->nodes != nodes || rackClip.rackNode != parts->rackNode)) haveRack = false;
+
+        // POSE: the game's reload is not shown while the manual reload has the gun.
+        BoneMatrix gunBefore{};
+        const bool gunBeforeOk = ComposeBoneMatrices(root, scratch[rootSource], gunBefore);
+        const float metresPerUnit = gunBeforeOk ? std::fabs(gunBefore.scale) / unitsPerMetre : 0.f;
+        const bool hold = owned && g_gun.idleValid &&
+            (sim.reloading || recentReload || p.phase != manual_reload::Phase::Idle || p.hideMagazine ||
+             p.rackPull > 0 || p.pressPending);
+        bool magazineShown = !(owned && p.hideMagazine);
+        bool rackByClip = false;
+        bool posedMagazineValid = false;
+        reload_clip::Bone pose[reload_clip::kMaxNodes]{};
+        if (hold && metresPerUnit > 0)
+        {
+            memcpy(pose, g_gun.idleRel, sizeof(reload_clip::Bone) * size_t(nodes));
+            auto sampleAll = [&](const reload_clip::Clip& clip, float t) {
+                for (int i = 1; i < nodes; ++i) pose[i] = reload_clip::Sample(clip, t, i);
+            };
+            const auto& ms = magazineClip.segments;
+            if (p.phase == manual_reload::Phase::Pushing && haveMagazine)
+            {
+                // The magazine rides the animation's way in; the hand's push picks the time.
+                const float t = reload_clip::TimeAtDistance(*magazineClip.clip, parts->magazineNode, ms.in, ms.seat,
+                                                            p.pushDepth / metresPerUnit);
+                sampleAll(*magazineClip.clip, t);
+                magazineShown = true;
+                posedMagazineValid = true;
+                clipPosed.fetch_add(1, std::memory_order_relaxed);
+            }
+            else if (p.phase == manual_reload::Phase::MagOut && haveMagazine && p.droppedAt && nowMs >= p.droppedAt &&
+                     float(nowMs - p.droppedAt) * 0.001f < ms.outEnd - ms.outStart)
+            {
+                // The drop: the animation's way out plays, then the magazine is gone.
+                sampleAll(*magazineClip.clip, ms.outStart + float(nowMs - p.droppedAt) * 0.001f);
+                magazineShown = true;
+                ejectPlayed.fetch_add(1, std::memory_order_relaxed);
+            }
+            else if (p.phase == manual_reload::Phase::Racking && haveRack && p.rackPull > 0)
+            {
+                const auto& rs = rackClip.segments;
+                const float t = reload_clip::TimeAtDistance(*rackClip.clip, parts->rackNode, rs.rackStart, rs.rackFull,
+                                                            std::fmin(p.rackPull, 1.f) * rs.rackTravel);
+                sampleAll(*rackClip.clip, t);
+                rackByClip = true;
+                clipPosed.fetch_add(1, std::memory_order_relaxed);
+            }
+            // The gun rests on the hand where it rests; each part relative to it as posed.
+            BoneMatrix gunRoot{};
+            if (ComposeBoneMatrices(scratch[wrist], g_gun.idleOnWrist, gunRoot))
+            {
+                scratch[rootSource] = gunRoot;
+                for (int i = 1; i < nodes; ++i)
+                {
+                    BoneMatrix placed{};
+                    if (src[i] >= 0 && ComposeBoneMatrices(gunRoot, ToMatrix(pose[i]), placed)) scratch[src[i]] = placed;
+                }
+                held.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+
+        // THE GEOMETRY the hands work against, from the gun as now drawn (its resting pose while held).
+        BoneMatrix gun{};
+        float basis[9]{};
+        if (!ComposeBoneMatrices(root, scratch[rootSource], gun) || !NormalizedBasis(gun, basis)) return;
+        const float metres = std::fabs(gun.scale) / unitsPerMetre;
+        auto worldPoint = [&](const reload_clip::Bone& local, float out[3]) {
+            BoneMatrix w{};
+            if (!ComposeBoneMatrices(gun, ToMatrix(local), w)) return false;
+            for (int a = 0; a < 3; ++a) out[a] = w.translation[a];
+            return true;
+        };
+        auto worldDirection = [&](const reload_clip::V3& d, float out[3]) {
+            for (int r = 0; r < 3; ++r) out[r] = basis[r] * d.x + basis[3 + r] * d.y + basis[6 + r] * d.z;
+        };
+
+        // Measured from the gun hand's aim pose AS THE ARM SOLVER PLACES IT in this palette (ControllerWorldPoseEx,
+        // the pose DesiredWristWorld builds the hands from), less the gun's mount offsets, and published in that aim
+        // frame; the VR thread rebuilds it from the same aim pose (VR_GetAimPose). Whatever maps tracking space into
+        // the game cancels out. A hand-built world transform put the well 40 cm low in the first FA pass.
+        float aimBasis[9]{}, aimPos[3]{}, meshScale = 1.0f;
+        if (!ControllerWorldPoseEx(false, aimBasis, aimPos, meshScale)) return;
         {
             const float standoff = weapon_alignment::Forward(false, g_config.gun_forward_m, g_config.left_hand_forward_m) * unitsPerMetre;
             const float rightOff = weapon_alignment::Right(false, g_config.gun_right_m) * unitsPerMetre;
@@ -120,28 +335,53 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
             return std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z) &&
                    (!point || out.x * out.x + out.y * out.y + out.z * out.z < 4.0f);
         };
-        // Columns: forward, left, up. The magazine travels up into the gun; the rack part is pulled back.
-        const float up[3]{basis[6], basis[7], basis[8]};
-        const float back[3]{-basis[0], -basis[1], -basis[2]};
-        float well[3]{};
-        const auto* model = manual_reload::FindModel(title, identity);
-        const bool wellValid = parts->magazineNode >= 0 && model && model->vertexCount &&
-            weapon_model::ReceiverPoint(model, held.scale, basis, held.translation, well);
-        const int rackSource = source(parts->rackNode);
-        float rack[3]{};
+
+        manual_reload::GameSample sample{};
+        sample.title = title; sample.generation = generation; sample.identity = identity;
+        sample.weapon = weapon; sample.simValid = simValid; sample.sim = sim;
+        // The well: the animation's own (the magazine's resting place and the way it goes in), else the reload
+        // catalogue's magazine rest with the gun's up as its axis.
+        float well[3]{}, axis[3]{};
+        bool wellValid = false;
+        if (haveMagazine && worldPoint(magazineClip.clip->bone[0][parts->magazineNode], well))
+        {
+            worldDirection(magazineClip.segments.approach, axis);
+            wellValid = true;
+            sample.learned = true;
+            sample.insertDepth = magazineClip.segments.window * metres;
+        }
+        else
+        {
+            const auto* model = manual_reload::FindModel(title, identity);
+            wellValid = parts->magazineNode >= 0 && model && model->vertexCount &&
+                        weapon_model::ReceiverPoint(model, gun.scale, basis, gun.translation, well);
+            for (int r = 0; r < 3; ++r) axis[r] = basis[6 + r];
+        }
+        float rack[3]{}, back[3]{};
         bool rackValid = false;
-        if (rackSource >= 0)
+        if (haveRack && worldPoint(rackClip.clip->bone[0][parts->rackNode], rack))
+        {
+            worldDirection(rackClip.segments.rackBack, back);
+            rackValid = true;
+            sample.rackTravel = rackClip.segments.rackTravel * metres;
+        }
+        else if (rackSource >= 0)
         {
             BoneMatrix part{};
             rackValid = ComposeBoneMatrices(root, scratch[rackSource], part);
             for (int a = 0; a < 3 && rackValid; ++a) rack[a] = part.translation[a];
+            for (int r = 0; r < 3; ++r) back[r] = -basis[r];
         }
-        uint32_t weapon = 0;
-        reload_ammo::Sim sim{};
-        const bool simValid = ReadAmmo(title, weapon, sim);
-        if (!simValid) ammoFailures.fetch_add(1, std::memory_order_relaxed);
+        sample.wellValid = wellValid && toAim(well, true, sample.well) && toAim(axis, false, sample.wellAxis);
+        sample.rackValid = rackValid && toAim(rack, true, sample.rack) && toAim(back, false, sample.rackBack);
+        if (posedMagazineValid && magazineSource >= 0)
         {
-            // The layout for the log: the root's origin and axes, the magazine and rack nodes, the catalogue's well.
+            BoneMatrix m{};
+            if (ComposeBoneMatrices(root, scratch[magazineSource], m))
+                sample.posedValid = toAim(m.translation, true, sample.posedMagazine);
+        }
+        {
+            // The layout for the log: the root's origin and axes, the magazine and rack nodes, the well.
             Layout_ l{};
             manual_reload::Vec v{};
             auto put = [&](const float* w, bool point, float (&o)[3]) {
@@ -149,10 +389,9 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
             };
             const float c0[3]{basis[0], basis[1], basis[2]}, c1[3]{basis[3], basis[4], basis[5]},
                         c2[3]{basis[6], basis[7], basis[8]};
-            put(held.translation, true, l.root); put(c0, false, l.fwd); put(c1, false, l.left); put(c2, false, l.up);
-            const int ms = source(parts->magazineNode);
+            put(gun.translation, true, l.root); put(c0, false, l.fwd); put(c1, false, l.left); put(c2, false, l.up);
             BoneMatrix node{};
-            if (ms >= 0 && ComposeBoneMatrices(root, scratch[ms], node)) put(node.translation, true, l.magNode);
+            if (magazineSource >= 0 && ComposeBoneMatrices(root, scratch[magazineSource], node)) put(node.translation, true, l.magNode);
             if (rackValid) put(rack, true, l.rackNode);
             if (wellValid) put(well, true, l.well);
             l.identity = identity;
@@ -160,25 +399,19 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
             g_layout = l;
             g_layoutSeq.fetch_add(1, std::memory_order_release);
         }
-        manual_reload::Vec wellLocal{}, axisLocal{}, rackLocal{}, backLocal{};
-        const bool wellOk = wellValid && toAim(well, true, wellLocal) && toAim(up, false, axisLocal);
-        const bool rackOk = rackValid && toAim(rack, true, rackLocal) && toAim(back, false, backLocal);
-        VR_PublishManualReloadSample(title, generation, identity, weapon, simValid, sim,
-                                     wellOk, wellLocal, axisLocal, rackOk, rackLocal, backLocal);
+        VR_PublishManualReloadSample(sample);
         samples.fetch_add(1, std::memory_order_relaxed);
 
         // What the hands asked for, on this frame's private copy only.
-        manual_reload::Presentation p{};
-        if (!VR_ManualReloadPresentation(title, generation, identity, p)) return;
-        const int magazineSource = source(parts->magazineNode);
-        if (p.hideMagazine && magazineSource >= 0)
+        if (!owned) return;
+        if (!magazineShown && magazineSource >= 0)
         {
             scratch[magazineSource].scale = 0.0001f;
             hidden.fetch_add(1, std::memory_order_relaxed);
         }
-        if (p.rackPull > 0 && rackSource >= 0 && std::isfinite(p.rackPull) && std::isfinite(p.rackTravel))
+        if (p.rackPull > 0 && !rackByClip && rackSource >= 0 && std::isfinite(p.rackPull) && std::isfinite(p.rackTravel))
         {
-            // The part's own palette entry moves back along the gun by the hand's pull (world units).
+            // No learned stroke: the part's own palette entry moves back along the gun by the hand's pull.
             const float units = std::fmin(p.rackPull, 1.0f) * std::fmin(std::fmax(p.rackTravel, 0.0f), 0.2f) *
                                 unitsPerMetre;
             float local[3]{};
@@ -219,6 +452,26 @@ void Report()
                     l.fwd[2], l.left[0], l.left[1], l.left[2], l.up[0], l.up[1], l.up[2], l.magNode[0], l.magNode[1],
                     l.magNode[2], l.rackNode[0], l.rackNode[1], l.rackNode[2], l.well[0], l.well[1], l.well[2]);
             }
+        }
+    }
+    {
+        char line[256];
+        reload_clip_store::Tick(line, sizeof(line));
+        if (line[0]) LOG("%s", line);
+    }
+    {
+        static uint64_t lastClips[5]{};
+        static ULONGLONG clipsAt = 0;
+        const uint64_t clips[]{held.load(), clipPosed.load(), ejectPlayed.load(), clipsRecorded.load(), clipsRefused.load()};
+        const ULONGLONG tick = GetTickCount64();
+        if (std::memcmp(lastClips, clips, sizeof(clips)) &&
+            (clips[3] != lastClips[3] || clips[4] != lastClips[4] || tick - clipsAt >= 10000))
+        {
+            std::memcpy(lastClips, clips, sizeof(clips));
+            clipsAt = tick;
+            LOG("Manual reload (gun's look): held=%llu posed-from-animation=%llu way-out-played=%llu reloads-learned=%llu "
+                "reloads-not-learned=%llu; %u clip(s) known",
+                clips[0], clips[1], clips[2], clips[3], clips[4], reload_clip_store::LearnedCount());
         }
     }
     static uint64_t last[5]{};

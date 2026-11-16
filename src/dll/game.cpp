@@ -10,6 +10,7 @@
 #include "../common/reach_wind_replay.h"
 #include "native_reload_policy.h"
 #include "hand_tracks.h"
+#include "reload_clip_store.h"
 #include "native_vr_actions.h"
 #include "seat_exit_witness.h"
 #include "native_vehicle_first_person.h"
@@ -8088,6 +8089,30 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         return true;
     }
 
+    // MANUAL RELOAD (Halo 3 / ODST): while the support hand pushes a magazine in or works the rack part, its drawn
+    // target rides the magazine or the part on the gun (Campaign Evolved's hand on the magazine and on the charging
+    // handle). The VR thread publishes the move in the gun-hand aim frame; it is carried into the world through the
+    // same aim pose the reload's geometry was measured from. Presentation only (the local palette).
+    bool ApplyManualReloadFollow(BoneMatrix& desiredLeft)
+    {
+        const GameTitle title=TitleAdapter_GetActiveTitle();
+        if (title!=GameTitle::Halo3 && title!=GameTitle::Halo3ODST) return false;
+        float local[3]{};
+        if (!VR_ManualReloadFollow(title,local)) return false;
+        float aimBasis[9]{},aimPos[3]{},scale=1.0f;
+        const float unitsPerMetre=g_worldScale.load();
+        if (!std::isfinite(unitsPerMetre) || unitsPerMetre<=0 || !ControllerWorldPoseEx(false,aimBasis,aimPos,scale))
+            return false;
+        // Aim frame: x right, y up, z back; the basis columns are forward, left, up.
+        for (int r=0;r<3;++r)
+        {
+            const float d=(aimBasis[r]*-local[2]+aimBasis[3+r]*-local[0]+aimBasis[6+r]*local[1])*unitsPerMetre;
+            if (!std::isfinite(d)) return false;
+            desiredLeft.translation[r]+=d;
+        }
+        return true;
+    }
+
     bool ReconstructVisiblePaletteSource(uint16_t tag,
                                          const FpInterpolationContext& context,
                                          const BoneMatrix& root,
@@ -8640,6 +8665,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                                 (void)ApplySupportHandTrack(armRoot,unmod[context.wrist],
                                     unmod[context.lWrist],desiredWristWorld,rightAimBasis,
                                     meshScale,desiredLeft);
+                            if (leftTargetValid && !explicitTargets)
+                                (void)ApplyManualReloadFollow(desiredLeft);
                         }
                         if (leftTargetValid)
                         {

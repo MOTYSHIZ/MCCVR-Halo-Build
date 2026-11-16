@@ -16,6 +16,7 @@
 #include "drive_cascade.h"
 #include "install_search_cache.h"
 #include "hand_tracks.h"
+#include "reload_clip_store.h"
 #include "lifted_engine.h"
 #include "title_adapter.h"
 #include "telemetry_recorder.h"
@@ -180,6 +181,8 @@ static DWORD WINAPI InitThread(LPVOID)
     install_search_cache::SetFolder(dir.c_str());
     // Support-hand tracks (Halo 3 / ODST) are read from halomccvr_hand_tracks.txt beside the settings.
     HandTracks_SetFolder(dir.c_str());
+    // The guns' learned reload animations (manual reload, Halo 3 / ODST): halomccvr_reload_clips.bin beside them.
+    reload_clip_store::SetFolder(dir.c_str());
     // What a drive resolved in a module is remembered for that image of it only: the title adapter's module
     // generation changes when MCC unloads a game DLL and loads it again, even at the same base.
     drive_cascade::SetModuleGenerationSource(&TitleAdapter_GetGeneration);

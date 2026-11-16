@@ -37,6 +37,7 @@
 #include "../common/log.h"
 #include "../common/config.h"
 #include "hand_tracks.h"
+#include "reload_clip_store.h"
 #include "../common/input_preset.h"
 #include "../common/default_controls.h"
 #include "../common/menu_mirror.h"
@@ -2395,6 +2396,25 @@ namespace
             changed |= ImGui::Checkbox("Rack the handle after an empty magazine", &g_config.manual_reload_rack);
             ImGui::TextDisabled("Halo 3 and ODST: a gun that ran dry needs its charging handle or slide pulled back\n"
                 "with your support hand once the new magazine is in. Off: seating the magazine chambers a round.");
+            SettingGap();
+            changed |= ImGui::Checkbox("Move the gun with its own reload animation", &g_config.manual_reload_animation);
+            ImGui::TextDisabled("Each gun learns its reload from the game the first time it reloads (you will not see\n"
+                "it). After that the magazine slides out and in along the gun's own animation, the handle moves\n"
+                "with it, and the Covenant carbine, spiker and mauler reload by hand too.");
+#if HALOMCCVR_SETTINGS_WINDOW
+            ImGui::TextDisabled("The learned animations are in halomccvr_reload_clips.bin beside halomccvr.cfg.\n"
+                "Delete that file to have every gun learn its reload again.");
+#else
+            {
+                const uint32_t learned = reload_clip_store::LearnedCount();
+                ImGui::TextDisabled("Learned so far: %u reload animation%s.", learned, learned == 1 ? "" : "s");
+                if (ImGui::Button("Forget learned reload animations")) reload_clip_store::ForgetAll();
+            }
+#endif
+            SettingGap();
+            changed |= ImGui::Checkbox("Draw my hand on the magazine and the handle", &g_config.manual_reload_hand_follow);
+            ImGui::TextDisabled("Your support hand is drawn on the magazine as you push it in, and on the charging\n"
+                "handle or slide as you pull it, so it rides the gun when you turn it.");
             SettingGap();
             changed |= vr_menu::SliderFloat("Magazine grab radius (m)",
                 &g_config.weapon_body_zone_radius_m,0.08f,0.40f,"%.2f");

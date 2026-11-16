@@ -1173,15 +1173,14 @@ void VR_ObserveWeaponModel(GameTitle title,uint32_t generation,uint64_t identity
 // thread asks whether the reload button is the manual reload's and whether the trigger is held back.
 namespace reload_ammo { struct Sim; }
 namespace weapon_interaction { struct Vec; }
-namespace manual_reload { struct Presentation; }
+namespace manual_reload { struct Presentation; struct GameSample; }
 // Points (metres) and directions in the gun hand's aim frame (OpenXR: x right, y up, z back) as the arm solver places
-// it; the VR thread rebuilds them from VR_GetAimPose.
-void VR_PublishManualReloadSample(GameTitle title, uint32_t generation, uint64_t identity, uint32_t weapon,
-    bool simValid, const reload_ammo::Sim& sim, bool wellValid, const weapon_interaction::Vec& well,
-    const weapon_interaction::Vec& wellAxis, bool rackValid, const weapon_interaction::Vec& rack,
-    const weapon_interaction::Vec& rackBack) noexcept;
+// it; the VR thread rebuilds them from VR_GetAimPose. The sample's space, time and handedness are filled in here.
+void VR_PublishManualReloadSample(const manual_reload::GameSample& sample) noexcept;
 bool VR_ManualReloadPresentation(GameTitle title, uint32_t generation, uint64_t identity,
     manual_reload::Presentation& out) noexcept;
+// The support hand's drawn target moves by this while it pushes a magazine in or works the rack part (aim frame, m).
+bool VR_ManualReloadFollow(GameTitle title, float local[3]) noexcept;
 bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;
 bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept;
 void VR_NoteManualReloadTap() noexcept;

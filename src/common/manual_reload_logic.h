@@ -49,6 +49,12 @@ struct Geometry
     bool rackValid = false;
     Vec rack{};          // the rack part's rest place
     Vec rackBack{};      // unit: the way the rack part is pulled
+    // From the gun's own reload animation, once the palette hook has learned it (reload_clip_logic.h).
+    bool learned = false;     // the magazine's way in is known (the well and axis above are the animation's)
+    float insertDepth = 0;    // metres: where the animation's push begins (0: the weapon's built-in depth)
+    float rackTravel = 0;     // metres: the animation's rack stroke (0: the setting)
+    bool posedValid = false;  // pushing in: where the posed magazine was drawn
+    Vec posedMagazine{};
 };
 
 struct Input
@@ -102,6 +108,13 @@ struct Output
     float supportHaptic = 0, primaryHaptic = 0;
     // What happened this update (the log).
     bool dropped = false, grabbed = false, seated = false, racked = false, pressed = false, lost = false;
+    float rackTravel = 0;            // metres: the rack stroke in use
+    float pushDepth = 0;             // pushing in: metres still to go (the palette hook scrubs the animation by it)
+    bool followValid = false;        // the support hand rides the magazine or the rack part:
+    Vec follow{};                    // ... its drawn target moves by this (tracking space, m)
+    uint64_t droppedAt = 0;          // the magazine left (the animation's way out plays from here)
+    bool emptyAtDrop = false;        // the game's gun was empty when it left (the game plays its empty reload)
+    bool pressPending = false;       // a reload press is out, not yet taken by the game
     bool gripMissed = false;         // `miss` is new this update
     GripMiss miss{};
     int loaded = 0, reserve = 0, chamber = 0;
@@ -140,7 +153,10 @@ public:
     Output Update(const Input& in, const Settings& c) noexcept
     {
         Output out{};
-        const bool owned = in.weapon.enabled && in.simValid && in.weaponId && in.sim.capacity > 0;
+        // A weapon whose magazine moves by its own animation (the Covenant guns) is the player's only once the
+        // palette hook has learned that animation: its first reload is the game's own, watched.
+        const bool owned = in.weapon.enabled && in.simValid && in.weaponId && in.sim.capacity > 0 &&
+                           (!in.weapon.needsLearning || in.geometry.learned);
         // The support grip, with its fresh-press edge (armed below kGripOff, closed above kGripOn).
         const bool gripValid = std::isfinite(in.supportGrip) && in.supportGrip >= 0 && in.supportGrip <= 1;
         const bool gripHeld = gripValid && in.supportGrip > kGripOn;
@@ -200,6 +216,8 @@ public:
                 {
                     phase_ = Phase::MagOut;
                     out.dropped = true;
+                    droppedAt_ = in.now;
+                    emptyAtDrop_ = in.sim.loaded == 0;
                     out.primaryHaptic = 0.6f;
                     pressedSinceDrop_ = false;
                     // The game reloads now, unseen, while the hands fetch a magazine.
@@ -214,6 +232,15 @@ public:
                     phase_ = Phase::Racking;
                     rackFrom_ = in.support;
                     rackArmed_ = true;
+                    {
+                        // Where the hand took the part, in the part's own frame, so the drawn hand rides it.
+                        const Vec off = in.support - in.geometry.rack;
+                        Vec back{}, up{}, side{};
+                        RackFrame(in, back, up, side);
+                        rackGrab_[0] = weapon_interaction::Dot(off, back);
+                        rackGrab_[1] = weapon_interaction::Dot(off, up);
+                        rackGrab_[2] = weapon_interaction::Dot(off, side);
+                    }
                     gripOwned_ = true;
                     out.supportHaptic = 0.5f;
                 }
@@ -246,7 +273,7 @@ public:
             {
                 if (!gripHeld || !in.geometry.rackValid) { phase_ = Phase::Idle; break; }
                 const float pull = weapon_interaction::Dot(in.support - rackFrom_, in.geometry.rackBack);
-                rackPull_ = std::fmin(std::fmax(pull / std::fmax(c.rackTravel, 0.01f), 0.0f), 1.0f);
+                rackPull_ = std::fmin(std::fmax(pull / std::fmax(RackTravel(in, c), 0.01f), 0.0f), 1.0f);
                 if (rackArmed_ && rackPull_ >= kRackDone)
                 {
                     rackArmed_ = false;
@@ -285,7 +312,9 @@ public:
         out.phase = phase_;
         out.triggerHeld = !ammo_.TriggerOk();
         out.hideMagazine = !ammo_.MagIn();
-        out.magazineInHand = phase_ == Phase::MagHeld || phase_ == Phase::Pushing;
+        // Pushing in along a learned animation, the gun's own magazine is drawn (posed by the palette hook) and the
+        // mod's drawn one goes.
+        out.magazineInHand = phase_ == Phase::MagHeld || (phase_ == Phase::Pushing && !in.geometry.learned);
         out.magazineOnAxis = phase_ == Phase::Pushing;
         if (out.magazineInHand)
         {
@@ -293,6 +322,28 @@ public:
             out.magazine = phase_ == Phase::Pushing ? OnAxis(in, Along(in)) : m;
         }
         out.rackPull = rackPull_;
+        out.rackTravel = RackTravel(in, c);
+        out.droppedAt = droppedAt_;
+        out.emptyAtDrop = emptyAtDrop_;
+        out.pressPending = pressPending_;
+        if (phase_ == Phase::Pushing && in.geometry.wellValid)
+        {
+            // The hand rides the magazine as it goes in: shifted by how far the drawn magazine sits from where the
+            // controller carries it (on the axis, or where the gun's animation put it last frame).
+            out.pushDepth = std::fmax(-Along(in), 0.f);
+            const Vec drawn = in.geometry.posedValid ? in.geometry.posedMagazine : OnAxis(in, Along(in));
+            out.follow = drawn - Magazine(in);
+            out.followValid = weapon_interaction::Finite(out.follow) && Length(out.follow) < 0.3f;
+        }
+        else if (phase_ == Phase::Racking && in.geometry.rackValid)
+        {
+            Vec back{}, up{}, side{};
+            RackFrame(in, back, up, side);
+            const Vec handle = in.geometry.rack + back * (rackPull_ * RackTravel(in, c));
+            const Vec target = handle + back * rackGrab_[0] + up * rackGrab_[1] + side * rackGrab_[2];
+            out.follow = target - in.support;
+            out.followValid = weapon_interaction::Finite(out.follow) && Length(out.follow) < 0.3f;
+        }
         out.consumeSupport = phase_ == Phase::MagHeld || phase_ == Phase::Pushing || phase_ == Phase::Racking ||
                              (gripOwned_ && gripHeld);
         // The two-handed hold may not take a hand that is fetching, holding or pushing a magazine, working the
@@ -308,6 +359,19 @@ public:
     }
 
 private:
+    static float RackTravel(const Input& in, const Settings& c) noexcept
+    {
+        return in.geometry.rackTravel > 0 ? in.geometry.rackTravel : c.rackTravel;
+    }
+    static void RackFrame(const Input& in, Vec& back, Vec& up, Vec& side) noexcept
+    {
+        back = Normalized(in.geometry.rackBack);
+        Vec u = in.geometry.wellValid ? in.geometry.wellAxis : Vec{0, 1, 0};
+        u = Normalized(u - back * weapon_interaction::Dot(u, back));
+        if (Length(u) < 0.5f) u = Normalized(Vec{0, 1, 0} - back * back.y);
+        up = u;
+        side = Vec{back.y * up.z - back.z * up.y, back.z * up.x - back.x * up.z, back.x * up.y - back.y * up.x};
+    }
     bool HandHasSomething(const Input& in) const noexcept
     {
         return phase_ == Phase::MagHeld || phase_ == Phase::Pushing || phase_ == Phase::Racking || in.twoHandHeld;
@@ -376,7 +440,8 @@ private:
         const Vec m = Magazine(in);
         if (Length(m - grabbedAt_) < c.seatTravel) return false;
         const float along = Along(in);
-        if (along < -(in.weapon.insertDepth + 0.10f) || along > 0.10f) return false;
+        const float depth = in.geometry.insertDepth > 0 ? in.geometry.insertDepth : in.weapon.insertDepth;
+        if (along < -(depth + 0.10f) || along > 0.10f) return false;
         if (Length(Lateral(in, along)) > c.seatLateral) return false;
         const Vec top = weapon_interaction::Rotate(in.supportRotation,
             {kMagazineTopLocal[0], kMagazineTopLocal[1], kMagazineTopLocal[2]});
@@ -410,7 +475,9 @@ private:
     bool pressPending_ = false, pressRetried_ = false, pressedSinceDrop_ = false;
     int pressLoaded_ = 0, catchUp_ = 0;
     GripMiss miss_{};
-    uint64_t missAt_ = 0;
+    uint64_t missAt_ = 0, droppedAt_ = 0;
+    bool emptyAtDrop_ = false;
+    float rackGrab_[3]{};
     bool missPending_ = false;
 };
 

@@ -1700,6 +1700,11 @@ struct Config
     bool manual_reload_magazine = true;
     // ... and a gun that ran dry needs its handle or slide pulled back once the magazine is in (off: the seat chambers).
     bool manual_reload_rack = true;
+    // ... the gun is posed from its own reload animation, learned from the game's reload (the magazine's way out
+    // and in, the rack stroke; halomccvr_reload_clips.bin), and the Covenant magazine guns join once learned.
+    bool manual_reload_animation = true;
+    // ... the support hand is drawn on the magazine as it goes in and on the rack part as it is pulled.
+    bool manual_reload_hand_follow = true;
     // Stow the gun at the other shoulder: the weapon hand reaches to the holster spot mirrored to the other side
     // of the body and squeezes; the gun is put away (hidden, its trigger ignored) until the same squeeze there
     // again, or the holster. The Halo: Campaign Evolved VR mod's left-shoulder "emote mode". Halo 3 and ODST.

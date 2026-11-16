@@ -223,6 +223,31 @@ int main()
             "after a long gap (a death, a cinematic) the gun is taken as the game has it");
     }
     {
+        // THE LEARNED ANIMATION. A Covenant gun is the game's until its reload has been learned.
+        Rig carbine("fp_covenant_carbine");
+        Check(!carbine.out.owned, "the carbine reloads the game's way until its animation is learned");
+        carbine.in.geometry.learned = true; carbine.Step();
+        Check(carbine.out.owned, "and by hand once it is");
+        carbine.Tap();
+        Check(carbine.out.dropped && carbine.out.droppedAt == carbine.now && carbine.out.triggerHeld,
+              "its magazine drops (nothing stays in the gun) and the drop time goes to the palette");
+        // Pushing in along a learned animation: the push depth goes to the palette and the drawn magazine goes.
+        Rig rifle;
+        rifle.in.geometry.learned = true; rifle.in.geometry.insertDepth = 0.15f;
+        rifle.Tap();
+        rifle.in.support = kPouch; rifle.Step(); rifle.Grip(false); rifle.Grip(true);
+        rifle.MoveMagazine(kWell + kAxis * -0.20f);
+        Check(rifle.out.phase == Phase::Pushing, "a learned 15 cm way in takes the magazine 20 cm below the well");
+        Check(std::fabs(rifle.out.pushDepth - 0.20f) < 0.02f, "with 20 cm still to go");
+        Check(!rifle.out.magazineInHand, "the gun's own magazine is drawn on its way in, not the mod's");
+        Check(rifle.out.followValid && Length(rifle.out.follow) < 0.05f, "the hand rides the magazine");
+        // The rack: a learned stroke sets the travel.
+        Rig dry;
+        dry.in.geometry.rackTravel = 0.04f;
+        dry.Step();
+        Check(std::fabs(dry.out.rackTravel - 0.04f) < 1e-6f, "a learned 4 cm stroke is the rack's travel");
+    }
+    {
         // A GRIP THAT TAKES NOTHING says why, once the late-grip window has passed.
         GripMiss seen{};
         auto missesOver=[&seen](Rig& rig,unsigned ms){int n=0;for(unsigned t=0;t<ms;t+=11){rig.Step();if(rig.out.gripMissed){++n;seen=rig.out.miss;}}return n;};
