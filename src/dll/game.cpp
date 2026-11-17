@@ -2475,6 +2475,9 @@ namespace
     struct FpInterpolationContext
     {
         const BoneMatrix* source = nullptr;
+        // The slot's last good context standing in for an interpolation that returned no bones (g_fpLastGoodContexts):
+        // the palette that interpolation leads to draws from another bone bank, so it is bound to that bank there.
+        bool standIn = false;
         uint32_t generation = 0;
         int count = 0;
         int player = -1;
@@ -2560,7 +2563,10 @@ namespace
     thread_local FpInterpolationContext g_fpLastGoodContexts[2];
     thread_local uint64_t g_fpLastGoodMs[2]{};
     constexpr uint64_t kFpHeldContextMs = 250;
+    // The palette tag last posed from each slot's context, for binding a stand-in only to the same model.
+    thread_local uint16_t g_fpLastPosedTag[2]{0xFFFF, 0xFFFF};
     std::atomic<uint64_t> g_fpHeldContexts{0};
+    std::atomic<uint64_t> g_fpStandInsBound{0};   // stand-ins a palette was posed with
     // Why each Halo 3 first-person palette was or was not posed (fp_arm_fallback_logic.h). Present reports them.
     thread_local fp_arm_fallback::ThreadTrace g_fpArmTrace;
     std::atomic<uint64_t> g_fpArmOutcomes[static_cast<size_t>(fp_arm_fallback::Outcome::Count)]{};
@@ -7879,6 +7885,7 @@ namespace
                 nowMs-g_fpLastGoodMs[slot]<=kFpHeldContextMs)
             {
                 g_fpInterpolationContexts[slot]=held;
+                g_fpInterpolationContexts[slot].standIn=true;
                 g_fpHeldContexts.fetch_add(1,std::memory_order_relaxed);
             }
         }
@@ -9021,6 +9028,28 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 candidate.valid=false;
                 break;
             }
+        // A palette after an interpolation that returned no bones draws from a bank no context holds. The slot's
+        // stand-in (its last good context) is bound to it when it is the only one and its model was last posed with
+        // this palette's tag; the solve then reads that context's untouched snapshot.
+        if (!context.valid && source && g_fpArmTrace.interpolations && !g_fpArmTrace.lastResult)
+        {
+            FpInterpolationContext* standIn=nullptr;
+            int standIns=0;
+            for (auto& candidate : g_fpInterpolationContexts)
+                if (candidate.valid && candidate.standIn && candidate.slot>=0 && candidate.slot<2 &&
+                    g_fpLastPosedTag[candidate.slot]==tag)
+                {
+                    standIn=&candidate;
+                    ++standIns;
+                }
+            if (standIns==1)
+            {
+                context=*standIn;
+                standIn->valid=false;
+                context.source=source;
+                g_fpStandInsBound.fetch_add(1,std::memory_order_relaxed);
+            }
+        }
         H3SecondaryVisualScope secondaryMotionScope(context);
         if (root && context.valid && context.player>=0 && context.player<4 &&
             isfinite(root->scale) && fabsf(root->scale)>0.001f)
@@ -9040,6 +9069,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         if (root && source)
             reconstructed=ReconstructVisiblePaletteSource(
                 tag,context,*root,source,selectedSource);
+        if (reconstructed && context.valid && context.slot>=0 && context.slot<2)
+            g_fpLastPosedTag[context.slot]=tag;
         if (source)
         {
             const uint64_t frame=VR_CurrentPreparedSerial();
@@ -56773,10 +56804,14 @@ void Game_AutoVrTick()
             static uint64_t heldContextsReported=0;
             const uint64_t heldContexts=g_fpHeldContexts.load(std::memory_order_relaxed)-heldContextsReported;
             heldContextsReported+=heldContexts;
+            static uint64_t boundReported=0;
+            const uint64_t bound=g_fpStandInsBound.load(std::memory_order_relaxed)-boundReported;
+            boundReported+=bound;
             if (heldContexts)
-                LOG("Halo 3 arms: the game's first-person pose came back empty %llu times in %.1f s; each kept the "
-                    "last good pose, so the arms stayed on the controllers",
-                    static_cast<unsigned long long>(heldContexts),(reportNow-windowStartMs)/1000.0);
+                LOG("Halo 3 arms: the game's first-person pose came back empty %llu times in %.1f s; the last good "
+                    "pose stood in, and %llu palettes were posed with it",
+                    static_cast<unsigned long long>(heldContexts),(reportNow-windowStartMs)/1000.0,
+                    static_cast<unsigned long long>(bound));
             windowStartMs=reportNow;presents=0;
         }
     }
