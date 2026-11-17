@@ -15,7 +15,7 @@ constexpr wchar_t kFileName[] = L"halomccvr_reloads.txt";
 
 struct Change
 {
-    enum Kind : int { Enabled, Handle, ClearHandle } kind = Enabled;
+    enum Kind : int { Enabled, Handle, ClearHandle, Pouch, ClearPouch } kind = Enabled;
     char name[reload_weapon_file::kNameChars]{};
     bool enabled = false;
     float handle[3]{};
@@ -140,6 +140,8 @@ void Poll(char* line, size_t lineSize) noexcept
                 e->handleSet = true;
                 for (int a = 0; a < 3; ++a) e->handle[a] = changes[i].handle[a];
             }
+            else if (changes[i].kind == Change::Pouch) e->pouch = changes[i].handle[0];
+            else if (changes[i].kind == Change::ClearPouch) e->pouch = NAN;
             else e->handleSet = false;
         }
         std::vector<char> text(16384);
@@ -188,6 +190,20 @@ void SetHandle(const char* name, const float cm[3]) noexcept
     if (!cm || !Copy(c.name, name)) return;
     for (int a = 0; a < 3; ++a) c.handle[a] = cm[a];
     Queue(c);
+}
+void SetPouch(const char* name, float cm) noexcept
+{
+    Change c{};
+    c.kind = Change::Pouch;
+    if (!std::isfinite(cm) || !Copy(c.name, name)) return;
+    c.handle[0] = cm < 4.f ? 4.f : cm > 40.f ? 40.f : cm;
+    Queue(c);
+}
+void ClearPouch(const char* name) noexcept
+{
+    Change c{};
+    c.kind = Change::ClearPouch;
+    if (Copy(c.name, name)) Queue(c);
 }
 void ClearHandle(const char* name) noexcept
 {

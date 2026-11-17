@@ -18,7 +18,7 @@ int main()
     const char* text =
         "# comment\r\n"
         "\r\n"
-        "fp_assault_rifle enabled=1 grab=12.5 handle=1,-2,0.5 depth=9 travel=7\r\n"
+        "fp_assault_rifle enabled=1 grab=12.5 handle=1,-2,0.5 depth=9 travel=7 pouch=26\r\n"
         "fp_smg\tenabled=0\n"
         "fp_magnum grab=999 bogus=3\n"
         "fp_sniper_rifle handle=1,2\n";
@@ -26,7 +26,7 @@ int main()
     Check(t.count == 4, "four guns");
     const Entry* ar = Find(t, "fp_assault_rifle");
     Check(ar && ar->enabled == 1 && Near(ar->grab, 12.5f) && ar->handleSet && Near(ar->handle[1], -2.f) &&
-              Near(ar->handle[2], 0.5f) && Near(ar->depth, 9.f) && Near(ar->travel, 7.f),
+              Near(ar->handle[2], 0.5f) && Near(ar->depth, 9.f) && Near(ar->travel, 7.f) && Near(ar->pouch, 26.f),
           "every field of a full line");
     const Entry* smg = Find(t, "fp_smg");
     Check(smg && smg->enabled == 0 && std::isnan(smg->grab) && !smg->handleSet, "a tab-separated line, one field");
@@ -40,7 +40,8 @@ int main()
     Format(t, out, sizeof(out));
     const Table again = Parse(out);
     const Entry* ar2 = Find(again, "fp_assault_rifle");
-    Check(again.count == 4 && again.errors == 0 && ar2 && Near(ar2->grab, 12.5f) && Near(ar2->handle[0], 1.f),
+    Check(again.count == 4 && again.errors == 0 && ar2 && Near(ar2->grab, 12.5f) && Near(ar2->handle[0], 1.f) &&
+              Near(ar2->pouch, 26.f),
           "written back, it reads the same");
 
     Table added{};

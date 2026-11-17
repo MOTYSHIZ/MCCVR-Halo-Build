@@ -11,6 +11,8 @@
 //            grab spot to my hand").
 //   depth    cm: how far below the well a magazine is taken onto its way in (when no reload animation is learned).
 //   travel   cm: the rack's stroke (when no reload animation is learned).
+//   pouch    cm: how close the support hand must be to the pouch to take this gun's magazine or shell (set in the
+//            headset: the stick resizes it during "Set the pouch to my hand"). Left out: "Magazine grab radius".
 //
 // A field left out keeps the built-in value. Unknown names and fields are kept as they are in the file but ignored.
 // Pure: no allocation.
@@ -28,7 +30,7 @@ struct Entry
 {
     char name[kNameChars]{};
     int enabled = -1;               // -1: not set
-    float grab = NAN, depth = NAN, travel = NAN;   // cm; NaN: not set
+    float grab = NAN, depth = NAN, travel = NAN, pouch = NAN;   // cm; NaN: not set
     bool handleSet = false;
     float handle[3]{};              // cm back, up, side
 };
@@ -110,6 +112,7 @@ inline Table Parse(const char* text) noexcept
             else if (!std::strcmp(key, "grab") && Number(val, 2, 40, v)) e->grab = v;
             else if (!std::strcmp(key, "depth") && Number(val, 1, 40, v)) e->depth = v;
             else if (!std::strcmp(key, "travel") && Number(val, 1, 20, v)) e->travel = v;
+            else if (!std::strcmp(key, "pouch") && Number(val, 4, 40, v)) e->pouch = v;
             else if (!std::strcmp(key, "handle"))
             {
                 float h[3]{};
@@ -146,7 +149,8 @@ inline size_t Format(const Table& t, char* out, size_t size) noexcept
     };
     put("# Manual reload, Halo 3 / ODST: one line per first-person gun (the kit's model name). Fields left out keep\n");
     put("# the built-in value. enabled=1/0 (by hand or the game's way), grab=cm (reach to take the handle),\n");
-    put("# handle=back,up,side cm (where the handle is taken, set in the headset), depth=cm, travel=cm.\n");
+    put("# handle=back,up,side cm (where the handle is taken, set in the headset), depth=cm, travel=cm,\n");
+    put("# pouch=cm (this gun's reach at the pouch, set in the headset with the stick).\n");
     put("# Delete this file to go back to the built-in settings.\n");
     for (int i = 0; i < t.count; ++i)
     {
@@ -157,6 +161,7 @@ inline size_t Format(const Table& t, char* out, size_t size) noexcept
         if (e.handleSet) put(" handle=%.1f,%.1f,%.1f", double(e.handle[0]), double(e.handle[1]), double(e.handle[2]));
         if (std::isfinite(e.depth)) put(" depth=%.1f", double(e.depth));
         if (std::isfinite(e.travel)) put(" travel=%.1f", double(e.travel));
+        if (std::isfinite(e.pouch)) put(" pouch=%.1f", double(e.pouch));
         put("\n");
     }
     return at;

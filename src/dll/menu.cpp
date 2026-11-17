@@ -2445,7 +2445,22 @@ namespace
                 else
                     ImGui::TextDisabled(gun ? "The gun in hand reloads the game's way." :
                                               "Hold a gun to set it up here.");
+                if (gun && builtIn)
+                {
+                    if (listed && std::isfinite(entry.pouch))
+                        ImGui::TextDisabled("Pouch reach for this gun: %.0f cm.", entry.pouch);
+                    else
+                        ImGui::TextDisabled("Pouch reach for this gun: the Magazine grab radius (%.0f cm).",
+                                            g_config.weapon_body_zone_radius_m * 100.0f);
+                    if (listed && std::isfinite(entry.pouch))
+                    {
+                        if (ImGui::Button("Reset this gun's pouch reach")) reload_weapon_settings::ClearPouch(gun);
+                    }
+                }
                 if (ImGui::Button("Set the pouch to my hand")) VR_ReloadCaptureArm(1);
+                ImGui::TextDisabled("Close the menu: a blue sphere rides your support hand. Push that hand's stick up or\n"
+                    "down to grow or shrink it (the reach for the gun you hold), then squeeze the support grip where\n"
+                    "the pouch should be. The place is for every gun, the size for this gun only.");
                 const int armed = VR_ReloadCaptureArmed();
                 if (armed)
                 {

@@ -11450,7 +11450,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     std::atomic<int> g_reloadCaptureArmed{0};
     std::atomic<uint32_t> g_reloadCaptures{0}, g_reloadCaptureTimeouts{0}, g_reloadCaptureRefusals{0};
     std::atomic<bool> g_reloadCaptureSavePending{false};
-    struct ReloadCapture { int kind = 0; uint64_t armedAt = 0; bool released = false, holding = false; } g_reloadCapture;
+    struct ReloadCapture
+    {
+        int kind = 0; uint64_t armedAt = 0; bool released = false, holding = false;
+        float size = 0;            // the pouch calibration: the reach being set (m), resized by the support stick
+        uint64_t sizedAt = 0;      // its last tick (the stick's rate is per second)
+    } g_reloadCapture;
     uint32_t g_manualReloadTapsSeen = 0;
     std::atomic<uint32_t> g_manualReloadEvents[6]{}; // dropped, grabbed, seated, racked, pressed, lost
     std::atomic<int> g_manualReloadPhase{0};
@@ -16241,6 +16246,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         if(entry.enabled==0) reloadIn.weapon.enabled=false;
                         if(std::isfinite(entry.depth)) reloadIn.weapon.insertDepth=entry.depth*0.01f;
                         if(std::isfinite(entry.grab)) reloadSettings.rackRadius=entry.grab*0.01f;
+                        if(std::isfinite(entry.pouch)) reloadSettings.pouchRadius=entry.pouch*0.01f;
                         if(std::isfinite(entry.travel)) reloadSettings.rackTravel=entry.travel*0.01f;
                         if(entry.handleSet)
                             for(int a=0;a<3;++a) reloadSettings.rackGrabOffset[a]=entry.handle[a]*0.01f;
@@ -16249,12 +16255,26 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 {
                     // A CALIBRATION squeeze: armed in the menu, taken once the menu is closed.
                     const int request=g_reloadCaptureRequest.exchange(0,std::memory_order_acq_rel);
-                    if(request==1||request==2) g_reloadCapture={request,inputNow,false,false};
+                    if(request==1||request==2) g_reloadCapture={request,inputNow,false,false,reloadSettings.pouchRadius,inputNow};
                     else if(request==3) g_reloadCapture.kind=0;
                     auto& cap=g_reloadCapture;
                     const float grip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
                     const bool gripValid=std::isfinite(grip);
                     if(cap.holding&&(!gripValid||grip<0.35f)) cap.holding=false;
+                    if(cap.kind==1)
+                    {
+                        // THE POUCH'S SIZE: the support hand's stick, up to grow and down to shrink (15 cm a second at
+                        // full tilt, 4-40 cm), while the menu is closed; the stick does not reach the game meanwhile.
+                        float& stickX=leftHanded?pad.turnX:pad.moveX;
+                        float& stickY=leftHanded?pad.turnY:pad.moveY;
+                        const float y=std::isfinite(stickY)?stickY:0.0f;
+                        const float dt=inputNow>cap.sizedAt?std::min(float(inputNow-cap.sizedAt)*0.001f,0.1f):0.0f;
+                        if(!Menu_IsOpen()&&std::fabs(y)>0.2f)
+                            cap.size=std::clamp(cap.size+(y>0?y-0.2f:y+0.2f)/0.8f*0.15f*dt,0.04f,0.40f);
+                        if(!(cap.size>0)) cap.size=reloadSettings.pouchRadius;
+                        cap.sizedAt=inputNow;
+                        if(!Menu_IsOpen()) { stickX=0;stickY=0; }
+                    }
                     if(cap.kind)
                     {
                         if(Menu_IsOpen()) cap.armedAt=inputNow;
@@ -16278,6 +16298,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                         g_config.weapon_pouch_offset_x_m=std::clamp(weapon_interaction::Dot(d,right)*side,-0.40f,0.40f);
                                         g_config.weapon_pouch_offset_y_m=std::clamp(d.y,-0.40f,0.40f);
                                         g_config.weapon_pouch_offset_z_m=std::clamp(weapon_interaction::Dot(d,forward),-0.40f,0.40f);
+                                        // ... and its size: the held gun's own (halomccvr_reloads.txt), or with no gun
+                                        // the manual reload knows, the global "Magazine grab radius".
+                                        bool builtIn=false;
+                                        const char* gun=VR_ManualReloadHeldGun(builtIn);
+                                        if(gun&&builtIn) reload_weapon_settings::SetPouch(gun,cap.size*100.0f);
+                                        else g_config.weapon_body_zone_radius_m=cap.size;
                                         g_reloadCaptureSavePending.store(true,std::memory_order_release);
                                         taken=true;
                                     }
@@ -16429,6 +16455,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 g_reloadPrompt=prompt;
             }
             g_reloadMarkerCount=0;
+            if(g_reloadCapture.kind==1&&!Menu_IsOpen()&&weapon_interaction::Finite(sample.support)&&
+                g_reloadCapture.size>0)
+            {
+                // The pouch being set: a sphere of the size being chosen on the support hand, where it will go.
+                auto& m=g_reloadMarkers[g_reloadMarkerCount++];
+                m.position=sample.support;m.radius=g_reloadCapture.size;
+                m.color[0]=0.47f;m.color[1]=0.82f;m.color[2]=1.0f;m.color[3]=0.30f;
+                g_reloadMarkersAt=inputNow;
+            }
             if(g_config.manual_reload_show_zones&&reloadOut.owned)
             {
                 // Green: the hand is in it and it would take. Amber: in it, but there is nothing to do there now.
@@ -27300,8 +27335,10 @@ void VR_ReportReloadCapture() noexcept
     if(!g_reloadCaptureSavePending.exchange(false,std::memory_order_acq_rel)) return;
     ConfigSave();
     LOG("Manual reload calibration: the pouch is now %.0f cm to the weapon side, %.0f cm up and %.0f cm forward of "
-        "its built-in spot; saved",g_config.weapon_pouch_offset_x_m*100.f,g_config.weapon_pouch_offset_y_m*100.f,
-        g_config.weapon_pouch_offset_z_m*100.f);
+        "its built-in spot (its size: the held gun's line in halomccvr_reloads.txt, or the global Magazine grab radius "
+        "%.0f cm when no gun was held); saved",g_config.weapon_pouch_offset_x_m*100.f,
+        g_config.weapon_pouch_offset_y_m*100.f,g_config.weapon_pouch_offset_z_m*100.f,
+        g_config.weapon_body_zone_radius_m*100.f);
 }
 
 bool VR_ManualReloadHidesReload(GameTitle title) noexcept

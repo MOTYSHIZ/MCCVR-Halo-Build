@@ -14,4 +14,6 @@ bool Get(const char* name, reload_weapon_file::Entry& out) noexcept;
 void SetEnabled(const char* name, bool enabled) noexcept;
 void SetHandle(const char* name, const float cm[3]) noexcept;
 void ClearHandle(const char* name) noexcept;
+void SetPouch(const char* name, float cm) noexcept;      // this gun's reach at the pouch
+void ClearPouch(const char* name) noexcept;              // back to the global "Magazine grab radius"
 } // namespace reload_weapon_settings
