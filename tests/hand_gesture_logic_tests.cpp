@@ -75,9 +75,11 @@ int main()
     steady.Update(poses,Touch(0,0.3f,false,false),0.01f);
     Check(steady.Current()==Shape::Rest,"letting go relaxes the hand");
 
-    // No touch sensors, no gesture: the caller keeps the plain curl.
+    // No touch sensors: the same table, the thumb off and the trigger pulled (Campaign Evolved).
     Hand plain;Input noTouch=Touch(1,1,true,true);noTouch.touchKnown=false;
-    Check(!plain.Update(poses,noTouch,0.01f)&&!plain.Active(),"no thumb sensor, no gesture");
+    Check(plain.Update(poses,noTouch,-1)&&plain.Current()==Shape::ThumbsUp,"no thumb sensor: grip + pulled trigger is a thumbs-up");
+    noTouch.trigger=0;
+    Check(plain.Update(poses,noTouch,0.01f)&&plain.Current()==Shape::Point,"a touched but unpulled trigger does not count without sensors");
     Input invalid=Touch(1,1,true,true);invalid.valid=false;
     Check(!plain.Update(poses,invalid,0.01f),"no input, no gesture");
     // A file without the shape: no gesture for that shape.

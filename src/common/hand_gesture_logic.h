@@ -65,14 +65,17 @@ public:
     bool Active() const noexcept { return active_; }
     Shape Current() const noexcept { return shape_; }
     const float* Curls() const noexcept { return curls_; }
-    // False (and the hand reset) when there is no gesture: no input, no thumb
-    // sensor, or the table lacks the shape. dt in seconds.
+    // False (and the hand reset) when there is no gesture: no input, or the
+    // table lacks the shape. A controller without touch sensors uses the same
+    // table with the thumb off and the trigger pulled rather than touched
+    // (Campaign Evolved). dt in seconds.
     bool Update(const hand_track::PoseTable& table,const Input& in,float dt) noexcept
     {
         const bool holding=in.held!=Shape::None&&unsigned(in.held)<unsigned(Shape::Count)&&table.set[unsigned(in.held)];
-        if(!holding&&(!in.valid||!in.touchKnown||!std::isfinite(in.trigger)||!std::isfinite(in.grip))) { Reset();return false; }
+        if(!holding&&(!in.valid||!std::isfinite(in.trigger)||!std::isfinite(in.grip))) { Reset();return false; }
         if(!holding) grip_=GripHeld(in.grip,grip_);
-        const Shape shape=holding?in.held:ShapeFor(grip_,TriggerOn(in),in.thumbTouch);
+        const bool trigger=in.touchKnown?TriggerOn(in):in.trigger>kTriggerPull;
+        const Shape shape=holding?in.held:ShapeFor(grip_,trigger,in.touchKnown&&in.thumbTouch);
         const unsigned s=unsigned(shape);
         if(s>=unsigned(Shape::Count)||!table.set[s]) { Reset();return false; }
         const float* target=table.curls[s];

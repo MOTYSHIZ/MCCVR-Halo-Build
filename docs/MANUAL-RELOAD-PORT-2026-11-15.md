@@ -388,3 +388,14 @@ code still calls the engine's copies (the layer logs it). The recipe is in the r
   in the palette hook.
 - The game's rumble during the hidden reload (Campaign Evolved 084e891): measure first whether Halo 3 rumbles then.
 - Finger poses from recorded hands, and a shot kick per gun, if the headset says they are wanted.
+
+### Gates that were not needed (2026-11-17, later)
+
+- Finger gestures no longer need touch sensors: a controller without them uses Campaign Evolved's table with the
+  thumb off and the trigger pulled.
+- The hand closing on a magazine or the handle no longer needs *Finger gestures* on.
+- The reload sound mute while the game's gun is on its last round now holds only around a shot (the trigger pulled
+  or let go under half a second ago), so melee and ready sounds are not dropped with it.
+- Still gated, for a reason: the four Project Reclaimer hooks and ODST-level fingers there (each needs one
+  Reclaimer run to show it works); the Covenant guns and the shotgun until their reload is learned (the way in comes
+  from it); dual wield (two guns); other titles (no finger rig or palette posing there yet).

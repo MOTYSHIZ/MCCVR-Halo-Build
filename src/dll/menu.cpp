@@ -3450,8 +3450,9 @@ namespace
                             "Trigger: index finger (thumb on: OK sign).  Nothing: relaxed hand.");
         ImGui::TextWrapped("Your support hand when it is off the gun; your gun hand while the gun is stowed "
                            "(Controls > Reload and holsters). The shapes are the pose lines in "
-                           "halomccvr_hand_tracks.txt. Controllers without thumb sensors curl the fingers from the "
-                           "trigger and grip instead.");
+                           "halomccvr_hand_tracks.txt. Controllers without thumb sensors use the same table with the "
+                           "thumb off and the trigger pulled. Holding a magazine or the handle for a reload closes "
+                           "the hand on it even with this off.");
         ImGui::Spacing();
         changed |= ImGui::Checkbox("Animate the support hand on the gun", &g_config.support_hand_tracks);
         ImGui::TextWrapped("Halo 3 and ODST. When a gun you do not reload by hand reloads the game's way (the rocket "

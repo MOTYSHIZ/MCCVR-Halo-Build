@@ -3,7 +3,8 @@ namespace odst_finger_runtime {
 // [0] ODST, [1] Halo 3: the same 37-node first-person rig (odst_finger_pose_logic.h).
 std::atomic<uint64_t> applications[2]{},refusals[2]{},faults[2]{};
 std::atomic<uint32_t> faultedGeneration[2]{};
-inline bool FingersWanted() noexcept { return g_config.experimental_body_ik||g_config.hand_gestures; }
+// Finger gestures, body IK, or a support hand holding a magazine or the handle for the manual reload.
+inline bool FingersWanted() noexcept { return g_config.experimental_body_ik||g_config.hand_gestures||VR_ReloadHandHolding(); }
 bool Gameplay(GameTitle title,const FpInterpolationContext& context,uint32_t generation) {
     return context.valid&&context.generation==generation&&context.player==0&&context.slot==0&&
        g_fpStereoSolveScope.armed&&!g_scopeRenderActive.load()&&g_enabled.load()&&g_vrAim.load()&&
@@ -28,7 +29,8 @@ bool Configure(odst_fingers::Request& request,const VrContactTrackingSnapshot& t
     const bool primary=stowed&&!secondaryPresent&&
         odst_fingers::ConfigureStowedPrimary(request,tracking.handAlignment,tracking.controllerFingers[1]);
     if(!support&&!primary)return false;
-    const bool gestures=g_config.hand_gestures;
+    // The gesture word holds only what is wanted: every gesture with Finger gestures on, else a held shape alone.
+    const bool gestures=true;
     if(support) {
         const unsigned side=FingerAnatomicalSupportSide(tracking.handAlignment);
         const auto& raw=tracking.controllerFingers[0];

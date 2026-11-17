@@ -1193,6 +1193,8 @@ void VR_ReloadCaptureArm(int kind) noexcept;
 int VR_ReloadCaptureArmed() noexcept;
 // The menu: the held gun's learned reload animations are forgotten; it learns them again on its next reload.
 void VR_ManualReloadForgetHeldGun() noexcept;
+// The support hand holds a magazine or the handle for the manual reload (its fingers close on it). Any thread.
+bool VR_ReloadHandHolding() noexcept;
 uint32_t VR_ReloadCaptureCount() noexcept;
 // The cold worker: halomccvr_reloads.txt and a calibration's save and log line.
 void VR_ReportReloadCapture() noexcept;

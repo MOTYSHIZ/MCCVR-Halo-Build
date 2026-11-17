@@ -98,7 +98,8 @@ int main()
               gestures.gesture[1]==hand_track::Shape::Point,"status names each hand's gesture");
         in[1].touchKnown=false;
         HandTracks_UpdateGestures(1011000000,GameTitle::Halo3ODST,in);
-        Check(HandTracks_GestureCurls(0,curls)&&!HandTracks_GestureCurls(1,curls),"a hand without touch sensors has no gesture");
+        Check(HandTracks_GestureCurls(0,curls)&&HandTracks_GestureCurls(1,curls)&&curls[0]<0.02f,
+              "a hand without touch sensors still gestures (grip alone: point)");
         HandTracks_UpdateGestures(1022000000,GameTitle::HaloReach,in);
         Check(!HandTracks_GestureCurls(0,curls),"other titles have no gestures");
         g_config.hand_gestures=false;

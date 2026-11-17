@@ -16418,7 +16418,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 // Also while the gun's last round is in it: Halo 3 starts its own reload the moment a magazine runs
                 // dry, and its sound plays at that animation's first frame, before this thread could see it
                 // (FA 2026-11-16).
-                const bool lastRound=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.loaded<=1&&reloadIn.sim.reserve>0;
+                // Only around a shot (the trigger pulled, or let go under half a second ago): left on the last round,
+                // the gun's melee and ready sounds are not dropped with it.
+                static uint64_t triggerPulledAt=0;
+                if(std::isfinite(reloadIn.trigger)&&reloadIn.trigger>0.5f) triggerPulledAt=inputNow;
+                const bool shooting=triggerPulledAt&&inputNow>=triggerPulledAt&&inputNow-triggerPulledAt<500;
+                const bool lastRound=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.loaded<=1&&reloadIn.sim.reserve>0&&
+                    shooting;
                 const bool gameReloading=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.reloading;
                 if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle||lastRound||
                                      gameReloading||reloadOut.shellsWaiting>0))
@@ -27444,6 +27450,7 @@ void VR_ReloadCaptureArm(int kind) noexcept
     g_reloadCaptureRequest.store(known?kind:3,std::memory_order_release);
     g_reloadCaptureArmed.store(known?kind:0,std::memory_order_release);
 }
+bool VR_ReloadHandHolding() noexcept { return g_reloadHandShape.load(std::memory_order_relaxed) != 0; }
 void VR_ManualReloadForgetHeldGun() noexcept
 {
     const uint64_t word=g_manualReloadHeldModel.load(std::memory_order_acquire);

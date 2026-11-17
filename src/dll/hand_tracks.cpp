@@ -341,7 +341,9 @@ bool HandTracks_CurrentCurls(const float controller[hand_track::kFingers], float
 
 void HandTracks_UpdateGestures(int64_t timeNs, GameTitle title, const hand_gesture::Input inputs[2])
 {
-    const bool allowed = g_config.hand_gestures && inputs &&
+    // A hand holding a magazine or the handle (the manual reload) is shaped even with Finger gestures off.
+    const bool holding = inputs && (inputs[0].held != hand_track::Shape::None || inputs[1].held != hand_track::Shape::None);
+    const bool allowed = (g_config.hand_gestures || holding) && inputs &&
         (title == GameTitle::Halo3 || title == GameTitle::Halo3ODST) && g_libraryReady.load(std::memory_order_acquire);
     if (!allowed)
     {
@@ -370,7 +372,9 @@ void HandTracks_UpdateGestures(int64_t timeNs, GameTitle title, const hand_gestu
     uint32_t state = 0;
     for (unsigned side = 0; side < 2; ++side)
     {
-        set[side] = g_gestureHands[side].Update(g_gesturePoses, inputs[side], dt);
+        hand_gesture::Input in = inputs[side];
+        if (!g_config.hand_gestures && in.held == hand_track::Shape::None) in.valid = false;   // only the held shape
+        set[side] = g_gestureHands[side].Update(g_gesturePoses, in, dt);
         if (set[side])
             memcpy(curls[side], g_gestureHands[side].Curls(), sizeof(curls[side]));
         state |= ((inputs[side].touchKnown ? 0x80u : 0u) | (uint32_t(g_gestureHands[side].Current()) & 0xFu)) << (side * 8);
