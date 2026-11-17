@@ -2779,10 +2779,9 @@ namespace
             }
             if (g_config.two_hand_grip_zone_authority)
                 ImGui::TextDisabled(
-                    "A weapon counts as pistol-style when its grip is within this distance of your main hand.\n"
-                    "Raise it if a compact gun should aim one-handed; lower it if one should aim two-handed.");
-            else
-                ImGui::TextDisabled(
+                    "Pistol-style weapons are the pistols, Needlers, plasma pistols and rifles, Spikers, Maulers\n"
+                    "and the Boltshot. This range is only for a weapon whose grip the mod can't read:");
+            ImGui::TextDisabled(
                     "Your main hand aims alone when your hands are within %.0f cm of each other, or your "
                     "support hand is within %.0f cm to the side, %.0f cm up or down and %.0f cm forward or back.",
                     oneHandRangeCm * (0.16f / 0.24f), oneHandRangeCm, oneHandRangeCm * (0.14f / 0.24f),

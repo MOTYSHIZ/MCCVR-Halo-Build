@@ -41,16 +41,19 @@ void Check(bool ok,const char* message)
 {++checks;if(!ok){++failures;std::printf("FAIL: %s\n",message);}}
 int main()
 {
-    // Every title's Needler, Plasma Pistol, plasma rifles and magnums aim one-handed by name, and nothing else does; the Needle
-    // Rifle is a long gun, and a plasma cannon or launcher is not a plasma rifle.
+    // Every title's Needler, Plasma Pistol, plasma rifles, magnums, Spiker, Mauler and Boltshot aim one-handed by name,
+    // and nothing else does (the SMGs above all); the Needle Rifle is a long gun, and a plasma cannon or launcher is not
+    // a plasma rifle.
     for(const auto& model:weapon_model::kModels)
     {
         const char* const name=model.name;
         const bool plasmaHandgun=strstr(name,"plasma_pistol")||strstr(name,"plasma pistol")||
             strstr(name,"plasma_rifle")||strstr(name,"plasma rifle")||strstr(name,"magnum")||strstr(name,"automag")||
-            strcmp(name,"pistol")==0;
+            strcmp(name,"pistol")==0||strstr(name,"spike_rifle")||strstr(name,"excavator")||
+            strstr(name,"stasis_pistol");
         Check(weapon_model::AlwaysOneHandedAim(&model)==(strstr(name,"needler")!=nullptr||plasmaHandgun),
-              "only a Needler, Plasma Pistol, plasma rifle or magnum always aims one-handed");
+              "only a Needler, Plasma Pistol, plasma rifle, magnum, Spiker, Mauler or Boltshot aims one-handed");
+        if(strstr(name,"smg"))Check(!weapon_model::AlwaysOneHandedAim(&model),"an SMG aims two-handed");
     }
     {
         int ce=0,brute=0,red=0;
@@ -62,6 +65,15 @@ int main()
             red+=strcmp(model.name,"fp_plasma_rifle_red")==0?1:0;
         }
         Check(ce==2&&brute>0&&red>0,"Halo CE's two, the Brute's and ODST's red one are all covered");
+        int spiker=0,mauler=0,boltshot=0;
+        for(const auto& model:weapon_model::kModels)
+        {
+            if(!weapon_model::AlwaysOneHandedAim(&model))continue;
+            spiker+=strstr(model.name,"spike_rifle")?1:0;
+            mauler+=strcmp(model.name,"fp_excavator")==0?1:0;
+            boltshot+=strcmp(model.name,"storm_stasis_pistol")==0?1:0;
+        }
+        Check(spiker>=3&&mauler>=2&&boltshot>=1,"Halo 3's, ODST's and Reach's Spikers, both Maulers and the Boltshot");
     }
     Check(!weapon_model::AlwaysOneHandedAim(nullptr),"an unknown weapon follows the range");
     BoneMatrix primary{},secondary{};int32_t remap=1;
