@@ -90,10 +90,12 @@ int main()
         Check(rig.out.loaded==0&&rig.out.triggerHeld,"the last chambered round fired: the trigger is held");
         Check(!rig.out.blockTwoHand,"the rifle may be held two-handed while a magazine is fetched (only the spiker may not)");
 
-        // FETCH at the pouch: a fresh grip only.
+        // FETCH at the pouch: a grip held there, however long ago it closed (Campaign Evolved).
         rig.in.supportGrip=1;rig.Step();rig.Wait(400);rig.in.support=kPouch;rig.Step();
-        Check(rig.out.phase==Phase::MagOut,"a grip already closed before reaching the pouch long ago does not take one");
-        rig.Grip(false);rig.Grip(true);
+        Check(rig.out.phase==Phase::MagHeld&&rig.out.grabbed,"a grip closed on the way to the pouch takes one there");
+        rig.Grip(false);
+        Check(rig.out.phase==Phase::MagOut&&rig.out.lost,"let go, it falls");
+        rig.Grip(true);
         Check(rig.out.grabbed&&rig.out.phase==Phase::MagHeld&&rig.out.magazineInHand&&rig.out.consumeSupport,"a fresh grip at the pouch takes a magazine");
 
         // SEAT: travel, then the axis, then home.
@@ -115,12 +117,17 @@ int main()
         Check(rig.out.blockTwoHand,"a hand in a rack zone with work is not the two-handed hold's");
         rig.Grip(true);
         Check(rig.out.phase==Phase::Racking&&rig.out.consumeSupport,"a fresh grip on the handle takes it");
-        bool racked=false;
-        for(int i=1;i<=6;++i){rig.in.support=kRack+kRackBack*(0.012f*float(i));rig.Step();racked|=rig.out.racked;}
-        Check(racked&&rig.out.chamber==1&&!rig.out.triggerHeld,"pulled back, it chambers: the gun fires");
+        Check(rig.out.rackLock&&rig.out.rackPull>0.99f,"a handle with a round waiting is drawn held back");
+        bool racked=false,back=false;
+        for(int i=1;i<=6;++i){rig.in.support=kRack+kRackBack*(0.012f*float(i));rig.Step();racked|=rig.out.racked;back|=rig.out.rackedBack;}
+        Check(back&&!racked&&rig.out.chamber==0,"tugged back, it is ready: nothing chambers until it is let go");
         Check(rig.out.rackPull>0.99f,"drawn fully back");
         rig.Grip(false);
-        Check(rig.out.phase==Phase::Idle&&rig.out.rackPull==0,"let go, it springs home");
+        Check(rig.out.racked&&rig.out.chamber==1&&!rig.out.triggerHeld&&rig.out.supportHapticMs==60,
+              "let go, it chambers with its own pulse: the gun fires");
+        Check(rig.out.phase==Phase::Idle&&!rig.out.rackLock&&rig.out.rackPull>0.99f,"and the handle runs home from fully back");
+        rig.Wait(110);
+        Check(rig.out.rackPull==0,"home within 90 ms");
         rig.in.support=kRack;rig.Step();
         Check(!rig.out.blockTwoHand,"with no rack work the two-handed grip wins");
     }
@@ -262,7 +269,7 @@ int main()
         dry.Wait(400);
         Check(dry.out.promptRack && std::fabs(dry.out.prompt.y - kRack.y) < 1e-4f, "after 2 s: PULL at the handle");
         dry.in.support = kRack; dry.Step(); dry.Grip(true);
-        dry.in.support = kRack + kRackBack * 0.065f; dry.Step();
+        dry.in.support = kRack + kRackBack * 0.065f; dry.Step(); dry.Grip(false);
         Check(dry.out.racked && !dry.out.promptRack, "racked: the prompt goes");
     }
     {
@@ -359,8 +366,12 @@ int main()
         Check(sg.out.phase == Phase::Racking && !sg.out.consumeSupport && !sg.out.blockTwoHand,
               "the hold's hand works the pump and keeps holding");
         sg.in.support = kRack + kRackBack * 0.065f; sg.Step();
-        Check(sg.out.racked && !sg.out.triggerHeld, "drawn back: a shell is chambered");
-        sg.in.support = kRack; sg.Step(); sg.Step();
+        Check(sg.out.rackedBack && !sg.out.racked && sg.out.triggerHeld && sg.out.supportHapticMs == 150,
+              "drawn back: a long pulse, and nothing chambered yet");
+        sg.in.support = kRack; sg.Step();
+        Check(sg.out.racked && !sg.out.triggerHeld && sg.out.supportHapticMs == 150,
+              "brought forward again: a shell is chambered, with a second long pulse");
+        sg.Step();
         Check(sg.out.phase == Phase::Idle, "pushed home: the hold is a hold again");
         // A shell from the pouch: the game is asked to load at once.
         sg.in.twoHandHeld = false; sg.in.support = kPouch; sg.Step(); sg.Grip(false); sg.Grip(true);
@@ -368,7 +379,8 @@ int main()
         sg.MoveMagazine(kWell + kAxis * -0.05f);
         Check(sg.out.phase == Phase::Pushing, "at the port it goes onto its way in");
         sg.MoveMagazine(kWell + kAxis * -0.005f, 3);
-        Check(sg.out.phase == Phase::Pushing && sg.out.loaded == 5, "home, it waits for the game to load a round for it");
+        Check(sg.out.phase == Phase::Idle && sg.out.shellsWaiting == 1 && sg.out.loaded == 5,
+              "home, the hand is free and the shell waits for the game to load a round for it");
         sg.Wait(700);
         Check(sg.out.loaded == 6 && sg.out.phase == Phase::Idle, "and is counted once the game has");
         sg.Grip(false); sg.Grip(true);
@@ -386,7 +398,7 @@ int main()
         rig.in.support=kPouch+Vec{0.25f,0,0};rig.Step();rig.Grip(false);rig.Grip(true);
         Check(!rig.out.gripMissed,"not judged at the press (a hand still arriving can take one)");
         Check(missesOver(rig,500)==1,"just outside the pouch's reach: one miss");
-        Check(seen.phase==Phase::MagOut&&seen.magazineOut&&seen.blockTwoHand&&
+        Check(seen.phase==Phase::MagOut&&seen.magazineOut&&!seen.blockTwoHand&&
             std::fabs(seen.pouchDistance-0.25f)<1e-3f&&std::fabs(seen.pouchReach-0.20f)<1e-6f,
             "it gives the phase, the distance and the reach");
         Rig taken;taken.Tap();
@@ -402,6 +414,90 @@ int main()
         Rig lost;lost.Tap();
         lost.in.support={};lost.Step();lost.Grip(false);lost.Grip(true);
         Check(missesOver(lost,500)==1&&seen.trackingLost,"a hand reading 0,0,0 says its tracking was lost");
+    }
+    {
+        // REVIEW FIXES (2026-11-17).
+        // Moving the whole gun is not a pull: the pull is measured along the well, gun-relative.
+        Rig pull;
+        pull.in.support=HandForMagazine(kWell+kAxis*-0.01f);pull.Step();pull.Grip(false);pull.Grip(true);
+        Check(pull.out.phase==Phase::Pulling,"a fresh grip on the magazine in the gun takes it to pull");
+        const Vec lift{0,0.2f,0};
+        pull.in.geometry.well=kWell+lift;pull.in.support=pull.in.support+lift;pull.Step();
+        Check(pull.out.phase==Phase::Pulling&&pull.out.pushDepth<0.005f&&!pull.out.dropped,"lifting the gun and hand together pulls nothing");
+        pull.in.support=pull.in.support-kAxis*0.08f;pull.Step();
+        Check(pull.out.dropped&&pull.out.pulled&&pull.out.phase==Phase::MagHeld,"drawn down the well, it comes out");
+        Check(std::fabs(pull.out.magazine.x)+std::fabs(pull.out.magazine.y)+std::fabs(pull.out.magazine.z)>0.5f,
+              "the drawn magazine is where the hand is, never at the origin");
+
+        // A pistol's magazine is where the support hand holds it: no pull by hand.
+        Rig pistol("fp_magnum");
+        pistol.in.support=HandForMagazine(kWell+kAxis*-0.01f);pistol.Step();pistol.Grip(false);pistol.Grip(true);
+        Check(pistol.out.phase!=Phase::Pulling,"a magnum's magazine is not pulled by a hand on its grip");
+
+        // Moving the gun is not a rack either.
+        Rig rk;rk.game=Game{1,96,32};rk.Step();rk.game.Shoot(1);rk.Step();rk.Tap();rk.Wait(800);rk.FetchAndSeat();rk.Grip(false);
+        rk.in.support=kRack;rk.Step();rk.Grip(true);
+        Check(rk.out.phase==Phase::Racking,"the handle is taken");
+        const Vec slide=kRackBack*0.07f;
+        rk.in.geometry.rack=kRack+slide;rk.in.geometry.well=kWell+slide;rk.in.support=kRack+slide;rk.Step();
+        Check(!rk.out.rackedBack&&rk.out.chamber==0,"moving gun and hand back together racks nothing");
+        rk.in.support=kRack+slide+kRackBack*0.02f;rk.Step();
+        Check(rk.out.rackedBack&&rk.out.chamber==0&&rk.out.rackPull>0.99f,"a short tug (a third of the stroke) on the held-back handle is enough");
+        rk.Grip(false);
+        Check(rk.out.racked&&rk.out.chamber==1&&rk.out.rackPull>0.99f,"let go: it chambers, and runs home from fully back");
+
+        // A due handle takes a grip from further away, except where the two-handed hold would take the hand.
+        Rig due;due.game=Game{1,96,32};due.Step();due.game.Shoot(1);due.Step();due.Tap();due.Wait(800);due.FetchAndSeat();due.Grip(false);
+        const Vec zone=kRack+kRackBack*0.06f;   // the handle drawn held back
+        due.in.support=zone+Vec{0.13f,0,0};due.in.supportInTwoHandZone=true;due.Step();due.Grip(true);
+        Check(due.out.phase==Phase::Idle,"13 cm off, in the two-handed zone: the plain 10 cm reach");
+        due.Grip(false);due.in.supportInTwoHandZone=false;due.Grip(true);
+        Check(due.out.phase==Phase::Racking,"13 cm off, out of it: the due handle's 15 cm reach takes it");
+
+        // Nothing presses the game's reload while the game is not being played (a menu, a cutscene).
+        Rig paused;paused.game.deaf=true;paused.game.Shoot(10);paused.Step();paused.Tap();
+        const int presses=paused.game.presses;
+        paused.in.ready=false;paused.Wait(3000);
+        Check(paused.game.presses==presses&&!paused.out.clamped,"no retries or catch-up presses while not ready");
+
+        // A gun the reload does not cover, held for a while, forgets nothing; no gun at all does.
+        Rig keep;keep.game.Shoot(10);keep.Step();keep.Tap();
+        Check(keep.out.phase==Phase::MagOut,"the magazine is out");
+        keep.in.weapon=Weapon{};keep.in.gunSeen=true;keep.Wait(3000);
+        keep.in.weapon=BuiltInWeapon("fp_assault_rifle");keep.Step();
+        Check(keep.out.phase==Phase::MagOut,"back from a plasma rifle, the rifle's magazine is still out");
+        keep.in.weapon=Weapon{};keep.in.gunSeen=false;keep.Wait(3000);
+        keep.in.weapon=BuiltInWeapon("fp_assault_rifle");keep.Step();
+        Check(keep.out.phase==Phase::Idle,"after no gun at all (a death), the gun is the game's again");
+
+        // A magazine seated before the game has proof of loading counts as a fresh full one, and the game catches up.
+        Rig deaf;deaf.game.Shoot(30);deaf.Step();deaf.game.deaf=true;deaf.Tap();deaf.Wait(900);
+        deaf.game.deaf=false;deaf.FetchAndSeat();
+        Check(deaf.out.seated&&deaf.out.loaded>20,"no proof the game loaded: the magazine counts as full, not the old 2");
+        deaf.Grip(false);deaf.Wait(2500);
+        Check(deaf.game.loaded==32&&deaf.out.loaded==deaf.game.loaded,"and the game is pressed until it has loaded it");
+
+        // A push drawn far back down the line is abandoned (Campaign Evolved: insert + 0.30 m).
+        Rig away;away.game.Shoot(5);away.Step();away.Tap();away.in.support=kPouch;away.Step();away.Grip(false);away.Grip(true);
+        away.MoveMagazine(kWell+kAxis*-0.12f);
+        Check(away.out.phase==Phase::Pushing,"on the line");
+        away.MoveMagazine(kWell+kAxis*-0.5f);
+        Check(away.out.phase==Phase::MagHeld,"drawn half a metre down it, it is back in the hand");
+
+        // Empty at the drop is the player's gun, not the game's (which has usually refilled already).
+        Rig empty;empty.game=Game{1,96,32};empty.Step();empty.game.Shoot(1);empty.Step();
+        empty.game.loaded=32;empty.game.reserve=64;empty.Step();   // the game refilled itself
+        empty.Tap();
+        Check(empty.out.dropped&&empty.out.emptyAtDrop,"the player's dry gun plays the empty reload");
+
+        // With racking off the shotgun chambers by itself instead of jamming.
+        Rig sgo("fp_shotgun");sgo.c.rack=false;sgo.game=Game{6,18,6};sgo.in.geometry.learned=true;sgo.Step();
+        sgo.game.Shoot(1);sgo.Step();
+        Check(!sgo.out.triggerHeld&&sgo.out.chamber==1,"racking off: the next shell chambers after a shot");
+
+        // Pulses carry their length.
+        Rig hap;hap.game.Shoot(5);hap.Step();hap.Tap();
+        Check(hap.out.primaryHaptic>0.5f&&hap.out.primaryHapticMs==50,"the drop: 50 ms on the gun hand");
     }
     {
         // Not owned (no simulation read): nothing is held back.

@@ -489,7 +489,7 @@ inline constexpr const char* kDefaultText=
 "# the finger gestures of a free hand (rest index fist thumbsup point\n"
 "# pointdown ok; F1 > Body & Hands > Hand animations > Finger gestures).\n"
 "#\n"
-"# Tracks the mod plays: reload (after a gesture reload), preview (F1 button).\n"
+"# Tracks the mod plays: reload (a gun the game reloads its own way), preview (F1 button).\n"
 "\n"
 "pose rest       0.10 0.15 0.20 0.25 0.10\n"
 "pose index      0.55 0.15 0.20 0.25 0.10\n"

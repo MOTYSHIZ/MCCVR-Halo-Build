@@ -119,7 +119,7 @@ int main()
         hand_gesture::Input in[2]{};in[0].valid=in[0].touchKnown=true;in[0].grip=1;
         float curls[hand_track::kFingers]{};
         HandTracks_UpdateGestures(2000000000,GameTitle::Halo3,in);
-        Check(!HandTracks_GestureCurls(0,curls),"a file without pose lines has no gestures (plain curl instead)");
+        Check(HandTracks_GestureCurls(0,curls),"a file without pose lines keeps the built-in shapes (an older file still gestures)");
     }
     HandTracks_Request(HandTrackRequest::Reload);
     HandTracks_Update(21000,GameTitle::Halo3,0x0000000013120D11ull,false);

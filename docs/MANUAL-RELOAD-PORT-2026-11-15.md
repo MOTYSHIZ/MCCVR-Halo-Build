@@ -301,3 +301,87 @@ Two things this run turned up:
   flash now follows the player's count.
 - **Campaign Evolved's per-range animation calibrations.** The ranges are found automatically from the learned clip.
   If one is wrong, turn off "Move the gun with its own reload animation" or forget the learned animations.
+
+## Review against Campaign Evolved `5adbc7c` (2026-11-17, workbench only)
+
+The user asked for a review of the manual reload and the Player IK work: the same as Campaign Evolved or better,
+multiplayer-safe, and working in MCC and Project Reclaimer. Six read-only reviews (Campaign Evolved's commits since
+`70c5c1b`, a full feature inventory, the hands, multiplayer safety, MCC against Reclaimer, crashes and frame cost)
+were checked against the code before anything was changed. Nothing was run in the game.
+
+### Fixed in the reload
+
+| What was wrong, or missing | Now |
+| --- | --- |
+| Pulling a magazine out and working the handle were measured in the room: moving the gun (both hands) read as a pull. | Measured along the gun's well and the handle's line. |
+| The handle chambered the moment it reached 92% back, with one pulse. | Campaign Evolved's stroke: a handle with a round waiting is drawn held back; a quarter of its travel and letting go chambers the round (ridden forward again, nothing does). The pump goes back all the way, then forward all the way. Each end has its own pulse. The handle runs home over 90 ms. |
+| The shotgun jammed for good with *Rack the handle after an empty magazine* off. | The next shell chambers by itself (the same for any gun whose handle is not found for 1.5 s). |
+| A magazine seated before the game had loaded counted the game's old count. | Only on proof (the game full, out of reserve, or its count risen since the drop); otherwise it counts as a full magazine and the game is pressed until it catches up. |
+| The empty reload's animation was chosen from the game's count, which has usually refilled already. | From the player's gun. |
+| Every reload pulse lasted one frame. | Campaign Evolved's lengths (30-150 ms) through a new timed pulse (`VR_PulseHandHaptics`), swapped for left-handed players. |
+| The handle's reach was 10 cm whatever was due. | 1.5 times that when a round waits and the hand is not where the two-handed hold takes it (Campaign Evolved 30c7c1b). The zone sphere shows that reach, at the calibrated grab spot. |
+| A grip had to be fresh at the pouch. | A grip held there takes a magazine, however long ago it closed (Campaign Evolved), except a hand on the two-handed hold. |
+| A shell ahead of the game held the hand until counted, and was dropped after 3 s. | The hand is free at once; waiting shells are counted as the game loads them (Campaign Evolved's waiting shells). |
+| A push could be dragged any distance down the line and still seat. | Abandoned beyond the push's start plus 30 cm. |
+| A magnum's or automag's magazine could be "pulled" by the hand on its grip. | Not those (Campaign Evolved's pullNeedsRelease); the button drops them. |
+| Holding a gun the reload does not cover (a plasma rifle) or riding a vehicle for 2 s forgot every count. | Only no gun at all for 2 s (a death, a level load) forgets. |
+| Retries and catch-up presses ran in menus and cutscenes; after three the count was clamped to the game's. | No presses and no clock while not playing. A press inside a running press never lengthens it (a held reload is the game's pick up). |
+| Nothing said why a loaded gun would not fire while the game finished its own reload. | A **WAIT** prompt at the handle when the trigger is pulled then (Campaign Evolved's ring). PULL now also shows at once on a pull that fires nothing. An empty shotgun gets **SHELL** at the pouch. |
+| No pulse as the magazine reached the well, none on reaching the pouch. | Both (the pouch's only for a free hand). |
+| The receiver's reach was fixed at 10 cm. | Per gun (`seat=` in halomccvr_reloads.txt), sized in the headset: *Size this gun's magazine well*. |
+| The game's reload sound could be heard on a long reload (the shotgun filling). | Muted while the game's reload runs and while shells wait. |
+| A learned clip seen in part, or through a pause, stayed for good; the store filled at 16. | 48 slots; only covered guns record; a pause or gap ends the recording; a clip must show the magazine's way in. *Forget this gun's learned reload* in the menu. |
+| A file read that failed (being written) emptied the per-gun table, and the next change wrote every other gun's line away; the clip file was treated as absent. | Both keep what they had and read again. A clip file of another format is kept aside as `.bad`. Non-finite numbers in a clip are refused. The per-gun file is looked at every 2 s, not every pass. |
+| *Animate the support hand on the gun* could no longer start (it followed the retired pouch gesture). | It plays when a gun the reload does not cover reloads the game's way. |
+
+### Fixed in the hands
+
+- The support hand closes on the magazine and the handle (the `magazine` and `handle` shapes), with or without
+  touch sensors. Before, it showed the gesture: a pointing finger around the magazine.
+- A stowed gun's grip no longer reaches the game (a gesture made with that hand pressed the grip's button). A stow
+  ends in a vehicle seat and when no gun is drawn for 1.5 s (death, level change), as Campaign Evolved's
+  holster_reset does.
+- A tracks file without some `pose` lines keeps the built-in shapes for them.
+- A repeated frame time no longer snaps the fingers.
+- The touch sensors are read only in Halo 3 and ODST with Finger gestures on.
+
+### Multiplayer safety
+
+- Nothing writes the simulation and nothing is spawned (re-checked line by line).
+- The **gun's digits** and the **seat/rack click** now stand down in a simulation another machine shares (lockstep
+  co-op), through the mod's existing switch (`Sight_FireTimeChangesAllowed`, `coop_safe_shots`): the digit routine
+  serves every caller and the click is a call of the game's own, so neither is left to an argument. Solo and
+  host-run games keep both.
+- The **reload sound mute** stays everywhere: the first-person animation's event handler runs only on the machine
+  whose player it is (a co-op partner never runs this player's first-person animation), so skipping one of its
+  sound events cannot part the simulations.
+- The **HUD count** writes only the HUD's own record on the stack, for one caller.
+- The three hooks now forward to the game with spare stack slots (`CallNativeWithSpareSlots`) and count themselves
+  out in a `__finally`; the digit hook's install check reads the four name ids at their proven places (the fourth
+  was read two bytes late) and in order.
+- A fault in the palette hook stops the reload's posing for that title load instead of faulting every frame.
+
+### MCC and Project Reclaimer
+
+| | MCC Halo 3 | MCC ODST | Reclaimer Halo 3 | Reclaimer ODST |
+| --- | --- | --- | --- | --- |
+| The reload by hand, the trigger, the count, hiding and posing, learned animations, prompts, zones, calibrations, hand shapes | yes | yes (never run) | yes | yes (Halo 3's path, ODST's guns) |
+| HUD count, sound mute, click, gun digits | yes | yes (never run) | not installed | not installed |
+| Finger gestures, held shapes | yes | yes | yes | no: the ODST arms are refused by the Halo 3 finger path |
+
+Still MCC only, and why: the four hooks need a Reclaimer run with them switched on to show that the client's own
+code still calls the engine's copies (the layer logs it). The recipe is in the review notes
+(`reclaimer-mcc.md`): mostly removing the guards, plus `HALOMCCVR_GAME_RETURN_ADDRESS()` in the HUD filter.
+
+### Not done (follow-ups)
+
+- Project Reclaimer: the four hooks, and fingers in ODST levels (both need a Reclaimer run).
+- The rocket launcher's cover and the fuel rod's pull (Campaign Evolved 6466c55): a cover state and its node.
+- The support arm held at rest during the hidden reload (Campaign Evolved 30c7c1b): shows only with Floating hands off.
+- The pouch in a body frame that holds still while you look down (Campaign Evolved efc7918), and a per-gun pouch
+  spot and turn (ae2f101).
+- The shotgun's firing animation trimmed so the gun does not ride up with a pump it has not done.
+- One prompt image per label (each change uploads 4 MB on the present thread), and one stereo decision per eye pair
+  in the palette hook.
+- The game's rumble during the hidden reload (Campaign Evolved 084e891): measure first whether Halo 3 rumbles then.
+- Finger poses from recorded hands, and a shot kick per gun, if the headset says they are wanted.

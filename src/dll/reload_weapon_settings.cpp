@@ -15,7 +15,7 @@ constexpr wchar_t kFileName[] = L"halomccvr_reloads.txt";
 
 struct Change
 {
-    enum Kind : int { Enabled, Handle, ClearHandle, Pouch, ClearPouch } kind = Enabled;
+    enum Kind : int { Enabled, Handle, ClearHandle, Pouch, ClearPouch, Seat, ClearSeat } kind = Enabled;
     char name[reload_weapon_file::kNameChars]{};
     bool enabled = false;
     float handle[3]{};
@@ -29,6 +29,8 @@ Change g_changes[16]{};
 int g_changeCount = 0;
 FILETIME g_seen{};
 bool g_seenValid = false;
+ULONGLONG g_checkedAt = 0;                // the worker's: the file's time is looked at every 2 s
+bool g_readFailedLogged = false;
 
 bool Copy(char (&out)[reload_weapon_file::kNameChars], const char* name) noexcept
 {
@@ -96,17 +98,36 @@ void Poll(char* line, size_t lineSize) noexcept
     if (g_path.empty() || !line || !lineSize) return;
     try
     {
-        // The file changed (or appeared, or went): read it again.
+        // The file changed (or appeared, or went): read it again. Looked at every 2 s, not every pass.
+        const ULONGLONG tick = GetTickCount64();
         FILETIME now{};
-        const bool exists = FileTime(now);
-        if (exists != g_seenValid || (exists && CompareFileTime(&now, &g_seen) != 0))
+        bool exists = g_seenValid;
+        bool changed = false;
+        if (tick - g_checkedAt >= 2000 || !g_checkedAt)
+        {
+            g_checkedAt = tick;
+            exists = FileTime(now);
+            changed = exists != g_seenValid || (exists && CompareFileTime(&now, &g_seen) != 0);
+        }
+        if (changed)
         {
             reload_weapon_file::Table table{};
             if (exists)
             {
                 std::string text;
-                if (ReadFileText(text)) table = reload_weapon_file::Parse(text.c_str());
+                if (!ReadFileText(text))
+                {
+                    // Being written, or locked: the table in use stays, and the file is read again next time. A table
+                    // published empty here would be written back over every other gun's line by the next change.
+                    if (!g_readFailedLogged)
+                        snprintf(line, lineSize, "Manual reload: halomccvr_reloads.txt could not be read (error %lu); "
+                                 "trying again", GetLastError());
+                    g_readFailedLogged = true;
+                    return;
+                }
+                table = reload_weapon_file::Parse(text.c_str());
             }
+            g_readFailedLogged = false;
             AcquireSRWLockExclusive(&g_lock);
             g_table = table;
             ReleaseSRWLockExclusive(&g_lock);
@@ -142,6 +163,8 @@ void Poll(char* line, size_t lineSize) noexcept
             }
             else if (changes[i].kind == Change::Pouch) e->pouch = changes[i].handle[0];
             else if (changes[i].kind == Change::ClearPouch) e->pouch = NAN;
+            else if (changes[i].kind == Change::Seat) e->seat = changes[i].handle[0];
+            else if (changes[i].kind == Change::ClearSeat) e->seat = NAN;
             else e->handleSet = false;
         }
         std::vector<char> text(16384);
@@ -198,6 +221,20 @@ void SetPouch(const char* name, float cm) noexcept
     if (!std::isfinite(cm) || !Copy(c.name, name)) return;
     c.handle[0] = cm < 4.f ? 4.f : cm > 40.f ? 40.f : cm;
     Queue(c);
+}
+void SetSeat(const char* name, float cm) noexcept
+{
+    Change c{};
+    c.kind = Change::Seat;
+    if (!std::isfinite(cm) || !Copy(c.name, name)) return;
+    c.handle[0] = cm < 3.f ? 3.f : cm > 40.f ? 40.f : cm;
+    Queue(c);
+}
+void ClearSeat(const char* name) noexcept
+{
+    Change c{};
+    c.kind = Change::ClearSeat;
+    if (Copy(c.name, name)) Queue(c);
 }
 void ClearPouch(const char* name) noexcept
 {

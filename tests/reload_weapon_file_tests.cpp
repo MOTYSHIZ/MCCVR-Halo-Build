@@ -44,6 +44,16 @@ int main()
               Near(ar2->pouch, 26.f),
           "written back, it reads the same");
 
+    const Table seat = Parse("fp_shotgun seat=14 pouch=20\nfp_smg seat=1\n");
+    const Entry* sg = Find(seat, "fp_shotgun");
+    const Entry* sm = Find(seat, "fp_smg");
+    Check(sg && Near(sg->seat, 14.f) && Near(sg->pouch, 20.f), "a receiver reach (seat=cm) is read");
+    Check(sm && std::isnan(sm->seat) && seat.errors == 1, "a reach under 3 cm is not taken");
+    char seatOut[1024];
+    Format(seat, seatOut, sizeof(seatOut));
+    const Table seat2 = Parse(seatOut);
+    const Entry* sg2 = Find(seat2, "fp_shotgun");
+    Check(sg2 && Near(sg2->seat, 14.f), "and written back");
     Table added{};
     Entry* e = FindOrAdd(added, "fp_shotgun");
     Check(e && added.count == 1 && FindOrAdd(added, "fp_shotgun") == e, "one entry per name");

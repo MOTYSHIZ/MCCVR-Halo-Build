@@ -21,9 +21,9 @@ constexpr const char* kEntry =
 constexpr const char* kAmmoIds =
     "B8 ?? 02 00 00 44 3B D8 0F 84 ?? ?? ?? ?? 41 81 FB ?? 02 00 00 0F 84 ?? ?? ?? ?? 41 81 FB ?? 02 00 00 74 ?? "
     "41 81 FB ?? 02 00 00 0F 84";
-// mov eax,imm32 at +0x00, then cmp r11d,imm32 at +0x0E, +0x1B and +0x26 (their imm32 at +0x11, +0x1E, +0x29); read
-// from both retail binaries: 0x213-0x216 (H3), 0x218-0x21B (ODST).
-constexpr size_t kIdAt[4]{0x01, 0x11, 0x1E, 0x29};
+// mov eax,imm32 at +0x00, then cmp r11d,imm32 at +0x0E, +0x1B and +0x24 (their imm32 at +0x11, +0x1E, +0x27); read
+// from both retail binaries (2026-11-17): 0x213, 0x214, 0x215, 0x216 (H3) and 0x218-0x21B (ODST), in that order.
+constexpr size_t kIdAt[4]{0x01, 0x11, 0x1E, 0x27};
 
 struct Lane
 {
@@ -44,10 +44,14 @@ __declspec(noinline) char __fastcall Detour(uint32_t object, int32_t name, uint3
                                             uint64_t p6)
 {
     L.callbacks.fetch_add(1, std::memory_order_acq_rel);
-    const char handled = L.original(object, name, p3, out, nonzero, p6);
-    // Every function query of every weapon passes here: the name is tested first.
+    char handled = 0;
+    __try
+    {
+    handled = CallNativeWithSpareSlots(L.original, object, name, p3, out, nonzero, p6);
+    // Every function query of every weapon passes here: the name is tested first. Not in a simulation another
+    // machine shares (lockstep co-op): there the digits show the game's count, as a flat player's would.
     if (handled && (name == L.primary + 1 || name == L.primary + 2) && out && L.ready.load(std::memory_order_acquire) &&
-        g_config.manual_reload)
+        g_config.manual_reload && Sight_FireTimeChangesAllowed())
     {
         int loaded = 0, reserve = 0;
         if (VR_ManualReloadHudCount(L.game, object, loaded, reserve))
@@ -68,7 +72,11 @@ __declspec(noinline) char __fastcall Detour(uint32_t object, int32_t name, uint3
             }
         }
     }
-    L.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
+    __finally
+    {
+        L.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
     return handled;
 }
 
@@ -95,16 +103,14 @@ bool Install(Lane& lane, void* detour, uintptr_t base, size_t size, uint32_t gen
         why = "its ammunition-name comparisons";
     else
     {
-        // The three names must be the ones this routine compares (primary, ones, tens).
-        bool seen[3]{};
-        for (size_t at : kIdAt)
+        // The names must be the ones this routine compares, in its order (primary, ones, tens, then the next): an
+        // order this was not read from fails closed.
+        for (int k = 0; k < 4 && !why; ++k)
         {
             int32_t id = 0;
-            std::memcpy(&id, reinterpret_cast<const void*>(ids + at), sizeof(id));
-            for (int k = 0; k < 3; ++k)
-                if (id == lane.primary + k) seen[k] = true;
+            std::memcpy(&id, reinterpret_cast<const void*>(ids + kIdAt[k]), sizeof(id));
+            if (id != lane.primary + k) why = "the ammunition names' ids in the routine";
         }
-        if (!seen[0] || !seen[1] || !seen[2]) why = "the ammunition names' ids in the routine";
     }
     if (why)
     {

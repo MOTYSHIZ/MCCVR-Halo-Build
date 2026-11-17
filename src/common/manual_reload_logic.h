@@ -31,11 +31,12 @@ inline constexpr int kPhaseCount = 6;
 struct Settings
 {
     bool rack = true;               // the player racks a gun that ran dry (else seating chambers the round)
+    bool lockBack = true;           // a handle or slide waiting to be racked is drawn held back until it is
     float pouchRadius = 0.20f;      // the pouch's reach (the weapon gestures' body zone)
     float seatTravel = 0.08f;       // the magazine must have moved this far from where it was taken
-    float seatLateral = 0.10f;      // ... come within this of the well's axis
+    float seatLateral = 0.10f;      // ... come within this of the well's axis (the receiver's reach)
     float seatAlignDeg = 90.0f;     // ... turned no more than this from the right way up
-    float seatKeep = 0.30f;         // a push is abandoned if the magazine strays this far off the axis
+    float seatKeep = 0.30f;         // a push is abandoned if the magazine strays this far off the axis, or below it
     float seatDone = 0.01f;         // seated within this of home
     float rackRadius = 0.10f;       // the rack part's grab reach
     float rackTravel = 0.06f;       // the rack's full pull
@@ -64,6 +65,7 @@ struct Input
 {
     uint64_t now = 0;
     bool ready = false;              // focused on-foot gameplay with tracked hands, single weapon
+    bool gunSeen = false;            // some first-person gun is in the hands this tick (ours or not)
     uint32_t weaponId = 0;           // the held weapon's object handle (each gun keeps its own count)
     Weapon weapon{};                 // BuiltInWeapon for the held model; disabled: the game's own reload
     bool simValid = false;
@@ -76,6 +78,7 @@ struct Input
     bool pouchValid = false;
     Geometry geometry{};
     bool twoHandHeld = false;        // the two-handed hold has the support hand (a grip it took is not a miss)
+    bool supportInTwoHandZone = false; // the support hand is where the two-handed hold would take it
     float trigger = 0;               // the gun hand's trigger as the player pulls it (before the hold)
 };
 
@@ -107,27 +110,42 @@ struct Output
     bool magazineOnAxis = false;     // ... locked onto the well's axis (pushing in)
     Vec magazine{};                  // its centre
     float rackPull = 0;              // 0..1: how far the rack part is drawn back
+    bool rackLock = false;           // ... held back because a round waits to be chambered (not the hand's pull)
+    bool rackZoneValid = false;      // where the hand takes the rack part, and how far from it a grip takes it
+    Vec rackZone{};
+    float rackReach = 0;
+    bool rackDue = false;            // a round waits to be chambered by hand
     bool consumeSupport = false;     // the support grip is the reload's
     bool blockTwoHand = false;       // the two-handed hold may not take the support hand
+    // A pulse for each hand: its strength, and how long it is felt (Campaign Evolved's lengths).
     float supportHaptic = 0, primaryHaptic = 0;
+    uint32_t supportHapticMs = 0, primaryHapticMs = 0;
     // What happened this update (the log).
     bool dropped = false, grabbed = false, seated = false, racked = false, pressed = false, lost = false;
+    bool rackedBack = false;         // the rack part reached the back of its stroke (its own click)
     bool pulled = false;             // the magazine was pulled out by hand (it is spent: it goes back with its rounds)
+    bool retried = false;            // the game did not take a reload press: it was pressed again
+    bool clamped = false;            // the game never caught up: the player's count took the game's
+    bool pushAborted = false;        // a magazine on its way in strayed too far: it is back in the hand
     bool carryGrip = false;          // a grip still closed from a seat: hidden from the game, free for the two-handed hold
     float rackTravel = 0;            // metres: the rack stroke in use
     float pushDepth = 0;             // pushing in: metres still to go (the palette hook scrubs the animation by it)
     bool followValid = false;        // the support hand rides the magazine or the rack part:
     Vec follow{};                    // ... its drawn target moves by this (tracking space, m)
     uint64_t droppedAt = 0;          // the magazine left (the animation's way out plays from here)
-    bool emptyAtDrop = false;        // the game's gun was empty when it left (the game plays its empty reload)
+    bool emptyAtDrop = false;        // the player's gun was dry when it left (the empty reload's animation is used)
     bool pressPending = false;       // a reload press is out, not yet taken by the game
-    bool promptRack = false;         // the rack has been due this long and is not being done: show "PULL" here
+    bool promptRack = false;         // the rack is due and is not being done: show "PULL" here
     Vec prompt{};
-    bool promptMag = false;          // the trigger was pulled with the magazine out: show "MAG" at the pouch
+    bool promptMag = false;          // the trigger was pulled with nothing to fire and the pouch to go to: mark it
+    bool promptShell = false;        // ... and it gives shells, not magazines
     Vec promptMagAt{};
+    bool promptWait = false;         // the trigger was pulled on a loaded gun the game is still reloading: "WAIT" here
+    Vec promptWaitAt{};
     bool gripMissed = false;         // `miss` is new this update
     GripMiss miss{};
     int loaded = 0, reserve = 0, chamber = 0;
+    int shellsWaiting = 0;           // shells in the port the game has not loaded yet
 };
 
 inline float Length(Vec v) noexcept { return std::sqrt(weapon_interaction::Dot(v, v)); }
@@ -144,18 +162,27 @@ public:
     static constexpr uint64_t kPressCheckMs = 400;   // the game must start reloading within this of a press
     static constexpr uint64_t kCatchUpMs = 1500;     // between catch-up presses
     static constexpr int kCatchUpPresses = 3;
+    static constexpr int kShellPresses = 8;          // presses for a waiting shell the game never loads, then it is dropped
     static constexpr uint64_t kLateGripMs = 300;     // a grip closed this long before reaching a zone still takes
     static constexpr uint64_t kMissCheckMs = kLateGripMs + 50; // a grip that has taken nothing by now is a miss
     static constexpr float kMissNear = 1.5f;         // ... reported only if it closed this many reaches from a zone
     static constexpr float kGripOn = 0.55f, kGripOff = 0.35f;
-    static constexpr float kRackDone = 0.92f, kRackRearm = 0.50f;
-    // No reading of the held gun for this long (a death and checkpoint revert, a cinematic, a vehicle, a level load):
-    // every count is forgotten and each gun is taken as the game has it next time (Campaign Evolved forgets on death
-    // and level loads). FA 2026-11-15: a Legendary death reverted the game to a full gun while the player's count
-    // still had its magazine out.
+    // THE RACK'S STROKE (Campaign Evolved's slide_update). A handle or slide with a round waiting is a short tug and
+    // a release: a quarter of its travel back, and the round chambers as the hand lets go (ridden forward again
+    // instead, nothing chambers). A pump is back all the way, then forward all the way.
+    static constexpr float kRackDone = 0.92f, kPumpHome = 0.15f;
+    static constexpr float kRackDue = 0.25f, kRackDueCancel = 0.12f;
+    static constexpr float kRackDueReach = 1.5f;     // a due handle takes a grip this many reaches away (CampE 30c7c1b)
+    static constexpr uint64_t kRackSpringMs = 90;    // the part runs home over this once let go
+    static constexpr uint64_t kRackStuckMs = 1500;   // a rack that cannot be worked this long chambers by itself
+    // No gun in the hands at all for this long (a death and checkpoint revert, a cinematic, a level load): every
+    // count is forgotten and each gun is taken as the game has it next time (Campaign Evolved forgets on death and
+    // level loads). FA 2026-11-15: a Legendary death reverted the game to a full gun while the player's count
+    // still had its magazine out. Holding a gun the reload does not cover forgets nothing: the rifle on the back
+    // keeps its magazine where it was.
     static constexpr uint64_t kForgetMs = 2000;
     // A rack left undone this long gets its prompt (user 2026-11-16: "say pull, but only after 2 seconds of the
-    // player not doing so").
+    // player not doing so"); a trigger pulled on it shows it at once.
     static constexpr uint64_t kRackPromptMs = 2000;
     // Pulling a magazine out: the hand's magazine within this of the well takes it, and it is out at 90% of the way
     // (Campaign Evolved: "the last centimetres of a full reach are where a player's arm runs out").
@@ -184,24 +211,34 @@ public:
 
         if (!owned)
         {
-            // Not ours: the game's reload. A short gap keeps each gun's record (a gun put away comes back with its
-            // magazine where it was); a long one forgets them all. Either way the phase is worked out again from
-            // the held gun's record when one is ours again.
+            // Not ours: the game's reload. Each gun's record is kept while any gun is in the hands (a gun put away
+            // comes back with its magazine where it was); no gun at all for kForgetMs forgets them. Either way the
+            // phase is worked out again from the held gun's record when one is ours again.
             if (phase_ != Phase::Idle) { phase_ = Phase::Idle; out.lost = true; }
-            if (!unownedSince_) unownedSince_ = in.now ? in.now : 1;
-            else if (in.now >= unownedSince_ && in.now - unownedSince_ > kForgetMs) ammo_.ForgetAll();
+            if (in.gunSeen) unseenSince_ = 0;
+            else if (!unseenSince_) unseenSince_ = in.now ? in.now : 1;
+            else if (in.now >= unseenSince_ && in.now - unseenSince_ > kForgetMs) ammo_.ForgetAll();
             ammo_.ReleaseHeld();
             weaponId_ = 0;
             pulseUntil_ = 0;
             pressPending_ = false;
             missPending_ = false;
+            shellsWaiting_ = 0;
+            rackedBack_ = false;
+            magPrompt_ = rackPromptNow_ = waitPrompt_ = inPouch_ = false;
             return out;
         }
-        unownedSince_ = 0;
+        unseenSince_ = 0;
+        const bool pump = in.weapon.supportGripRacks;
+        // The rack is the player's to work: the setting, and a gun that has one. Without it a round chambers by
+        // itself (the shotgun too: Campaign Evolved switches its cycle when there is no rack to work).
+        const bool rackWanted = c.rack && in.weapon.rackChambers;
         reload_ammo::Traits traits = in.weapon.traits;
-        traits.chamberOnSeat = !(c.rack && in.weapon.rackChambers);
+        traits.chamberOnSeat = !rackWanted;
+        if (!rackWanted) traits.cycle = reload_ammo::Cycle::Auto;
         ammo_.Sample(in.weaponId, in.sim, traits);
         out.owned = true;
+        const uint64_t now = in.now;
 
         if (in.weaponId != weaponId_)
         {
@@ -214,7 +251,12 @@ public:
             pressPending_ = false;
             catchUp_ = 0;
             pressedSinceDrop_ = false;
+            lowSinceDrop_ = in.sim.loaded;
+            shellsWaiting_ = 0;
+            rackedBack_ = false;
+            springAt_ = 0;
         }
+        if (!ammo_.MagIn() && in.sim.loaded < lowSinceDrop_) lowSinceDrop_ = in.sim.loaded;
         if (!in.ready)
         {
             // A menu, a cutscene, a seat, lost tracking: a magazine in the hand is let go, nothing else changes.
@@ -230,69 +272,73 @@ public:
             switch (phase_)
             {
             case Phase::Idle:
-                if (in.reloadTap && ammo_.DropMag())
+                if (in.reloadTap)
                 {
-                    phase_ = Phase::MagOut;
-                    out.dropped = true;
-                    droppedAt_ = in.now;
-                    emptyAtDrop_ = in.sim.loaded == 0;
-                    out.primaryHaptic = 0.6f;
-                    pressedSinceDrop_ = false;
-                    // The game reloads now, unseen, while the hands fetch a magazine.
-                    if (ammo_.GameCanReload()) Press(in.now, out);
-                    pressRetried_ = false;
-                    break;
+                    // Dry is the PLAYER's gun (Campaign Evolved's review fix): the game has usually refilled its own
+                    // already, so its count would always pick the full reload's animation.
+                    const bool dry = in.weapon.traits.chamber ? ammo_.Chamber() == 0 : ammo_.Mag() == 0;
+                    if (ammo_.DropMag())
+                    {
+                        phase_ = Phase::MagOut;
+                        out.dropped = true;
+                        droppedAt_ = now;
+                        emptyAtDrop_ = dry;
+                        lowSinceDrop_ = in.sim.loaded;
+                        Pulse(out.primaryHaptic, out.primaryHapticMs, 0.6f, 50);
+                        pressedSinceDrop_ = false;
+                        // The game reloads now, unseen, while the hands fetch a magazine.
+                        if (ammo_.GameCanReload()) Press(now, out);
+                        pressRetried_ = false;
+                        break;
+                    }
                 }
                 if (PerRound(in) && in.pouchValid && (freshGrip || lateGrip) &&
-                    weapon_interaction::Near(in.support, in.pouch, c.pouchRadius) &&
-                    ammo_.Loaded() < in.sim.capacity && ammo_.ShownReserve() > 0)
+                    weapon_interaction::Near(in.support, in.pouch, c.pouchRadius) && PouchHasShell(in))
                 {
                     // A SHELL from the pouch (Campaign Evolved's shell feed). The game loads its shells ahead, unseen:
                     // it is asked as the first shell leaves the pouch, and again whenever it has stopped.
                     phase_ = Phase::MagHeld;
                     grabbedAt_ = Magazine(in);
                     gripOwned_ = true;
-                    shellHome_ = false;
                     out.grabbed = true;
-                    out.supportHaptic = 0.7f;
-                    if (ammo_.GameCanReload() && !in.sim.reloading && !pressPending_) { Press(in.now, out); pressRetried_ = false; }
+                    Pulse(out.supportHaptic, out.supportHapticMs, 0.7f, 50);
+                    if (ammo_.GameCanReload() && !in.sim.reloading && !pressPending_) { Press(now, out); pressRetried_ = false; }
                     break;
                 }
-                if (in.weapon.supportGripRacks && in.twoHandHeld && in.weapon.rackChambers && c.rack && RackHasWork() &&
-                    in.geometry.rackValid)
+                if (pump && in.twoHandHeld && rackWanted && RackHasWork() && in.geometry.rackValid)
                 {
                     // THE PUMP UNDER THE SUPPORT HAND: the two-handed grip IS on it; drawing that hand back along the
                     // gun works it, and the hold stays (Campaign Evolved's supportGripRacks).
                     phase_ = Phase::Racking;
                     rackByHold_ = true;
-                    rackFrom_ = in.support;
-                    rackArmed_ = true;
+                    rackFrom_ = RackAlong(in);
+                    rackedBack_ = false;
                     break;
                 }
-                if (!PerRound(in) && !in.weapon.twoHandNeedsMagazine && ammo_.MagIn() && in.geometry.wellValid &&
+                if (!PerRound(in) && in.weapon.pullByHand && ammo_.MagIn() && in.geometry.wellValid &&
                     !in.twoHandHeld && (freshGrip || lateGrip) && OnMagazine(in))
                 {
                     // PULLING THE MAGAZINE OUT BY HAND (Campaign Evolved's pull): the support grip closed on the
-                    // magazine in the gun. A hand on the magazine never takes the rack.
+                    // magazine in the gun. A hand on the magazine never takes the rack. Measured along the well, so
+                    // moving the gun is not a pull.
                     phase_ = Phase::Pulling;
-                    pullFrom_ = in.support;
+                    pullAlong_ = SupportAlong(in);
                     pullDepth_ = 0;
                     gripOwned_ = true;
                     carry_ = false;
-                    out.supportHaptic = 0.4f;
+                    Pulse(out.supportHaptic, out.supportHapticMs, 0.4f, 40);
                     break;
                 }
-                if (in.weapon.rackChambers && c.rack && RackHasWork() && in.geometry.rackValid &&
-                    (freshGrip || lateGrip) &&
-                    weapon_interaction::Near(in.support, RackZone(in, c), c.rackRadius))
+                if (rackWanted && RackHasWork() && in.geometry.rackValid && (freshGrip || lateGrip) &&
+                    weapon_interaction::Near(in.support, RackZone(in, c), RackReach(in, c)))
                 {
                     phase_ = Phase::Racking;
                     rackByHold_ = false;
-                    rackFrom_ = in.support;
-                    rackArmed_ = true;
+                    rackFrom_ = RackAlong(in);
+                    rackedBack_ = false;
                     {
                         // Where the hand took the part, in the part's own frame, so the drawn hand rides it.
-                        const Vec off = in.support - in.geometry.rack;
+                        const Vec off = in.support - RackPart(in, c, Locked(in, c) ? 1.0f : 0.0f);
                         Vec back{}, up{}, side{};
                         RackFrame(in, back, up, side);
                         rackGrab_[0] = weapon_interaction::Dot(off, back);
@@ -300,11 +346,13 @@ public:
                         rackGrab_[2] = weapon_interaction::Dot(off, side);
                     }
                     gripOwned_ = true;
-                    out.supportHaptic = 0.5f;
+                    Pulse(out.supportHaptic, out.supportHapticMs, 0.5f, 40);
                 }
                 break;
             case Phase::MagOut:
-                if (in.pouchValid && (freshGrip || lateGrip) &&
+                // A magazine is taken by a grip HELD at the pouch, however long ago it closed (Campaign Evolved); not
+                // by a hand the two-handed hold has, nor by a grip that is already the reload's.
+                if (in.pouchValid && gripHeld && !gripOwned_ && !in.twoHandHeld &&
                     weapon_interaction::Near(in.support, in.pouch, c.pouchRadius))
                 {
                     phase_ = Phase::MagHeld;
@@ -312,7 +360,8 @@ public:
                     gripOwned_ = true;
                     spent_ = false;
                     out.grabbed = true;
-                    out.supportHaptic = 0.7f; // the hand knows it has one without looking (Campaign Evolved 718d716)
+                    // The hand knows it has one without looking (Campaign Evolved 718d716).
+                    Pulse(out.supportHaptic, out.supportHapticMs, 0.7f, 50);
                 }
                 break;
             case Phase::MagHeld:
@@ -324,18 +373,28 @@ public:
                     out.lost = true;
                     break;
                 }
-                if (in.geometry.wellValid && Capture(in, c)) phase_ = Phase::Pushing;
+                if (in.geometry.wellValid && Capture(in, c))
+                {
+                    phase_ = Phase::Pushing;
+                    // The well's mouth has it (Campaign Evolved's pulse there).
+                    Pulse(out.supportHaptic, out.supportHapticMs, 0.4f, 30);
+                }
                 break;
             case Phase::Pushing:
             {
-                if (shellHome_) { InsertShell(in, out); break; }   // a shell in the port, waiting on the game
                 const float along = Along(in);
                 const Vec lateral = Lateral(in, along);
-                if (!in.geometry.wellValid || Length(lateral) > c.seatKeep) { phase_ = Phase::MagHeld; break; }
+                // Strayed off the line, or drawn far back down it: it is back in the hand.
+                if (!in.geometry.wellValid || Length(lateral) > c.seatKeep || along < -(InsertDepth(in) + c.seatKeep))
+                {
+                    phase_ = Phase::MagHeld;
+                    out.pushAborted = true;
+                    break;
+                }
                 // Home, or let go on the way in: it goes in.
                 if (along >= -c.seatDone || !gripHeld)
                 {
-                    if (PerRound(in)) { shellHome_ = true; shellHomeAt_ = in.now; InsertShell(in, out); }
+                    if (PerRound(in)) ShellHome(out);
                     else Seat(in, out);
                 }
                 break;
@@ -344,77 +403,137 @@ public:
             {
                 // Let go part way: it goes back in, locked; nothing changes in the count.
                 if (!gripHeld || !in.geometry.wellValid) { phase_ = Phase::Idle; pullDepth_ = 0; break; }
-                pullDepth_ = std::fmax(weapon_interaction::Dot(pullFrom_ - in.support, in.geometry.wellAxis), 0.0f);
+                pullDepth_ = std::fmax(pullAlong_ - SupportAlong(in), 0.0f);
                 if (pullDepth_ >= InsertDepth(in) * kPullDone)
                 {
                     // Out: a spent magazine in the hand. The game reloads now, unseen, as for a drop.
+                    const bool dry = in.weapon.traits.chamber ? ammo_.Chamber() == 0 : ammo_.Mag() == 0;
                     if (ammo_.DropMag())
                     {
                         out.dropped = true;
                         out.pulled = true;
                         droppedAt_ = 0;   // no way out to play: the hand took it out
-                        emptyAtDrop_ = in.sim.loaded == 0;
+                        emptyAtDrop_ = dry;
+                        lowSinceDrop_ = in.sim.loaded;
                         pressedSinceDrop_ = false;
-                        if (ammo_.GameCanReload()) Press(in.now, out);
+                        if (ammo_.GameCanReload()) Press(now, out);
                         pressRetried_ = false;
                     }
                     phase_ = Phase::MagHeld;
                     spent_ = true;
                     grabbedAt_ = Magazine(in);
                     pullDepth_ = 0;
-                    out.supportHaptic = 0.7f;
+                    Pulse(out.supportHaptic, out.supportHapticMs, 0.7f, 50);
+                    Pulse(out.primaryHaptic, out.primaryHapticMs, 0.6f, 50);
                 }
                 break;
             }
             case Phase::Racking:
             {
-                if (!in.geometry.rackValid || (rackByHold_ ? !in.twoHandHeld : !gripHeld))
+                const bool released = rackByHold_ ? !in.twoHandHeld : !gripHeld;
+                if (!in.geometry.rackValid || released)
                 {
-                    phase_ = Phase::Idle;
+                    // Let go from the back: the part runs home (from where it was drawn) and the round chambers.
+                    const float drawn = Locked(in, c) ? 1.0f : rackPull_;
+                    if (released && rackedBack_) Chamber(out, pump);
+                    EndRack(in, c, drawn);
                     break;
                 }
-                if (rackByHold_)
+                if (rackByHold_ && !rackedBack_ && !RackHasWork()) { EndRack(in, c, rackPull_); break; }
+                const float at = RackAlong(in);
+                // Pumped from the hold, the stroke counts from the furthest-forward place the hand reached.
+                if (rackByHold_ && at < rackFrom_) rackFrom_ = at;
+                rackPull_ = std::fmin(std::fmax((at - rackFrom_) / std::fmax(RackTravel(in, c), 0.01f), 0.0f), 1.0f);
+                if (!rackedBack_ && rackPull_ >= (pump ? kRackDone : kRackDue))
                 {
-                    // Pumped from the hold: the stroke counts from the furthest-forward place the hand reached, and
-                    // the hold goes back to being a hold once the pump is home with nothing left to chamber.
-                    if (weapon_interaction::Dot(in.support - rackFrom_, in.geometry.rackBack) < 0) rackFrom_ = in.support;
-                    if (!RackHasWork() && rackPull_ < kRackRearm) { phase_ = Phase::Idle; break; }
+                    rackedBack_ = true;
+                    out.rackedBack = true;
+                    Pulse(out.supportHaptic, out.supportHapticMs, 1.0f, pump ? 150 : 80);
                 }
-                const float pull = weapon_interaction::Dot(in.support - rackFrom_, in.geometry.rackBack);
-                rackPull_ = std::fmin(std::fmax(pull / std::fmax(RackTravel(in, c), 0.01f), 0.0f), 1.0f);
-                if (rackArmed_ && rackPull_ >= kRackDone)
+                else if (rackedBack_ && rackPull_ < (pump ? kPumpHome : kRackDueCancel))
                 {
-                    rackArmed_ = false;
-                    if (ammo_.Rack()) { out.racked = true; out.supportHaptic = 1.0f; out.primaryHaptic = 0.4f; }
+                    if (pump)
+                    {
+                        // Back all the way, then forward all the way: the cycle. The hand is still closed on the
+                        // pump: it stays there as the two-handed hold (Campaign Evolved 7793231).
+                        Chamber(out, true);
+                        if (!rackByHold_) carry_ = true;
+                        EndRack(in, c, rackPull_);
+                    }
+                    else rackedBack_ = false;   // ridden forward again: nothing chambers
                 }
-                else if (!rackArmed_ && rackPull_ < kRackRearm) rackArmed_ = true;
                 break;
             }
             }
         }
-        if (phase_ != Phase::Racking) { rackPull_ = 0; rackByHold_ = false; }
-        if (phase_ != Phase::Pushing) shellHome_ = false;
+        if (phase_ != Phase::Racking) { rackPull_ = 0; rackByHold_ = false; rackedBack_ = false; }
+
+        // Shells in the port the game had not loaded yet are counted as it loads them.
+        while (shellsWaiting_ > 0)
+        {
+            const reload_ammo::Insert r = ammo_.InsertRound();
+            if (r == reload_ammo::Insert::Accepted) { --shellsWaiting_; shellPresses_ = 0; continue; }
+            if (r != reload_ammo::Insert::Wait) shellsWaiting_ = 0;
+            break;
+        }
+        // A rack the player cannot work chambers by itself: the setting off, or its part not found for a while.
+        if (!rackWanted)
+        {
+            if (RackHasWork()) (void)ammo_.Rack();
+            rackStuckSince_ = 0;
+        }
+        else if (in.ready && !in.geometry.rackValid && RackHasWork())
+        {
+            if (!rackStuckSince_) rackStuckSince_ = now ? now : 1;
+            else if (now >= rackStuckSince_ && now - rackStuckSince_ > kRackStuckMs) (void)ammo_.Rack();
+        }
+        else rackStuckSince_ = 0;
         NoteGrip(in, c, freshGrip, gripHeld, out);
 
         // The game's side: check a press took, catch up a game left behind, never leave it behind for good.
         const reload_ammo::Sim& game = in.sim;
         if (pressPending_ && (game.reloading || game.loaded > pressLoaded_)) pressPending_ = false;
-        if (pressPending_ && in.now - pressAt_ > kPressCheckMs)
+        if (!in.ready)
         {
-            pressPending_ = false;
-            if (!pressRetried_ && ammo_.GameCanReload()) { Press(in.now, out); pressRetried_ = true; }
+            // A menu, a cutscene, a seat: the pad drops the press there, so none is made and no time counts
+            // against the game.
+            if (pressPending_) pressAt_ = now;
+            if (catchUpAt_ < now + kPressCheckMs) catchUpAt_ = now + kPressCheckMs;
         }
-        if (ammo_.MagIn() && ammo_.Behind() > 0 && !game.reloading && !pressPending_ && in.now >= catchUpAt_)
+        else
         {
-            if (catchUp_ < kCatchUpPresses && ammo_.GameCanReload())
+            if (pressPending_ && now - pressAt_ > kPressCheckMs)
             {
-                ++catchUp_;
-                catchUpAt_ = in.now + kCatchUpMs;
-                Press(in.now, out);
-                pressRetried_ = false;
+                pressPending_ = false;
+                if (!pressRetried_ && ammo_.GameCanReload()) { Press(now, out); pressRetried_ = true; out.retried = true; }
             }
-            else
-                ammo_.ClampToGame();
+            if (shellsWaiting_ > 0 && !game.reloading && !pressPending_)
+            {
+                // A waiting shell and a game that has stopped loading: asked again, a few times; a game that cannot
+                // take it (full, nothing left) or never does loses the shell.
+                if (ammo_.GameCanReload() && shellPresses_ < kShellPresses)
+                {
+                    ++shellPresses_;
+                    Press(now, out);
+                    pressRetried_ = true;
+                }
+                else { shellsWaiting_ = 0; out.lost = true; }
+            }
+            if (ammo_.MagIn() && ammo_.Behind() > 0 && !game.reloading && !pressPending_ && now >= catchUpAt_)
+            {
+                if (catchUp_ < kCatchUpPresses && ammo_.GameCanReload())
+                {
+                    ++catchUp_;
+                    catchUpAt_ = now + kCatchUpMs;
+                    Press(now, out);
+                    pressRetried_ = false;
+                }
+                else
+                {
+                    ammo_.ClampToGame();
+                    out.clamped = true;
+                }
+            }
         }
         if (!ammo_.Behind()) catchUp_ = 0;
 
@@ -428,17 +547,32 @@ public:
         out.magazineInHand = phase_ == Phase::MagHeld ||
             ((phase_ == Phase::Pushing || phase_ == Phase::Pulling) && !in.geometry.learned);
         out.magazineOnAxis = phase_ == Phase::Pushing || phase_ == Phase::Pulling;
-        if (out.magazineInHand)
-        {
-            const Vec m = Magazine(in);
+        if (phase_ == Phase::MagHeld || out.magazineOnAxis)
             out.magazine = phase_ == Phase::Pushing ? OnAxis(in, Along(in)) :
-                           phase_ == Phase::Pulling ? OnAxis(in, -pullDepth_) : m;
-        }
-        out.rackPull = rackPull_;
+                           phase_ == Phase::Pulling ? OnAxis(in, -pullDepth_) : Magazine(in);
+        // THE RACK PART AS DRAWN: held back while a round waits on a handle or slide (the hand's tug does not move it
+        // further), drawn by the hand's pull otherwise, and run home over kRackSpringMs once let go.
+        const bool lock = Locked(in, c);
+        float spring = 0;
+        if (springAt_ && now >= springAt_ && now - springAt_ < kRackSpringMs)
+            spring = springFrom_ * (1.0f - float(now - springAt_) / float(kRackSpringMs));
+        else springAt_ = 0;
+        const float shownPull = lock ? 1.0f : phase_ == Phase::Racking ? rackPull_ : spring;
+        if (lock) { springFrom_ = 1.0f; springAt_ = now ? now : 1; }   // it runs home from the back once chambered
+        out.rackPull = shownPull;
+        out.rackLock = lock;
         out.rackTravel = RackTravel(in, c);
+        if (in.geometry.rackValid && rackWanted)
+        {
+            out.rackZoneValid = true;
+            out.rackZone = RackZone(in, c);
+            out.rackDue = RackHasWork();
+            out.rackReach = out.rackDue ? RackReach(in, c) : c.rackRadius;
+        }
         out.droppedAt = droppedAt_;
         out.emptyAtDrop = emptyAtDrop_;
         out.pressPending = pressPending_;
+        out.shellsWaiting = shellsWaiting_;
         if ((phase_ == Phase::Pushing || phase_ == Phase::Pulling) && in.geometry.wellValid)
         {
             // The hand rides the magazine as it goes in (or comes out): shifted by how far the drawn magazine sits
@@ -453,19 +587,24 @@ public:
         {
             Vec back{}, up{}, side{};
             RackFrame(in, back, up, side);
-            const Vec handle = in.geometry.rack + back * (rackPull_ * RackTravel(in, c));
+            const Vec handle = RackPart(in, c, shownPull);
             const Vec target = handle + back * rackGrab_[0] + up * rackGrab_[1] + side * rackGrab_[2];
             out.follow = target - in.support;
             out.followValid = weapon_interaction::Finite(out.follow) && Length(out.follow) < 0.3f;
         }
+        const bool pulled = std::isfinite(in.trigger) && in.trigger > 0.5f;
         {
             // The rack is due: a round to chamber, the hand not on it (a pump under the two-handed hold counts as
             // not working it until it moves).
-            const bool due = in.ready && c.rack && in.weapon.rackChambers && in.geometry.rackValid && RackHasWork() &&
+            const bool due = in.ready && rackWanted && in.geometry.rackValid && RackHasWork() &&
                              (phase_ == Phase::Idle || (phase_ == Phase::Racking && rackByHold_ && rackPull_ < 0.1f));
-            if (!due) rackDueSince_ = 0;
-            else if (!rackDueSince_) rackDueSince_ = in.now ? in.now : 1;
-            if (due && in.now >= rackDueSince_ && in.now - rackDueSince_ >= kRackPromptMs)
+            if (!due) { rackDueSince_ = 0; rackPromptNow_ = false; }
+            else
+            {
+                if (!rackDueSince_) rackDueSince_ = now ? now : 1;
+                if (pulled) rackPromptNow_ = true;   // a pull that fires nothing says why at once
+            }
+            if (due && (rackPromptNow_ || (now >= rackDueSince_ && now - rackDueSince_ >= kRackPromptMs)))
             {
                 out.promptRack = true;
                 out.prompt = RackZone(in, c);
@@ -473,21 +612,46 @@ public:
         }
         {
             // MAG: the trigger pulled with the magazine out and nothing left to fire marks the pouch, until a magazine
-            // is taken (user 2026-11-16).
-            if (phase_ != Phase::MagOut || !in.ready) magPrompt_ = false;
-            else if (out.triggerHeld && std::isfinite(in.trigger) && in.trigger > 0.5f) magPrompt_ = true;
+            // is taken (user 2026-11-16). An empty shotgun's pouch is marked the same way, for a shell.
+            const bool shells = PerRound(in) && phase_ == Phase::Idle && ammo_.Loaded() == 0 && shellsWaiting_ == 0 &&
+                                ammo_.ShownReserve() > 0;
+            if ((phase_ != Phase::MagOut && !shells) || !in.ready) magPrompt_ = false;
+            else if (out.triggerHeld && pulled) magPrompt_ = true;
             if (magPrompt_ && in.pouchValid)
             {
                 out.promptMag = true;
+                out.promptShell = shells;
                 out.promptMagAt = in.pouch;
             }
         }
-        out.consumeSupport = phase_ == Phase::MagHeld || (phase_ == Phase::Pushing && !shellHome_) ||
+        {
+            // WAIT: the trigger pulled on a gun that has its round while the game is still reloading its own, or has
+            // not caught up: nothing fires, and this says why (Campaign Evolved shows a ring there).
+            const bool round = in.weapon.traits.chamber ? ammo_.Chamber() > 0 : (ammo_.MagIn() && ammo_.Mag() > 0);
+            const bool busy = in.ready && round && (game.reloading || game.loaded < ammo_.Loaded());
+            if (!busy) waitPrompt_ = false;
+            else if (pulled) waitPrompt_ = true;
+            if (waitPrompt_ && (in.geometry.rackValid || in.geometry.wellValid))
+            {
+                out.promptWait = true;
+                out.promptWaitAt = in.geometry.rackValid ? RackZone(in, c) : in.geometry.well;
+            }
+        }
+        {
+            // The pouch says "here" as a free hand reaches it with something to take (Campaign Evolved's zone buzz,
+            // which stays quiet for a hand that is busy).
+            const bool gives = phase_ == Phase::MagOut || (PerRound(in) && phase_ == Phase::Idle && PouchHasShell(in));
+            const bool inside = in.ready && gives && in.pouchValid && !in.twoHandHeld && !gripOwned_ &&
+                                weapon_interaction::Near(in.support, in.pouch, c.pouchRadius);
+            if (inside && !inPouch_) Pulse(out.supportHaptic, out.supportHapticMs, 0.5f, 80);
+            inPouch_ = inside;
+        }
+        out.consumeSupport = phase_ == Phase::MagHeld || phase_ == Phase::Pushing ||
                              phase_ == Phase::Pulling || (phase_ == Phase::Racking && !rackByHold_) ||
                              (gripOwned_ && gripHeld && !rackByHold_ && !carry_);
-        // A GRIP CARRIED FROM A SEAT (Campaign Evolved 70c5c1b): still closed after the magazine went home, it is the
-        // two-handed hold's to take as the hand reaches the foregrip (not while a rack is due), and stays hidden from
-        // the game until it opens.
+        // A GRIP CARRIED FROM A SEAT (Campaign Evolved 70c5c1b) or from a pump stroke: still closed, it is the
+        // two-handed hold's to take as the hand reaches the foregrip (not while a rack is due), and stays hidden
+        // from the game until it opens.
         out.carryGrip = carry_ && gripHeld && phase_ == Phase::Idle;
         // The two-handed hold may not take a hand that is fetching, holding or pushing a magazine, working the
         // rack, or reaching into a rack zone with work to do (with no rack work the two-handed grip wins).
@@ -495,10 +659,10 @@ public:
             // The spiker's magazine IS its support grip: no two-handed hold while it is out (twoHandNeedsMagazine).
             (in.weapon.twoHandNeedsMagazine && !ammo_.MagIn()) ||
             // A pump under the support hand is worked from the hold: the hold may keep the hand then.
-            (in.weapon.supportGripRacks ? false :
-            (RackHasWork() && c.rack && in.weapon.rackChambers && in.geometry.rackValid &&
+            (pump ? false :
+            (RackHasWork() && rackWanted && in.geometry.rackValid &&
              weapon_interaction::Near(in.support, RackZone(in, c), c.rackRadius)));
-        if (in.now < pulseUntil_) { out.buttons = c.reloadButton; out.pulseUntil = pulseUntil_; }
+        if (now < pulseUntil_) { out.buttons = c.reloadButton; out.pulseUntil = pulseUntil_; }
         out.loaded = ammo_.Loaded();
         out.reserve = ammo_.ShownReserve();
         out.chamber = ammo_.Chamber();
@@ -506,16 +670,46 @@ public:
     }
 
 private:
+    // The stronger of two pulses asked for in one update, with its own length.
+    static void Pulse(float& strength, uint32_t& ms, float want, uint32_t forMs) noexcept
+    {
+        if (want >= strength) { strength = want; ms = forMs; }
+    }
     static float RackTravel(const Input& in, const Settings& c) noexcept
     {
         return in.geometry.rackTravel > 0 ? in.geometry.rackTravel : c.rackTravel;
     }
-    // Where the hand takes the rack part: the part, moved by the gun's calibrated grab spot.
-    static Vec RackZone(const Input& in, const Settings& c) noexcept
+    // A handle or slide with nothing chambered is drawn held back while a rack is due, and while the magazine of a
+    // dry gun is out (Campaign Evolved shows the slide locked). Not a pump, which rests forward.
+    bool Locked(const Input& in, const Settings& c) const noexcept
+    {
+        return c.lockBack && c.rack && in.weapon.rackChambers && !in.weapon.supportGripRacks &&
+               in.weapon.traits.chamber && in.geometry.rackValid && ammo_.Chamber() == 0 &&
+               (RackHasWork() || !ammo_.MagIn());
+    }
+    // The rack part where it is drawn: its rest place, moved back by its pull.
+    static Vec RackPart(const Input& in, const Settings& c, float pull) noexcept
+    {
+        return in.geometry.rack + Normalized(in.geometry.rackBack) * (pull * RackTravel(in, c));
+    }
+    // Where the hand takes the rack part: the part as drawn, moved by the gun's calibrated grab spot.
+    Vec RackZone(const Input& in, const Settings& c) const noexcept
     {
         Vec back{}, up{}, side{};
         RackFrame(in, back, up, side);
-        return in.geometry.rack + back * c.rackGrabOffset[0] + up * c.rackGrabOffset[1] + side * c.rackGrabOffset[2];
+        return RackPart(in, c, Locked(in, c) ? 1.0f : 0.0f) + back * c.rackGrabOffset[0] + up * c.rackGrabOffset[1] +
+               side * c.rackGrabOffset[2];
+    }
+    // A handle with a round waiting takes a grip from further away, unless the hand is where the two-handed hold
+    // would take it (Campaign Evolved 30c7c1b: the sniper's handle refused twenty grips at 7-10 cm against 6.5).
+    static float RackReach(const Input& in, const Settings& c) noexcept
+    {
+        return c.rackRadius * (in.supportInTwoHandZone ? 1.0f : kRackDueReach);
+    }
+    // The support hand along the rack's line, from the part's rest place: gun-relative, so moving the gun is no pull.
+    static float RackAlong(const Input& in) noexcept
+    {
+        return weapon_interaction::Dot(in.support - in.geometry.rack, Normalized(in.geometry.rackBack));
     }
     static void RackFrame(const Input& in, Vec& back, Vec& up, Vec& side) noexcept
     {
@@ -543,14 +737,14 @@ private:
             m.trackingLost = std::fabs(in.support.x) < 1e-6f && std::fabs(in.support.y) < 1e-6f &&
                              std::fabs(in.support.z) < 1e-6f;
             m.pouchReach = c.pouchRadius;
-            m.rackReach = c.rackRadius;
+            m.rackReach = m.rackWork ? RackReach(in, c) : c.rackRadius;
             if (in.pouchValid) m.pouchDistance = Length(in.support - in.pouch);
             if (in.geometry.rackValid) m.rackDistance = Length(in.support - RackZone(in, c));
             const bool nearPouch = m.pouchDistance >= 0 && m.pouchDistance <= c.pouchRadius * kMissNear;
-            const bool nearRack = m.rackDistance >= 0 && m.rackDistance <= c.rackRadius * kMissNear;
+            const bool nearRack = m.rackDistance >= 0 && m.rackDistance <= m.rackReach * kMissNear;
             // The block as it will stand this update (worked out again below for the output).
-            m.blockTwoHand = phase_ == Phase::MagOut ||
-                (m.rackWork && m.rackEnabled && in.geometry.rackValid &&
+            m.blockTwoHand = (in.weapon.twoHandNeedsMagazine && !ammo_.MagIn()) ||
+                (!in.weapon.supportGripRacks && m.rackWork && m.rackEnabled && in.geometry.rackValid &&
                  weapon_interaction::Near(in.support, RackZone(in, c), c.rackRadius));
             if (nearPouch || nearRack || m.trackingLost)
             {
@@ -575,7 +769,8 @@ private:
     }
     void Press(uint64_t now, Output& out) noexcept
     {
-        pulseUntil_ = now + kPulseMs;
+        // A press while one is still held down is the same press: never a longer one (a hold is the game's pick up).
+        if (now >= pulseUntil_) pulseUntil_ = now + kPulseMs;
         pressAt_ = now;
         pressPending_ = true;
         pressLoaded_ = ammo_.Game().loaded;
@@ -586,13 +781,16 @@ private:
     { return weapon_interaction::HeldMagazineCenter({.support = in.support}, in.supportRotation); }
     float Along(const Input& in) const noexcept
     { return weapon_interaction::Dot(Magazine(in) - in.geometry.well, in.geometry.wellAxis); }
+    // The hand itself along the well's line (a turn of the wrist is not a pull).
+    static float SupportAlong(const Input& in) noexcept
+    { return weapon_interaction::Dot(in.support - in.geometry.well, in.geometry.wellAxis); }
     Vec Lateral(const Input& in, float along) const noexcept
     { return (Magazine(in) - in.geometry.well) - in.geometry.wellAxis * along; }
     Vec OnAxis(const Input& in, float along) const noexcept
     { return in.geometry.well + in.geometry.wellAxis * std::fmin(along, 0.0f); }
     // The hand's magazine where the gun's is: just under the well, close to its axis. A hand on the foregrip is not
-    // on the magazine. (The spiker, whose magazine is its foregrip, never pulls by hand: its button drops it, as
-    // Campaign Evolved's pullNeedsRelease.)
+    // on the magazine. (A gun whose magazine is where the support hand holds it -- the spiker's foregrip, a pistol's
+    // grip -- never pulls by hand: its button drops it, as Campaign Evolved's pullNeedsRelease.)
     bool OnMagazine(const Input& in) const noexcept
     {
         const float along = Along(in);
@@ -607,8 +805,9 @@ private:
         const Vec m = Magazine(in);
         if (Length(m - grabbedAt_) < c.seatTravel) return false;
         const float along = Along(in);
-        const float depth = in.geometry.insertDepth > 0 ? in.geometry.insertDepth : in.weapon.insertDepth;
-        if (along < -(depth + 0.10f) || along > 0.10f) return false;
+        // Within the receiver's reach of the line, and along it from that far below the push's start to that far
+        // past home (Campaign Evolved's mouth test, one reach for all three).
+        if (along < -(InsertDepth(in) + c.seatLateral) || along > c.seatLateral) return false;
         if (Length(Lateral(in, along)) > c.seatLateral) return false;
         const Vec top = weapon_interaction::Rotate(in.supportRotation,
             {kMagazineTopLocal[0], kMagazineTopLocal[1], kMagazineTopLocal[2]});
@@ -616,42 +815,41 @@ private:
         return cosine >= std::cos(c.seatAlignDeg * 3.14159265f / 180.0f);
     }
     static bool PerRound(const Input& in) noexcept { return in.weapon.traits.feed == reload_ammo::Feed::PerRound; }
-    // A shell at home in the port: counted once the game has loaded a round for it. A game that has stopped loading
-    // is asked again; a shell the game cannot take (full, nothing left) is dropped.
-    static constexpr uint64_t kShellWaitMs = 3000;
-    void InsertShell(const Input& in, Output& out) noexcept
+    // The pouch has a shell to give: room in the tube and rounds in reserve, each less the shells already waiting.
+    bool PouchHasShell(const Input& in) const noexcept
     {
-        switch (ammo_.InsertRound())
-        {
-        case reload_ammo::Insert::Accepted:
-            out.seated = true;
-            out.supportHaptic = 1.0f;
-            out.primaryHaptic = 0.5f;
-            phase_ = Phase::Idle;
-            gripOwned_ = true;
-            return;
-        case reload_ammo::Insert::Wait:
-            if (ammo_.GameCanReload() && !in.sim.reloading && !pressPending_) { Press(in.now, out); pressRetried_ = false; }
-            if (in.now >= shellHomeAt_ && in.now - shellHomeAt_ <= kShellWaitMs) return;
-            [[fallthrough]];
-        default:
-            out.lost = true;
-            phase_ = Phase::Idle;
-            return;
-        }
+        return ammo_.Loaded() + shellsWaiting_ < in.sim.capacity && ammo_.ShownReserve() - shellsWaiting_ > 0;
+    }
+    // A SHELL AT HOME IN THE PORT. The hand is free at once and the next shell can follow: one the game has already
+    // loaded a round for is counted now, one ahead of the game WAITS and is counted as the game loads it (Campaign
+    // Evolved's waiting shells). One the gun cannot take (full, nothing left) is dropped.
+    void ShellHome(Output& out) noexcept
+    {
+        phase_ = Phase::Idle;
+        gripOwned_ = true;
+        const reload_ammo::Insert r = ammo_.InsertRound();
+        if (r == reload_ammo::Insert::Wait) { ++shellsWaiting_; shellPresses_ = 0; }
+        else if (r != reload_ammo::Insert::Accepted) { out.lost = true; return; }
+        out.seated = true;
+        Pulse(out.supportHaptic, out.supportHapticMs, 0.8f, 60);
+        Pulse(out.primaryHaptic, out.primaryHapticMs, 0.8f, 60);
     }
     void Seat(const Input& in, Output& out) noexcept
     {
-        // The game has already loaded this magazine if a press went out since the drop and it has finished.
-        const bool fromGame = pressedSinceDrop_ && !in.sim.reloading && !pressPending_;
+        // The game has already loaded this magazine only on PROOF (Campaign Evolved): a press went out since the
+        // drop, the game is at rest, and it is full, or has nothing left to load, or its count has risen since the
+        // drop. A game that ignored the press, or whose reload a melee cut short, has not: the magazine then counts
+        // as fresh and full, and the catch-up below has the game load it.
+        const bool proof = in.sim.loaded >= in.sim.capacity || in.sim.reserve <= 0 || in.sim.loaded > lowSinceDrop_;
+        const bool fromGame = pressedSinceDrop_ && !in.sim.reloading && !pressPending_ && proof;
         // A pulled magazine goes back with the rounds it held; a fresh one is counted from the game.
         const bool seatedOne = spent_ ? ammo_.ReseatDropped() : ammo_.SeatMag(fromGame);
         spent_ = false;
         if (seatedOne)
         {
             out.seated = true;
-            out.supportHaptic = 1.0f;
-            out.primaryHaptic = 1.0f;
+            Pulse(out.supportHaptic, out.supportHapticMs, 1.0f, 80);
+            Pulse(out.primaryHaptic, out.primaryHapticMs, 1.0f, 80);
         }
         phase_ = Phase::Idle;
         // The still-closed grip stays the reload's until let go, but the two-handed hold may take it on the foregrip
@@ -660,27 +858,45 @@ private:
         carry_ = !(in.weapon.rackChambers && RackHasWork());
         catchUpAt_ = in.now + kPressCheckMs;
     }
+    // The round goes into the chamber: the slide let go from the back, or the pump brought forward.
+    void Chamber(Output& out, bool pump) noexcept
+    {
+        if (!ammo_.Rack()) return;
+        out.racked = true;
+        Pulse(out.supportHaptic, out.supportHapticMs, pump ? 1.0f : 0.9f, pump ? 150 : 60);
+        Pulse(out.primaryHaptic, out.primaryHapticMs, 0.4f, 40);
+    }
+    void EndRack(const Input& in, const Settings& c, float drawn) noexcept
+    {
+        // The part runs home from where it was drawn (still held back if no round went in).
+        springFrom_ = Locked(in, c) ? 1.0f : drawn;
+        springAt_ = in.now ? in.now : 1;
+        phase_ = Phase::Idle;
+        rackedBack_ = false;
+    }
 
     reload_ammo::Model ammo_{};
     Phase phase_ = Phase::Idle;
     uint32_t weaponId_ = 0;
     bool gripArmed_ = false, gripOwned_ = false;
-    uint64_t gripClosedAt_ = 0, unownedSince_ = 0;
-    Vec grabbedAt_{}, rackFrom_{};
-    bool rackArmed_ = false;
-    float rackPull_ = 0;
+    uint64_t gripClosedAt_ = 0, unseenSince_ = 0;
+    Vec grabbedAt_{};
+    float rackFrom_ = 0;
+    bool rackedBack_ = false;
+    float rackPull_ = 0, springFrom_ = 0;
+    uint64_t springAt_ = 0, rackStuckSince_ = 0;
     uint64_t pulseUntil_ = 0, pressAt_ = 0, catchUpAt_ = 0;
     bool pressPending_ = false, pressRetried_ = false, pressedSinceDrop_ = false;
-    int pressLoaded_ = 0, catchUp_ = 0;
+    int pressLoaded_ = 0, catchUp_ = 0, lowSinceDrop_ = 0;
+    int shellsWaiting_ = 0, shellPresses_ = 0;
     GripMiss miss_{};
     uint64_t missAt_ = 0, droppedAt_ = 0;
     bool emptyAtDrop_ = false;
     float rackGrab_[3]{};
-    bool rackByHold_ = false, shellHome_ = false, magPrompt_ = false, spent_ = false, carry_ = false;
-    Vec pullFrom_{};
-    float pullDepth_ = 0;
+    bool rackByHold_ = false, magPrompt_ = false, rackPromptNow_ = false, waitPrompt_ = false, inPouch_ = false;
+    bool spent_ = false, carry_ = false;
+    float pullAlong_ = 0, pullDepth_ = 0;
     uint64_t rackDueSince_ = 0;
-    uint64_t shellHomeAt_ = 0;
     bool missPending_ = false;
 };
 

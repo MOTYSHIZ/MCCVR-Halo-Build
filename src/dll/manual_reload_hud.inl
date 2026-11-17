@@ -68,12 +68,18 @@ template <Lane& L>
 __declspec(noinline) void __fastcall Detour(uint32_t weapon, void* out)
 {
     L.callbacks.fetch_add(1, std::memory_order_acq_rel);
-    const uintptr_t caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
-    L.original(weapon, out);
-    if (out && caller == L.returnAt && L.ready.load(std::memory_order_acquire) && g_config.manual_reload &&
-        Substitute(L, weapon, static_cast<uint8_t*>(out)))
-        L.shown.fetch_add(1, std::memory_order_relaxed);
-    L.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    __try
+    {
+        const uintptr_t caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
+        CallNativeWithSpareSlots(L.original, weapon, out);
+        if (out && caller == L.returnAt && L.ready.load(std::memory_order_acquire) && g_config.manual_reload &&
+            Substitute(L, weapon, static_cast<uint8_t*>(out)))
+            L.shown.fetch_add(1, std::memory_order_relaxed);
+    }
+    __finally
+    {
+        L.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
 }
 
 bool Install(Lane& lane, void* detour, uintptr_t base, size_t size, uint32_t generation)

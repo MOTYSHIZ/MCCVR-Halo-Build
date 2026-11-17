@@ -35,6 +35,9 @@ struct Input
     bool touchKnown{};     // this controller reports trigger and thumb touch
     float trigger{}, grip{};
     bool triggerTouch{}, thumbTouch{};
+    // A shape the hand is holding something in (the manual reload's magazine or handle, Campaign Evolved's held
+    // shapes): it wins over the gesture, and needs no touch sensors.
+    Shape held{Shape::None};
 };
 
 inline Shape ShapeFor(bool grip,bool trigger,bool thumb) noexcept
@@ -66,9 +69,10 @@ public:
     // sensor, or the table lacks the shape. dt in seconds.
     bool Update(const hand_track::PoseTable& table,const Input& in,float dt) noexcept
     {
-        if(!in.valid||!in.touchKnown||!std::isfinite(in.trigger)||!std::isfinite(in.grip)) { Reset();return false; }
-        grip_=GripHeld(in.grip,grip_);
-        const Shape shape=ShapeFor(grip_,TriggerOn(in),in.thumbTouch);
+        const bool holding=in.held!=Shape::None&&unsigned(in.held)<unsigned(Shape::Count)&&table.set[unsigned(in.held)];
+        if(!holding&&(!in.valid||!in.touchKnown||!std::isfinite(in.trigger)||!std::isfinite(in.grip))) { Reset();return false; }
+        if(!holding) grip_=GripHeld(in.grip,grip_);
+        const Shape shape=holding?in.held:ShapeFor(grip_,TriggerOn(in),in.thumbTouch);
         const unsigned s=unsigned(shape);
         if(s>=unsigned(Shape::Count)||!table.set[s]) { Reset();return false; }
         const float* target=table.curls[s];

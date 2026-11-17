@@ -1191,6 +1191,8 @@ const char* VR_ManualReloadHeldGun(bool& builtIn) noexcept;
 // In-headset calibrations: 1 the pouch, 2 the held gun's handle grab spot, 0 cancel. Armed() says which is waiting.
 void VR_ReloadCaptureArm(int kind) noexcept;
 int VR_ReloadCaptureArmed() noexcept;
+// The menu: the held gun's learned reload animations are forgotten; it learns them again on its next reload.
+void VR_ManualReloadForgetHeldGun() noexcept;
 uint32_t VR_ReloadCaptureCount() noexcept;
 // The cold worker: halomccvr_reloads.txt and a calibration's save and log line.
 void VR_ReportReloadCapture() noexcept;
@@ -1294,6 +1296,9 @@ void VR_PulseGameHaptics(float amplitude);
 // Adds a lock-free, one-shot collision pulse for one OpenXR hand. It is merged
 // with (and never replaces) the title's ordinary XInput rumble.
 void VR_PulseContactHaptics(bool left, float amplitude);
+// A pulse of the mod's own on the support hand or the gun hand (left-handed players swapped), felt for `ms`
+// (at most 500). A weaker pulse does not cut a stronger one short.
+void VR_PulseHandHaptics(bool support, float amplitude, uint32_t ms);
 // SETTING THE HOLSTER SPOT WITH A HAND (weapon_interaction::HolsterCapture). Arm: the next fresh squeeze of the
 // weapon grip records where that hand is relative to the head as the custom holster spot, switches the
 // holster to it and saves the config. false cancels. Armed: still waiting for that squeeze. Count: how many

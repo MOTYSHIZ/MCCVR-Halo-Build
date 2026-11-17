@@ -2435,6 +2435,19 @@ namespace
                     if (listed && entry.handleSet)
                         ImGui::TextDisabled("Grab spot: %.0f cm back, %.0f cm up, %.0f cm aside of the handle.",
                                             entry.handle[0], entry.handle[1], entry.handle[2]);
+                    if (ImGui::Button("Size this gun's magazine well")) VR_ReloadCaptureArm(4);
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset well size")) reload_weapon_settings::ClearSeat(gun);
+                    if (listed && std::isfinite(entry.seat))
+                        ImGui::TextDisabled("Magazine well reach for this gun: %.0f cm.", entry.seat);
+                    else
+                        ImGui::TextDisabled("Magazine well reach for this gun: 10 cm.");
+                    ImGui::TextDisabled("How close to the well's line a magazine (or shell) must come to go on. Close the\n"
+                        "menu: a blue sphere shows it at the gun. Push your support hand's stick up or down to resize it,\n"
+                        "then squeeze that hand's grip to keep it.");
+                    if (ImGui::Button("Forget this gun's learned reload")) VR_ManualReloadForgetHeldGun();
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(it learns it again on its next reload)");
                 }
                 else if (gun && listed && entry.enabled == 0)
                 {
@@ -2464,8 +2477,12 @@ namespace
                 const int armed = VR_ReloadCaptureArmed();
                 if (armed)
                 {
-                    ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "Close the menu, put your support hand where the %s "
-                        "should be and squeeze its grip.", armed == 1 ? "pouch" : "handle grab spot");
+                    if (armed == 4)
+                        ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "Close the menu, size the sphere at the gun "
+                            "with your support hand's stick and squeeze its grip.");
+                    else
+                        ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "Close the menu, put your support hand where "
+                            "the %s should be and squeeze its grip.", armed == 1 ? "pouch" : "handle grab spot");
                     if (ImGui::Button("Cancel")) VR_ReloadCaptureArm(0);
                 }
                 ImGui::TextDisabled("Per-gun settings are kept in halomccvr_reloads.txt beside halomccvr.cfg.");
@@ -3437,9 +3454,10 @@ namespace
                            "trigger and grip instead.");
         ImGui::Spacing();
         changed |= ImGui::Checkbox("Animate the support hand on the gun", &g_config.support_hand_tracks);
-        ImGui::TextWrapped("Halo 3 and ODST. After a gesture reload, your support hand moves along the gun the way the "
-                           "game animates it, then returns to your controller. Needs Arm IK on, and your support hand "
-                           "off the gun.");
+        ImGui::TextWrapped("Halo 3 and ODST. When a gun you do not reload by hand reloads the game's way (the rocket "
+                           "launcher, the plasma guns...), your support hand moves along the gun the way the game "
+                           "animates it, then returns to your controller. Needs Arm IK on, and your support hand off "
+                           "the gun. While it holds a magazine or the handle for a reload by hand, it closes on it.");
 #if HALOMCCVR_SETTINGS_WINDOW
         ImGui::TextDisabled("The animations are in halomccvr_hand_tracks.txt beside halomccvr.cfg. "
                             "Preview them in the headset (F1).");

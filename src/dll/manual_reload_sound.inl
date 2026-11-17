@@ -41,16 +41,22 @@ template <Lane& L>
 __declspec(noinline) void __fastcall Detour(int32_t user, const uint8_t* event, int32_t slot)
 {
     L.callbacks.fetch_add(1, std::memory_order_acq_rel);
-    bool drop = false;
-    if (event && L.ready.load(std::memory_order_acquire) && user == 0 && slot == 0 && g_config.manual_reload_sounds &&
-        VR_ManualReloadHidesReload(L.game))
+    __try
     {
-        __try { drop = *reinterpret_cast<const int32_t*>(event + 4) == 1; }
-        __except (EXCEPTION_EXECUTE_HANDLER) { L.faults.fetch_add(1, std::memory_order_relaxed); }
+        bool drop = false;
+        if (event && L.ready.load(std::memory_order_acquire) && user == 0 && slot == 0 && g_config.manual_reload_sounds &&
+            VR_ManualReloadHidesReload(L.game))
+        {
+            __try { drop = *reinterpret_cast<const int32_t*>(event + 4) == 1; }
+            __except (EXCEPTION_EXECUTE_HANDLER) { L.faults.fetch_add(1, std::memory_order_relaxed); }
+        }
+        if (drop) L.silenced.fetch_add(1, std::memory_order_relaxed);
+        else CallNativeWithSpareSlots(L.original, user, event, slot);
     }
-    if (drop) L.silenced.fetch_add(1, std::memory_order_relaxed);
-    else L.original(user, event, slot);
-    L.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    __finally
+    {
+        L.callbacks.fetch_sub(1, std::memory_order_acq_rel);
+    }
 }
 
 // The palette hook (the game's thread): the held gun's own pickup click, for this player only.

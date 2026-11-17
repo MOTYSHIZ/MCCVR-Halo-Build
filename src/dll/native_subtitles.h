@@ -30,7 +30,7 @@ std::shared_ptr<const NativeSubtitleImage> NativeNotice_Read();
 // THE LABELS: short words for waypoints of the mod's own (the manual reload's prompts: "PULL" at the charging handle,
 // "MAG" at the pouch), each in a slot of its own so switching between them never waits on the rasterizer. A label
 // stays until changed (an empty text clears it); the worker rasterizes it, the render thread places it.
-inline constexpr int kNativeLabelSlots = 2;
+inline constexpr int kNativeLabelSlots = 4;   // PULL, MAG, WAIT, SHELL
 void NativeLabel_Set(int slot, const wchar_t* text, float opacity) noexcept;
 std::shared_ptr<const NativeSubtitleImage> NativeLabel_Read(int slot);
 

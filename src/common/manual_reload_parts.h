@@ -63,6 +63,9 @@ struct Weapon
     // The magazine IS the support grip (the spiker): no two-handed hold while it is out (Campaign Evolved's
     // twoHandNeedsMagazine).
     bool twoHandNeedsMagazine = false;
+    // The magazine can be pulled out by a hand closed on it. Not where the support hand holds the gun there anyway
+    // (a pistol's grip, the spiker's foregrip): those drop it by the button (Campaign Evolved's pullNeedsRelease).
+    bool pullByHand = true;
 };
 
 // The built-in weapons: magazine-fed guns whose magazine goes up into the gun and whose kit model has both a
@@ -84,6 +87,7 @@ inline Weapon BuiltInWeapon(const char* name) noexcept
             w.traits.chamber = true;
             w.traits.chamberRounds = row.chamberRounds;
             w.rackChambers = true;
+            w.pullByHand = std::strcmp(name, "fp_magnum") != 0 && std::strcmp(name, "fp_automag") != 0;
             return w;
         }
     // The Covenant magazine guns fire straight from the magazine: nothing stays in the gun with it out and
@@ -101,6 +105,7 @@ inline Weapon BuiltInWeapon(const char* name) noexcept
             w.rackChambers = false;
             w.needsLearning = true;
             w.twoHandNeedsMagazine = std::strcmp(name, "fp_spike_rifle") == 0;
+            w.pullByHand = !w.twoHandNeedsMagazine;
             return w;
         }
     // The shotgun: a shell at a time through the loading port, and the pump after every shot (Campaign Evolved's

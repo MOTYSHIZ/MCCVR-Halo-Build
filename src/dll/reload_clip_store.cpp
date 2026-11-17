@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -18,7 +19,9 @@ namespace
 constexpr wchar_t kFileName[] = L"halomccvr_reload_clips.bin";
 constexpr uint32_t kMagic = 0x4352484Du;   // "MHRC"
 constexpr uint32_t kVersion = 1;
-constexpr int kSlots = 16;
+// Halo 3 and ODST have about a dozen guns each that record a full and an empty reload. A file written with fewer
+// slots loads as it is (its count is checked against this).
+constexpr int kSlots = 48;
 
 enum State : int { Free = 0, Recording = 1, Complete = 2, Loading = 3 };
 
@@ -36,7 +39,12 @@ struct Slot
 Slot g_slots[kSlots];
 std::wstring g_path;
 std::atomic<bool> g_loaded{false};
+ULONGLONG g_loadRetryAt = 0;              // the worker's: a file that could not be read is tried again then
 std::atomic<bool> g_forget{false};
+// One gun forgotten from the menu (both kinds): its model, and its title + 1 (0: none asked).
+std::atomic<uint64_t> g_forgetIdentity{0};
+std::atomic<int> g_forgetTitle{0};
+std::atomic<bool> g_dirty{false};         // the file holds a clip that is gone: write it again
 std::atomic<uint32_t> g_learned{0};
 
 void Analyze(Slot& s) noexcept
@@ -54,11 +62,16 @@ void CountLearned() noexcept
     g_learned.store(n, std::memory_order_relaxed);
 }
 
-bool ReadAll(std::vector<uint8_t>& bytes)
+enum class Read { Ok, Missing, Failed };
+Read ReadAll(std::vector<uint8_t>& bytes)
 {
     const HANDLE f = CreateFileW(g_path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return false;
+    if (f == INVALID_HANDLE_VALUE)
+    {
+        const DWORD error = GetLastError();
+        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? Read::Missing : Read::Failed;
+    }
     LARGE_INTEGER size{};
     bool ok = GetFileSizeEx(f, &size) && size.QuadPart > 0 && size.QuadPart < (64ll << 20);
     if (ok)
@@ -68,14 +81,40 @@ bool ReadAll(std::vector<uint8_t>& bytes)
         ok = ReadFile(f, bytes.data(), DWORD(bytes.size()), &got, nullptr) && got == bytes.size();
     }
     CloseHandle(f);
-    return ok;
+    return ok ? Read::Ok : Read::Failed;
 }
 
-// Loads every clip in the file into free slots. Returns how many.
-int Load(char* why, size_t whySize)
+bool AllFinite(const float* v, size_t n) noexcept
 {
+    for (size_t i = 0; i < n; ++i) if (!std::isfinite(v[i])) return false;
+    return true;
+}
+
+// A file that is not a clip file of this version is put aside once (never written over unseen), and the guns learn
+// again.
+void PutAside(char* why, size_t whySize)
+{
+    const std::wstring aside = g_path + L".bad";
+    if (MoveFileExW(g_path.c_str(), aside.c_str(), MOVEFILE_REPLACE_EXISTING))
+        snprintf(why, whySize, "not a clip file of version %u: kept as halomccvr_reload_clips.bin.bad", kVersion);
+    else
+        snprintf(why, whySize, "not a clip file of version %u, and it could not be put aside", kVersion);
+}
+
+// Loads every clip in the file into free slots. Returns how many; `failed` when the file is there but could not be
+// read (it is tried again, and nothing is saved over it meanwhile).
+int Load(char* why, size_t whySize, bool& failed)
+{
+    failed = false;
     std::vector<uint8_t> bytes;
-    if (!ReadAll(bytes)) { snprintf(why, whySize, "no file yet"); return 0; }
+    const Read read = ReadAll(bytes);
+    if (read == Read::Missing) { snprintf(why, whySize, "no file yet"); return 0; }
+    if (read == Read::Failed)
+    {
+        failed = true;
+        snprintf(why, whySize, "could not be read (error %lu): trying again", GetLastError());
+        return 0;
+    }
     size_t at = 0;
     auto take = [&](void* out, size_t n) {
         if (at + n > bytes.size()) return false;
@@ -87,7 +126,7 @@ int Load(char* why, size_t whySize)
     if (!take(&magic, 4) || !take(&version, 4) || !take(&count, 4) || magic != kMagic || version != kVersion ||
         count > uint32_t(kSlots))
     {
-        snprintf(why, whySize, "not a clip file of version %u: ignored", kVersion);
+        PutAside(why, whySize);
         return 0;
     }
     int loaded = 0;
@@ -116,13 +155,17 @@ int Load(char* why, size_t whySize)
         slot->clip.kind = reload_clip::Kind(kind);
         slot->clip.nodes = nodes;
         slot->clip.frames = frames;
-        bool ok = take(slot->clip.time, sizeof(float) * size_t(frames));
+        bool ok = take(slot->clip.time, sizeof(float) * size_t(frames)) &&
+                  AllFinite(slot->clip.time, size_t(frames));
         for (int f = 0; ok && f < frames; ++f)
-            ok = take(slot->clip.bone[f], sizeof(reload_clip::Bone) * size_t(nodes));
+            ok = take(slot->clip.bone[f], sizeof(reload_clip::Bone) * size_t(nodes)) &&
+                 // A non-finite matrix would be drawn into the gun's palette.
+                 AllFinite(reinterpret_cast<const float*>(slot->clip.bone[f]),
+                           sizeof(reload_clip::Bone) * size_t(nodes) / sizeof(float));
         if (!ok)
         {
             slot->state.store(Free, std::memory_order_release);
-            snprintf(why, whySize, "clip %u is cut short: the rest ignored", i);
+            snprintf(why, whySize, "clip %u is cut short or damaged: the rest ignored", i);
             break;
         }
         slot->title = GameTitle(title);
@@ -214,8 +257,9 @@ void FinishRecording(reload_clip::Clip* clip, bool complete) noexcept
         if (complete && clip->frames >= 4)
         {
             Analyze(s);
-            // A clip that shows neither the magazine's way in nor a rack stroke teaches nothing.
-            if (s.segments.magazine || s.segments.rack)
+            // A clip must show what the gun needs from it: the magazine's way in where the gun has a magazine part
+            // (a reload seen only in part would otherwise take this gun's place for good), else a rack stroke.
+            if (s.magazineNode >= 0 ? s.segments.magazine : s.segments.rack)
             {
                 s.state.store(Complete, std::memory_order_release);
                 CountLearned();
@@ -248,10 +292,16 @@ void Tick(char* line, size_t lineSize) noexcept
     if (g_path.empty() || !line || !lineSize) return;
     try
     {
-        if (!g_loaded.exchange(true))
+        if (!g_loaded.load(std::memory_order_acquire))
         {
+            // Nothing is saved until the file has been read, or is known to be absent.
+            const ULONGLONG now = GetTickCount64();
+            if (now < g_loadRetryAt) return;
             char why[96]{};
-            const int n = Load(why, sizeof(why));
+            bool failed = false;
+            const int n = Load(why, sizeof(why), failed);
+            if (failed) g_loadRetryAt = now + 2000;
+            else g_loaded.store(true, std::memory_order_release);
             CountLearned();
             snprintf(line, lineSize, "Reload animations: %d learned clip(s) loaded from halomccvr_reload_clips.bin%s%s",
                      n, why[0] ? " -- " : "", why);
@@ -267,6 +317,23 @@ void Tick(char* line, size_t lineSize) noexcept
             CountLearned();
             DeleteFileW(g_path.c_str());
             snprintf(line, lineSize, "Reload animations: forgotten; each gun learns its reload again");
+            return;
+        }
+        if (const int titlePlusOne = g_forgetTitle.exchange(0))
+        {
+            const uint64_t identity = g_forgetIdentity.load(std::memory_order_acquire);
+            int forgotten = 0;
+            for (Slot& s : g_slots)
+            {
+                if (s.state.load(std::memory_order_acquire) != Complete || s.clip.identity != identity ||
+                    int(s.title) != titlePlusOne - 1) continue;
+                int expected = Complete;
+                if (s.state.compare_exchange_strong(expected, Free, std::memory_order_acq_rel)) ++forgotten;
+            }
+            CountLearned();
+            if (forgotten) g_dirty.store(true, std::memory_order_release);
+            snprintf(line, lineSize, "Reload animations: model=%016llX forgotten (%d clip(s)); it learns its reload again",
+                     static_cast<unsigned long long>(identity), forgotten);
             return;
         }
         for (Slot& s : g_slots)
@@ -288,7 +355,7 @@ void Tick(char* line, size_t lineSize) noexcept
                      g.rackBack.z, s.magazineNode, s.rackNode);
             return;
         }
-        bool unsaved = false;
+        bool unsaved = g_dirty.exchange(false);
         for (const Slot& s : g_slots)
             if (s.state.load(std::memory_order_acquire) == Complete && !s.saved) unsaved = true;
         if (!unsaved) return;
@@ -310,5 +377,10 @@ void Tick(char* line, size_t lineSize) noexcept
 }
 
 void ForgetAll() noexcept { g_forget.store(true, std::memory_order_release); }
+void Forget(GameTitle title, uint64_t identity) noexcept
+{
+    g_forgetIdentity.store(identity, std::memory_order_release);
+    g_forgetTitle.store(int(title) + 1, std::memory_order_release);
+}
 uint32_t LearnedCount() noexcept { return g_learned.load(std::memory_order_relaxed); }
 } // namespace reload_clip_store

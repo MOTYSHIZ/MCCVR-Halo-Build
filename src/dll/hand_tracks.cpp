@@ -76,6 +76,25 @@ void Publish(hand_track::Library& source, bool fromFile, const hand_track::Parse
     ReleaseSRWLockExclusive(&g_statusLock);
 }
 
+// The built-in hand shapes, for a file that leaves some out (an older file, written before a shape was added).
+const hand_track::PoseTable& BuiltInPoses()
+{
+    static hand_track::Library library;
+    static bool parsed = false;
+    if (!parsed)
+    {
+        static char text[8192];
+        const size_t n = strlen(hand_track::kDefaultText);
+        if (n < sizeof(text))
+        {
+            memcpy(text, hand_track::kDefaultText, n + 1);
+            (void)hand_track::Parse(text, library);
+        }
+        parsed = true;
+    }
+    return library.poses;
+}
+
 void LoadBuiltIn()
 {
     static char text[8192];
@@ -117,6 +136,16 @@ bool LoadFile(uint64_t size)
     text.resize(read);
     text.push_back('\0');
     const auto report = hand_track::Parse(text.data(), g_parsed);
+    {
+        // A shape the file does not give keeps its built-in curls, so a gesture never drops to the plain curl.
+        const auto& builtIn = BuiltInPoses();
+        for (unsigned s = 0; s < unsigned(hand_track::Shape::Count); ++s)
+            if (!g_parsed.poses.set[s] && builtIn.set[s])
+            {
+                memcpy(g_parsed.poses.curls[s], builtIn.curls[s], sizeof(g_parsed.poses.curls[s]));
+                g_parsed.poses.set[s] = true;
+            }
+    }
     Publish(g_parsed, true, report);
     if (report.errors)
         LOG("Hand tracks: loaded %u tracks from %ls; %u dropped, %u problems (first at line %u: %s)",
@@ -333,7 +362,8 @@ void HandTracks_UpdateGestures(int64_t timeNs, GameTitle title, const hand_gestu
             g_gesturePosesVersion = version;
         }
     }
-    const float dt = g_gestureLastNs && timeNs > g_gestureLastNs ? float(timeNs - g_gestureLastNs) * 1e-9f : -1.0f;
+    // The first frame snaps; a frame that repeats the last predicted time eases by nothing (not a snap).
+    const float dt = !g_gestureLastNs ? -1.0f : timeNs > g_gestureLastNs ? float(timeNs - g_gestureLastNs) * 1e-9f : 0.0f;
     g_gestureLastNs = timeNs;
     bool set[2]{};
     float curls[2][hand_track::kFingers]{};

@@ -14,6 +14,9 @@
 namespace manual_reload_game
 {
 std::atomic<uint64_t> samples{0}, ammoFailures{0}, hidden{0}, posed{0}, faults{0};
+// A fault stops the reload's posing for that title load (as the finger pose does): a bad read that faults once would
+// fault every frame, and a fault half way through posing leaves the gun half moved.
+std::atomic<uint32_t> faultedGeneration{0};
 // The gun's layout in the aim frame, for the log (a seqlock: the hook writes, the worker reads).
 struct Layout_ { float root[3], fwd[3], left[3], up[3], magNode[3], rackNode[3], well[3]; uint64_t identity; };
 Layout_ g_layout{};
@@ -121,7 +124,8 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
 {
     if (!g_config.manual_reload || !g_config.manual_reload_magazine || !scratch || !boneMap || !context.valid ||
         context.slot != 0 || context.player != 0 || context.count <= 0 || context.count > 64 ||
-        (title != GameTitle::Halo3 && title != GameTitle::Halo3ODST)) return;
+        (title != GameTitle::Halo3 && title != GameTitle::Halo3ODST) ||
+        (generation && faultedGeneration.load(std::memory_order_relaxed) == generation)) return;
     __try
     {
         uint32_t identity = 0;
@@ -155,13 +159,14 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         const bool owned = shown && p.owned;
         {
             // The gun's own click as a magazine seats and as the handle is racked (once per event: this hook runs
-            // for each eye).
+            // for each eye). Not in a simulation another machine shares (a lockstep co-op game): the game's sound
+            // start is the game's own code, run on this machine only.
             static uint32_t heardSeats = 0, heardRacks = 0;
             static bool primed = false;
             if (shown)
             {
                 if (primed && owned && g_config.manual_reload_sounds && simValid &&
-                    (p.seats != heardSeats || p.racks != heardRacks))
+                    (p.seats != heardSeats || p.racks != heardRacks) && Sight_FireTimeChangesAllowed())
                     manual_reload_sound::PlayClick(title, definition, 1.0f);
                 heardSeats = p.seats;
                 heardRacks = p.racks;
@@ -198,7 +203,10 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
             if (sim.reloading && !g_gun.reloading)
             {
                 g_gun.reloading = true;
-                if (g_config.manual_reload_animation && g_gun.idleValid && !g_gun.recording && complete)
+                // Only guns the reload covers record (the rest would only take slots).
+                const auto* recordModel = manual_reload::FindModel(title, identity);
+                if (g_config.manual_reload_animation && g_gun.idleValid && !g_gun.recording && complete &&
+                    recordModel && manual_reload::BuiltInWeapon(recordModel->name).enabled)
                 {
                     const auto kind = sim.loaded == 0 ? reload_clip::Kind::Empty : reload_clip::Kind::Full;
                     if (auto* clip = reload_clip_store::BeginRecording(title, identity, kind))
@@ -216,6 +224,10 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                 g_gun.reloading = false;
                 g_gun.reloadEndedAt = now;
             }
+            if (g_gun.recording && (VR_IsPausePresentation() || Menu_IsOpen() ||
+                                    (g_gun.recording->frames > 0 &&
+                                     float(now - g_gun.recordStart) - g_gun.recording->time[g_gun.recording->frames - 1] > 0.25f)))
+                EndRecording(false);   // a pause or a gap would be baked into the gun's reload for good: learn it next time
             if (g_gun.recording)
             {
                 const float at = float(now - g_gun.recordStart);
@@ -259,9 +271,11 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         BoneMatrix gunBefore{};
         const bool gunBeforeOk = ComposeBoneMatrices(root, scratch[rootSource], gunBefore);
         const float metresPerUnit = gunBeforeOk ? std::fabs(gunBefore.scale) / unitsPerMetre : 0.f;
+        // A handle drawn held back while a round waits (rackLock) does not hold the whole gun: the game's own idle and
+        // walk go on, and only the handle is drawn back.
         const bool hold = owned && g_gun.idleValid &&
             (sim.reloading || recentReload || p.phase != manual_reload::Phase::Idle || p.hideMagazine ||
-             p.rackPull > 0 || p.pressPending);
+             (p.rackPull > 0 && !p.rackLock) || p.pressPending);
         bool magazineShown = !(owned && p.hideMagazine);
         bool rackByClip = false;
         bool posedMagazineValid = false;
@@ -294,8 +308,9 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                 magazineShown = true;
                 ejectPlayed.fetch_add(1, std::memory_order_relaxed);
             }
-            else if (p.phase == manual_reload::Phase::Racking && haveRack && p.rackPull > 0)
+            if (haveRack && p.rackPull > 0)
             {
+                // Racked by the hand, held back while a round waits, or running home once let go.
                 const auto& rs = rackClip.segments;
                 const float t = reload_clip::TimeAtDistance(*rackClip.clip, parts->rackNode, rs.rackStart, rs.rackFull,
                                                             std::fmin(p.rackPull, 1.f) * rs.rackTravel);
@@ -314,6 +329,22 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                     if (src[i] >= 0 && ComposeBoneMatrices(gunRoot, ToMatrix(pose[i]), placed)) scratch[src[i]] = placed;
                 }
                 held.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+
+        if (!hold && owned && p.rackLock && haveRack && rackSource >= 0 && parts->rackNode > 0 &&
+            parts->rackNode < nodes && p.rackPull > 0)
+        {
+            // The handle held back on the gun as the game draws it: the learned stroke's end, relative to the root.
+            const auto& rs = rackClip.segments;
+            const float t = reload_clip::TimeAtDistance(*rackClip.clip, parts->rackNode, rs.rackStart, rs.rackFull,
+                                                        std::fmin(p.rackPull, 1.f) * rs.rackTravel);
+            BoneMatrix placed{};
+            if (ComposeBoneMatrices(scratch[rootSource], ToMatrix(reload_clip::Sample(*rackClip.clip, t, parts->rackNode)),
+                                    placed))
+            {
+                scratch[rackSource] = placed;
+                rackByClip = true;
             }
         }
 
@@ -460,6 +491,7 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
         faults.fetch_add(1, std::memory_order_relaxed);
+        if (generation) faultedGeneration.store(generation, std::memory_order_relaxed);
     }
 }
 

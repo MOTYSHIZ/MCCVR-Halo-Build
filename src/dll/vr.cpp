@@ -17,6 +17,7 @@
 #include "../common/weapon_model_observation.h"
 #include "../common/weapon_reload_target.h"
 #include "../common/manual_reload_publication.h"
+#include "reload_clip_store.h"
 #include "weapon_accessory_renderer.h"
 #include "aim_pose_trace.h"
 #include "committed_aim_sample.h"
@@ -251,6 +252,14 @@ namespace
     // peak latches raised by a title's cold collision worker and consumed by
     // the existing OpenXR frame path; no engine thread calls OpenXR directly.
     std::atomic<float> g_contactHaptics[2]{};
+    // Timed pulses of the mod's own, one per physical hand (VR_PulseHandHaptics): felt for their length, not one frame.
+    std::atomic<float> g_handPulse[2]{};
+    std::atomic<uint64_t> g_handPulseUntilMs[2]{};
+    float HandPulse(int hand, uint64_t now) noexcept
+    {
+        return now < g_handPulseUntilMs[hand].load(std::memory_order_acquire) ?
+            g_handPulse[hand].load(std::memory_order_relaxed) : 0.0f;
+    }
     WeaponHapticPulses g_weaponHaptics;
     WeaponHapticAdmission g_weaponHapticAdmission;
     void StopControllerHaptics();
@@ -11444,6 +11453,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // The held gun's kit model name (a catalogue string: stable), and whether the manual reload knows it.
     std::atomic<const char*> g_manualReloadHeldGun{nullptr};
     std::atomic<bool> g_manualReloadHeldBuiltIn{false};
+    // What the support hand holds for the reload (hand_track::Shape: Magazine, Handle, or None), for its fingers.
+    std::atomic<uint8_t> g_reloadHandShape{0};
+    // The held gun's title (0x100 | title, 0: none) and model, for the menu's "Forget this gun's reload".
+    std::atomic<uint64_t> g_manualReloadHeldModel{0}, g_manualReloadHeldModelId{0};
     // IN-HEADSET CALIBRATIONS (Controls > Reload and holsters): armed from the menu, taken from the next fresh squeeze
     // of the support grip once the menu is closed. 1: the pouch goes where the hand is; 2: the held gun's handle is
     // taken where the hand is (halomccvr_reloads.txt). The squeeze is not the game's, nor the reload's.
@@ -11458,7 +11471,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         uint64_t sizedAt = 0;      // its last tick (the stick's rate is per second)
     } g_reloadCapture;
     uint32_t g_manualReloadTapsSeen = 0;
-    std::atomic<uint32_t> g_manualReloadEvents[6]{}; // dropped, grabbed, seated, racked, pressed, lost
+    // dropped, grabbed, seated, racked, pressed, lost; then presses retried, counts clamped to the game's, pushes abandoned
+    std::atomic<uint32_t> g_manualReloadEvents[9]{};
     std::atomic<int> g_manualReloadPhase{0};
     std::atomic<int> g_manualReloadCounts[3]{};       // loaded, shown reserve, chamber (ours)
     // The engine's last state for the worker's log (the input thread writes, the worker reads; not a hot path).
@@ -15235,9 +15249,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const float peekPeak = capabilityAllows
             ? g_peakHaptics.load(std::memory_order_acquire)
             : 0.0f;
+        const uint64_t handPulseNow = GetTickCount64();
         const float contactPeek[2]{
-            g_contactHaptics[0].load(std::memory_order_acquire),
-            g_contactHaptics[1].load(std::memory_order_acquire)};
+            (std::max)(g_contactHaptics[0].load(std::memory_order_acquire), HandPulse(0, handPulseNow)),
+            (std::max)(g_contactHaptics[1].load(std::memory_order_acquire), HandPulse(1, handPulseNow))};
         const float gamePeek = SampleHapticPeak(peekPeak, latest).apply;
         if (!coupledSupport) (void)g_weaponHaptics.Read(title,generation,2,true,hapticNow);
         const float weaponPeek[2]{
@@ -15293,8 +15308,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         const float gameAmplitude =
             SampleHapticPeak(appliedPeak, latest).apply;
         const float contactAmplitude[2]{
-            g_contactHaptics[0].exchange(0.0f, std::memory_order_acq_rel),
-            g_contactHaptics[1].exchange(0.0f, std::memory_order_acq_rel)};
+            (std::max)(g_contactHaptics[0].exchange(0.0f, std::memory_order_acq_rel), HandPulse(0, now)),
+            (std::max)(g_contactHaptics[1].exchange(0.0f, std::memory_order_acq_rel), HandPulse(1, now))};
         const float supportWeaponAmplitude=g_weaponHaptics.Read(title,generation,2,true,hapticNow,handTokens[1],handTokens[0]);
         const float weaponAmplitude[2]{
             MergeHapticAmplitude(g_weaponHaptics.Read(title,generation,0,true,hapticNow,handTokens[0]),
@@ -15355,6 +15370,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         g_weaponAccessory={};
         g_weaponInteraction.Cancel();
         g_weaponStowedWord.store(0,std::memory_order_release);
+        // The manual reload lets go too: no held trigger or owned reload button outlives the samples.
+        g_manualReload.Reset();
+        g_manualReloadState.store(0,std::memory_order_release);
+        g_manualReloadCarryGrip=false;
+        g_reloadHandShape.store(0,std::memory_order_relaxed);
         g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
         g_weaponGestureReadyMs.store(0,std::memory_order_release);
         EnterCriticalSection(&g_headCs);
@@ -15845,10 +15865,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             {MakeControllerFingerInput(physicalLeftTriggerActive,pad.trigL,supportGripActive,pad.gripL),
              MakeControllerFingerInput(physicalRightTriggerActive,pad.trigR,primaryGripActive,pad.gripR)}};
         {
-            // Finger gestures: physical left and right, then support (0) and gun hand (1).
+            // Finger gestures: physical left and right, then support (0) and gun hand (1). The touch sensors are read
+            // only where the gestures are drawn (Halo 3 and ODST, the setting on).
+            const GameTitle gestureTitle = TitleAdapter_GetActiveTitle();
+            const bool gesturesUsed = g_config.hand_gestures &&
+                (gestureTitle == GameTitle::Halo3 || gestureTitle == GameTitle::Halo3ODST);
             auto touch = [&](XrAction action, bool& state) {
                 state = false;
-                if (action == XR_NULL_HANDLE) return false;
+                if (action == XR_NULL_HANDLE || !gesturesUsed) return false;
                 XrActionStateGetInfo gi{XR_TYPE_ACTION_STATE_GET_INFO};
                 gi.action = action;
                 XrActionStateBoolean st{XR_TYPE_ACTION_STATE_BOOLEAN};
@@ -15871,7 +15895,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 const bool knownThumb = touch(thumbTouch[hand], in.thumbTouch);
                 in.touchKnown = knownTrigger && knownThumb;
             }
-            const hand_gesture::Input semantic[2]{physical[leftHanded ? 1 : 0], physical[leftHanded ? 0 : 1]};
+            hand_gesture::Input semantic[2]{physical[leftHanded ? 1 : 0], physical[leftHanded ? 0 : 1]};
+            // The support hand holding a magazine or the handle takes that shape (last input frame's reload).
+            semantic[0].held = hand_track::Shape(g_reloadHandShape.load(std::memory_order_relaxed));
             HandTracks_UpdateGestures(time, TitleAdapter_GetActiveTitle(), semantic);
         }
         if (leftHanded)
@@ -16173,6 +16199,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 if(dual.busy[0]||dual.busy[1])++stats.busyHands;
             }
             weapon_interaction::Settings settings{};
+            bool stowEnds=false;
+            {
+                // No gun drawn for a while (a death, a level change) or a vehicle seat ends a stow (Campaign
+                // Evolved's holster_reset): the respawned gun is in the hand and the vehicle's trigger fires.
+                static uint64_t gunGoneSince=0;
+                if(sample.weaponGraph) gunGoneSince=0;
+                else if(!gunGoneSince) gunGoneSince=inputNow?inputNow:1;
+                stowEnds=Game_TitleSeated(sample.title)||(gunGoneSince&&inputNow>=gunGoneSince&&inputNow-gunGoneSince>1500);
+            }
             settings.reload=g_config.manual_reload;settings.holsters=g_config.weapon_holsters;
             settings.leftHanded=leftHanded;settings.pouchDown=g_config.weapon_pouch_down_m;
             settings.pouchLocation=g_config.weapon_pouch_location;
@@ -16190,7 +16225,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             settings.holsterCustom={g_config.weapon_holster_custom_x_m,g_config.weapon_holster_custom_y_m,
                 g_config.weapon_holster_custom_z_m};
             // Stowing hides the first-person gun through the Halo 3 / ODST palette hooks only.
-            settings.stow=g_config.weapon_stow&&
+            settings.stow=!stowEnds&&g_config.weapon_stow&&
                 (sample.title==GameTitle::Halo3||sample.title==GameTitle::Halo3ODST);
             const int index=weapon_interaction::TitleIndex(sample.title);
             settings.reloadButton=WeaponGestureBinding(sample.title,vr_mapping::Reload,inputNow);
@@ -16231,6 +16266,11 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadIn.supportRotation=sample.supportRotation;
                 reloadIn.supportGrip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
                 reloadIn.twoHandHeld=g_twoHandLatched.load(std::memory_order_acquire);
+                // The two-handed hold's own zone test: a due handle takes a wider grip only outside it.
+                reloadIn.supportInTwoHandZone=TwoHandGrabZoneHit(location.pose,leftLocation.pose);
+                // Some gun is in the hands (or the player sits in a vehicle, where none is drawn): only no gun at
+                // all for a while (a death, a level load) forgets the counts.
+                reloadIn.gunSeen=sample.weaponGraph!=0||Game_TitleSeated(sample.title);
                 reloadIn.trigger=pad.trigR;
                 weapon_interaction::Vec pouch{},holster{};
                 reloadIn.pouchValid=weapon_interaction::Zones(sample,settings,pouch,holster);
@@ -16238,6 +16278,9 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 reloadSettings.rack=g_config.manual_reload_rack;
                 reloadSettings.pouchRadius=weapon_interaction::Setting(g_config.weapon_body_zone_radius_m,0.08f,0.40f,0.20f);
                 g_manualReloadHeldGun.store(reloadGunName,std::memory_order_release);
+                g_manualReloadHeldModel.store(reloadGunName?(0x100u|(unsigned(sample.title)&0xFFu)):0,
+                    std::memory_order_release);
+                g_manualReloadHeldModelId.store(reloadGunName?sample.weaponGraph:0,std::memory_order_release);
                 g_manualReloadHeldBuiltIn.store(reloadIn.weapon.enabled,std::memory_order_release);
                 {
                     // halomccvr_reloads.txt: this gun's own settings over the built-in ones.
@@ -16248,6 +16291,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                         if(std::isfinite(entry.depth)) reloadIn.weapon.insertDepth=entry.depth*0.01f;
                         if(std::isfinite(entry.grab)) reloadSettings.rackRadius=entry.grab*0.01f;
                         if(std::isfinite(entry.pouch)) reloadSettings.pouchRadius=entry.pouch*0.01f;
+                        if(std::isfinite(entry.seat)) reloadSettings.seatLateral=entry.seat*0.01f;
                         if(std::isfinite(entry.travel)) reloadSettings.rackTravel=entry.travel*0.01f;
                         if(entry.handleSet)
                             for(int a=0;a<3;++a) reloadSettings.rackGrabOffset[a]=entry.handle[a]*0.01f;
@@ -16256,23 +16300,27 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 {
                     // A CALIBRATION squeeze: armed in the menu, taken once the menu is closed.
                     const int request=g_reloadCaptureRequest.exchange(0,std::memory_order_acq_rel);
-                    if(request==1||request==2) g_reloadCapture={request,inputNow,false,false,reloadSettings.pouchRadius,inputNow};
+                    if(request==1||request==2||request==4)
+                        g_reloadCapture={request,inputNow,false,false,
+                            request==4?reloadSettings.seatLateral:reloadSettings.pouchRadius,inputNow};
                     else if(request==3) g_reloadCapture.kind=0;
                     auto& cap=g_reloadCapture;
                     const float grip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
                     const bool gripValid=std::isfinite(grip);
                     if(cap.holding&&(!gripValid||grip<0.35f)) cap.holding=false;
-                    if(cap.kind==1)
+                    if(cap.kind==1||cap.kind==4)
                     {
-                        // THE POUCH'S SIZE: the support hand's stick, up to grow and down to shrink (15 cm a second at
-                        // full tilt, 4-40 cm), while the menu is closed; the stick does not reach the game meanwhile.
+                        // THE POUCH'S SIZE, or the gun's RECEIVER REACH (kind 4, Campaign Evolved's seatRadius): the
+                        // support hand's stick, up to grow and down to shrink (15 cm a second at full tilt, 4-40 cm;
+                        // the receiver 3-40 cm), while the menu is closed; the stick does not reach the game meanwhile.
                         float& stickX=leftHanded?pad.turnX:pad.moveX;
                         float& stickY=leftHanded?pad.turnY:pad.moveY;
                         const float y=std::isfinite(stickY)?stickY:0.0f;
                         const float dt=inputNow>cap.sizedAt?std::min(float(inputNow-cap.sizedAt)*0.001f,0.1f):0.0f;
+                        const float smallest=cap.kind==4?0.03f:0.04f;
                         if(!Menu_IsOpen()&&std::fabs(y)>0.2f)
-                            cap.size=std::clamp(cap.size+(y>0?y-0.2f:y+0.2f)/0.8f*0.15f*dt,0.04f,0.40f);
-                        if(!(cap.size>0)) cap.size=reloadSettings.pouchRadius;
+                            cap.size=std::clamp(cap.size+(y>0?y-0.2f:y+0.2f)/0.8f*0.15f*dt,smallest,0.40f);
+                        if(!(cap.size>0)) cap.size=cap.kind==4?reloadSettings.seatLateral:reloadSettings.pouchRadius;
                         cap.sizedAt=inputNow;
                         if(!Menu_IsOpen()) { stickX=0;stickY=0; }
                     }
@@ -16325,7 +16373,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                     reload_weapon_settings::SetHandle(reloadGunName,cm);
                                     taken=true;
                                 }
-                                if(taken) { g_reloadCaptures.fetch_add(1);VR_PulseContactHaptics(true,0.6f); }
+                                else if(cap.kind==4&&reloadGunName&&reloadIn.weapon.enabled)
+                                {
+                                    // The receiver's reach: the size chosen, for the held gun only. Where the hand is
+                                    // does not matter: the reach is around the gun's own well.
+                                    reload_weapon_settings::SetSeat(reloadGunName,cap.size*100.0f);
+                                    taken=true;
+                                }
+                                if(taken) { g_reloadCaptures.fetch_add(1);VR_PulseHandHaptics(true,0.6f,60); }
                                 else g_reloadCaptureRefusals.fetch_add(1);
                                 cap.kind=0;cap.holding=true;
                             }
@@ -16357,19 +16412,30 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 shown.owned=reloadOut.owned;shown.phase=reloadOut.phase;shown.pushDepth=reloadOut.pushDepth;
                 shown.droppedAt=reloadOut.droppedAt;shown.emptyAtDrop=reloadOut.emptyAtDrop;
                 shown.pressPending=reloadOut.pressPending;
+                shown.rackLock=reloadOut.rackLock;
                 shown.seats=g_manualReloadEvents[2].load(std::memory_order_relaxed)+(reloadOut.seated?1u:0u);
                 shown.racks=g_manualReloadEvents[3].load(std::memory_order_relaxed)+(reloadOut.racked?1u:0u);
                 // Also while the gun's last round is in it: Halo 3 starts its own reload the moment a magazine runs
                 // dry, and its sound plays at that animation's first frame, before this thread could see it
                 // (FA 2026-11-16).
                 const bool lastRound=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.loaded<=1&&reloadIn.sim.reserve>0;
-                if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle||lastRound))
+                const bool gameReloading=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.reloading;
+                if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle||lastRound||
+                                     gameReloading||reloadOut.shellsWaiting>0))
                 {
                     const uint64_t until=inputNow+(reloadOut.pressed||lastRound?2500u:300u);
                     if(until>g_manualReloadQuietUntil.load(std::memory_order_relaxed))
                         g_manualReloadQuietUntil.store(until,std::memory_order_release);
                 }
                 g_manualReloadCarryGrip=reloadOut.owned&&reloadOut.carryGrip;
+                {
+                    using manual_reload::Phase;
+                    const Phase ph=reloadOut.phase;
+                    const hand_track::Shape held=!reloadOut.owned?hand_track::Shape::None:
+                        ph==Phase::MagHeld||ph==Phase::Pushing||ph==Phase::Pulling?hand_track::Shape::Magazine:
+                        ph==Phase::Racking&&reloadOut.consumeSupport?hand_track::Shape::Handle:hand_track::Shape::None;
+                    g_reloadHandShape.store(uint8_t(held),std::memory_order_relaxed);
+                }
                 {
                     // The hand's move, into the gun-hand aim frame the palette carries it back out of. When the follow
                     // ends (the magazine home, the handle let go) it fades over 150 ms in that gun-relative frame,
@@ -16420,8 +16486,22 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 if(g_reloadCapture.kind||g_reloadCapture.holding) weaponGesture.consumeSupport=true;
                 // The two-handed hold may not take (or keep) a hand the reload is using.
                 if(reloadOut.blockTwoHand) weaponGesture.releaseTwoHand=true;
-                weaponGesture.supportHaptic=std::max(weaponGesture.supportHaptic,reloadOut.supportHaptic);
-                weaponGesture.primaryHaptic=std::max(weaponGesture.primaryHaptic,reloadOut.primaryHaptic);
+                // The reload's pulses last as long as Campaign Evolved's (30-150 ms), not one frame.
+                if(reloadOut.supportHaptic>0) VR_PulseHandHaptics(true,reloadOut.supportHaptic,reloadOut.supportHapticMs);
+                if(reloadOut.primaryHaptic>0) VR_PulseHandHaptics(false,reloadOut.primaryHaptic,reloadOut.primaryHapticMs);
+                if(reloadOut.retried) g_manualReloadEvents[6].fetch_add(1,std::memory_order_relaxed);
+                if(reloadOut.clamped) g_manualReloadEvents[7].fetch_add(1,std::memory_order_relaxed);
+                if(reloadOut.pushAborted) g_manualReloadEvents[8].fetch_add(1,std::memory_order_relaxed);
+                {
+                    // A gun the manual reload does not cover reloads the game's way, seen: the support hand plays
+                    // the weapon's reload track along with it (Animate the support hand on the gun).
+                    static bool gameWasReloading=false;
+                    const bool unownedReload=!reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.reloading&&
+                        sample.ready&&!sample.dualWield;
+                    if(unownedReload&&!gameWasReloading&&!weapon_interaction::NeedleWeapon(sample.title,sample.weaponGraph))
+                        HandTracks_Request(HandTrackRequest::Reload);
+                    gameWasReloading=unownedReload;
+                }
                 if(reloadOut.owned) weaponGesture.holdingMagazine=reloadOut.magazineInHand;
                 {
                     ManualReloadLogState log{};
@@ -16454,17 +16534,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     {
                         NativeLabel_Set(0,L"PULL",opacity);
                         NativeLabel_Set(1,L"MAG",opacity);
+                        NativeLabel_Set(2,L"WAIT",opacity);
+                        NativeLabel_Set(3,L"SHELL",opacity);
                         labelOpacity=opacity;
                     }
                 }
                 ReloadPrompt prompt{};
                 const bool rack=reloadOut.promptRack&&weapon_interaction::Finite(reloadOut.prompt);
                 const bool mag=reloadOut.promptMag&&weapon_interaction::Finite(reloadOut.promptMagAt);
-                if(g_config.manual_reload_prompts&&reloadOut.owned&&(rack||mag)&&weapon_interaction::Finite(sample.head))
+                const bool wait=reloadOut.promptWait&&weapon_interaction::Finite(reloadOut.promptWaitAt);
+                if(g_config.manual_reload_prompts&&reloadOut.owned&&(rack||mag||wait)&&weapon_interaction::Finite(sample.head))
                 {
-                    const weapon_interaction::Vec at=rack?reloadOut.prompt:reloadOut.promptMagAt;
+                    const weapon_interaction::Vec at=rack?reloadOut.prompt:wait?reloadOut.promptWaitAt:reloadOut.promptMagAt;
                     prompt.valid=true;
-                    prompt.slot=rack?0:1;
+                    prompt.slot=rack?0:wait?2:reloadOut.promptShell?3:1;
                     prompt.at={at.x,at.y,at.z};
                     prompt.head={sample.head.x,sample.head.y,sample.head.z};
                     prompt.when=inputNow;
@@ -16478,6 +16561,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 // The pouch being set: a sphere of the size being chosen on the support hand, where it will go.
                 auto& m=g_reloadMarkers[g_reloadMarkerCount++];
                 m.position=sample.support;m.radius=g_reloadCapture.size;
+                m.color[0]=0.47f;m.color[1]=0.82f;m.color[2]=1.0f;m.color[3]=0.30f;
+                g_reloadMarkersAt=inputNow;
+            }
+            if(g_reloadCapture.kind==4&&!Menu_IsOpen()&&reloadIn.geometry.wellValid&&g_reloadCapture.size>0)
+            {
+                // The receiver being sized: a sphere of the size being chosen around the gun's well.
+                auto& m=g_reloadMarkers[g_reloadMarkerCount++];
+                m.position=reloadIn.geometry.well;m.radius=g_reloadCapture.size;
                 m.color[0]=0.47f;m.color[1]=0.82f;m.color[2]=1.0f;m.color[3]=0.30f;
                 g_reloadMarkersAt=inputNow;
             }
@@ -16503,10 +16594,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 if(g.wellValid&&(reloadOut.phase==manual_reload::Phase::MagHeld||
                                   reloadOut.phase==manual_reload::Phase::Pushing))
                     add(g.well,reloadSettings.seatLateral,reloadOut.phase==manual_reload::Phase::Pushing,true);
-                if(g.rackValid&&reloadIn.weapon.rackChambers&&reloadSettings.rack)
-                    add(g.rack,reloadSettings.rackRadius,
-                        weapon_interaction::Near(reloadIn.support,g.rack,reloadSettings.rackRadius),
-                        reloadOut.triggerHeld&&reloadOut.chamber==0);
+                if(reloadOut.rackZoneValid)
+                    add(reloadOut.rackZone,reloadOut.rackReach,
+                        weapon_interaction::Near(reloadIn.support,reloadOut.rackZone,reloadOut.rackReach),
+                        reloadOut.rackDue);
                 g_reloadMarkersAt=inputNow;
             }
             // Pushing in, the magazine rides the well's axis (drawn by the mod: nothing is spawned in the game).
@@ -16557,6 +16648,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             g_weaponStowedWord.store(0,std::memory_order_release);
             g_manualReload.Reset();
             g_manualReloadState.store(0,std::memory_order_release);
+            g_reloadHandShape.store(0,std::memory_order_relaxed);
             g_dualReloadShake.Reset();g_dualReloadChannel.Cancel();g_dualReloadPulse=0;
             g_weaponAccessory={};
             g_weaponGestureReadyMs.store(0,std::memory_order_release);
@@ -26280,7 +26372,9 @@ void VR_GetPadState(VrPadState& out)
     const uint64_t now = GetTickCount64();
     const GameTitle weaponTitle=TitleAdapter_GetActiveTitle();
     // A stowed gun does not fire: the gun hand's trigger is the free hand's, as in Campaign Evolved.
-    if (!Menu_IsOpen() && VR_WeaponStowed(weaponTitle, TitleAdapter_GetGeneration(weaponTitle))) out.trigR = 0;
+    // Its grip too: the free hand's gestures close it, and the game reads it as a button (Campaign Evolved
+    // swallows both while the gun is put away).
+    if (!Menu_IsOpen() && VR_WeaponStowed(weaponTitle, TitleAdapter_GetGeneration(weaponTitle))) out.trigR = out.gripR = 0;
     // The manual reload holds the trigger back on the player's own count (the game runs ahead, unseen).
     if (!Menu_IsOpen() && VR_ManualReloadTriggerHeld(weaponTitle, TitleAdapter_GetGeneration(weaponTitle))) out.trigR = 0;
     const int weaponIndex=weapon_interaction::TitleIndex(weaponTitle);
@@ -26526,17 +26620,18 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
                 m.blockTwoHand?1u:0u,m.trackingLost?"; THE SUPPORT HAND'S TRACKING WAS LOST (its pose read 0,0,0)":"");
         }
         // The manual reload: each event once, with the player's count beside the game's.
-        static uint32_t previousEvents[6]{};
-        uint32_t events[6]{};
-        for(unsigned e=0;e<6;++e) events[e]=g_manualReloadEvents[e].load(std::memory_order_relaxed);
+        static uint32_t previousEvents[9]{};
+        uint32_t events[9]{};
+        for(unsigned e=0;e<9;++e) events[e]=g_manualReloadEvents[e].load(std::memory_order_relaxed);
         if(std::memcmp(events,previousEvents,sizeof(events)))
         {
             std::memcpy(previousEvents,events,sizeof(events));
             const int phase=g_manualReloadPhase.load(std::memory_order_relaxed);
-            LOG("Manual reload: %s; dropped=%u grabbed=%u seated=%u racked=%u game-presses=%u let-go=%u; "
+            LOG("Manual reload: %s; dropped=%u grabbed=%u seated=%u racked=%u game-presses=%u let-go=%u "
+                "presses-not-taken=%u count-took-the-game's=%u pushes-abandoned=%u; "
                 "ours loaded=%d chamber=%d reserve-shown=%d; trigger %s (title=%s)",
                 manual_reload::kPhaseNames[phase>=0&&phase<manual_reload::kPhaseCount?phase:0],events[0],events[1],events[2],events[3],
-                events[4],events[5],g_manualReloadCounts[0].load(),g_manualReloadCounts[2].load(),
+                events[4],events[5],events[6],events[7],events[8],g_manualReloadCounts[0].load(),g_manualReloadCounts[2].load(),
                 g_manualReloadCounts[1].load(),
                 VR_ManualReloadTriggerHeld(title,TitleAdapter_GetGeneration(title))?"held":"free",
                 index>=0?weapon_interaction::kTitleNames[index]:"none");
@@ -26600,6 +26695,19 @@ void VR_PulseGameHaptics(float amplitude)
         std::memory_order_release, std::memory_order_relaxed))
     {
     }
+}
+
+void VR_PulseHandHaptics(bool support, float amplitude, uint32_t ms)
+{
+    const float v = std::isfinite(amplitude) ? std::clamp(amplitude, 0.0f, 1.0f) : 0.0f;
+    if (v <= 0.0f || !ms) return;
+    const int hand = support == !g_config.left_handed ? 0 : 1;   // the support hand is the left one unless left-handed
+    const uint64_t now = GetTickCount64();
+    // A weaker pulse does not cut a stronger one short.
+    if (now < g_handPulseUntilMs[hand].load(std::memory_order_acquire) &&
+        v < g_handPulse[hand].load(std::memory_order_relaxed)) return;
+    g_handPulse[hand].store(v, std::memory_order_relaxed);
+    g_handPulseUntilMs[hand].store(now + (std::min)(ms, 500u), std::memory_order_release);
 }
 
 void VR_PulseContactHaptics(bool left, float amplitude)
@@ -27332,8 +27440,15 @@ const char* VR_ManualReloadHeldGun(bool& builtIn) noexcept
 }
 void VR_ReloadCaptureArm(int kind) noexcept
 {
-    g_reloadCaptureRequest.store(kind==1||kind==2?kind:3,std::memory_order_release);
-    g_reloadCaptureArmed.store(kind==1||kind==2?kind:0,std::memory_order_release);
+    const bool known=kind==1||kind==2||kind==4;
+    g_reloadCaptureRequest.store(known?kind:3,std::memory_order_release);
+    g_reloadCaptureArmed.store(known?kind:0,std::memory_order_release);
+}
+void VR_ManualReloadForgetHeldGun() noexcept
+{
+    const uint64_t word=g_manualReloadHeldModel.load(std::memory_order_acquire);
+    const uint64_t model=g_manualReloadHeldModelId.load(std::memory_order_acquire);
+    if(word&&model) reload_clip_store::Forget(GameTitle(int(word&0xFFu)),model);
 }
 int VR_ReloadCaptureArmed() noexcept { return g_reloadCaptureArmed.load(std::memory_order_acquire); }
 uint32_t VR_ReloadCaptureCount() noexcept { return g_reloadCaptures.load(std::memory_order_relaxed); }

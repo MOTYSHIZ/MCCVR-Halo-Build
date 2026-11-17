@@ -118,6 +118,7 @@ struct Presentation
     uint64_t droppedAt = 0;  // the magazine left (ms): the animation's way out plays from here
     bool emptyAtDrop = false;
     bool pressPending = false;
+    bool rackLock = false;   // the rack part is drawn held back: a round waits to be chambered (not the hand's pull)
     // The support hand rides the magazine or the rack part: its target moves by this (gun-hand-controller-local, m).
     bool followValid = false;
     Vec follow{};

@@ -16,4 +16,6 @@ void SetHandle(const char* name, const float cm[3]) noexcept;
 void ClearHandle(const char* name) noexcept;
 void SetPouch(const char* name, float cm) noexcept;      // this gun's reach at the pouch
 void ClearPouch(const char* name) noexcept;              // back to the global "Magazine grab radius"
+void SetSeat(const char* name, float cm) noexcept;       // this gun's receiver reach (how close to the well's line)
+void ClearSeat(const char* name) noexcept;               // back to the built-in 10 cm
 } // namespace reload_weapon_settings

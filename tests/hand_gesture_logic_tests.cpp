@@ -86,6 +86,13 @@ int main()
     Check(partial.Update(sparse,Touch(0,0,false,false),-1),"rest is defined");
     Check(!partial.Update(sparse,Touch(0,1,false,false),0.01f)&&!partial.Active(),"a missing shape falls back");
 
+    // A held shape (the manual reload's magazine or handle) wins over the gesture and needs no touch sensors.
+    Hand holding;
+    Input bare=Touch(0,1,false,false);bare.touchKnown=false;bare.held=Shape::Magazine;
+    Check(holding.Update(poses,bare,-1)&&holding.Current()==Shape::Magazine,"a hand holding a magazine closes on it");
+    Input gesture=Touch(0,1,true,true);gesture.held=Shape::Handle;
+    Check(holding.Update(poses,gesture,0.01f)&&holding.Current()==Shape::Handle,"the held shape wins over the fist");
+    Check(holding.Update(poses,Touch(0,1,true,true),0)&&holding.Current()==Shape::Fist,"let go, the gesture is back");
     // Packing: both hands in one word, about 0.02 of a curl.
     bool set[2]{true,true};
     float curls[2][kFingers]{{-0.25f,0,0.33f,0.8f,1},{1,0.5f,0.1f,-0.1f,0.62f}};

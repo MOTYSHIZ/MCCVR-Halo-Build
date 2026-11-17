@@ -35,6 +35,9 @@ XrSessionState g_sessionState=XR_SESSION_STATE_FOCUSED;
 std::atomic<bool> g_capturedLeftHanded{};
 std::atomic<float> g_requestedHaptics{},g_peakHaptics{},g_contactHaptics[2]{},g_pulseHaptics{};
 std::atomic<uint64_t> g_pulseHapticsUntilMs{};
+// The timed per-hand pulses (vr.cpp VR_PulseHandHaptics): none in these tests.
+std::atomic<float> g_handPulse[2]{};std::atomic<uint64_t> g_handPulseUntilMs[2]{};
+float HandPulse(int hand,uint64_t now) noexcept{return now<g_handPulseUntilMs[hand].load()?g_handPulse[hand].load():0.0f;}
 WeaponHapticPulses g_weaponHaptics;
 WeaponHapticAdmission g_weaponHapticAdmission;
 bool testTwoHand{};

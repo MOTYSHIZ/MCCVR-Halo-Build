@@ -32,5 +32,7 @@ bool Find(GameTitle title, uint64_t identity, reload_clip::Kind kind, Learned& o
 void Tick(char* line, size_t lineSize) noexcept;
 // The menu: forget every learned clip (the file too); each gun learns again on its next reload.
 void ForgetAll() noexcept;
+// The menu: forget one gun's learned clips (both kinds), so a reload learned badly is learned again.
+void Forget(GameTitle title, uint64_t identity) noexcept;
 uint32_t LearnedCount() noexcept;
 } // namespace reload_clip_store

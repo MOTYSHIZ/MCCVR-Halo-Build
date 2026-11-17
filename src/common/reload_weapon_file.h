@@ -13,8 +13,11 @@
 //   travel   cm: the rack's stroke (when no reload animation is learned).
 //   pouch    cm: how close the support hand must be to the pouch to take this gun's magazine or shell (set in the
 //            headset: the stick resizes it during "Set the pouch to my hand"). Left out: "Magazine grab radius".
+//   seat     cm: how close to the magazine well's line a held magazine (or shell) must come to go onto it (the
+//            receiver's reach, Campaign Evolved's seatRadius). Left out: 10.
 //
-// A field left out keeps the built-in value. Unknown names and fields are kept as they are in the file but ignored.
+// A field left out keeps the built-in value. A field this does not know is ignored; when the mod writes the file
+// (a setting changed in the headset) it writes only the fields it knows, and no comments but its own header.
 // Pure: no allocation.
 #include <cmath>
 #include <cstdio>
@@ -30,7 +33,7 @@ struct Entry
 {
     char name[kNameChars]{};
     int enabled = -1;               // -1: not set
-    float grab = NAN, depth = NAN, travel = NAN, pouch = NAN;   // cm; NaN: not set
+    float grab = NAN, depth = NAN, travel = NAN, pouch = NAN, seat = NAN;   // cm; NaN: not set
     bool handleSet = false;
     float handle[3]{};              // cm back, up, side
 };
@@ -113,6 +116,7 @@ inline Table Parse(const char* text) noexcept
             else if (!std::strcmp(key, "depth") && Number(val, 1, 40, v)) e->depth = v;
             else if (!std::strcmp(key, "travel") && Number(val, 1, 20, v)) e->travel = v;
             else if (!std::strcmp(key, "pouch") && Number(val, 4, 40, v)) e->pouch = v;
+            else if (!std::strcmp(key, "seat") && Number(val, 3, 40, v)) e->seat = v;
             else if (!std::strcmp(key, "handle"))
             {
                 float h[3]{};
@@ -150,8 +154,9 @@ inline size_t Format(const Table& t, char* out, size_t size) noexcept
     put("# Manual reload, Halo 3 / ODST: one line per first-person gun (the kit's model name). Fields left out keep\n");
     put("# the built-in value. enabled=1/0 (by hand or the game's way), grab=cm (reach to take the handle),\n");
     put("# handle=back,up,side cm (where the handle is taken, set in the headset), depth=cm, travel=cm,\n");
-    put("# pouch=cm (this gun's reach at the pouch, set in the headset with the stick).\n");
-    put("# Delete this file to go back to the built-in settings.\n");
+    put("# pouch=cm (this gun's reach at the pouch, set in the headset with the stick), seat=cm (how close to the\n");
+    put("# well's line a magazine must come to go on). The mod rewrites this file when a setting changes in the\n");
+    put("# headset: only these fields and this header are kept. Delete it to go back to the built-in settings.\n");
     for (int i = 0; i < t.count; ++i)
     {
         const Entry& e = t.entries[i];
@@ -162,6 +167,7 @@ inline size_t Format(const Table& t, char* out, size_t size) noexcept
         if (std::isfinite(e.depth)) put(" depth=%.1f", double(e.depth));
         if (std::isfinite(e.travel)) put(" travel=%.1f", double(e.travel));
         if (std::isfinite(e.pouch)) put(" pouch=%.1f", double(e.pouch));
+        if (std::isfinite(e.seat)) put(" seat=%.1f", double(e.seat));
         put("\n");
     }
     return at;
