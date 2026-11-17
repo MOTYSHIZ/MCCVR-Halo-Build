@@ -169,30 +169,40 @@ void __fastcall InputUpdateHook() {
 // ticks (InputUpdateHook), and 0.10.5 no longer runs that update where the mod can hook it. The converter then ran in
 // fits (331 calls in 5 s where 4,400 is usual, 2026-11-16): between its runs the records went stale and a pull of the
 // trigger could fall between two of them, so the trigger intermittently did not fire (user report). The builder reads
-// each call site once a pass (some actions twice, from two sites), so a call site read again starts the next pass; a
-// pass the converter did not advance for advances the records once, here, with the time since their last advance
-// (clamped as the game clamps its own). Where the converter runs every tick (MCC, Reclaimer up to 0.10.4) every pass
-// follows an advance and nothing happens here.
-constexpr unsigned kConsumerSiteWords=(consumerEnd-consumerBegin+63)/64;
-thread_local uint64_t t_passSites[kConsumerSiteWords]{};   // the builder's call sites read in this pass
+// each (call site, action) once a pass (some actions twice, from two sites), so a pair read again starts the next
+// pass; a pass the converter did not advance for, at least kPassMinMs after the last advance (a tick is 16.7 ms),
+// advances the records once, here, with the time since their last advance (clamped as the game clamps its own). Where the converter runs every tick (MCC, Reclaimer up to 0.10.4) every
+// pass follows an advance and nothing happens here.
+constexpr unsigned kPassSlots=256;                          // open addressing; a pass reads well under a hundred
+thread_local uint32_t t_passKeys[kPassSlots]{};             // (site << 8 | action) + 1, of pass t_passStamp[i]
+thread_local uint32_t t_passStamps[kPassSlots]{};
+thread_local uint32_t t_pass=1;
 thread_local uint64_t t_advancesAtPass=0;                   // local.advances when this pass began
-thread_local uint64_t t_lastAdvanceMs=0;
-void NoteConsumerRead(uintptr_t site) noexcept {
+constexpr uint64_t kPassMinMs=8;                            // a pass this soon after an advance is not a new tick
+// True when (site, action) was already read in this pass; else records it.
+bool SeenThisPass(uint32_t key) noexcept {
+    for(uint32_t probe=0,i=(key*2654435761u)>>24;probe<kPassSlots;++probe,i=(i+1)&(kPassSlots-1)) {
+        if(t_passStamps[i]!=t_pass) {t_passStamps[i]=t_pass;t_passKeys[i]=key;return false;}
+        if(t_passKeys[i]==key) return true;
+    }
+    return true;   // full: treat as a new pass
+}
+void NoteConsumerRead(uintptr_t site,unsigned action) noexcept {
     if(site>=consumerEnd-consumerBegin) return;
-    const uint64_t bit=uint64_t{1}<<(site&63);
-    uint64_t& word=t_passSites[site>>6];
-    if(!(word&bit)) {word|=bit;return;}
+    const uint32_t key=((static_cast<uint32_t>(site)<<8)|(action&0xFF))+1;
+    if(!SeenThisPass(key)) return;
     // A new pass.
-    memset(t_passSites,0,sizeof(t_passSites));
-    t_passSites[site>>6]|=bit;
+    if(++t_pass==0) {memset(t_passStamps,0,sizeof(t_passStamps));t_pass=1;}
+    (void)SeenThisPass(key);
     const uint64_t now=GetTickCount64();
-    if(local.advances==t_advancesAtPass && local.generation==runtime.generation) {
-        const int elapsedMs=t_lastAdvanceMs?static_cast<int>((std::min)(now-t_lastAdvanceMs,uint64_t{100})):0;
+    // local.converterAt: the last advance of either kind.
+    if(local.advances==t_advancesAtPass && local.generation==runtime.generation &&
+       (!local.converterAt || (now>=local.converterAt && now-local.converterAt>=kPassMinMs))) {
+        const int elapsedMs=local.converterAt?static_cast<int>((std::min)(now-local.converterAt,uint64_t{100})):0;
         const uint64_t before=local.advances;
         AdvanceController0(elapsedMs);
         if(local.advances!=before) runtime.passAdvances.fetch_add(1,std::memory_order_relaxed);
     }
-    if(local.advances!=t_advancesAtPass) t_lastAdvanceMs=now;
     t_advancesAtPass=local.advances;
 }
 __declspec(noinline) bool ReadController(uintptr_t state,unsigned& value) noexcept {
@@ -220,7 +230,7 @@ void* ReadOwned(void* state,unsigned action,void* native,uintptr_t caller) noexc
             reinterpret_cast<uintptr_t>(state)!=runtime.state)return native;
         unsigned controller=0;
         if(!ReadController(runtime.state,controller)){runtime.faulted=true;return native;}
-        if(controller==0) NoteConsumerRead(caller-runtime.base-consumerBegin);
+        if(controller==0) NoteConsumerRead(caller-runtime.base-consumerBegin,action);
         if(controller!=0 ||
             local.generation!=runtime.generation || !local.converted ||
             !Fresh(local.converterAt,now)||!Fresh(local.publishedAt,now)||!publication.stamp.load(std::memory_order_acquire)||
