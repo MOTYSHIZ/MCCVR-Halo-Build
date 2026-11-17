@@ -18,6 +18,11 @@
 // after the client builds them: +0x10 and +0x40 get the eye's own tanX. Only a block that holds exactly that shape,
 // built from the eye's vertical field of view, is touched.
 //
+// THE WORLD ITSELF is not drawn from these: VISR tints a copy of the scene, and that copy now reads the eye being
+// drawn (vr.cpp VR_RedirectReclaimerSceneCopySource; before, it read the frame's flat-screen render: the stretch and
+// the missing depth). These two hooks stay because VISR's shader rebuilds each pixel's distance from the depth with
+// these constants (how bright an outline is with distance, and the ping), and the depth is the eye's.
+//
 // FOUND BY ITS SHAPE (both 0.10.0 and 0.10.4 checked offline, unique in each): the camera's three reads,
 // mov e?x,[r?x+0x28]; mov e?x,[r?x+0x64]; mov e?x,[r?x+0x68]; test e?x,e?x, followed by the stores into the answer,
 // mov [r?x+4]; mov [r?x+8]; mov [r?x+0xC]. The hook goes on the function whose extent holds both. Not found, or more
@@ -181,6 +186,21 @@ bool InstallReclaimerVisrCamera()
 // Cold worker: once, when VISR first asked and was answered with the eye's field of view.
 void ReportReclaimerVisrCamera()
 {
+    static bool reportedGate = false;
+    if (!reportedGate && g_reclaimerWidgetGateOpened.load(std::memory_order_relaxed))
+    {
+        reportedGate = true;
+        LOG("Project Reclaimer HUD: its widget draw's crosshair gate opened for the crosshair's capture");
+    }
+#if HALOMCCVR_EXPERIMENTAL_ODST_BRINGUP
+    static bool reportedWorld = false;
+    if (!reportedWorld && VR_ReclaimerSceneCopiesFromEye())
+    {
+        reportedWorld = true;
+        LOG("Project Reclaimer VISR: its copy of the picture is taken from the eye being drawn (each eye's VISR shows "
+            "its own picture)");
+    }
+#endif
     static bool reportedWidth = false;
     if (!reportedWidth && g_reclaimerVisrWidthsFixed.load(std::memory_order_relaxed))
     {

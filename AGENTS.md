@@ -115,6 +115,15 @@ four identical crashes.
   be read only to find **where** the recompiled copy of a function or global
   already identified in `halo3.dll` sits. What it means, its layout and its
   behaviour still come from `halo3.dll` and H3EK.
+  **Second exception (owner's decision, 2026-11-16):** Project Reclaimer's
+  client draws or runs some things in its own code, not in the recompiled
+  `halo3.dll` (ODST's VISR, the HUD's navpoints, ODST's tutorial prompts).
+  To fix or support those for players, the client's own code may be read and
+  hooked. Each find lives in `src/common/reclaimer_client_finds.h`: located by
+  code shape, never by a hardcoded address, required to be unique, cross-checked
+  where two finds can agree, and run by the offline file check. A failed find
+  logs what was missing and leaves only that feature off. Input level only:
+  never write Reclaimer's simulation.
 - Never write a theory into an evidence document as a finding. Ship a probe, or
   write down the negative result.
 

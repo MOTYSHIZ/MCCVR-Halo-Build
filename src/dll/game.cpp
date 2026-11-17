@@ -2475,6 +2475,9 @@ namespace
     struct FpInterpolationContext
     {
         const BoneMatrix* source = nullptr;
+        // The slot's last good context standing in for an interpolation that returned no bones (g_fpLastGoodContexts):
+        // the palette that interpolation leads to draws from another bone bank, so it is bound to that bank there.
+        bool standIn = false;
         uint32_t generation = 0;
         int count = 0;
         int player = -1;
@@ -2551,6 +2554,39 @@ namespace
     // palette hook matches its `source` pointer against both, so any
     // interpolate/palette call ordering pairs correctly.
     thread_local FpInterpolationContext g_fpInterpolationContexts[2];
+    // THE LAST GOOD CONTEXT PER SLOT. When the game's first-person interpolation returns no bones (Project Reclaimer
+    // 0.10.5: 4-16 palettes in 5 s at 72 frames a second, more as the frame rate falls; almost none on 0.10.4), the
+    // palette had no context and drew the game's own, flat-screen arms for that frame. The slot's last good context
+    // stands in for up to kFpHeldContextMs, for the same player in the same level: the arms are solved from the last
+    // good game pose (the unmodified snapshot it made) with this frame's controllers, as baa97134 holds a hand when
+    // the controller gives no pose. The palette still matches it only by its own bone bank.
+    thread_local FpInterpolationContext g_fpLastGoodContexts[2];
+    thread_local uint64_t g_fpLastGoodMs[2]{};
+    constexpr uint64_t kFpHeldContextMs = 250;
+    // The palette tags recently posed from each slot's context (its weapon's model, the arms' model, the arms
+    // alone when unarmed: one interpolation per model, every palette of the slot drawn from the same first-person
+    // skeleton), for binding a stand-in only to a model it posed. A frame whose interpolations come back empty has a
+    // palette for each; remembering only the last tag left the other model on the game's own arms (2347ee7f: the
+    // weapon held, the arms flashed flat, exactly half the empty frames covered).
+    constexpr unsigned kFpPosedTags = 4;
+    thread_local uint16_t g_fpPosedTags[2][kFpPosedTags]{{0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF},
+                                                         {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
+    thread_local unsigned g_fpPosedTagNext[2]{};
+    inline bool FpSlotPosedTag(int slot, uint16_t tag)
+    {
+        for (const uint16_t posed : g_fpPosedTags[slot])
+            if (posed == tag)
+                return true;
+        return false;
+    }
+    inline void FpNotePosedTag(int slot, uint16_t tag)
+    {
+        if (tag == 0xFFFF || FpSlotPosedTag(slot, tag))
+            return;
+        g_fpPosedTags[slot][g_fpPosedTagNext[slot]++ % kFpPosedTags] = tag;
+    }
+    std::atomic<uint64_t> g_fpHeldContexts{0};
+    std::atomic<uint64_t> g_fpStandInsBound{0};   // stand-ins a palette was posed with
     // Why each Halo 3 first-person palette was or was not posed (fp_arm_fallback_logic.h). Present reports them.
     thread_local fp_arm_fallback::ThreadTrace g_fpArmTrace;
     std::atomic<uint64_t> g_fpArmOutcomes[static_cast<size_t>(fp_arm_fallback::Outcome::Count)]{};
@@ -7855,6 +7891,24 @@ namespace
                                              cameraControl,slot==1);
             }
         }
+        if (g_fpInterpolationContexts[slot].valid)
+        {
+            g_fpLastGoodContexts[slot]=g_fpInterpolationContexts[slot];
+            g_fpLastGoodMs[slot]=GetTickCount64();
+        }
+        else if (!g_fpArmTrace.lastResult)
+        {
+            const FpInterpolationContext& held=g_fpLastGoodContexts[slot];
+            const uint64_t nowMs=GetTickCount64();
+            if (held.valid && held.source && held.player==view && held.slot==slot &&
+                held.generation==g_halo3RuntimeGeneration.load(std::memory_order_acquire) &&
+                nowMs-g_fpLastGoodMs[slot]<=kFpHeldContextMs)
+            {
+                g_fpInterpolationContexts[slot]=held;
+                g_fpInterpolationContexts[slot].standIn=true;
+                g_fpHeldContexts.fetch_add(1,std::memory_order_relaxed);
+            }
+        }
         }
         // Diagnostic-only stable commit, mirroring the existing ownership
         // stable point ungated: the inventory identity AND the engine FP
@@ -8994,6 +9048,28 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 candidate.valid=false;
                 break;
             }
+        // A palette after an interpolation that returned no bones draws from a bank no context holds. The slot's
+        // stand-in (its last good context) is bound to it when only one stand-in's slot has recently posed this
+        // palette's model (its tag); the solve then reads that context's untouched snapshot.
+        if (!context.valid && source && g_fpArmTrace.interpolations && !g_fpArmTrace.lastResult)
+        {
+            FpInterpolationContext* standIn=nullptr;
+            int standIns=0;
+            for (auto& candidate : g_fpInterpolationContexts)
+                if (candidate.valid && candidate.standIn && candidate.slot>=0 && candidate.slot<2 &&
+                    FpSlotPosedTag(candidate.slot,tag))
+                {
+                    standIn=&candidate;
+                    ++standIns;
+                }
+            if (standIns==1)
+            {
+                context=*standIn;
+                standIn->valid=false;
+                context.source=source;
+                g_fpStandInsBound.fetch_add(1,std::memory_order_relaxed);
+            }
+        }
         H3SecondaryVisualScope secondaryMotionScope(context);
         if (root && context.valid && context.player>=0 && context.player<4 &&
             isfinite(root->scale) && fabsf(root->scale)>0.001f)
@@ -9013,6 +9089,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
         if (root && source)
             reconstructed=ReconstructVisiblePaletteSource(
                 tag,context,*root,source,selectedSource);
+        if (reconstructed && context.valid && context.slot>=0 && context.slot<2)
+            FpNotePosedTag(context.slot,tag);
         if (source)
         {
             const uint64_t frame=VR_CurrentPreparedSerial();
@@ -20016,6 +20094,88 @@ static constexpr bool kOdstMappedFpEnabled = false;
         }
     }
 
+    // PROJECT RECLAIMER 0.10.5+: ITS OWN WIDGET DRAW ASKS THE CROSSHAIR GATE THROUGH SHIMS OF ITS OWN.
+    // reclaimer_client::FindWidgetCrosshairGate has the why. The gate's shim answers yes to the widget draw's first ask
+    // (as the playback check's hook does for the game's own gate), and the crosshair shim is answered by the same
+    // HudCrosshairVisibleHook as the game's own check, which begins the capture of the crosshair's art. Each shim is
+    // asked from the widget draw alone (the find proves it), so nothing else changes.
+    using ReclaimerWidgetGateFn = bool(__fastcall*)();
+    using ReclaimerCrosshairShimFn = bool(__fastcall*)(int userIndex);
+    ReclaimerWidgetGateFn g_reclaimerWidgetGateOriginal = nullptr;
+    ReclaimerCrosshairShimFn g_reclaimerCrosshairShimOriginal = nullptr;
+    std::atomic<uint32_t> g_reclaimerWidgetGateOpened{0};
+
+    __declspec(noinline) bool __fastcall ReclaimerWidgetGateHook()
+    {
+        if (t_halo3ClassGateAsk)
+        {
+            t_halo3ClassGateAsk = false;
+            g_reclaimerWidgetGateOpened.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        }
+        return g_reclaimerWidgetGateOriginal();
+    }
+
+    __declspec(noinline) bool __fastcall ReclaimerCrosshairShimHook(int userIndex)
+    {
+        // In VR the answer is the mod's (HudCrosshairVisibleHook never asks the game then); flat, the client's own.
+        if (g_enabled.load(std::memory_order_relaxed) && VR_IsStereoEnabled())
+            return HudCrosshairVisibleHook(userIndex);
+        return g_reclaimerCrosshairShimOriginal(userIndex);
+    }
+
+    // Install thread, with the crosshair redirect, Project Reclaimer only: the widget draw is the one its version of
+    // the game's widget draw (`hudElem`, hooked just before) passes through to. False with the reason logged.
+    bool InstallReclaimerWidgetGate(uintptr_t hudElem)
+    {
+        if (g_reclaimerWidgetGateOriginal)
+            return true;   // hooked by an earlier install; the client's code does not move within a launch
+        reclaimer_client::Image image;
+        if (!reclaimer_client::ClientImageInMemory(image))
+        {
+            LOG("Project Reclaimer HUD: StockFallback: the client executable's headers do not read; the crosshair "
+                "keeps the game's gate");
+            return false;
+        }
+        const auto exe = reinterpret_cast<uintptr_t>(image.base);
+        const auto version = reinterpret_cast<uintptr_t>(lifted::ClientVersion(reinterpret_cast<void*>(hudElem)));
+        if (!version || version <= exe || version - exe >= image.size)
+        {
+            LOG("Project Reclaimer HUD: the client has no version of its own of the widget draw; the crosshair keeps "
+                "the game's gate");
+            return false;
+        }
+        const uint32_t widgetDraw = reclaimer_client::PastPassThroughs(image, static_cast<uint32_t>(version - exe));
+        const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image, widgetDraw);
+        if (gate.missing)
+        {
+            LOG("Project Reclaimer HUD: its widget draw (exe+0x%X): %s not found; the crosshair keeps the game's gate "
+                "(as up to 0.10.4)", widgetDraw, gate.missing);
+            return false;
+        }
+        void* const gateTarget = reinterpret_cast<void*>(exe + gate.gate);
+        void* const crosshairTarget = reinterpret_cast<void*>(exe + gate.crosshair);
+        const bool gateOk = MH_CreateHook(gateTarget, reinterpret_cast<void*>(&ReclaimerWidgetGateHook),
+                                          reinterpret_cast<void**>(&g_reclaimerWidgetGateOriginal)) == MH_OK;
+        const bool crosshairOk =
+            gateOk && MH_CreateHook(crosshairTarget, reinterpret_cast<void*>(&ReclaimerCrosshairShimHook),
+                                    reinterpret_cast<void**>(&g_reclaimerCrosshairShimOriginal)) == MH_OK;
+        if (!crosshairOk || MH_EnableHook(gateTarget) != MH_OK || MH_EnableHook(crosshairTarget) != MH_OK)
+        {
+            (void)MH_RemoveHook(crosshairTarget);
+            (void)MH_RemoveHook(gateTarget);
+            g_reclaimerWidgetGateOriginal = nullptr;
+            g_reclaimerCrosshairShimOriginal = nullptr;
+            LOG("Project Reclaimer HUD: StockFallback: its widget draw's crosshair gate could not be hooked; the "
+                "crosshair keeps the game's gate");
+            return false;
+        }
+        LOG("Project Reclaimer HUD: its own widget draw (exe+0x%X) asks the crosshair gate through its own shims "
+            "(gate exe+0x%X, crosshair exe+0x%X): both hooked, so the crosshair follows the gun again",
+            gate.widgetDraw, gate.gate, gate.crosshair);
+        return true;
+    }
+
     __declspec(noinline) void __fastcall GuardedHudDrawWidgetHook(int userIndex, void* descriptor,
                                       unsigned short widgetIndex,
                                       unsigned char useAlternatePath,
@@ -21250,6 +21410,10 @@ static constexpr bool kOdstMappedFpEnabled = false;
                                     RememberInstalledGameHook(reinterpret_cast<void*>(playbackTarget));
                                     gateOpen = MH_QueueEnableHook(reinterpret_cast<void*>(playbackTarget)) == MH_OK;
                                 }
+                                // 0.10.5+: the client's widget draw asks through its own shims instead.
+                                if (drawHookReady && g_hostIsProjectReclaimer &&
+                                    InstallReclaimerWidgetGate(hudElem))
+                                    gateOpen = true;
                                 g_halo3LiftedClassGate = gateOpen;
                             }
                             else if (VirtualProtect(classGate, 2, PAGE_EXECUTE_READWRITE,
@@ -56657,6 +56821,17 @@ void Game_AutoVrTick()
                     "in %.1f s kept the hand where it was last tracked",
                     static_cast<unsigned long long>(heldRight),static_cast<unsigned long long>(heldLeft),
                     (reportNow-windowStartMs)/1000.0);
+            static uint64_t heldContextsReported=0;
+            const uint64_t heldContexts=g_fpHeldContexts.load(std::memory_order_relaxed)-heldContextsReported;
+            heldContextsReported+=heldContexts;
+            static uint64_t boundReported=0;
+            const uint64_t bound=g_fpStandInsBound.load(std::memory_order_relaxed)-boundReported;
+            boundReported+=bound;
+            if (heldContexts)
+                LOG("Halo 3 arms: the game's first-person pose came back empty %llu times in %.1f s; the last good "
+                    "pose stood in, and %llu palettes were posed with it",
+                    static_cast<unsigned long long>(heldContexts),(reportNow-windowStartMs)/1000.0,
+                    static_cast<unsigned long long>(bound));
             windowStartMs=reportNow;presents=0;
         }
     }

@@ -16,13 +16,13 @@ std::atomic<bool> g_armed{}, g_teardown{}, g_installed{}, g_referenceValid{},
 std::atomic<uint32_t> g_activeCallbacks{}, g_generation{}, g_vrFailureGeneration{};
 std::atomic<uint32_t> g_zoomFaultGeneration{},g_zoomFaults{};
 std::atomic<uintptr_t> g_originalScene{}, g_originalRebuild{}, g_originalHostUi{}, g_originalViewTargets{},
-    g_fpPatchRecord{}, g_rebuildMatrices{}, g_cameraCommit{}, g_cameraRefreshRect{},
+    g_fpPatchRecord{}, g_rebuildMatrices{}, g_cameraCommit{}, g_cameraRefreshRect{}, g_sceneFenceSignal{},
     g_moduleBase{}, g_observerResult{};
 std::atomic<uint64_t> g_lastCompletedSerial{};
 HMODULE g_moduleReference{};
 void* g_sceneTarget{};
 void* g_rebuildTarget{};
-void* g_hostUiTarget{};
+void* g_hostUiTarget{};
 void* g_viewTargetsTarget{};
 uint32_t g_rejectedGeneration{}, g_manualRecoveryGeneration{}, g_armedLoggedGeneration{};
 GameTitle activeTitle = GameTitle::Halo2;
@@ -47,7 +47,7 @@ void Check(bool pass, const char* message)
 void FixtureSleep(DWORD) { ++sleepCalls; }
 void SaberSceneDetour() {}
 void RebuildDetour() {}
-void HostUiDetour() {}
+void HostUiDetour() {}
 void ViewTargetsDetour() {}
 MH_STATUS MCCVR_DisableHookForRetirement(void* target)
 {
