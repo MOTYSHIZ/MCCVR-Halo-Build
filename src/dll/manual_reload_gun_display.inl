@@ -35,6 +35,8 @@ struct Lane
     std::atomic<bool> ready{false};
     std::atomic<uint32_t> callbacks{0};
     std::atomic<uint64_t> shown{0}, faults{0};
+    // Who asks for the two digits: while the eyes are drawn, or at any other time (the log says, once a run).
+    std::atomic<uint64_t> askedDrawing{0}, askedElsewhere{0};
 };
 Lane g_halo3{"Halo 3", GameTitle::Halo3, 0x213};
 Lane g_odst{"ODST", GameTitle::Halo3ODST, 0x218};
@@ -48,10 +50,15 @@ __declspec(noinline) char __fastcall Detour(uint32_t object, int32_t name, uint3
     __try
     {
     handled = CallNativeWithSpareSlots(L.original, object, name, p3, out, nonzero, p6);
-    // Every function query of every weapon passes here: the name is tested first. Not in a simulation another
-    // machine shares (lockstep co-op): there the digits show the game's count, as a flat player's would.
-    if (handled && (name == L.primary + 1 || name == L.primary + 2) && out && L.ready.load(std::memory_order_acquire) &&
-        g_config.manual_reload && Sight_FireTimeChangesAllowed())
+    // Every function query of every weapon passes here: the name is tested first. The digits change only while the
+    // frame is being DRAWN (the stereo eye loop's scope, this thread's): drawing comes after the simulation's step,
+    // so nothing the simulation reads can see the change, in co-op as in solo. In a game no other machine shares, a
+    // query at any other time is answered too (as before, in case the counter is asked outside the eye loop).
+    const bool digit = name == L.primary + 1 || name == L.primary + 2;
+    const bool drawing = g_fpStereoSolveScope.armed;
+    if (digit) (drawing ? L.askedDrawing : L.askedElsewhere).fetch_add(1, std::memory_order_relaxed);
+    if (handled && digit && out && L.ready.load(std::memory_order_acquire) && g_config.manual_reload &&
+        (drawing || Sight_FireTimeChangesAllowed()))
     {
         int loaded = 0, reserve = 0;
         if (VR_ManualReloadHudCount(L.game, object, loaded, reserve))
@@ -192,8 +199,12 @@ void Report(Lane& lane)
         lastShown[i] = shown;
         lastFaults[i] = faults;
         at[i] = now;
-        LOG("MANUAL RELOAD GUN COUNTER %s: the gun's digits showed the player's count %llu times; faults %llu",
-            lane.title, static_cast<unsigned long long>(shown), static_cast<unsigned long long>(faults));
+        LOG("MANUAL RELOAD GUN COUNTER %s: the gun's digits showed the player's count %llu times; asked while "
+            "drawing %llu, at other times %llu (co-op shows the player's count only while drawing); faults %llu",
+            lane.title, static_cast<unsigned long long>(shown),
+            static_cast<unsigned long long>(lane.askedDrawing.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(lane.askedElsewhere.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(faults));
     }
 }
 } // namespace manual_reload_gun_display

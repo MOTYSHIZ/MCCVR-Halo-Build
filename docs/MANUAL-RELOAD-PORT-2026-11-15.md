@@ -348,10 +348,13 @@ were checked against the code before anything was changed. Nothing was run in th
 ### Multiplayer safety
 
 - Nothing writes the simulation and nothing is spawned (re-checked line by line).
-- The **gun's digits** and the **seat/rack click** now stand down in a simulation another machine shares (lockstep
-  co-op), through the mod's existing switch (`Sight_FireTimeChangesAllowed`, `coop_safe_shots`): the digit routine
-  serves every caller and the click is a call of the game's own, so neither is left to an argument. Solo and
-  host-run games keep both.
+- The **gun's digits** change only while the frame is being drawn (the stereo eye loop's scope on the render
+  thread), which comes after the simulation's step: nothing the simulation reads can see them, in co-op as in solo.
+  In a game no other machine shares, a query at other times is answered too, as before. The log counts both kinds
+  of query, so a run shows where the counter is asked. (A first version of this round turned the digits off in
+  co-op; the user asked why they could not stay local, and they can.)
+- The **seat/rack click** plays in co-op too: the game itself calls that 2D sound for its local player only (the
+  respawn beeps; a remote player is sent a network event instead), so it touches nothing shared.
 - The **reload sound mute** stays everywhere: the first-person animation's event handler runs only on the machine
   whose player it is (a co-op partner never runs this player's first-person animation), so skipping one of its
   sound events cannot part the simulations.

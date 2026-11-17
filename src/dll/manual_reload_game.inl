@@ -159,14 +159,14 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
         const bool owned = shown && p.owned;
         {
             // The gun's own click as a magazine seats and as the handle is racked (once per event: this hook runs
-            // for each eye). Not in a simulation another machine shares (a lockstep co-op game): the game's sound
-            // start is the game's own code, run on this machine only.
+            // for each eye). Local in co-op too: the game itself calls this 2D sound for its local player only (the
+            // respawn beeps; a remote player is sent a network event instead), so it touches nothing shared.
             static uint32_t heardSeats = 0, heardRacks = 0;
             static bool primed = false;
             if (shown)
             {
                 if (primed && owned && g_config.manual_reload_sounds && simValid &&
-                    (p.seats != heardSeats || p.racks != heardRacks) && Sight_FireTimeChangesAllowed())
+                    (p.seats != heardSeats || p.racks != heardRacks))
                     manual_reload_sound::PlayClick(title, definition, 1.0f);
                 heardSeats = p.seats;
                 heardRacks = p.racks;
