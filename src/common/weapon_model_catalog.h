@@ -31,15 +31,17 @@ inline bool UsesTokenGeometry(const Model* model) noexcept
 #include "weapon_models.generated.h"
 namespace weapon_model
 {
-// A held weapon that aims one-handed whatever the one-handed aim range says: its grip distance is no guide, as the
-// Needler's sits beside the SMG's and the Plasma Pistol's reads as a long gun's. The plasma rifles are held the same
-// way, whatever the name says, and the magnums and ODST's pistol are named so they never depend on a reading. The Needle
-// Rifle shares the needles flag and is a long gun. Halo CE's names have spaces, and its magnum is "pistol".
+// A held weapon that aims one-handed; every other weapon with a grip zone aims two-handed. The grip point's distance
+// is no guide: the Needler's sits beside the SMG's, the Plasma Pistol's reads as a long gun's, and an SMG at the range
+// read both ways from grip to grip. The plasma rifles are held the same way, whatever the name says. The Spiker
+// ("spike_rifle"), the Mauler ("excavator") and Halo 4's Boltshot ("stasis_pistol") are held in one hand too. The
+// Needle Rifle shares the needles flag and is a long gun. Halo CE's names have spaces, and its magnum is "pistol".
 inline bool AlwaysOneHandedAim(const Model* model) noexcept
 {
     if(!model)return false;
     if(model->needles)return strcmp(model->name,"needle_rifle")!=0;
-    for(const char* name:{"plasma_pistol","plasma pistol","plasma_rifle","plasma rifle","magnum","automag"})
+    for(const char* name:{"plasma_pistol","plasma pistol","plasma_rifle","plasma rifle","magnum","automag",
+                          "spike_rifle","excavator","stasis_pistol"})
         if(strstr(model->name,name))return true;
     return strcmp(model->name,"pistol")==0;
 }
