@@ -2562,8 +2562,28 @@ namespace
     thread_local FpInterpolationContext g_fpLastGoodContexts[2];
     thread_local uint64_t g_fpLastGoodMs[2]{};
     constexpr uint64_t kFpHeldContextMs = 250;
-    // The palette tag last posed from each slot's context, for binding a stand-in only to the same model.
-    thread_local uint16_t g_fpLastPosedTag[2]{0xFFFF, 0xFFFF};
+    // The palette tags recently posed from each slot's context (its weapon's model, the arms' model, the arms
+    // alone when unarmed: one interpolation per model, every palette of the slot drawn from the same first-person
+    // skeleton), for binding a stand-in only to a model it posed. A frame whose interpolations come back empty has a
+    // palette for each; remembering only the last tag left the other model on the game's own arms (2347ee7f: the
+    // weapon held, the arms flashed flat, exactly half the empty frames covered).
+    constexpr unsigned kFpPosedTags = 4;
+    thread_local uint16_t g_fpPosedTags[2][kFpPosedTags]{{0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF},
+                                                         {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
+    thread_local unsigned g_fpPosedTagNext[2]{};
+    inline bool FpSlotPosedTag(int slot, uint16_t tag)
+    {
+        for (const uint16_t posed : g_fpPosedTags[slot])
+            if (posed == tag)
+                return true;
+        return false;
+    }
+    inline void FpNotePosedTag(int slot, uint16_t tag)
+    {
+        if (tag == 0xFFFF || FpSlotPosedTag(slot, tag))
+            return;
+        g_fpPosedTags[slot][g_fpPosedTagNext[slot]++ % kFpPosedTags] = tag;
+    }
     std::atomic<uint64_t> g_fpHeldContexts{0};
     std::atomic<uint64_t> g_fpStandInsBound{0};   // stand-ins a palette was posed with
     // Why each Halo 3 first-person palette was or was not posed (fp_arm_fallback_logic.h). Present reports them.
@@ -9028,15 +9048,15 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 break;
             }
         // A palette after an interpolation that returned no bones draws from a bank no context holds. The slot's
-        // stand-in (its last good context) is bound to it when it is the only one and its model was last posed with
-        // this palette's tag; the solve then reads that context's untouched snapshot.
+        // stand-in (its last good context) is bound to it when only one stand-in's slot has recently posed this
+        // palette's model (its tag); the solve then reads that context's untouched snapshot.
         if (!context.valid && source && g_fpArmTrace.interpolations && !g_fpArmTrace.lastResult)
         {
             FpInterpolationContext* standIn=nullptr;
             int standIns=0;
             for (auto& candidate : g_fpInterpolationContexts)
                 if (candidate.valid && candidate.standIn && candidate.slot>=0 && candidate.slot<2 &&
-                    g_fpLastPosedTag[candidate.slot]==tag)
+                    FpSlotPosedTag(candidate.slot,tag))
                 {
                     standIn=&candidate;
                     ++standIns;
@@ -9069,7 +9089,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             reconstructed=ReconstructVisiblePaletteSource(
                 tag,context,*root,source,selectedSource);
         if (reconstructed && context.valid && context.slot>=0 && context.slot<2)
-            g_fpLastPosedTag[context.slot]=tag;
+            FpNotePosedTag(context.slot,tag);
         if (source)
         {
             const uint64_t frame=VR_CurrentPreparedSerial();
