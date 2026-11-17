@@ -68,6 +68,7 @@
         g_rebuildMatrices.store(0, std::memory_order_release);
         g_cameraCommit.store(0, std::memory_order_release);
         g_cameraRefreshRect.store(0, std::memory_order_release);
+        g_sceneFenceSignal.store(0, std::memory_order_release);
         g_moduleBase.store(0, std::memory_order_release);
         g_observerResult.store(0, std::memory_order_release);
         g_generation.store(0, std::memory_order_release);

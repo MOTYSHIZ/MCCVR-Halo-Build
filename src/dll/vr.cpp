@@ -14479,15 +14479,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         authored_grab::lastX.store(local[0]);authored_grab::lastY.store(local[1]);authored_grab::lastZ.store(local[2]);
         if(!authored_grab::OnGun(local))local={0.f,0.f,0.f};
         {
-            static authored_grab::GripZoneKindMemory zoneMemory;
-            int zoneKind=zoneMemory.Step(key,local,g_config.two_hand_one_hand_range_m,
-                g_twoHandLatched.load(std::memory_order_relaxed),GetTickCount64());
-            if(namedOneHanded)zoneKind=2;
+            // One-handed by name alone (weapon_model::AlwaysOneHandedAim). The grip point's distance from the main hand
+            // decided it too, and an SMG whose grip reads right at the range aimed one-handed after some grips and
+            // two-handed after others (user report, ODST, 2026-11-16). Every gun held in one hand is named.
+            const int zoneKind=namedOneHanded?2:1;
             const int previousKind=g_gripZoneKind.exchange(zoneKind,std::memory_order_acq_rel);
             g_gripZoneKindMs.store(GetTickCount64(),std::memory_order_release);
             if(previousKind!=zoneKind)
-                LOG("two-handed aim: this weapon's grip zone is %s (%.2f m from the main hand)",
-                    zoneKind==2?"short: one-handed aim while gripped":"long: two-handed aim while gripped",
+                LOG("two-handed aim: this weapon %s (grip point %.2f m from the main hand)",
+                    zoneKind==2?"aims one-handed while gripped":"aims two-handed while gripped",
                     std::sqrt(local[0]*local[0]+local[1]*local[1]+local[2]*local[2]));
         }
         const auto primaryPoint=g_primaryGripPoseValid?g_primaryGripPosePosition:primary.position;

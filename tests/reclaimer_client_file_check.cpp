@@ -143,10 +143,19 @@ int main()
     if (!camera.missing && !constants.missing)
         report("VISR finds agree", camera.function,
                reclaimer_client::VisrAgree(image, camera.function, constants.function));
+    const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image);
+    report("widget draw (gate)", gate.widgetDraw, gate.missing);
+    report("crosshair gate", gate.gate, gate.missing);
+    report("crosshair check", gate.crosshair, gate.missing);
     const reclaimer_client::NavpointDraw draw = reclaimer_client::FindNavpointDraw(image);
     report("navpoint version", draw.version, draw.missing);
     report("navpoint draw", draw.draw, draw.missing);
     report("navpoint count read", draw.countDisp, draw.missing);
+    const reclaimer_client::VisrViewUser viewUser = reclaimer_client::FindVisrViewUser(image);
+    report("VISR view wrapper", viewUser.wrapper, viewUser.missing);
+    report("VISR view player", viewUser.user, viewUser.missing);
+    report("VISR first-pass flags", viewUser.flags, viewUser.missing);
+    report("VISR object pass", viewUser.reader, viewUser.missing);
     std::printf("%s: %d find(s) failed\n", path, failures);
     return failures ? 1 : 0;
 }

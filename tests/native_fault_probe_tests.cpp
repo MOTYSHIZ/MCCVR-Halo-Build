@@ -13,6 +13,11 @@ static void Check(bool good,const char* label)
 {++checks;if(!good){std::fprintf(stderr,"FAIL: %s\n",label);std::exit(1);}}
 void Logf(const char* format,...)
 {if(std::string(format)=="%s")++reports;}
+// The previous run's file is archived (log.cpp) before it is replaced: record what that saw.
+static std::wstring archivedPath;static std::string archivedText;static unsigned archivedKeep{};
+static std::string Read(const std::filesystem::path& path);
+void LogArchivePrevious(const wchar_t* filePath,unsigned keepRuns)
+{archivedPath=filePath;archivedKeep=keepRuns;archivedText=Read(filePath);}
 // Include production diagnostics so synthetic saved contexts can test the
 // observer without dereferencing an invalid address in the test process.
 #include "../src/dll/native_fault_probe.cpp"
@@ -34,15 +39,24 @@ int main()
     {std::ofstream old(path);old<<"previous evidence";}
     Check(NativeFaultProbe_Init((directory.wstring()+L"\\").c_str(),"probe-test-source"),"observer installed");
     Check(Read(path.wstring()+L".prev")=="previous evidence","prior evidence preserved");
+    Check(archivedPath==path.wstring()&&archivedKeep==10&&archivedText=="previous evidence",
+        "the previous run's fault log is archived, ten kept, before it is replaced");
+    {
+        const std::string header=Read(path);
+        Check(header.size()>15&&header[0]=='['&&header[3]==':'&&header[6]==':'&&header[9]=='.'&&header[13]==']'&&
+            header.find("] HaloMCCVR native fault evidence; source=")==13,
+            "the header starts with the run's time, as HaloMCCVR.log does, so the archive is named for the run");
+    }
     EXCEPTION_RECORD record{};CONTEXT context{};EXCEPTION_POINTERS pointers{&record,&context};
     record.ExceptionCode=EXCEPTION_ACCESS_VIOLATION;record.ExceptionAddress=reinterpret_cast<void*>(0x12345000);
     record.NumberParameters=2;record.ExceptionInformation[0]=1;record.ExceptionInformation[1]=0xBAD;
-    context.Rip=0x12345000;context.Rcx=0xABC;context.Rsp=0xDEF;
+    context.Rip=0x12345000;context.Rcx=0xABC;context.Rsp=0xDEF;context.R15=0x1BCD4C8B148;context.Rax=0x4750;
     SetLastError(0x4321);
     Check(Observe(&pointers)==EXCEPTION_CONTINUE_SEARCH&&GetLastError()==0x4321,"observer preserves native handling and last error");
     const std::string first=Read(path);
     Check(first.find("probe-test-source")!=std::string::npos&&first.find("0x0000000012345000")!=std::string::npos&&
-        first.find("0x0000000000000BAD")!=std::string::npos&&first.find("0x0000000000000ABC")!=std::string::npos,"exact source, address, access target and registers persisted before worker poll");
+        first.find("0x0000000000000BAD")!=std::string::npos&&first.find("0x0000000000000ABC")!=std::string::npos&&
+        first.find("r15=0x000001BCD4C8B148")!=std::string::npos&&first.find("rax=0x0000000000004750")!=std::string::npos,"exact source, address, access target and registers persisted before worker poll");
     Observe(&pointers);Check(Read(path)==first,"repeated fault site bounded");
     record.ExceptionAddress=reinterpret_cast<void*>(0x56789000);record.ExceptionCode=0xE06D7363;
     Check(Observe(&pointers)==EXCEPTION_CONTINUE_SEARCH&&Read(path)==first,"ordinary C++ exceptions ignored");

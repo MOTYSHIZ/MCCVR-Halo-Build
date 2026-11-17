@@ -4111,8 +4111,8 @@ void ConfigSave()
     fprintf(f, "# does, so a tracking drop-out cannot switch it. 0 = decided by how far apart the hands read each\n");
     fprintf(f, "# frame. (default %d)\n", d.two_hand_grip_zone_authority ? 1 : 0);
     fprintf(f, "two_hand_grip_zone_authority = %d\n\n", g_config.two_hand_grip_zone_authority ? 1 : 0);
-    fprintf(f, "# One-handed aim range in metres. With that 1: a weapon whose grip is within this of the main hand\n");
-    fprintf(f, "# aims one-handed. With that 0: how close the hands must be for the main hand to aim alone. (default\n");
+    fprintf(f, "# One-handed aim range in metres: how close the hands must be for the main hand to aim alone. With\n");
+    fprintf(f, "# that 1, only for a weapon whose grip the mod cannot read: pistol-style weapons go by name. (default\n");
     fprintf(f, "# %.2f, range 0.06 to 0.48)\n", d.two_hand_one_hand_range_m);
     fprintf(f, "two_hand_one_hand_range_m = %.2f\n\n", g_config.two_hand_one_hand_range_m);
     fprintf(f, "# Main weapon, aim and trigger on the physical left controller.\n");

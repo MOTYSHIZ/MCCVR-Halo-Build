@@ -14,6 +14,9 @@
 //   VISR's camera      0.10.0 exe+0x2B1FB40   0.10.4 exe+0x3775E80
 //   VISR's constants   0.10.0 exe+0x2B24250   0.10.4 exe+0x377B7B0
 //   navpoint draw      0.10.0 exe+0x2D839B0   0.10.4 exe+0x3A5EAC0 (count read exe+0x2D83C69 / exe+0x3A5EEF0)
+// and in 0.10.5 (2026-11-16): VISR's camera exe+0x379D310, constants exe+0x37A2C40, navpoint draw exe+0x3A87350, and
+// the widget draw's crosshair gate (widget draw exe+0x3C42430, gate exe+0x3AB7B40, crosshair check exe+0x3AB7970), and
+// VISR's view user (set at exe+0x3CCF712 in exe+0x3CCF6F0; user exe+0x54B6A58, first-frame flags exe+0x6AE1FEC).
 
 #include <cstddef>
 #include <cstdint>
@@ -220,6 +223,121 @@ inline const char* VisrAgree(const Image& image, uint32_t camera, uint32_t const
     return nullptr;
 }
 
+// ---- the HUD widget draw's crosshair gate ----------------------------------------------------------------------------
+// The client's own widget draw (its version of halo3.dll's chud_draw_widget +0x2EDF24, which the game's callers reach
+// through a pass-through) keeps the game's crosshair gate: for a widget of scripting class 2 it asks a gate (in the
+// game, game_is_playback +0xF01A0) and, only when that says yes, whether the crosshair shows (+0x2EDE38). The mod's
+// crosshair redirect opens the gate and answers the second question. Up to 0.10.4 both questions reached the game's
+// functions, which the mod hooks. From 0.10.5 the widget draw asks them through two shims of the client's own, each
+// called from there alone, and the game's functions are never reached: the crosshair stayed in the HUD.
+// Shape: call GATE; ... test al,al; je; cmp r16,2; jne; call CROSSHAIR.
+inline constexpr char kWidgetCrosshairGate[] = "84 C0 74 ?? 66 83 ?? 02 75 ?? E8";
+inline constexpr uint32_t kWidgetCrosshairCall = 10;    // the call's offset in the pattern
+inline constexpr uint32_t kWidgetGateCallWindow = 40;   // how far before the pattern the gate's call may be
+
+struct WidgetGate
+{
+    uint32_t widgetDraw = 0;   // the widget draw holding the gate (its start)
+    uint32_t gate = 0;         // the function the gate asks (its start)
+    uint32_t crosshair = 0;    // the function asked whether the crosshair shows (its start)
+    uint32_t at = 0;           // the match
+    const char* missing = nullptr;
+};
+
+// Past up to two pass-throughs (sub rsp; call X; nop; add rsp; ret) from `rva`.
+inline uint32_t PastPassThroughs(const Image& image, uint32_t rva)
+{
+    for (int hop = 0; hop < 2 && image.Holds(rva, 16); ++hop)
+    {
+        int64_t offset = 0;
+        if (!halo3_player_tags::ThunkCallee(image.base + rva, 16, offset))
+            break;
+        rva = static_cast<uint32_t>(static_cast<int64_t>(rva) + offset);
+    }
+    return rva;
+}
+
+// `widgetDraw` 0: anywhere in the code (offline); else only in that function, which must be the one holding it.
+inline WidgetGate FindWidgetCrosshairGate(const Image& image, uint32_t widgetDraw = 0)
+{
+    WidgetGate out;
+    uint32_t from = image.codeRva, length = image.codeSize;
+    uint32_t b = 0, e = 0;
+    if (widgetDraw)
+    {
+        if (!image.Extent(widgetDraw, b, e) || b != widgetDraw)
+        {
+            out.missing = "the widget draw's extent";
+            return out;
+        }
+        from = b;
+        length = e - b;
+    }
+    const std::vector<uint32_t> hits = FindAll(image, from, length, ParsePattern(kWidgetCrosshairGate), 2);
+    if (hits.size() != 1)
+    {
+        out.missing = hits.empty() ? "the crosshair class test (test al,al; je; cmp r16,2; jne; call)"
+                                   : "a single crosshair class test (more than one)";
+        return out;
+    }
+    const uint32_t hit = hits[0];
+    if (!image.Extent(hit, b, e))
+    {
+        out.missing = "the class test's function extent";
+        return out;
+    }
+    const auto startOf = [&image](int64_t target) -> uint32_t {
+        uint32_t fb = 0, fe = 0;
+        if (target <= 0 || target > 0xFFFFFFFFll || !image.Extent(static_cast<uint32_t>(target), fb, fe) ||
+            fb != static_cast<uint32_t>(target))
+            return 0;
+        return fb;
+    };
+    const uint32_t call = hit + kWidgetCrosshairCall;
+    const uint32_t crosshair = startOf(static_cast<int64_t>(call) + 5 + Rel32(image, call + 1));
+    if (!crosshair)
+    {
+        out.missing = "the crosshair check's start";
+        return out;
+    }
+    // The gate: the nearest call before the class test that reaches a function's start.
+    uint32_t gate = 0;
+    for (uint32_t at = hit >= 5 ? hit - 5 : 0; at + kWidgetGateCallWindow >= hit && at >= b; --at)
+    {
+        if (image.base[at] == 0xE8)
+            if (const uint32_t target = startOf(static_cast<int64_t>(at) + 5 + Rel32(image, at + 1)))
+            {
+                gate = target;
+                break;
+            }
+        if (at == 0)
+            break;
+    }
+    if (!gate || gate == crosshair)
+    {
+        out.missing = "the gate's call before the class test";
+        return out;
+    }
+    // Each is asked from the widget draw alone, so hooking it changes nothing else the client does.
+    const std::vector<uint32_t> gateCallers = CallingFunctions(image, gate, 2);
+    const std::vector<uint32_t> crosshairCallers = CallingFunctions(image, crosshair, 2);
+    if (gateCallers.size() != 1 || gateCallers[0] != b)
+    {
+        out.missing = "the gate asked from the widget draw alone";
+        return out;
+    }
+    if (crosshairCallers.size() != 1 || crosshairCallers[0] != b)
+    {
+        out.missing = "the crosshair check asked from the widget draw alone";
+        return out;
+    }
+    out.widgetDraw = b;
+    out.gate = gate;
+    out.crosshair = crosshair;
+    out.at = hit;
+    return out;
+}
+
 // ---- the navpoint draw ---------------------------------------------------------------------------------------------
 struct NavpointDraw
 {
@@ -300,6 +418,109 @@ inline NavpointDraw FindNavpointDraw(const Image& image)
     }
     if (!out.draw)
         out.missing = "a version that calls a draw with the navpoint count read";
+    return out;
+}
+// ---- VISR's view user ------------------------------------------------------------------------------------------------
+// VISR's outlines take their colours (enemy, ally, objective, item) from a category mask that the client's own object
+// pass draws only while a global names the local player whose view is being drawn (0 to 3). The client's wrapper of
+// a player's view sets it for the call and then -1, and with it raises that player's first-pass flag, which makes the
+// first object pass of the view set the mask up again. The mod draws each eye outside that wrapper, so the eyes saw
+// -1, drew no mask, and outlined everything with the categories of the game's own flat view.
+// Shape, in the wrapper: mov [rip+USER],r32; cmp r32,3; ja; movzx r32,byte [rip+ENABLE]; test al,al; je;
+// lea r64,[rip+FLAGS]; and later in the same function mov dword [rip+USER],-1.
+inline constexpr char kVisrViewUserSet[] =
+    "89 ?? ?? ?? ?? ?? 83 ?? 03 77 ?? 0F B6 ?? ?? ?? ?? ?? 84 C0 74 ?? ?? 8D ?? ?? ?? ?? ??";
+// Read by the object pass: mov r32,[rip+USER]; cmp r32,3; ja.
+inline constexpr char kVisrViewUserRead[] = "8B ?? ?? ?? ?? ?? 83 ?? 03 77";
+
+struct VisrViewUser
+{
+    uint32_t wrapper = 0, at = 0;              // the wrapper and its store
+    uint32_t user = 0, enable = 0, flags = 0;  // the globals (RVAs)
+    uint32_t reader = 0;                       // an object pass that reads the user and the flags
+    const char* missing = nullptr;
+};
+
+inline bool RipModrm(uint8_t modrm) { return (modrm & 0xC7) == 0x05; }
+inline uint32_t RipTarget(const Image& image, uint32_t dispAt, uint32_t instructionEnd)
+{
+    return static_cast<uint32_t>(static_cast<int64_t>(instructionEnd) + Rel32(image, dispAt));
+}
+
+inline VisrViewUser FindVisrViewUser(const Image& image)
+{
+    VisrViewUser out;
+    const std::vector<uint32_t> hits =
+        FindAll(image, image.codeRva, image.codeSize, ParsePattern(kVisrViewUserSet), 2);
+    if (hits.size() != 1)
+    {
+        out.missing = hits.empty() ? "the store of the view's player" : "a single store of the view's player";
+        return out;
+    }
+    const uint32_t at = hits[0];
+    const uint8_t* b = image.base + at;
+    uint32_t begin = 0, end = 0;
+    if (!RipModrm(b[1]) || (b[7] & 0xF8) != 0xF8 || !RipModrm(b[13]) || !RipModrm(b[24]) ||
+        (b[22] & 0xF8) != 0x48)
+    {
+        out.missing = "the store, test and flags of the view's player as rip-relative globals";
+        return out;
+    }
+    if (!image.Extent(at, begin, end))
+    {
+        out.missing = "the wrapper's function extent";
+        return out;
+    }
+    const uint32_t user = RipTarget(image, at + 2, at + 6);
+    const uint32_t enable = RipTarget(image, at + 14, at + 18);
+    const uint32_t flags = RipTarget(image, at + 25, at + 29);
+    const bool inCode = [&] {
+        for (const uint32_t g : {user, enable, flags})
+            if (!image.Holds(g, 4) || (g >= image.codeRva && g - image.codeRva < image.codeSize))
+                return true;
+        return false;
+    }();
+    if (inCode)
+    {
+        out.missing = "the view's player, enable and flags in data";
+        return out;
+    }
+    // The wrapper sets the user back to -1 after the view.
+    bool reset = false;
+    for (const uint32_t r : FindAll(image, at, end - at, ParsePattern("C7 05 ?? ?? ?? ?? FF FF FF FF"), 8))
+        reset = reset || RipTarget(image, r + 2, r + 10) == user;
+    if (!reset)
+    {
+        out.missing = "the wrapper's reset of the view's player to -1";
+        return out;
+    }
+    // An object pass reads the user (and tests it against 3) and addresses the same flags.
+    for (const uint32_t r : FindAll(image, image.codeRva, image.codeSize, ParsePattern(kVisrViewUserRead), 4096))
+    {
+        uint32_t rb = 0, re = 0;
+        if (!RipModrm(image.base[r + 1]) || RipTarget(image, r + 2, r + 6) != user || r == at ||
+            !image.Extent(r, rb, re))
+            continue;
+        for (const uint32_t l : FindAll(image, rb, re - rb, ParsePattern("8D ?? ?? ?? ?? ??"), 65536))
+            if (l > rb && (image.base[l - 1] & 0xF8) == 0x48 && RipModrm(image.base[l + 1]) &&
+                RipTarget(image, l + 2, l + 6) == flags)
+            {
+                out.reader = rb;
+                break;
+            }
+        if (out.reader)
+            break;
+    }
+    if (!out.reader)
+    {
+        out.missing = "an object pass reading the view's player and its flags";
+        return out;
+    }
+    out.wrapper = begin;
+    out.at = at;
+    out.user = user;
+    out.enable = enable;
+    out.flags = flags;
     return out;
 }
 } // namespace reclaimer_client

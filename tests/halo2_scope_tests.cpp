@@ -25,24 +25,29 @@ static bool Halo2Observer6Dof_BuildScopeCamera(Halo2CameraBasis& camera)
 namespace anniversary
 {
 static unsigned char state[0x200],expected[sizeof(state)],savedContext[kHalo2SaberSceneContextResetBytes],recordBytes[0x800];
-static int32_t savedLatch=17,latch=31;
+static int32_t savedLatch=17,latch=31,expectedLatch=17;static unsigned fenceSignals=0;static int32_t fenceView=-2;static bool lastReleased=false;
 static bool applyOk=true,slotsIntact=true;
 static bool ViewSlotsIntact(uintptr_t){return slotsIntact;}
 static bool ReadGuarded(uintptr_t at,float& out){memcpy(&out,reinterpret_cast<void*>(at),4);Phase();return true;}
 static bool ApplyEyeCamera(uintptr_t record,const Halo2CameraBasis& camera,int,const Halo2SaberEyeCover& cover)
 {
     Check(camera.position[0]==2&&scopeFlag&&active,"optional camera owns pass");
-    Check(latch==savedLatch&&!memcmp(state+kHalo2SaberSceneContextResetOffset,savedContext,sizeof(savedContext)),"native once/context reset for optional view");
+    Check(latch==expectedLatch&&!memcmp(state+kHalo2SaberSceneContextResetOffset,savedContext,sizeof(savedContext)),"native once/context reset for optional view");
     const float x=1/tanf(cover.halfHorizontalRadians)*(badProjection?2.f:1.f),y=1/tanf(cover.halfVerticalRadians);
     memcpy(reinterpret_cast<void*>(record+kHalo2SaberProjectionScaleXOffset),&x,4);
     memcpy(reinterpret_cast<void*>(record+kHalo2SaberProjectionScaleYOffset),&y,4);
     Phase();return applyOk;
 }
 static void Native(void* ctx,uintptr_t,int)
-{++draws;memset(static_cast<unsigned char*>(ctx)+kHalo2SaberSceneContextResetOffset,0xDA,kHalo2SaberSceneContextResetBytes);latch=91;Phase();}
-static void Run(bool ok=true,bool haveLatch=true)
+{++draws;memset(static_cast<unsigned char*>(ctx)+kHalo2SaberSceneContextResetOffset,0xDA,kHalo2SaberSceneContextResetBytes);
+if(latch!=kHalo2SaberSceneLatchHeld&&latch==fenceView){++fenceSignals;latch=kHalo2SaberSceneLatchHeld;}Phase();}
+static void NoteParticleRelease(uintptr_t at,bool& released)
+{if(*reinterpret_cast<int32_t*>(at+kHalo2SaberSceneOnceLatchRva)==kHalo2SaberSceneLatchHeld)released=true;}
+static void Run(bool ok=true,bool haveLatch=true,bool releasesParticles=false,bool released=false)
 {
     const uint32_t generation=7;const uint64_t serial=99;
+    bool particlesReleased=released;
+    const bool scopeWanted=haveLatch&&g_zoomFaultGeneration.load()!=generation&&VR_ScopeShouldRenderThisFrame();
     const uintptr_t base=reinterpret_cast<uintptr_t>(&latch)-kHalo2SaberSceneOnceLatchRva;
     void* ctx=state;uintptr_t record=reinterpret_cast<uintptr_t>(recordBytes),rdx=3;int viewIndex=0,constants=0;
     Halo2SaberEyeCover cover{};auto original=&Native;
@@ -54,11 +59,12 @@ static void Run(bool ok=true,bool haveLatch=true)
 #undef GameFault
     Check(!memcmp(state,expected,sizeof(state)),"third pass restores exact post-eye context including exterior sentinels");
     Check(!active&&!scopeFlag,"optional flags end even after exception");
+    lastReleased=particlesReleased;
 }
 static void Reset()
 {
     for(size_t i=0;i<sizeof(state);++i)state[i]=expected[i]=static_cast<unsigned char>(i*19+7);
-    memset(savedContext,0xBC,sizeof(savedContext));latch=31;applyOk=true;slotsIntact=true;
+    memset(savedContext,0xBC,sizeof(savedContext));latch=31;expectedLatch=savedLatch;fenceSignals=0;lastReleased=false;fenceView=-2;applyOk=true;slotsIntact=true;
 }
 }
 namespace classic
@@ -138,5 +144,12 @@ int main()
     Reset();anniversary::Run(false);Check(!draws&&!ends,"failed Anniversary real pair cannot start lens");
     Reset();anniversary::Run(true,false);Check(!draws&&!ends,"missing native latch refuses optional pass");
     Reset();anniversary::slotsIntact=false;anniversary::Run();Check(!draws&&!ends,"an emptied view slot refuses the optional pass");
+    Reset();anniversary::fenceView=anniversary::savedLatch;anniversary::Run(true,true,true,false);
+    Check(draws==1&&anniversary::fenceSignals==1&&anniversary::lastReleased,"a planned scope pass is the final pass and releases the particles");
+    Reset();anniversary::fenceView=anniversary::savedLatch;anniversary::expectedLatch=kHalo2SaberSceneLatchHeld;anniversary::Run(true,true,true,true);
+    Check(draws==1&&anniversary::fenceSignals==0,"a scope pass after the release holds it");
+    Reset();anniversary::fenceView=anniversary::savedLatch;requested=false;anniversary::Run(true,true,true,false);
+    Check(!draws&&!anniversary::fenceSignals&&!anniversary::lastReleased,"a scope pass that does not run leaves the release to the fallback");
+    Reset();anniversary::Run();Check(draws==1&&!anniversary::fenceSignals,"a call that does not own the release never signals it");
     printf("Halo 2 scope: %u checks passed\n",checks);
 }

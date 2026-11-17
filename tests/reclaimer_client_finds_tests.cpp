@@ -4,6 +4,7 @@
 #include "../src/common/reclaimer_client_finds.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <utility>
@@ -128,6 +129,38 @@ int main()
         CHECK(FindVisrCamera(f.View()).missing != nullptr && FindVisrConstants(f.View()).missing != nullptr);
     }
 
+    // The widget draw's crosshair gate: the draw at 0x2000 calls the gate 0x2400 and, after the class test, the
+    // crosshair check 0x2600; a pass-through at 0x2800 calls the draw.
+    {
+        Fake f;
+        f.Function(0x2000, 0x2200);
+        f.Function(0x2400, 0x2480);
+        f.Function(0x2600, 0x2680);
+        f.Function(0x2800, 0x280F);
+        f.Call(0x2050, 0x2400);
+        f.Put(0x2055, {0x8B, 0x4C, 0x24, 0x34, 0x84, 0xC0, 0x74, 0x18, 0x66, 0x83, 0xFD, 0x02, 0x75, 0x12});
+        f.Call(0x2063, 0x2600);
+        f.Put(0x2800, {0x48, 0x83, 0xEC, 0x28});
+        f.Call(0x2804, 0x2000);
+        f.Put(0x2809, {0x90, 0x48, 0x83, 0xC4, 0x28, 0xC3});
+        const Image image = f.View();
+        const WidgetGate g = FindWidgetCrosshairGate(image);
+        CHECK(!g.missing && g.widgetDraw == 0x2000 && g.gate == 0x2400 && g.crosshair == 0x2600);
+        CHECK(PastPassThroughs(image, 0x2800) == 0x2000);
+        const WidgetGate inDraw = FindWidgetCrosshairGate(image, 0x2000);
+        CHECK(!inDraw.missing && inDraw.gate == 0x2400);
+        CHECK(FindWidgetCrosshairGate(image, 0x2400).missing != nullptr);   // not the function holding it
+        // The gate asked from somewhere else too: refused.
+        Fake g2 = f;
+        g2.Function(0x3800, 0x3880);
+        g2.Call(0x3810, 0x2400);
+        CHECK(FindWidgetCrosshairGate(g2.View()).missing != nullptr);
+        // The crosshair check not at a function's start: refused.
+        Fake g3 = f;
+        g3.Call(0x2063, 0x2604);
+        CHECK(FindWidgetCrosshairGate(g3.View()).missing != nullptr);
+    }
+
     // The navpoint draw: a pass-through at 0x3000 to the version at 0x3100, which calls the draw at 0x3400.
     {
         Fake f;
@@ -157,6 +190,56 @@ int main()
         Fake h = f;
         h.Call(0x3120, 0x3404);
         CHECK(FindNavpointDrawFromVersion(h.View(), 0x3100).missing != nullptr);
+    }
+
+    // VISR's view user: the wrapper at 0x1000 stores the player at 0x3F00, tests the enable at 0x3F10, addresses the
+    // flags at 0x3F20 and sets the player back to -1; the object pass at 0x1400 reads the player and the flags.
+    {
+        Fake f;
+        f.Function(0x1000, 0x1100);
+        const auto rel = [](uint32_t target, uint32_t end) {
+            const int32_t r = static_cast<int32_t>(target) - static_cast<int32_t>(end);
+            return std::array<uint8_t, 4>{uint8_t(r), uint8_t(r >> 8), uint8_t(r >> 16), uint8_t(r >> 24)};
+        };
+        const auto put = [&](Fake& g, uint32_t at, std::initializer_list<uint8_t> head, uint32_t target,
+                             std::initializer_list<uint8_t> tail = {}) {
+            g.Put(at, head);
+            const uint32_t dispAt = at + static_cast<uint32_t>(head.size());
+            const auto r = rel(target, dispAt + 4 + static_cast<uint32_t>(tail.size()));
+            std::copy(r.begin(), r.end(), g.image.begin() + dispAt);
+            std::copy(tail.begin(), tail.end(), g.image.begin() + dispAt + 4);
+        };
+        put(f, 0x1010, {0x89, 0x05}, 0x3F00);
+        f.Put(0x1016, {0x83, 0xF8, 0x03, 0x77, 0x17});
+        put(f, 0x101B, {0x0F, 0xB6, 0x05}, 0x3F10);
+        f.Put(0x1022, {0x84, 0xC0, 0x74, 0x0C});
+        put(f, 0x1026, {0x48, 0x8D, 0x05}, 0x3F20);
+        f.Put(0x102D, {0x41, 0xC6, 0x04, 0x07, 0x01});
+        put(f, 0x1080, {0xC7, 0x05}, 0x3F00, {0xFF, 0xFF, 0xFF, 0xFF});
+        f.Function(0x1400, 0x1500);
+        put(f, 0x1410, {0x8B, 0x1D}, 0x3F00);
+        f.Put(0x1416, {0x83, 0xFB, 0x03, 0x77, 0x1A});
+        put(f, 0x1440, {0x4C, 0x8D, 0x35}, 0x3F20);
+        const VisrViewUser u = FindVisrViewUser(f.View());
+        CHECK(!u.missing && u.wrapper == 0x1000 && u.at == 0x1010 && u.user == 0x3F00 && u.enable == 0x3F10 &&
+              u.flags == 0x3F20 && u.reader == 0x1400);
+        // No reset to -1: refused.
+        Fake g = f;
+        g.Put(0x1086, {0x00, 0x00, 0x00, 0x00});
+        CHECK(FindVisrViewUser(g.View()).missing != nullptr);
+        // No object pass reading the same flags: refused.
+        Fake h = f;
+        put(h, 0x1440, {0x4C, 0x8D, 0x35}, 0x3F30);
+        CHECK(FindVisrViewUser(h.View()).missing != nullptr);
+        // A second wrapper of the same shape: refused.
+        Fake k = f;
+        k.Function(0x2000, 0x2100);
+        std::copy(f.image.begin() + 0x1010, f.image.begin() + 0x1032, k.image.begin() + 0x2010);
+        CHECK(FindVisrViewUser(k.View()).missing != nullptr);
+        // The player global inside the code: refused.
+        Fake m = f;
+        put(m, 0x1010, {0x89, 0x05}, 0x1200);
+        CHECK(FindVisrViewUser(m.View()).missing != nullptr);
     }
 
     if (g_failures)

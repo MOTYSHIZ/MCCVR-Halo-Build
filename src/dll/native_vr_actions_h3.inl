@@ -48,7 +48,7 @@ struct Runtime {
     uint32_t(__fastcall* localPlayer)(int){};
     std::atomic<bool> admitted{}, faulted{},secondaryReloadProved{};
     std::atomic<uint32_t> callbacks{};
-    std::atomic<uint64_t> converted{}, routed{}, readerAt{};
+    std::atomic<uint64_t> converted{}, routed{}, readerAt{}, passAdvances{};
     uint64_t reportAt{};
 } runtime;
 uint32_t blockedGeneration{}; // worker-only: a fault is not retried every poll
@@ -58,6 +58,7 @@ struct ThreadState {
     uint32_t actions{};
     uint32_t blocked{};
     bool direct{}, converted{};
+    uint64_t advances{};   // every advance of the records, by the converter or by a consumer pass (never reset)
     native_action_button::Record records[vr_mapping::Count]{};
     native_action_button::Record secondaryReleased[3]{};
     ExtraRecords extra;
@@ -121,7 +122,7 @@ void AdvanceController0(int elapsedMs) {
         if(local.generation!=runtime.generation) local.Reset(runtime.generation);
         local.publishedAt=publishedAt;local.actions=actions;local.direct=direct;local.blocked=blocked;
         local.cancelEpoch=cancelEpoch;
-        local.converterAt=now;local.converted=true;
+        local.converterAt=now;local.converted=true;++local.advances;
         for(unsigned i=0;i<vr_mapping::Count;++i)
             local.records[i].Advance((local.direct||(local.blocked&(1u<<i))) && (local.actions&(1u<<i)),unsigned(elapsedMs));
         local.extra.Advance(local.direct,extras,extrasServed,unsigned(elapsedMs));
@@ -163,6 +164,47 @@ void __fastcall InputUpdateHook() {
         if(!t_controller0Converted) AdvanceController0(elapsedMs);
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
 }
+// A PASS OF THE PLAYER-CONTROL BUILDER WITH NO CONVERSION BEFORE IT. The records advance with the game's converter,
+// once a tick. Project Reclaimer runs it only for a gamepad it sees: 0.10.4's own input update covered the other
+// ticks (InputUpdateHook), and 0.10.5 no longer runs that update where the mod can hook it. The converter then ran in
+// fits (331 calls in 5 s where 4,400 is usual, 2026-11-16): between its runs the records went stale and a pull of the
+// trigger could fall between two of them, so the trigger intermittently did not fire (user report). The builder reads
+// each (call site, action) once a pass (some actions twice, from two sites), so a pair read again starts the next
+// pass; a pass the converter did not advance for, at least kPassMinMs after the last advance (a tick is 16.7 ms),
+// advances the records once, here, with the time since their last advance (clamped as the game clamps its own). Where the converter runs every tick (MCC, Reclaimer up to 0.10.4) every
+// pass follows an advance and nothing happens here.
+constexpr unsigned kPassSlots=256;                          // open addressing; a pass reads well under a hundred
+thread_local uint32_t t_passKeys[kPassSlots]{};             // (site << 8 | action) + 1, of pass t_passStamp[i]
+thread_local uint32_t t_passStamps[kPassSlots]{};
+thread_local uint32_t t_pass=1;
+thread_local uint64_t t_advancesAtPass=0;                   // local.advances when this pass began
+constexpr uint64_t kPassMinMs=8;                            // a pass this soon after an advance is not a new tick
+// True when (site, action) was already read in this pass; else records it.
+bool SeenThisPass(uint32_t key) noexcept {
+    for(uint32_t probe=0,i=(key*2654435761u)>>24;probe<kPassSlots;++probe,i=(i+1)&(kPassSlots-1)) {
+        if(t_passStamps[i]!=t_pass) {t_passStamps[i]=t_pass;t_passKeys[i]=key;return false;}
+        if(t_passKeys[i]==key) return true;
+    }
+    return true;   // full: treat as a new pass
+}
+void NoteConsumerRead(uintptr_t site,unsigned action) noexcept {
+    if(site>=consumerEnd-consumerBegin) return;
+    const uint32_t key=((static_cast<uint32_t>(site)<<8)|(action&0xFF))+1;
+    if(!SeenThisPass(key)) return;
+    // A new pass.
+    if(++t_pass==0) {memset(t_passStamps,0,sizeof(t_passStamps));t_pass=1;}
+    (void)SeenThisPass(key);
+    const uint64_t now=GetTickCount64();
+    // local.converterAt: the last advance of either kind.
+    if(local.advances==t_advancesAtPass && local.generation==runtime.generation &&
+       (!local.converterAt || (now>=local.converterAt && now-local.converterAt>=kPassMinMs))) {
+        const int elapsedMs=local.converterAt?static_cast<int>((std::min)(now-local.converterAt,uint64_t{100})):0;
+        const uint64_t before=local.advances;
+        AdvanceController0(elapsedMs);
+        if(local.advances!=before) runtime.passAdvances.fetch_add(1,std::memory_order_relaxed);
+    }
+    t_advancesAtPass=local.advances;
+}
 __declspec(noinline) bool ReadController(uintptr_t state,unsigned& value) noexcept {
     __try {value=*reinterpret_cast<const volatile unsigned*>(state+0x514);return true;}
     __except(EXCEPTION_EXECUTE_HANDLER){return false;}
@@ -188,6 +230,7 @@ void* ReadOwned(void* state,unsigned action,void* native,uintptr_t caller) noexc
             reinterpret_cast<uintptr_t>(state)!=runtime.state)return native;
         unsigned controller=0;
         if(!ReadController(runtime.state,controller)){runtime.faulted=true;return native;}
+        if(controller==0) NoteConsumerRead(caller-runtime.base-consumerBegin,action);
         if(controller!=0 ||
             local.generation!=runtime.generation || !local.converted ||
             !Fresh(local.converterAt,now)||!Fresh(local.publishedAt,now)||!publication.stamp.load(std::memory_order_acquire)||
@@ -418,8 +461,8 @@ void Poll() {
     const auto now=GetTickCount64();
     if(now>=runtime.reportAt) {
         runtime.reportAt=now+5000;
-        LOG("Native VR action bridge H3: converter=%llu directReads=%llu secondaryReload=%s%s",
-            runtime.converted.load(),runtime.routed.load(),runtime.secondaryEdgesReady.load()?"edge-only":"stock-fallback",runtime.faulted.load()?" TRANSPORT FALLBACK (guarded access fault)":"");
+        LOG("Native VR action bridge H3: converter=%llu passAdvances=%llu directReads=%llu secondaryReload=%s%s",
+            runtime.converted.load(),runtime.passAdvances.load(),runtime.routed.load(),runtime.secondaryEdgesReady.load()?"edge-only":"stock-fallback",runtime.faulted.load()?" TRANSPORT FALLBACK (guarded access fault)":"");
     }
 }
 
