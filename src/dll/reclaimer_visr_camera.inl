@@ -23,6 +23,14 @@
 // the missing depth). These two hooks stay because VISR's shader rebuilds each pixel's distance from the depth with
 // these constants (how bright an outline is with distance, and the ping), and the depth is the eye's.
 //
+// THE OUTLINES' COLOURS (enemy red, ally green, objectives and items yellow and blue) come from a category mask the
+// client's object pass draws only while its "view's player" global names a local player (0 to 3); its wrapper of a
+// player's view sets it, and the mod draws each eye outside that wrapper, so the eyes read -1, drew no mask, and
+// coloured their outlines from the mask of the game's own flat view (user report, 2026-11-16; the eyes' passes drew
+// none of the mask's ~12 draws a frame, dev counts). The eye loop now names the first player for each eye and puts the
+// value back after (ReclaimerVisrViewUserBegin/End in game.cpp); the globals are found by the wrapper's shape and
+// cross-checked against its reset and the object pass that reads them (reclaimer_client::FindVisrViewUser). No hook.
+//
 // FOUND BY ITS SHAPE (both 0.10.0 and 0.10.4 checked offline, unique in each): the camera's three reads,
 // mov e?x,[r?x+0x28]; mov e?x,[r?x+0x64]; mov e?x,[r?x+0x68]; test e?x,e?x, followed by the stores into the answer,
 // mov [r?x+4]; mov [r?x+8]; mov [r?x+0xC]. The hook goes on the function whose extent holds both. Not found, or more
@@ -183,6 +191,39 @@ bool InstallReclaimerVisrCamera()
     return true;
 }
 
+// Install thread, once per process with the VISR camera: the globals the eye loop names its player in. False with the
+// reason logged when not found; the outlines then keep the flat view's colours.
+bool InstallReclaimerVisrViewUser()
+{
+    static bool tried = false;
+    if (tried || !g_hostIsProjectReclaimer || !lifted::Active())
+        return g_reclaimerVisrViewUser.load(std::memory_order_relaxed) != nullptr;
+    tried = true;
+    reclaimer_client::Image image;
+    if (!reclaimer_client::ClientImageInMemory(image))
+    {
+        LOG("Project Reclaimer VISR: StockFallback: the client executable's headers do not read; the outlines keep "
+            "the flat view's colours");
+        return false;
+    }
+    const reclaimer_client::VisrViewUser found = reclaimer_client::FindVisrViewUser(image);
+    if (found.missing)
+    {
+        LOG("Project Reclaimer VISR: StockFallback: its view's player: %s not found; the outlines keep the flat view's "
+            "colours", found.missing);
+        return false;
+    }
+    const auto exe = reinterpret_cast<uintptr_t>(image.base);
+    g_reclaimerVisrViewEnable.store(reinterpret_cast<const volatile uint8_t*>(exe + found.enable),
+                                    std::memory_order_relaxed);
+    g_reclaimerVisrViewFlags.store(reinterpret_cast<volatile uint8_t*>(exe + found.flags), std::memory_order_relaxed);
+    g_reclaimerVisrViewUser.store(reinterpret_cast<volatile int32_t*>(exe + found.user), std::memory_order_release);
+    LOG("Project Reclaimer VISR: each eye is drawn as the first player's view (player exe+0x%X, set in the view "
+        "wrapper exe+0x%X, read by the object pass exe+0x%X): its outlines get their colours from the eye",
+        found.user, found.wrapper, found.reader);
+    return true;
+}
+
 // Cold worker: once, when VISR first asked and was answered with the eye's field of view.
 void ReportReclaimerVisrCamera()
 {
@@ -201,6 +242,12 @@ void ReportReclaimerVisrCamera()
             "its own picture)");
     }
 #endif
+    static bool reportedViewUser = false;
+    if (!reportedViewUser && g_reclaimerVisrEyeViews.load(std::memory_order_relaxed))
+    {
+        reportedViewUser = true;
+        LOG("Project Reclaimer VISR: an eye was drawn as the first player's view (outlines coloured from the eye)");
+    }
     static bool reportedWidth = false;
     if (!reportedWidth && g_reclaimerVisrWidthsFixed.load(std::memory_order_relaxed))
     {
