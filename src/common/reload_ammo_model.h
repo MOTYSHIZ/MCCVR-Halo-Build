@@ -82,7 +82,15 @@ public:
         r->capacity = sim.capacity;
         if (r->traits.feed == Feed::PerRound) r->magIn = true;
         const int cap = ChamberCap(r->traits);
-        if (r->chamber > cap) { r->mag += r->chamber - cap; r->chamber = cap; }
+        // A chamber holding fewer than before: what no longer fits goes back to the magazine -- the one that is out,
+        // while it is out, so those rounds come back with it rather than vanishing when its seat recounts the gun
+        // (Campaign Evolved 70c5c1b).
+        if (r->chamber > cap)
+        {
+            const int extra = r->chamber - cap;
+            if (r->magIn) r->mag += extra; else r->dropped += extra;
+            r->chamber = cap;
+        }
         if (made)
         {
             r->chamber = Min(Clamp0(sim.loaded), cap);
@@ -227,7 +235,9 @@ private:
             }
             else if (r.chamber > 0)
             {
-                if (r.traits.cycle == Cycle::Manual) r.chamber = 0;
+                // One round per shot either way: a manual chamber holding a burst gives one per shot until it is
+                // racked (Campaign Evolved 70c5c1b).
+                if (r.traits.cycle == Cycle::Manual) --r.chamber;
                 else { --r.chamber; TopUp(r); }
                 ++lastShots_;
             }

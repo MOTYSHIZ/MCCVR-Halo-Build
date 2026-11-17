@@ -60,6 +60,9 @@ struct Weapon
     bool needsLearning = false;
     // The rack part is under the two-handed grip (the shotgun's pump): drawing that hand back works it.
     bool supportGripRacks = false;
+    // The magazine IS the support grip (the spiker): no two-handed hold while it is out (Campaign Evolved's
+    // twoHandNeedsMagazine).
+    bool twoHandNeedsMagazine = false;
 };
 
 // The built-in weapons: magazine-fed guns whose magazine goes up into the gun and whose kit model has both a
@@ -97,6 +100,7 @@ inline Weapon BuiltInWeapon(const char* name) noexcept
             w.traits.chamberRounds = 0;
             w.rackChambers = false;
             w.needsLearning = true;
+            w.twoHandNeedsMagazine = std::strcmp(name, "fp_spike_rifle") == 0;
             return w;
         }
     // The shotgun: a shell at a time through the loading port, and the pump after every shot (Campaign Evolved's

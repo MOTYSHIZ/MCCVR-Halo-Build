@@ -11440,6 +11440,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // The HUD's count: weapon handle << 32 | loaded << 16 | shown reserve; and title << 56 | the time (ms).
     std::atomic<uint64_t> g_manualReloadHudWord{0}, g_manualReloadHudStamp{0};
     std::atomic<uint64_t> g_manualReloadQuietUntil{0};  // ms: the game's reload is hidden until then
+    bool g_manualReloadCarryGrip = false;  // the input tick's: a seated magazine's grip is still closed
     // The held gun's kit model name (a catalogue string: stable), and whether the manual reload knows it.
     std::atomic<const char*> g_manualReloadHeldGun{nullptr};
     std::atomic<bool> g_manualReloadHeldBuiltIn{false};
@@ -16368,13 +16369,29 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     if(until>g_manualReloadQuietUntil.load(std::memory_order_relaxed))
                         g_manualReloadQuietUntil.store(until,std::memory_order_release);
                 }
-                if(reloadOut.owned&&reloadOut.followValid&&g_config.manual_reload_hand_follow)
+                g_manualReloadCarryGrip=reloadOut.owned&&reloadOut.carryGrip;
                 {
-                    // The hand's move, into the gun-hand aim frame the palette carries it back out of.
-                    const weapon_interaction::Quat inverse{-aimRotationUsed.x,-aimRotationUsed.y,-aimRotationUsed.z,
-                        aimRotationUsed.w};
-                    shown.follow=weapon_interaction::Rotate(inverse,reloadOut.follow);
-                    shown.followValid=weapon_interaction::Finite(shown.follow);
+                    // The hand's move, into the gun-hand aim frame the palette carries it back out of. When the follow
+                    // ends (the magazine home, the handle let go) it fades over 150 ms in that gun-relative frame,
+                    // instead of the hand snapping to the controller (Campaign Evolved 70c5c1b).
+                    static weapon_interaction::Vec lastFollow{};
+                    static uint64_t lastFollowAt=0;
+                    if(reloadOut.owned&&reloadOut.followValid&&g_config.manual_reload_hand_follow)
+                    {
+                        const weapon_interaction::Quat inverse{-aimRotationUsed.x,-aimRotationUsed.y,-aimRotationUsed.z,
+                            aimRotationUsed.w};
+                        shown.follow=weapon_interaction::Rotate(inverse,reloadOut.follow);
+                        shown.followValid=weapon_interaction::Finite(shown.follow);
+                        if(shown.followValid) { lastFollow=shown.follow;lastFollowAt=inputNow; }
+                    }
+                    else if(reloadOut.owned&&g_config.manual_reload_hand_follow&&lastFollowAt&&
+                        inputNow>=lastFollowAt&&inputNow-lastFollowAt<150)
+                    {
+                        const float k=1.0f-float(inputNow-lastFollowAt)/150.0f;
+                        shown.follow=lastFollow*k;
+                        shown.followValid=true;
+                    }
+                    else lastFollowAt=0;
                 }
                 (void)g_manualReloadShown.Publish(shown);
                 const bool events[6]{reloadOut.dropped,reloadOut.grabbed,reloadOut.seated,reloadOut.racked,
@@ -16515,6 +16532,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
             // The squeeze that sets the holster spot is not a grip for the game (a grenade, a grab).
             if(pad.weaponConsumePrimary||g_holsterCapture.ConsumesGrip()) pad.gripR=0;
             if(pad.weaponConsumeSupport) pad.gripL=0;
+            // A grip carried from a seat is the two-handed hold's to take, never the game's.
+            if(g_manualReloadCarryGrip) pad.gripL=0;
             if(weaponGesture.primaryHaptic>0) VR_PulseContactHaptics(false,weaponGesture.primaryHaptic);
             if(weaponGesture.supportHaptic>0) VR_PulseContactHaptics(true,weaponGesture.supportHaptic);
             if(weaponGesture.pickedMagazine||weaponGesture.grabbedHolster)
@@ -26485,7 +26504,7 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
             LOG("Manual reload state: %s; ours loaded=%d chamber=%d reserve-shown=%d; game loaded=%d reserve=%d "
                 "capacity=%d reloading=%u; model=%016llX well=%s(%.3f,%.3f,%.3f) axis(%.2f,%.2f,%.2f) "
                 "rack=%s(%.3f,%.3f,%.3f) back(%.2f,%.2f,%.2f) support(%.3f,%.3f,%.3f)",
-                manual_reload::kPhaseNames[log.phase>=0&&log.phase<5?log.phase:0],log.loaded,log.chamber,log.reserve,
+                manual_reload::kPhaseNames[log.phase>=0&&log.phase<manual_reload::kPhaseCount?log.phase:0],log.loaded,log.chamber,log.reserve,
                 log.game.loaded,log.game.reserve,log.game.capacity,log.game.reloading?1u:0u,
                 static_cast<unsigned long long>(log.identity),log.wellValid?"":"none",
                 log.well.x,log.well.y,log.well.z,log.wellAxis.x,log.wellAxis.y,log.wellAxis.z,
@@ -26502,7 +26521,7 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
             LOG("Manual reload: GRIP TOOK NOTHING (%s): pouch %.1f cm away (reach %.1f), magazine to fetch %u; "
                 "rack part %.1f cm away (reach %.1f), racked by hand %u, has a round to chamber %u; "
                 "two-handed hold held off by the reload %u%s",
-                manual_reload::kPhaseNames[int(m.phase)<5?int(m.phase):0],m.pouchDistance*100.0f,m.pouchReach*100.0f,
+                manual_reload::kPhaseNames[int(m.phase)<manual_reload::kPhaseCount?int(m.phase):0],m.pouchDistance*100.0f,m.pouchReach*100.0f,
                 m.magazineOut?1u:0u,m.rackDistance*100.0f,m.rackReach*100.0f,m.rackEnabled?1u:0u,m.rackWork?1u:0u,
                 m.blockTwoHand?1u:0u,m.trackingLost?"; THE SUPPORT HAND'S TRACKING WAS LOST (its pose read 0,0,0)":"");
         }
@@ -26516,7 +26535,7 @@ void VR_ReportWeaponInteractions(uint64_t nowMs)
             const int phase=g_manualReloadPhase.load(std::memory_order_relaxed);
             LOG("Manual reload: %s; dropped=%u grabbed=%u seated=%u racked=%u game-presses=%u let-go=%u; "
                 "ours loaded=%d chamber=%d reserve-shown=%d; trigger %s (title=%s)",
-                manual_reload::kPhaseNames[phase>=0&&phase<5?phase:0],events[0],events[1],events[2],events[3],
+                manual_reload::kPhaseNames[phase>=0&&phase<manual_reload::kPhaseCount?phase:0],events[0],events[1],events[2],events[3],
                 events[4],events[5],g_manualReloadCounts[0].load(),g_manualReloadCounts[2].load(),
                 g_manualReloadCounts[1].load(),
                 VR_ManualReloadTriggerHeld(title,TitleAdapter_GetGeneration(title))?"held":"free",

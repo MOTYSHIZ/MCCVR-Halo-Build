@@ -276,7 +276,7 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
                 if (node > 0 && node < nodes) pose[node] = reload_clip::Sample(clip, t, node);
             };
             const auto& ms = magazineClip.segments;
-            if (p.phase == manual_reload::Phase::Pushing && haveMagazine)
+            if ((p.phase == manual_reload::Phase::Pushing || p.phase == manual_reload::Phase::Pulling) && haveMagazine)
             {
                 // The magazine rides the animation's way in; the hand's push picks the time.
                 const float t = reload_clip::TimeAtDistance(*magazineClip.clip, parts->magazineNode, ms.in, ms.seat,
@@ -425,6 +425,15 @@ void Apply(GameTitle title, uint16_t tag, uint32_t generation, const FpInterpola
 
         // What the hands asked for, on this frame's private copy only.
         if (!owned) return;
+        if (parts->rack == manual_reload::RackKind::Pump && !hold && g_gun.idleValid && rackSource >= 0 &&
+            parts->rackNode > 0 && parts->rackNode < nodes && p.rackPull <= 0)
+        {
+            // THE SHOTGUN'S PUMP STAYS STILL through the game's shot: its fire animation pumps the gun by itself, and the
+            // player pumps it by hand (Campaign Evolved's holdStill). Held at rest relative to the gun as now drawn.
+            BoneMatrix placed{};
+            if (ComposeBoneMatrices(scratch[rootSource], ToMatrix(g_gun.idleRel[parts->rackNode]), placed))
+                scratch[rackSource] = placed;
+        }
         if (!magazineShown && magazineSource >= 0)
         {
             scratch[magazineSource].scale = 0.0001f;

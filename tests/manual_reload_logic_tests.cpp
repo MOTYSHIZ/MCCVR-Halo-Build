@@ -88,7 +88,7 @@ int main()
         Check(rig.out.reserve==rig.game.loaded+rig.game.reserve-1,"rounds the game loaded show as reserve");
         rig.game.Shoot(1);rig.Step();
         Check(rig.out.loaded==0&&rig.out.triggerHeld,"the last chambered round fired: the trigger is held");
-        Check(rig.out.blockTwoHand,"no two-handed grab while a magazine is to be fetched");
+        Check(!rig.out.blockTwoHand,"the rifle may be held two-handed while a magazine is fetched (only the spiker may not)");
 
         // FETCH at the pouch: a fresh grip only.
         rig.in.supportGrip=1;rig.Step();rig.Wait(400);rig.in.support=kPouch;rig.Step();
@@ -264,6 +264,68 @@ int main()
         dry.in.support = kRack; dry.Step(); dry.Grip(true);
         dry.in.support = kRack + kRackBack * 0.065f; dry.Step();
         Check(dry.out.racked && !dry.out.promptRack, "racked: the prompt goes");
+    }
+    {
+        // PULLING THE MAGAZINE OUT BY HAND: it is spent, keeps its rounds, and goes back in with them.
+        Rig rig;
+        rig.game.Shoot(10); rig.Step();                              // 22 in the gun: 21 + 1 chambered
+        rig.in.support = HandForMagazine(kWell + kAxis * -0.02f); rig.Step(); rig.Grip(false); rig.Grip(true);
+        Check(rig.out.phase == Phase::Pulling && rig.out.consumeSupport, "a grip on the magazine starts a pull");
+        rig.MoveMagazine(kWell + kAxis * -0.04f, 3);
+        rig.Grip(false);
+        Check(rig.out.phase == Phase::Idle && !rig.out.dropped && rig.out.loaded == 22,
+              "let go part way: back in, nothing changed");
+        rig.Grip(true);
+        rig.MoveMagazine(kWell + kAxis * -0.12f, 6);
+        Check(rig.out.phase == Phase::MagHeld && rig.out.hideMagazine && rig.out.loaded == 1,
+              "pulled out: a magazine in the hand, the chambered round left in the gun");
+        rig.Wait(800);                                               // the game reloads, unseen
+        rig.MoveMagazine(kWell + kAxis * -0.20f, 4);                 // away from the well, then back in
+        rig.MoveMagazine(kWell + kAxis * -0.12f, 4);
+        rig.MoveMagazine(kWell + kAxis * -0.005f, 4);
+        Check(rig.out.loaded == 22, "the spent magazine goes back with its 21 rounds (and the chambered one)");
+        Rig spiker("fp_spike_rifle");
+        spiker.in.geometry.learned = true; spiker.Step();
+        spiker.in.support = HandForMagazine(kWell + kAxis * -0.02f); spiker.Step(); spiker.Grip(false); spiker.Grip(true);
+        Check(spiker.out.phase != Phase::Pulling, "the spiker's magazine is its foregrip: no pull by hand");
+        spiker.Grip(false); spiker.Tap();
+        Check(spiker.out.dropped && spiker.out.blockTwoHand, "its button drops it, and no two-handed hold while it is out");
+        Rig ar;
+        ar.Tap();
+        Check(ar.out.phase == Phase::MagOut && !ar.out.blockTwoHand,
+              "the assault rifle may be held two-handed with its magazine out");
+    }
+    {
+        // A GRIP CARRIED FROM A SEAT is the two-handed hold's to take (not while a rack is due).
+        Rig rig;
+        rig.Tap(); rig.Wait(800);
+        rig.FetchAndSeat();
+        Check(rig.out.seated && rig.out.carryGrip && !rig.out.consumeSupport && !rig.out.blockTwoHand,
+              "seated, the grip still closed: hidden from the game, free for the two-handed hold");
+        rig.Grip(false);
+        Check(!rig.out.carryGrip, "opened: carried no longer");
+        Rig dry;
+        dry.game = Game{1, 96, 32}; dry.Step(); dry.game.Shoot(1); dry.Step();
+        dry.Tap(); dry.Wait(800); dry.FetchAndSeat();
+        Check(dry.out.chamber == 0 && !dry.out.carryGrip && dry.out.consumeSupport,
+              "seated into a dry gun: the grip stays the reload's (the rack is next)");
+    }
+    {
+        // Campaign Evolved's ammo-model fixes.
+        reload_ammo::Model m;
+        reload_ammo::Traits burst{};
+        burst.cycle = reload_ammo::Cycle::Manual; burst.chamberRounds = 3;
+        m.Sample(7, {30, 60, 30, false}, burst);
+        Check(m.Chamber() == 3, "a manual burst chamber holds its burst");
+        m.Sample(7, {29, 60, 30, false}, burst);
+        Check(m.Chamber() == 2, "a manual chamber holding a burst gives one round per shot");
+        reload_ammo::Model n;
+        reload_ammo::Traits three{}; three.chamberRounds = 3;
+        n.Sample(8, {30, 60, 30, false}, three);
+        n.DropMag();
+        reload_ammo::Traits one = three; one.chamberRounds = 1;
+        n.Sample(8, {30, 60, 30, false}, one);
+        Check(n.Chamber() == 1 && n.Dropped() == 29, "rounds trimmed from a chamber with the magazine out go with it");
     }
     {
         // THE MAG PROMPT: the trigger pulled with the magazine out and nothing to fire marks the pouch until one is
