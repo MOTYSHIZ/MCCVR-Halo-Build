@@ -14,6 +14,8 @@
 //   VISR's camera      0.10.0 exe+0x2B1FB40   0.10.4 exe+0x3775E80
 //   VISR's constants   0.10.0 exe+0x2B24250   0.10.4 exe+0x377B7B0
 //   navpoint draw      0.10.0 exe+0x2D839B0   0.10.4 exe+0x3A5EAC0 (count read exe+0x2D83C69 / exe+0x3A5EEF0)
+// and in 0.10.5 (2026-11-16): VISR's camera exe+0x379D310, constants exe+0x37A2C40, navpoint draw exe+0x3A87350, and
+// the widget draw's crosshair gate (widget draw exe+0x3C42430, gate exe+0x3AB7B40, crosshair check exe+0x3AB7970).
 
 #include <cstddef>
 #include <cstdint>
@@ -339,6 +341,121 @@ inline OdstPrompt FindOdstPrompt(const Image& image)
             out.setter = b;
         }
     }
+    return out;
+}
+
+// ---- the HUD widget draw's crosshair gate ----------------------------------------------------------------------------
+// The client's own widget draw (its version of halo3.dll's chud_draw_widget +0x2EDF24, which the game's callers reach
+// through a pass-through) keeps the game's crosshair gate: for a widget of scripting class 2 it asks a gate (in the
+// game, game_is_playback +0xF01A0) and, only when that says yes, whether the crosshair shows (+0x2EDE38). The mod's
+// crosshair redirect opens the gate and answers the second question. Up to 0.10.4 both questions reached the game's
+// functions, which the mod hooks. From 0.10.5 the widget draw asks them through two shims of the client's own, each
+// called from there alone, and the game's functions are never reached: the crosshair stayed in the HUD.
+// Shape: call GATE; ... test al,al; je; cmp r16,2; jne; call CROSSHAIR.
+inline constexpr char kWidgetCrosshairGate[] = "84 C0 74 ?? 66 83 ?? 02 75 ?? E8";
+inline constexpr uint32_t kWidgetCrosshairCall = 10;    // the call's offset in the pattern
+inline constexpr uint32_t kWidgetGateCallWindow = 40;   // how far before the pattern the gate's call may be
+
+struct WidgetGate
+{
+    uint32_t widgetDraw = 0;   // the widget draw holding the gate (its start)
+    uint32_t gate = 0;         // the function the gate asks (its start)
+    uint32_t crosshair = 0;    // the function asked whether the crosshair shows (its start)
+    uint32_t at = 0;           // the match
+    const char* missing = nullptr;
+};
+
+// Past up to two pass-throughs (sub rsp; call X; nop; add rsp; ret) from `rva`.
+inline uint32_t PastPassThroughs(const Image& image, uint32_t rva)
+{
+    for (int hop = 0; hop < 2 && image.Holds(rva, 16); ++hop)
+    {
+        int64_t offset = 0;
+        if (!halo3_player_tags::ThunkCallee(image.base + rva, 16, offset))
+            break;
+        rva = static_cast<uint32_t>(static_cast<int64_t>(rva) + offset);
+    }
+    return rva;
+}
+
+// `widgetDraw` 0: anywhere in the code (offline); else only in that function, which must be the one holding it.
+inline WidgetGate FindWidgetCrosshairGate(const Image& image, uint32_t widgetDraw = 0)
+{
+    WidgetGate out;
+    uint32_t from = image.codeRva, length = image.codeSize;
+    uint32_t b = 0, e = 0;
+    if (widgetDraw)
+    {
+        if (!image.Extent(widgetDraw, b, e) || b != widgetDraw)
+        {
+            out.missing = "the widget draw's extent";
+            return out;
+        }
+        from = b;
+        length = e - b;
+    }
+    const std::vector<uint32_t> hits = FindAll(image, from, length, ParsePattern(kWidgetCrosshairGate), 2);
+    if (hits.size() != 1)
+    {
+        out.missing = hits.empty() ? "the crosshair class test (test al,al; je; cmp r16,2; jne; call)"
+                                   : "a single crosshair class test (more than one)";
+        return out;
+    }
+    const uint32_t hit = hits[0];
+    if (!image.Extent(hit, b, e))
+    {
+        out.missing = "the class test's function extent";
+        return out;
+    }
+    const auto startOf = [&image](int64_t target) -> uint32_t {
+        uint32_t fb = 0, fe = 0;
+        if (target <= 0 || target > 0xFFFFFFFFll || !image.Extent(static_cast<uint32_t>(target), fb, fe) ||
+            fb != static_cast<uint32_t>(target))
+            return 0;
+        return fb;
+    };
+    const uint32_t call = hit + kWidgetCrosshairCall;
+    const uint32_t crosshair = startOf(static_cast<int64_t>(call) + 5 + Rel32(image, call + 1));
+    if (!crosshair)
+    {
+        out.missing = "the crosshair check's start";
+        return out;
+    }
+    // The gate: the nearest call before the class test that reaches a function's start.
+    uint32_t gate = 0;
+    for (uint32_t at = hit >= 5 ? hit - 5 : 0; at + kWidgetGateCallWindow >= hit && at >= b; --at)
+    {
+        if (image.base[at] == 0xE8)
+            if (const uint32_t target = startOf(static_cast<int64_t>(at) + 5 + Rel32(image, at + 1)))
+            {
+                gate = target;
+                break;
+            }
+        if (at == 0)
+            break;
+    }
+    if (!gate || gate == crosshair)
+    {
+        out.missing = "the gate's call before the class test";
+        return out;
+    }
+    // Each is asked from the widget draw alone, so hooking it changes nothing else the client does.
+    const std::vector<uint32_t> gateCallers = CallingFunctions(image, gate, 2);
+    const std::vector<uint32_t> crosshairCallers = CallingFunctions(image, crosshair, 2);
+    if (gateCallers.size() != 1 || gateCallers[0] != b)
+    {
+        out.missing = "the gate asked from the widget draw alone";
+        return out;
+    }
+    if (crosshairCallers.size() != 1 || crosshairCallers[0] != b)
+    {
+        out.missing = "the crosshair check asked from the widget draw alone";
+        return out;
+    }
+    out.widgetDraw = b;
+    out.gate = gate;
+    out.crosshair = crosshair;
+    out.at = hit;
     return out;
 }
 

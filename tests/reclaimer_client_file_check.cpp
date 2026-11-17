@@ -143,6 +143,10 @@ int main()
     if (!camera.missing && !constants.missing)
         report("VISR finds agree", camera.function,
                reclaimer_client::VisrAgree(image, camera.function, constants.function));
+    const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image);
+    report("widget draw (gate)", gate.widgetDraw, gate.missing);
+    report("crosshair gate", gate.gate, gate.missing);
+    report("crosshair check", gate.crosshair, gate.missing);
     const reclaimer_client::NavpointDraw draw = reclaimer_client::FindNavpointDraw(image);
     report("navpoint version", draw.version, draw.missing);
     report("navpoint draw", draw.draw, draw.missing);
