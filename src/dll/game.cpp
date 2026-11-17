@@ -2550,6 +2550,16 @@ namespace
     // palette hook matches its `source` pointer against both, so any
     // interpolate/palette call ordering pairs correctly.
     thread_local FpInterpolationContext g_fpInterpolationContexts[2];
+    // THE LAST GOOD CONTEXT PER SLOT. When the game's first-person interpolation returns no bones (Project Reclaimer
+    // 0.10.5: 4-16 palettes in 5 s at 72 frames a second, more as the frame rate falls; almost none on 0.10.4), the
+    // palette had no context and drew the game's own, flat-screen arms for that frame. The slot's last good context
+    // stands in for up to kFpHeldContextMs, for the same player in the same level: the arms are solved from the last
+    // good game pose (the unmodified snapshot it made) with this frame's controllers, as baa97134 holds a hand when
+    // the controller gives no pose. The palette still matches it only by its own bone bank.
+    thread_local FpInterpolationContext g_fpLastGoodContexts[2];
+    thread_local uint64_t g_fpLastGoodMs[2]{};
+    constexpr uint64_t kFpHeldContextMs = 250;
+    std::atomic<uint64_t> g_fpHeldContexts{0};
     // Why each Halo 3 first-person palette was or was not posed (fp_arm_fallback_logic.h). Present reports them.
     thread_local fp_arm_fallback::ThreadTrace g_fpArmTrace;
     std::atomic<uint64_t> g_fpArmOutcomes[static_cast<size_t>(fp_arm_fallback::Outcome::Count)]{};
@@ -7852,6 +7862,23 @@ namespace
                 }
                 ApplyControllerToMarkerBones(view,*outBones,count,wrist,
                                              cameraControl,slot==1);
+            }
+        }
+        if (g_fpInterpolationContexts[slot].valid)
+        {
+            g_fpLastGoodContexts[slot]=g_fpInterpolationContexts[slot];
+            g_fpLastGoodMs[slot]=GetTickCount64();
+        }
+        else if (!g_fpArmTrace.lastResult)
+        {
+            const FpInterpolationContext& held=g_fpLastGoodContexts[slot];
+            const uint64_t nowMs=GetTickCount64();
+            if (held.valid && held.source && held.player==view && held.slot==slot &&
+                held.generation==g_halo3RuntimeGeneration.load(std::memory_order_acquire) &&
+                nowMs-g_fpLastGoodMs[slot]<=kFpHeldContextMs)
+            {
+                g_fpInterpolationContexts[slot]=held;
+                g_fpHeldContexts.fetch_add(1,std::memory_order_relaxed);
             }
         }
         }
@@ -56620,6 +56647,13 @@ void Game_AutoVrTick()
                     "in %.1f s kept the hand where it was last tracked",
                     static_cast<unsigned long long>(heldRight),static_cast<unsigned long long>(heldLeft),
                     (reportNow-windowStartMs)/1000.0);
+            static uint64_t heldContextsReported=0;
+            const uint64_t heldContexts=g_fpHeldContexts.load(std::memory_order_relaxed)-heldContextsReported;
+            heldContextsReported+=heldContexts;
+            if (heldContexts)
+                LOG("Halo 3 arms: the game's first-person pose came back empty %llu times in %.1f s; each kept the "
+                    "last good pose, so the arms stayed on the controllers",
+                    static_cast<unsigned long long>(heldContexts),(reportNow-windowStartMs)/1000.0);
             windowStartMs=reportNow;presents=0;
         }
     }
