@@ -412,6 +412,23 @@ static void TestH3(){
     H3Poll(0,true);Check(H3Read(vr_mapping::Reload)==&h3Physical,"H3 Unbound/release removes virtual reload");
     H3Poll(1u<<vr_mapping::Reload,true);reload=H3Read(vr_mapping::Reload);
     Check(reload->state.flags==0&&reload->state.frames==1,"H3 release clears consumed flag before a new press");
+    // Project Reclaimer 0.10.5 runs the converter in fits: a player-control pass that no conversion preceded advances
+    // the records itself, once, a tick after the last advance; a read again within the same few ms does not.
+    {
+        const uint64_t passAdvances=native_h3::runtime.passAdvances.load();
+        clockNow+=16;NativeVrActions_BeginPoll();NativeVrActions_Publish(raw,testTitle,clockNow,1u<<vr_mapping::Reload,true);
+        NativeVrActions_EndPoll();
+        reload=H3Read(vr_mapping::Reload);
+        Check(reload->state.frames==2&&native_h3::runtime.passAdvances.load()==passAdvances+1,
+            "H3 a pass with no converter before it advances the records once");
+        reload=H3Read(vr_mapping::Reload);
+        Check(reload->state.frames==2&&native_h3::runtime.passAdvances.load()==passAdvances+1,
+            "H3 a read again within the same tick does not advance them again");
+        H3Poll(1u<<vr_mapping::Reload,true);reload=H3Read(vr_mapping::Reload);
+        Check(reload->state.frames==3&&native_h3::runtime.passAdvances.load()==passAdvances+1,
+            "H3 a pass after the converter ran does not advance them again");
+        H3Poll(0,true);
+    }
     H3Poll(1u<<vr_mapping::Interact,true);
     Check(H3Read(vr_mapping::Interact)!=&h3Physical&&H3Read(vr_mapping::Reload)==&h3Physical,"H3 Use and Reload remain separately bindable");
     h3Physical.state.frames=7;h3Physical.state.amount=.5f;
