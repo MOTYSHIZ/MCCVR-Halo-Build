@@ -86,6 +86,8 @@ namespace
     // slot they were about to read was empty; the last such slot and group for the cold report.
     std::atomic<uintptr_t> g_originalViewTargets{0};
     std::atomic<uint64_t> g_viewTargetSkips{0};
+    // Of those, the views that named a slot outside the twelve (a draw list built from freed particle records).
+    std::atomic<uint64_t> g_viewTargetOutsideSkips{0};
     // The last skipped view: its list entry's slot offset and the draw's group and half.
     std::atomic<uint32_t> g_viewTargetSkipSlot{0};
     std::atomic<int32_t> g_viewTargetSkipGroup{0};
@@ -1581,10 +1583,13 @@ namespace
     }
 
     // Whether every pointer the view-target draw is about to read for `list` is there: the very address the game reads
-    // for each view (Halo2SaberViewTargetPointerOffset), inside the twelve slots or not. A list with no views is the
-    // game's to draw; one whose entries cannot be read, or a view whose pointer cannot be read or is empty, is not.
-    bool ViewTargetsPresent(uintptr_t base, uintptr_t list, int32_t group, uint8_t half, uint32_t& emptySlot) noexcept
+    // for each view (Halo2SaberViewTargetPointerOffset). A list with no views is the game's to draw; one whose entries
+    // cannot be read, a view outside the twelve slots (Halo2SaberViewTargetSlotInTable: never a real one), or a view
+    // whose pointer cannot be read or is empty, is not.
+    bool ViewTargetsPresent(uintptr_t base, uintptr_t list, int32_t group, uint8_t half, uint32_t& emptySlot,
+                            bool& outsideTable) noexcept
     {
+        outsideTable = false;
         int32_t count = 0;
         uintptr_t entries = 0;
         if (!ReadGuarded(list + kHalo2SaberViewListCountOffset, count) || count <= 0)
@@ -1596,8 +1601,18 @@ namespace
             uint32_t slotOffset = 0;
             uintptr_t pointer = 0;
             if (!ReadGuarded(entries + static_cast<uintptr_t>(i) * kHalo2SaberViewListEntryStride +
-                                 kHalo2SaberViewListEntrySlotOffset, slotOffset) ||
-                !ReadGuarded(base + static_cast<uintptr_t>(Halo2SaberViewTargetPointerOffset(slotOffset, group, half)),
+                                 kHalo2SaberViewListEntrySlotOffset, slotOffset))
+            {
+                emptySlot = slotOffset;
+                return false;
+            }
+            if (!Halo2SaberViewTargetSlotInTable(slotOffset, group, half))
+            {
+                emptySlot = slotOffset;
+                outsideTable = true;
+                return false;
+            }
+            if (!ReadGuarded(base + static_cast<uintptr_t>(Halo2SaberViewTargetPointerOffset(slotOffset, group, half)),
                              pointer) || !pointer)
             {
                 emptySlot = slotOffset;
@@ -1621,10 +1636,13 @@ namespace
         {
             const uintptr_t base = g_moduleBase.load(std::memory_order_acquire);
             uint32_t emptySlot = 0;
+            bool outsideTable = false;
             if (base && list &&
                 !ViewTargetsPresent(base, reinterpret_cast<uintptr_t>(list), static_cast<int32_t>(group),
-                                    static_cast<uint8_t>(half), emptySlot))
+                                    static_cast<uint8_t>(half), emptySlot, outsideTable))
             {
+                if (outsideTable)
+                    g_viewTargetOutsideSkips.fetch_add(1, std::memory_order_relaxed);
                 g_viewTargetSkipSlot.store(emptySlot, std::memory_order_relaxed);
                 g_viewTargetSkipGroup.store(static_cast<int32_t>(group), std::memory_order_relaxed);
                 g_viewTargetSkipHalf.store(static_cast<uint8_t>(half), std::memory_order_relaxed);
@@ -1877,6 +1895,7 @@ namespace
         g_originalViewTargets.store(
             reinterpret_cast<uintptr_t>(viewTargetsTrampoline), std::memory_order_release);
         g_viewTargetSkips.store(0, std::memory_order_relaxed);
+        g_viewTargetOutsideSkips.store(0, std::memory_order_relaxed);
         g_viewTargetSkipsReported = 0;
         g_sceneTarget = reinterpret_cast<void*>(scene);
         g_rebuildTarget = reinterpret_cast<void*>(rebuild);
@@ -1961,8 +1980,10 @@ namespace
         {
             g_viewTargetSkipsReported = viewTargetSkips;
             LOG("Halo 2 Anniversary view-target check: %llu view groups not drawn because a target they read was "
-                "empty or unreadable (last: entry slot offset %u, group %d, half %u); each would have faulted at "
-                "+0x107449", static_cast<unsigned long long>(viewTargetSkips),
+                "empty, unreadable or outside the twelve slots (%llu outside; last: entry slot offset %u, group %d, "
+                "half %u); each would have faulted in the draw (+0x107449, or Direct3D from +0x1074B1)",
+                static_cast<unsigned long long>(viewTargetSkips),
+                static_cast<unsigned long long>(g_viewTargetOutsideSkips.load(std::memory_order_relaxed)),
                 g_viewTargetSkipSlot.load(std::memory_order_relaxed),
                 g_viewTargetSkipGroup.load(std::memory_order_relaxed),
                 g_viewTargetSkipHalf.load(std::memory_order_relaxed));
