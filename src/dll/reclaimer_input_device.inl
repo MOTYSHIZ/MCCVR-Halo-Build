@@ -9,19 +9,28 @@
 // (user, 2026-11-19, ODST's Mombasa Streets; MCC was fine).
 //
 // The client keeps the choice in two globals of its main loop (reclaimer_client::FindInputDevice): the device (1
-// keyboard and mouse, 2 controller) and a controller flag its prompts read. Once the game is being played again, a
-// moment after the mod's own click or key, and only if no real keyboard or mouse was used since, the mod sets both as
-// the client's own controller press does. That is the client's choice of pictures, nothing the game simulates. The
-// client's next real mouse click or key in a menu sets them back as it always has.
+// keyboard and mouse, 2 controller) and a controller flag its prompts read. While the game is played with the headset
+// focused, a moment after the mod's own click or key or after the headset's own menu closed, the mod sets both as the
+// client's own controller press does, unless a real keyboard or mouse was used since. That is the client's choice of
+// pictures, nothing the game simulates. The client's next real mouse click or key sets them back as it always has.
+//
+// THE HEADSET'S OWN MENU. With the mod's clicks answered, keyboard pictures still came back (user, 2026-11-19 15:33,
+// 15:34, 15:36, 15:39): each time with SteamVR's dashboard open (the session VISIBLE, not FOCUSED), whose pointer
+// reaches the client's window as Windows mouse input. Input made while the session was not focused is the runtime's,
+// not the player's in the game, so the clock for "a real keyboard or mouse since" starts when the headset is focused
+// on the game again.
 
 std::atomic<volatile uint8_t*> g_reclaimerInputDevice{nullptr};
 std::atomic<volatile uint8_t*> g_reclaimerInputController{nullptr};
-// GetTickCount64 of the last mouse click, wheel or key the mod sent itself (0: none waiting).
+// GetTickCount64 of the last mouse click, wheel or key the mod sent itself (0: none).
 std::atomic<uint64_t> g_reclaimerSyntheticInputAt{0};
 std::atomic<uint32_t> g_reclaimerInputDeviceRestores{0};
-// The client takes the mod's event first; then the mod puts the controller back.
+// Input-loop thread only: when the game was last found played with the headset focused, continuously (0: not now).
+uint64_t g_reclaimerFocusedPlaySince = 0;
+// The client takes the mod's event (or the end of the headset's menu) first; then the mod puts the controller back.
 constexpr uint64_t kReclaimerInputDeviceSettleMs = 150;
-// Windows' own record of the last keyboard or mouse input this long after the mod's: a real one, whose choice stands.
+// Windows' own record of the last keyboard or mouse input this long after the mod's own, or after focused play
+// began: a real one, whose choice stands.
 constexpr DWORD kReclaimerRealInputSlackMs = 250;
 
 // Install thread, once per process: the client's input device globals. False with the reason logged when not found;
@@ -62,29 +71,39 @@ void ReclaimerNoteSyntheticInput() noexcept
         g_reclaimerSyntheticInputAt.store(GetTickCount64(), std::memory_order_relaxed);
 }
 
-// The headset's input loop, every poll: `playing` while the game is played (no menu, no pause).
+// The headset's input loop, every poll: `playing` while the game is played (no menu, no pause) with the headset
+// focused on it.
 void ReclaimerInputDeviceTick(bool playing) noexcept
 {
-    const uint64_t at = g_reclaimerSyntheticInputAt.load(std::memory_order_relaxed);
-    if (!at || !playing)
+    if (!playing)
+    {
+        g_reclaimerFocusedPlaySince = 0;
         return;
-    const uint64_t now = GetTickCount64();
-    if (now < at || now - at < kReclaimerInputDeviceSettleMs)
-        return;
-    uint64_t expected = at;
-    if (!g_reclaimerSyntheticInputAt.compare_exchange_strong(expected, 0, std::memory_order_relaxed))
-        return;   // the mod sent another since: the next poll looks again
+    }
     volatile uint8_t* const controller = g_reclaimerInputController.load(std::memory_order_acquire);
     volatile uint8_t* const device = g_reclaimerInputDevice.load(std::memory_order_relaxed);
-    if (!controller || !device || *controller)
+    if (!controller || !device)
         return;
+    const uint64_t now = GetTickCount64();
+    if (!g_reclaimerFocusedPlaySince)
+        g_reclaimerFocusedPlaySince = now;
+    if (*controller)
+        return;
+    const uint64_t at = g_reclaimerSyntheticInputAt.load(std::memory_order_relaxed);
+    if (now - g_reclaimerFocusedPlaySince < kReclaimerInputDeviceSettleMs ||
+        (at && now >= at && now - at < kReclaimerInputDeviceSettleMs))
+        return;
+    // Real keyboard or mouse input after both the mod's own and the start of focused play: the player's choice.
     LASTINPUTINFO last{sizeof(last)};
-    if (GetLastInputInfo(&last) && static_cast<int32_t>(last.dwTime - static_cast<DWORD>(at)) >
-                                       static_cast<int32_t>(kReclaimerRealInputSlackMs))
-        return;   // a real keyboard or mouse was used after the mod's own input
+    const DWORD since = static_cast<DWORD>((std::max)(at, g_reclaimerFocusedPlaySince));
+    if (GetLastInputInfo(&last) &&
+        static_cast<int32_t>(last.dwTime - since) > static_cast<int32_t>(kReclaimerRealInputSlackMs))
+        return;
     *device = 2;
     *controller = 1;
     const uint32_t restores = g_reclaimerInputDeviceRestores.fetch_add(1, std::memory_order_relaxed) + 1;
     if (restores <= 8)
-        LOG("Project Reclaimer prompts: back to the controller's buttons after the mod's own click or key (%u)", restores);
+        LOG("Project Reclaimer prompts: back to the controller's buttons (%u; the mod's own click or key %s, focused play "
+            "for %llu ms)", restores, at ? "before" : "none",
+            static_cast<unsigned long long>(now - g_reclaimerFocusedPlaySince));
 }
