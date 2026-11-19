@@ -3056,6 +3056,18 @@ namespace
     // 0 = both arms applied, 1 = right-arm/fallback failure, 2 = left-arm failure.
     std::atomic<int> g_armFailureSide{-1};
     std::atomic<uint64_t> g_fpSkeletonKey{0};
+    // Each new first-person skeleton's node ids and parents with the arm chains found in it (ApplyControllerToBankChild
+    // fills it on the game thread, `pending` released last; the Present-time report logs it and clears `pending`).
+    struct FpSkeletonProbe
+    {
+        std::atomic<bool> pending{false};
+        uint64_t lastKey=0;   // the game thread's own
+        int captured=0;       // the game thread's own
+        int slot=0,count=0,wrist=-1,subtree=0,lWrist=-1,lElbow=-1,lShoulder=-1,lSubtree=0;
+        uint32_t ids[64]{};
+        int16_t parents[64]{};
+    };
+    FpSkeletonProbe g_fpSkeletonProbe;
     struct FpBoneMapSnapshot
     {
         std::atomic<uint32_t> sequence{0};
@@ -6569,6 +6581,31 @@ namespace
         g_fpLShoulderIndex[slot].store(lShoulderIndex,std::memory_order_relaxed);
         g_fpLWristDescendants[slot].store(lDescendants,std::memory_order_relaxed);
         g_fpBoneCount[slot].store(count,std::memory_order_release);
+        // PROBE (2026-11-19, Project Reclaimer ODST: the left hand stays on the silenced SMG's grip whatever the
+        // controller does, and no left arm follows the controller, while the solve reports it applied). LOG ONLY: each
+        // new skeleton (keyed on its node ids), up to 16 a session, is copied here for the Present-time report
+        // (FpSkeletonReport): no logging or allocation on this path.
+        {
+            uint64_t key=static_cast<uint64_t>(count)*0x9E3779B97F4A7C15ull;
+            for(int i=0;i<count;++i)
+                key=key*31+*reinterpret_cast<const uint32_t*>(records+i*0x20);
+            auto& probe=g_fpSkeletonProbe;
+            if(key!=probe.lastKey&&probe.captured<16&&!probe.pending.load(std::memory_order_acquire))
+            {
+                probe.lastKey=key;
+                ++probe.captured;
+                probe.slot=slot;probe.count=count;
+                probe.wrist=wristIndex;probe.lWrist=lWristIndex;probe.lElbow=lElbowIndex;probe.lShoulder=lShoulderIndex;
+                probe.lSubtree=static_cast<int>(__popcnt64(lDescendants));
+                probe.subtree=static_cast<int>(__popcnt64(descendants));
+                for(int i=0;i<count;++i)
+                {
+                    probe.ids[i]=*reinterpret_cast<const uint32_t*>(records+i*0x20);
+                    probe.parents[i]=*reinterpret_cast<const int16_t*>(records+i*0x20+8);
+                }
+                probe.pending.store(true,std::memory_order_release);
+            }
+        }
         // PROBE (2026-07-19, shotgun left-hand-stuck): the analysis above
         // re-runs every frame for whatever weapon is up, but this log was
         // once-per-session, so only the FIRST weapon's skeleton was ever
@@ -56794,6 +56831,30 @@ void Game_AutoVrTick()
             else
                 LOG("cutscene facing: aligned to gameplay camera on exit");
         }
+    }
+    // A new first-person skeleton (g_fpSkeletonProbe): its arm chains and every node's string id and parent, so a log
+    // names the bones the visible left arm hangs from when the left hand does not follow the controller.
+    if (g_fpSkeletonProbe.pending.load(std::memory_order_acquire))
+    {
+        const auto& p=g_fpSkeletonProbe;
+        LOG("FP skeleton probe (log only): slot %d, %d nodes; R wrist %d (subtree %d) | L wrist %d/elbow %d/shoulder %d "
+            "(subtree %d)%s",p.slot,p.count,p.wrist,p.subtree,p.lWrist,p.lElbow,p.lShoulder,p.lSubtree,
+            p.lWrist<0?" - NO LEFT WRIST: the left arm stays game-animated":"");
+        char line[512];int pos=0,from=0;
+        for(int i=0;i<p.count&&i<64;++i)
+        {
+            const int n=snprintf(line+pos,sizeof(line)-pos,"%d=%X/%d ",i,p.ids[i],p.parents[i]);
+            if(n<0||pos+n>=static_cast<int>(sizeof(line))-1)
+            {
+                line[pos]=0;
+                LOG("FP skeleton probe: nodes[%d..%d] id/parent: %s",from,i-1,line);
+                pos=0;from=i;--i;continue;
+            }
+            pos+=n;
+        }
+        line[pos]=0;
+        LOG("FP skeleton probe: nodes[%d..%d] id/parent: %s",from,p.count-1,line);
+        g_fpSkeletonProbe.pending.store(false,std::memory_order_release);
     }
     // Render-thread diagnostics are reported here, on Present. Log only a
     // stable state transition; never log from the palette or HUD hot hooks.
