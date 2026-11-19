@@ -288,6 +288,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             input.ki.wScan = static_cast<WORD>(MapVirtualKeyW(sentKey, MAPVK_VK_TO_VSC));
             input.ki.dwFlags = press ? 0 : KEYEVENTF_KEYUP;
             const bool sent = SendInput(1, &input, sizeof(input)) == 1;
+            if (sent)
+                Game_ReclaimerNoteSyntheticInput();   // the client's prompts: reclaimer_input_device.inl
             if (gesture.logged < 24 && ++gesture.logged)
                 LOG("Reclaimer %s key: %s 0x%02X%s", name, press ? "pressed" : "released", unsigned(sentKey),
                     sent ? "" : " (Windows refused it)");
@@ -739,7 +741,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                     // vr_action_passthrough.h. Every other action is unchanged.
                     const auto routed=vr_mapping::RouteActions(title,direct,actions,realNative,
                         inSeat||inputMode==RuntimeMode::Vehicle||inputMode==RuntimeMode::Turret,&effectiveBindings,
-                        &g_config.vr_inputs[index]);
+                        &g_config.vr_inputs[index],vr_mapping::HostBridgeAlsoActions(g_hostIsProjectReclaimer));
                     const uint32_t mapped=routed.buttons;
                     NativeVrActions_Publish(state,title,now,routed.published&
                         ~(scopeAvailable?(1u<<vr_mapping::Zoom):0u),direct);
@@ -937,7 +939,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         const auto routedActions=vr_mapping::RouteActions(currentTitle,directActions,
             semanticActions,nativeActions,
             inSeat||inputMode==RuntimeMode::Vehicle||inputMode==RuntimeMode::Turret||!crouchOnFoot,
-            mappingTitle>=0?&effectiveBindings:nullptr,rowInputs);
+            mappingTitle>=0?&effectiveBindings:nullptr,rowInputs,
+            vr_mapping::HostBridgeAlsoActions(g_hostIsProjectReclaimer));
         const uint32_t semanticButtons=routedActions.buttons;
         // THE EXTRA ROWS (vr_mapping::ExtraMapper): the game's actions no action row names, on controls of their own,
         // pressing the game's own button for each beside the rows, each in its context (a seat, on foot, anywhere in
@@ -1759,6 +1762,14 @@ void Input_Halo2SwitchInputEvidence(Halo2SwitchInputEvidence& evidence)
 // every lobby or menu, and these go by where the hand is alone. They take their buttons before anything else sees them.
 void Input_StepHeadKeys(VrPadState& pad)
 {
+    {
+        // Project Reclaimer's prompts go back to the controller's buttons after the mod's own clicks and keys, once the
+        // game is played again (reclaimer_input_device.inl).
+        const auto mode = TitleAdapter_GetRuntimeMode();
+        Game_ReclaimerInputDeviceTick(
+            (mode == RuntimeMode::Gameplay || mode == RuntimeMode::Vehicle || mode == RuntimeMode::Turret) &&
+            !Menu_IsOpen() && !VR_IsPausePresentation() && !VR_IsPausePresentationTarget());
+    }
     const bool rawX = pad.x, rawY = pad.y, rawA = pad.a, rawB = pad.b;
     static HeadKeyGesture talkGesture, scoreboardGesture;
     static WORD talkKey = 0, scoreboardKey = 0;

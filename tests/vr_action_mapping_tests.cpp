@@ -939,10 +939,36 @@ void CheckHostMenuButtons()
     Check((BridgeOnlyActions(native,automatic)>>SwitchGrenade)&1u,
         "an action left with no button is the bridge's to carry");
 }
+// Project Reclaimer: its own bindings decide what the real button does, so the flashlight (ODST's VISR) reaches the
+// player-control builder through the bridge as well as on its real button (2026-11-19: no VISR press got through).
+void CheckHostBridgeAlso()
+{
+    Check(HostBridgeAlsoActions(false)==0u&&HostBridgeAlsoActions(true)==(1u<<Flashlight),
+        "only Project Reclaimer's flashlight rides the bridge beside its button");
+    Transports native{};
+    native[Flashlight]=0x1;
+    native[Reload]=0x200;
+    const Overrides automatic{};
+    const uint32_t pressed=(1u<<Flashlight)|(1u<<Reload);
+    const auto mcc=SplitDirectRoute(GameTitle::Halo3,true,pressed,native,false,&automatic);
+    Check(mcc.transports==0x201u&&!(mcc.bridgeMask&(1u<<Flashlight))&&!(mcc.bridgeMask&(1u<<Reload)),
+        "MCC: the flashlight is its real button alone");
+    const auto host=SplitDirectRoute(GameTitle::Halo3,true,pressed,native,false,&automatic,nullptr,
+        HostBridgeAlsoActions(true));
+    Check(host.transports==0x201u&&(host.bridgeMask&(1u<<Flashlight))&&!(host.bridgeMask&(1u<<Reload)),
+        "Project Reclaimer: the flashlight keeps its real button and the bridge carries it too; others unchanged");
+    MappedActions mapped{};
+    mapped.actions=pressed;
+    const auto routed=RouteActions(GameTitle::Halo3,true,mapped,native,false,&automatic,nullptr,
+        HostBridgeAlsoActions(true));
+    Check(routed.buttons==0x201u&&routed.published==(1u<<Flashlight),
+        "Project Reclaimer: a pressed flashlight is published to the bridge and pressed on its button");
+}
 
 int main()
 {
     CheckHostMenuButtons();
+    CheckHostBridgeAlso();
     CheckInputPresets();
     CheckDirectContextPassthrough();
     CheckScopeAdmission();

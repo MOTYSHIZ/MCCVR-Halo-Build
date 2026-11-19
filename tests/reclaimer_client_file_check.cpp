@@ -165,6 +165,9 @@ int main()
     report("VISR view player", viewUser.user, viewUser.missing);
     report("VISR first-pass flags", viewUser.flags, viewUser.missing);
     report("VISR object pass", viewUser.reader, viewUser.missing);
+    const reclaimer_client::InputDevice device = reclaimer_client::FindInputDevice(image);
+    report("prompt input device", device.device, device.missing);
+    report("prompt controller flag", device.controller, device.missing);
     std::printf("%s: %d find(s) failed\n", path, failures);
     return failures ? 1 : 0;
 }

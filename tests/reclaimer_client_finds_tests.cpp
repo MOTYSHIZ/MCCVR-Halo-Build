@@ -310,6 +310,42 @@ int main()
         CHECK(FindNavpointDrawFromVersion(h.View(), 0x3000).missing != nullptr);
     }
 
+    // The input device the prompts show: the controller's store and the keyboard's, in one function, name the same two
+    // globals in data (0x3F10 the device, 0x3F20 the controller flag).
+    {
+        // mov byte [rip+device],value; <two bytes>; xchg [rip+flag],al -- rip-relative to each instruction's end.
+        const auto store = [](Fake& f, uint32_t at, uint8_t value, uint8_t a, uint8_t b, uint32_t device,
+                               uint32_t flag) {
+            const int32_t d = static_cast<int32_t>(device) - static_cast<int32_t>(at + 7);
+            const int32_t c = static_cast<int32_t>(flag) - static_cast<int32_t>(at + 15);
+            f.Put(at, {0xC6, 0x05});
+            std::memcpy(&f.image[at + 2], &d, 4);
+            f.Put(at + 6, {value, a, b, 0x86, 0x05});
+            std::memcpy(&f.image[at + 11], &c, 4);
+        };
+        Fake f;
+        f.Function(0x2000, 0x2200);
+        store(f, 0x2040, 0x01, 0x31, 0xC0, 0x3F10, 0x3F20);   // keyboard: 1, xor eax,eax
+        store(f, 0x2100, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);   // controller: 2, mov al,1
+        const InputDevice found = FindInputDevice(f.View());
+        CHECK(!found.missing && found.device == 0x3F10 && found.controller == 0x3F20 && found.controllerAt == 0x2100 &&
+              found.keyboardAt == 0x2040);
+        // The keyboard's store naming another device: refused.
+        Fake g = f;
+        store(g, 0x2040, 0x01, 0x31, 0xC0, 0x3F30, 0x3F20);
+        CHECK(FindInputDevice(g.View()).missing != nullptr);
+        // Two controller stores: refused.
+        Fake h = f;
+        store(h, 0x2180, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);
+        CHECK(FindInputDevice(h.View()).missing != nullptr);
+        // Globals in code: refused.
+        Fake k;
+        k.Function(0x2000, 0x2200);
+        store(k, 0x2040, 0x01, 0x31, 0xC0, 0x1F10, 0x1F20);
+        store(k, 0x2100, 0x02, 0xB0, 0x01, 0x1F10, 0x1F20);
+        CHECK(FindInputDevice(k.View()).missing != nullptr);
+    }
+
     if (g_failures)
         return 1;
     std::printf("reclaimer client finds: all passed\n");
