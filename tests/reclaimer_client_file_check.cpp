@@ -144,10 +144,19 @@ int main()
         report("VISR finds agree", camera.function,
                reclaimer_client::VisrAgree(image, camera.function, constants.function));
     const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image);
-    report("widget draw (gate)", gate.widgetDraw, gate.missing);
-    report("crosshair gate", gate.gate, gate.missing);
-    report("crosshair check", gate.crosshair, gate.missing);
     const reclaimer_client::NavpointDraw draw = reclaimer_client::FindNavpointDraw(image);
+    if (gate.missing && !draw.missing && draw.versionIsDraw)
+        // 0.10.6 and later: the client's versions are the functions themselves behind framed pass-throughs, and its own
+        // code calls them directly; the mod hooks those (lifted_engine.cpp), the playback gate's among them, so the
+        // widget draw's gate needs no shims of 0.10.5's kind. Only the in-game log proves those hooks are reached.
+        std::printf("%-22s not used: no 0.10.5 shims; the versions are hooked themselves (the navpoint version is "
+                    "its draw)\n", "widget draw (gate)");
+    else
+    {
+        report("widget draw (gate)", gate.widgetDraw, gate.missing);
+        report("crosshair gate", gate.gate, gate.missing);
+        report("crosshair check", gate.crosshair, gate.missing);
+    }
     report("navpoint version", draw.version, draw.missing);
     report("navpoint draw", draw.draw, draw.missing);
     report("navpoint count read", draw.countDisp, draw.missing);

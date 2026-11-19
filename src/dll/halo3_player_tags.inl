@@ -507,6 +507,15 @@ bool InstallReclaimerPlayerTags(void* guestDraw)
     // The global may hold no block yet; the detour reads the count on every call and applies nothing while it does not
     // read as 20 to kMaxEntryCount (HostEntryCount).
     hook.countBlock = reinterpret_cast<uint64_t* const*>(sig::RipTarget(countRead, countRead + 4));
+    if (found.versionIsDraw)
+    {
+        // 0.10.6: its version is the draw, in the recompiled engine's convention; the game function's hook (on the
+        // function the version passes to) runs around it, and its count comes from here (the detour's max).
+        LOG("PLAYER TAGS Halo 3: Project Reclaimer's version of the draw (exe+0x%X) is the draw itself: the game's hook "
+            "runs around it and takes its count from exe+0x%X (%d entries now)", found.draw,
+            static_cast<uint32_t>(reinterpret_cast<uintptr_t>(hook.countBlock) - exe), ReclaimerPlayerTagsCount());
+        return true;
+    }
     void* const detour = reinterpret_cast<void*>(&ReclaimerPlayerTagsDetour);
     DWORD64 detourImage = 0;
     if (!RtlLookupFunctionEntry(reinterpret_cast<DWORD64>(detour), &detourImage, nullptr))
