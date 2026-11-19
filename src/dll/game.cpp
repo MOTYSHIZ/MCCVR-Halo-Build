@@ -2887,6 +2887,11 @@ namespace
     bool InstallReclaimerVisrCamera();
     bool InstallReclaimerVisrViewUser();
     void ReportReclaimerVisrCamera();
+    // Project Reclaimer's prompts go back to the controller's buttons after the mod's own clicks and keys
+    // (reclaimer_input_device.inl).
+    bool InstallReclaimerInputDevice();
+    void ReclaimerNoteSyntheticInput() noexcept;
+    void ReclaimerInputDeviceTick(bool playing) noexcept;
     bool RemoveHalo3PlayerTags();
     void ReportHalo3PlayerTags();
     bool InstallOdstPlayerTags(uintptr_t base, size_t size, uint32_t generation);
@@ -21668,6 +21673,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // process; fails closed alone.
         (void)InstallReclaimerVisrCamera();
         (void)InstallReclaimerVisrViewUser();   // its outlines' categories drawn for each eye; no hook
+        (void)InstallReclaimerInputDevice();    // its prompts' device after the mod's own clicks; no hook
         // The loaded map's tag names (halo3_tag_names.inl): two sites, no hook, read-only; not bound, vehicles are
         // identified by their physics alone, as before.
         (void)InstallHalo3TagNames(base,size,runtimeGeneration);
@@ -32225,6 +32231,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
     #include "halo3_hud_note.inl"
     #include "halo3_player_tags.inl"
     #include "reclaimer_visr_camera.inl"
+    #include "reclaimer_input_device.inl"
     #include "halo3_tracker_hud_height.inl"
     #include "odst_contact_melee_runtime.inl"
     #include "odst_physical_crouch.inl"
@@ -64375,4 +64382,14 @@ bool Game_Halo2VehicleCameraChase(const NativeVehicleCameraOwner& owner) noexcep
 bool Game_ReclaimerOdstLevel() noexcept
 {
     return g_hostIsProjectReclaimer && g_reclaimerOdstLevel.load(std::memory_order_relaxed);
+}
+
+void Game_ReclaimerNoteSyntheticInput() noexcept
+{
+    ReclaimerNoteSyntheticInput();
+}
+
+void Game_ReclaimerInputDeviceTick(bool playing) noexcept
+{
+    ReclaimerInputDeviceTick(playing);
 }

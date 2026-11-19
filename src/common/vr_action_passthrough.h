@@ -72,6 +72,17 @@ inline constexpr uint32_t WithoutHostMenuButton(uint32_t transport) noexcept
     return (transport & kHostMenuButtons) ? 0u : transport;
 }
 
+// PROJECT RECLAIMER'S FLASHLIGHT, ODST's VISR. Halo 3's player-control builder reads the flashlight (action 0x11, three
+// reads from halo3+0xF5C70) inside the range the bridge serves, and the client lights the trooper's VISR from it. The
+// client fills that action from bindings of its own, which need not be the button the layout the mod reads names (see
+// kHostMenuButtons): with only the real button pressed, no press of the VISR row reached the game (2026-11-19, ODST's
+// Mombasa Streets). There the bridge carries the action as well as the real button. The builder keeps the game's own
+// record while a real button holds it (NativeVrActions ReadOwned), so a press is one press however it arrives.
+inline constexpr uint32_t HostBridgeAlsoActions(bool projectReclaimer) noexcept
+{
+    return projectReclaimer ? 1u << Flashlight : 0u;
+}
+
 // The real button that carries each action whole. Halo 2's layout gives Use (touch_device) no button of its own: its
 // updater derives it, as it derives picking up a weapon and boarding, from how long the reload/action button is held.
 // With Use on Reload's VR control that real button carries it; the bridge's own touch_device on the same press kept a
@@ -93,9 +104,10 @@ inline Transports CarryingTransports(GameTitle title,const Transports& native,co
 // is the only route that can deliver it at all. Outside direct routing the
 // existing transport route already carries every action, so nothing changes.
 // `bindings` (the effective rows) adds every action BridgeOnlyActions leaves to its real button; `more`, the rows' inputs.
+// `alsoBridge` (HostBridgeAlsoActions): actions the bridge carries as well when their real button is pressed.
 inline DirectRoute SplitDirectRoute(GameTitle title,bool direct,uint32_t actions,
     const Transports& native,bool seated=false,const Overrides* bindings=nullptr,
-    const Inputs* more=nullptr) noexcept
+    const Inputs* more=nullptr,uint32_t alsoBridge=0) noexcept
 {
     DirectRoute route{};
     if(!direct) return route;
@@ -106,7 +118,7 @@ inline DirectRoute SplitDirectRoute(GameTitle title,bool direct,uint32_t actions
     {
         const uint32_t bit=1u<<a;
         if(!(passthrough&bit)||!carrying[a]) continue;
-        route.bridgeMask&=~bit;
+        if(!(alsoBridge&bit)) route.bridgeMask&=~bit;
         if(actions&bit) route.transports|=carrying[a];
     }
     return route;
@@ -123,9 +135,9 @@ struct RoutedActions
 };
 inline RoutedActions RouteActions(GameTitle title,bool direct,const MappedActions& mapped,
     const Transports& native,bool seated=false,const Overrides* bindings=nullptr,
-    const Inputs* more=nullptr) noexcept
+    const Inputs* more=nullptr,uint32_t alsoBridge=0) noexcept
 {
-    const DirectRoute route=SplitDirectRoute(title,direct,mapped.actions,native,seated,bindings,more);
+    const DirectRoute route=SplitDirectRoute(title,direct,mapped.actions,native,seated,bindings,more,alsoBridge);
     return {direct?route.transports:mapped.transports,mapped.actions&route.bridgeMask};
 }
 
