@@ -160,6 +160,15 @@ int main()
     report("navpoint version", draw.version, draw.missing);
     report("navpoint draw", draw.draw, draw.missing);
     report("navpoint count read", draw.countDisp, draw.missing);
+    const reclaimer_client::OdstPrompt prompt = reclaimer_client::FindOdstPrompt(image);
+    report("ODST prompt setter", prompt.setter, prompt.missing);
+    report("ODST prompt bytes", prompt.flags, prompt.missing);
+    const reclaimer_client::OdstPdaProbe pda = reclaimer_client::FindOdstPdaProbe(image);
+    report("ODST PDA reader", pda.reader, pda.missing);
+    report("ODST PDA static record", pda.staticBase + pda.staticOffset, pda.missing);
+    if (!pda.missing)
+        std::printf("%-22s guest +0x%X, add 0x%X, sub %d, record +0x%X\n", "ODST PDA state record", pda.guestOffset,
+                    pda.add, pda.sub, pda.record);
     const reclaimer_client::VisrViewUser viewUser = reclaimer_client::FindVisrViewUser(image);
     report("VISR view wrapper", viewUser.wrapper, viewUser.missing);
     report("VISR view player", viewUser.user, viewUser.missing);

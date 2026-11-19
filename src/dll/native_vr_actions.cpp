@@ -12,6 +12,7 @@
 #include "../common/minhook_lifecycle.h"
 #include "../common/odst_prompt_resolve.h"
 #include "drive_cascade.h"
+#include "reclaimer_client_image.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
@@ -446,9 +447,118 @@ void NativeVrActions_Publish(const void* raw,GameTitle requested,uint64_t now,
     publication.sequence.store(before+2,std::memory_order_release);
     pollPublished=true;
 }
+// PROJECT RECLAIMER'S ODST PROMPTS (reclaimer_client::FindOdstPrompt): its client runs ODST's prompt natives itself and
+// keeps a byte per controller, a bit per waiting prompt (0 confirm, 1 cancel, 2 retrain). Found once, by shape and
+// cross-checked, on the worker the first time an ODST level runs on Reclaimer; read from any thread (a plain byte of the
+// client's data). Reclaimer's VISR map is its own screen and is not found: there the map rows stay off.
+namespace reclaimer_odst_prompt {
+std::atomic<uintptr_t> flags{0};
+std::atomic<bool> attempted{false};
+// The VISR map probe (reclaimer_client::FindOdstPdaProbe): LOG ONLY. Worker-only state.
+reclaimer_client::OdstPdaProbe pda{};
+uintptr_t clientBase=0;
+uint64_t pdaShown=~0ull;
+unsigned pdaLines=0;
+__declspec(noinline) bool Find(reclaimer_client::OdstPrompt& found,reclaimer_client::OdstPdaProbe& probe) noexcept {
+    __try {
+        reclaimer_client::Image image;
+        if(!reclaimer_client::ClientImageInMemory(image)) return false;
+        found=reclaimer_client::FindOdstPrompt(image);
+        probe=reclaimer_client::FindOdstPdaProbe(image);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Player 0's PDA records as the client's reader would take them: the game-state record (when its pointers are set)
+// and the static one, each's flags word; the snapshot's selecting byte (-1: no snapshot); whether "ready" is set.
+struct PdaRead { bool stateRead=false; uint32_t stateFlags=0, staticFlags=0; int snapshot=-1; bool ready=false; };
+__declspec(noinline) bool ReadPda(PdaRead& out) noexcept {
+    __try {
+        const auto u64=[](uintptr_t at) { return *reinterpret_cast<const volatile uint64_t*>(at); };
+        const auto u32=[](uintptr_t at) { return *reinterpret_cast<const volatile uint32_t*>(at); };
+        out.ready=u64(clientBase+pda.readyGlobal)!=0;
+        if(const uintptr_t snapshot=static_cast<uintptr_t>(u64(clientBase+pda.snapshotGlobal)))
+            out.snapshot=*reinterpret_cast<const volatile uint8_t*>(snapshot+pda.snapshotField);
+        out.staticFlags=u32(clientBase+pda.staticBase+pda.staticOffset);
+        const uintptr_t guest=static_cast<uintptr_t>(u64(clientBase+pda.guestGlobal));
+        const uintptr_t layout=static_cast<uintptr_t>(u64(clientBase+pda.layoutGlobal));
+        const uintptr_t state=guest?static_cast<uintptr_t>(u64(guest+pda.guestOffset)):0;
+        if(state&&layout) {
+            const uint64_t s0=u64(layout);
+            const uint32_t sum=static_cast<uint32_t>(s0)+static_cast<uint32_t>(s0>>32)+pda.add;
+            const uintptr_t base=(static_cast<uintptr_t>(sum)+state+u32(layout+8)+static_cast<intptr_t>(pda.sub))&
+                ~static_cast<uintptr_t>(0xF);
+            out.stateFlags=u32(base+pda.record);
+            out.stateRead=true;
+        }
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Worker, every poll while an ODST level runs on Reclaimer: a line each time what the probe reads changes (at most 120).
+void ProbePda() {
+    if(!pda.reader||!clientBase||pdaLines>=120||!Game_ReclaimerOdstLevel()) return;
+    PdaRead r{};
+    const bool read=ReadPda(r);
+    const auto active=[](uint32_t f) { return (f&0x20u)||(f&0x800u)?1:0; };
+    const uint64_t shown=read?(uint64_t(r.stateRead?(r.stateFlags&0xFFFu):0xFFFFu)<<32)|(uint64_t(r.staticFlags&0xFFFu)<<8)|
+        (uint64_t(r.snapshot&0xFF)<<1)|(r.ready?1u:0u):~1ull;
+    if(shown==pdaShown) return;
+    pdaShown=shown;
+    ++pdaLines;
+    if(!read) {LOG("ODST map probe (Project Reclaimer, log only): the PDA records could not be read");return;}
+    LOG("ODST map probe (Project Reclaimer, log only): player 0's PDA, game-state record %s0x%03X (active %d), static "
+        "record 0x%03X (active %d); snapshot byte %d (1: the game-state record is the one asked), ready %d",
+        r.stateRead?"":"unread ",r.stateFlags&0xFFFu,r.stateRead?active(r.stateFlags):0,r.staticFlags&0xFFFu,
+        active(r.staticFlags),r.snapshot,r.ready?1:0);
+}
+// Worker: once per process, when an ODST level runs on Reclaimer.
+void Poll() {
+    if(!g_hostIsProjectReclaimer) return;
+    ProbePda();
+    if(attempted.load(std::memory_order_relaxed) || !Game_ReclaimerOdstLevel()) return;
+    attempted.store(true,std::memory_order_relaxed);
+    reclaimer_client::OdstPrompt found{};
+    reclaimer_client::OdstPdaProbe probe{};
+    if(!Find(found,probe))
+        LOG("ODST prompt and map rows (Project Reclaimer): off, normal controls kept; the client executable could not be "
+            "read");
+    else {
+        if(found.missing)
+            LOG("ODST prompt and map rows (Project Reclaimer): off, normal controls kept; not found: %s",found.missing);
+        else {
+            flags.store(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))+found.flags,std::memory_order_release);
+            LOG("ODST prompt and map rows (Project Reclaimer): its prompts are found (setter exe+0x%X, prompt bytes "
+                "exe+0x%X); confirm and reject answer them. Its VISR map is not proven: the map rows stay off there",
+                found.setter,found.flags);
+        }
+        if(probe.missing)
+            LOG("ODST map probe (Project Reclaimer, log only): not found: %s",probe.missing);
+        else {
+            pda=probe;
+            clientBase=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+            LOG("ODST map probe (Project Reclaimer, log only): reading player 0's PDA records (reader exe+0x%X, game-state "
+                "record via guest +0x%X then +0x%X, static record exe+0x%X); nothing acts on them",probe.reader,
+                probe.guestOffset,probe.record,probe.staticBase+probe.staticOffset);
+        }
+    }
+}
+__declspec(noinline) bool Read(uint8_t& value) noexcept {
+    const uintptr_t at=flags.load(std::memory_order_acquire);
+    if(!at) return false;
+    __try { value=*reinterpret_cast<const volatile uint8_t*>(at); return true; }   // controller 0
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+}
 bool NativeVrActions_OdstPromptState(uint64_t now,bool& prompt,bool& map,uint32_t* raw) noexcept {
     prompt=map=false;
     if(raw) *raw=0;
+    if(g_hostIsProjectReclaimer) {
+        uint8_t value=0;
+        if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo3 || !Game_ReclaimerOdstLevel() ||
+           !reclaimer_odst_prompt::Read(value)) return false;
+        prompt=(value&0x3u)!=0;   // a prompt waiting on confirm or cancel
+        if(raw) *raw=value&0xFu;
+        return true;
+    }
     auto& p=native_odst::prompt;
     if(!p.proved.load(std::memory_order_acquire) || TitleAdapter_GetActiveTitle()!=GameTitle::Halo3ODST) return false;
     const uint64_t stamp=p.stampMs.load(std::memory_order_acquire);
@@ -475,6 +585,7 @@ void NativeVrActions_Halo3CoreRetired() {
     native_h3::Poll();
 }
 void NativeVrActions_Poll() {
+    reclaimer_odst_prompt::Poll();
     native_ce::Poll();
     native_h3::Poll();
     native_odst::Poll();

@@ -107,8 +107,8 @@ std::atomic<uint32_t> g_menuPressSerial{0};
 
     // ODST'S PROMPT AND MAP ROWS (vr_mapping::OdstAction): live while one of ODST's tutorial prompts waits on accept or
     // cancel, or its VISR map is open, as halo3odst.dll's control builder last saw them (NativeVrActions_OdstPromptState).
-    // Remapping on, ODST only, and never with the F1 menu open. Project Reclaimer runs ODST's levels on Halo 3's engine,
-    // which has neither the prompt nor the map state, so the rows are never live there.
+    // Remapping on, ODST only, and never with the F1 menu open. Project Reclaimer runs ODST's prompts in its own client
+    // (reclaimer_client::FindOdstPrompt): its prompts are read there, its VISR map is not found, so its map rows stay off.
     struct OdstRowsState { bool live = false, prompt = false, map = false; };
     OdstRowsState OdstRows(GameTitle controlsTitle, uint64_t now) noexcept
     {
@@ -920,11 +920,9 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             else odstClaimed=0;
             // Each time the game's state changes: what the rows answer now.
             static std::atomic<uint32_t> shownState{~0u};
-            const uint32_t state=controlsTitle!=GameTitle::Halo3ODST?0u:(odst.prompt?1u:0u)|(odst.map?2u:0u)|
-                (currentTitle==GameTitle::Halo3?4u:0u);
+            const uint32_t state=controlsTitle!=GameTitle::Halo3ODST?0u:(odst.prompt?1u:0u)|(odst.map?2u:0u);
             if(controlsTitle==GameTitle::Halo3ODST&&shownState.exchange(state,std::memory_order_relaxed)!=state)
-                LOG("ODST prompt and map rows: %s",(state&4u)?"Project Reclaimer: not available on Halo 3's engine (no "
-                    "prompt or map state to read); A, B and the right stick keep their usual jobs":
+                LOG("ODST prompt and map rows%s: %s",currentTitle==GameTitle::Halo3?" (Project Reclaimer)":"",
                     state==3u?"a prompt waits and the VISR map is open":state==1u?"a prompt waits for confirm or reject":
                     state==2u?"the VISR map is open":"no prompt and no map; the controls are the rows' again");
         }

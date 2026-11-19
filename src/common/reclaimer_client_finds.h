@@ -230,6 +230,227 @@ inline const char* VisrAgree(const Image& image, uint32_t camera, uint32_t const
     return nullptr;
 }
 
+// ---- ODST's prompts --------------------------------------------------------------------------------------------------
+// Reclaimer runs ODST's tutorial prompts (unit_confirm_message, unit_confirm_cancel_message) as natives of its own
+// (docs/ODST-PROMPT-AND-MAP-EVIDENCE-2026-11-15.md). Both call one setter that ORs the prompt's bit (0 confirm, 1 cancel,
+// 2 retrain) into a byte per controller: lea rdx,[rip+FLAGS]; mov r8b,1; mov ecx,ebx; shl r8b,cl; ...;
+// lock or byte [r14+rdx],r8b. The client's control step clears the controller's byte once the prompt is answered:
+// lea rcx,[rip+FLAGS]; mov byte [rax+rcx],0; then tests the answered bits 1, 2 and 4.
+inline constexpr char kPromptFlagSet[] = "48 8D 15 ?? ?? ?? ?? 41 B0 01 89 D9 41 D2 E0 4C 89 74 24 ?? F0 45 08 04 16";
+inline constexpr char kPromptFlagClear[] =
+    "48 8D 0D ?? ?? ?? ?? C6 04 08 00 0F B6 44 24 ?? A8 01 75 ?? A8 02 75 ?? A8 04 75";
+// The two natives' own bodies: the unit's controller, then the setter with the prompt's kind (0, then 1).
+inline constexpr char kConfirmNative[] = "48 83 EC 28 48 8B 01 8B 08 31 D2 E8";
+inline constexpr char kCancelNative[] = "48 83 EC 28 48 8B 01 8B 08 B2 01 E8";
+// The natives' entries in the client's script table: the name's address, then its length.
+inline constexpr char kConfirmName[] = "unit_confirm_message";
+inline constexpr char kCancelName[] = "unit_confirm_cancel_message";
+
+struct OdstPrompt
+{
+    uint32_t flags = 0;    // the byte per controller (rva)
+    uint32_t setter = 0;   // the function that sets it
+    const char* missing = nullptr;
+};
+
+namespace detail
+{
+// The rip-relative target of a 7-byte lea at `rva` (its disp32 at +3).
+inline uint64_t LeaTarget(const Image& image, uint32_t rva)
+{
+    return static_cast<uint64_t>(static_cast<int64_t>(rva) + 7 + Rel32(image, rva + 3));
+}
+// The preferred image base in the image's own headers (0 when they do not read).
+inline uint64_t HeaderImageBase(const Image& image)
+{
+    if (!image.Holds(0, 0x40))
+        return 0;
+    uint32_t nt = 0;
+    std::memcpy(&nt, image.base + 0x3C, 4);
+    uint64_t base = 0;
+    if (!image.Holds(static_cast<uint64_t>(nt) + 0x30, 8))
+        return 0;
+    std::memcpy(&base, image.base + nt + 0x30, 8);
+    return base;
+}
+// The function the client's script table names `name` for: the table entry holds the name's address and length, and
+// its function 0x30 further on. Pointers are the image's own (in memory) or the headers' preferred base (on disk).
+inline uint32_t ScriptNative(const Image& image, const char* name)
+{
+    const size_t length = std::strlen(name);
+    std::vector<int> text;
+    for (size_t i = 0; i < length; ++i)
+        text.push_back(static_cast<unsigned char>(name[i]));
+    const std::vector<uint32_t> names = FindAll(image, 0, static_cast<uint32_t>(image.size), text, 4);
+    const uint64_t bases[2]{reinterpret_cast<uint64_t>(image.base), HeaderImageBase(image)};
+    uint32_t found = 0;
+    for (const uint32_t at : names)
+        for (const uint64_t base : bases)
+        {
+            if (!base)
+                continue;
+            std::vector<int> entry;
+            const uint64_t pointer = base + at, size = length;
+            for (int i = 0; i < 8; ++i)
+                entry.push_back(static_cast<int>((pointer >> (8 * i)) & 0xFF));
+            for (int i = 0; i < 8; ++i)
+                entry.push_back(static_cast<int>((size >> (8 * i)) & 0xFF));
+            for (const uint32_t e : FindAll(image, 0, static_cast<uint32_t>(image.size), entry, 8))
+            {
+                uint64_t function = 0;
+                if (!image.Holds(static_cast<uint64_t>(e) + 0x30, 8))
+                    continue;
+                std::memcpy(&function, image.base + e + 0x30, 8);
+                if (function < base || function - base < image.codeRva ||
+                    function - base >= static_cast<uint64_t>(image.codeRva) + image.codeSize)
+                    continue;
+                const uint32_t rva = static_cast<uint32_t>(function - base);
+                if (found && found != rva)
+                    return 0;   // two tables name it differently: not one answer
+                found = rva;
+            }
+        }
+    return found;
+}
+} // namespace detail
+
+inline OdstPrompt FindOdstPrompt(const Image& image)
+{
+    OdstPrompt out;
+    const std::vector<uint32_t> set = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagSet), 2);
+    const std::vector<uint32_t> clear = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClear), 2);
+    uint32_t b = 0, e = 0;
+    if (set.size() != 1)
+        out.missing = set.empty() ? "the prompt setter's store" : "a single prompt setter's store (more than one)";
+    else if (clear.size() != 1)
+        out.missing = clear.empty() ? "the control step's clear of the prompt" : "a single clear of the prompt";
+    else if (!image.Extent(set[0], b, e))
+        out.missing = "the prompt setter's extent";
+    else if (detail::LeaTarget(image, set[0]) != detail::LeaTarget(image, clear[0]))
+        out.missing = "the setter and the clear naming the same prompt bytes";
+    else
+    {
+        const uint64_t flags = detail::LeaTarget(image, set[0]);
+        // Both natives, found by their table entries and by their own bodies, call this setter.
+        const uint32_t confirm = detail::ScriptNative(image, kConfirmName);
+        const uint32_t cancel = detail::ScriptNative(image, kCancelName);
+        if (!image.Holds(flags, 4) || flags < static_cast<uint64_t>(image.codeRva) + image.codeSize)
+            out.missing = "prompt bytes in the client's data";
+        else if (!confirm || !cancel)
+            out.missing = "unit_confirm_message and unit_confirm_cancel_message in the script table";
+        else if (!MatchAt(image, confirm, ParsePattern(kConfirmNative)) ||
+                 !MatchAt(image, cancel, ParsePattern(kCancelNative)))
+            out.missing = "the two natives' bodies (the prompt's kind, then the setter)";
+        else if (!Calls(image, confirm, b) || !Calls(image, cancel, b))
+            out.missing = "both natives calling the prompt setter";
+        else
+        {
+            out.flags = static_cast<uint32_t>(flags);
+            out.setter = b;
+        }
+    }
+    return out;
+}
+
+// ---- ODST's VISR map (the PDA): a LOG-ONLY probe ---------------------------------------------------------------------
+// Reclaimer's pda_is_active_deterministic native asks a reader (`lea rcx,[rsp+0x28]; call READER`) for the player's
+// PDA record and answers "active" from its flag bits 5 or 11. The reader takes the record from one of two places: a
+// record in the game's state memory, reached through the guest image's global +OFFSET and a layout struct of the
+// client's ((lo32(s[0]) + hi32(s[0]) + ADD) + [guest+OFFSET] + dword s[8] + SUB) & ~0xF, + RECORD + player * 20), used
+// while a snapshot struct's byte +0x44 is 1; else a static record in the client's data (STATIC + OFFSET2 + player * 20).
+// Which of them tracks the map being open is not proven: the DLL only reads and logs both (docs/ODST-PROMPT-AND-MAP-
+// EVIDENCE-2026-11-15.md), and nothing acts on them.
+inline constexpr char kPdaNative[] = "48 83 EC 48 48 8B 01 8B 08 BA 03 10 00 00 E8";
+inline constexpr char kPdaNativeCall[] =
+    "48 8D 4C 24 28 E8 ?? ?? ?? ?? 0F B6 4C 24 45 83 E1 01 F6 44 24 44 01 B8 01 00 00 00 0F 44 C1";
+inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 8B 41 44";
+inline constexpr char kPdaStateRecord[] =
+    "48 8B 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
+    "48 83 FF 10 0F 83 ?? ?? ?? ?? 8B 48 08 48 8B 00 48 01 CB 89 C1 48 C1 E8 20 01 C8 05 ?? ?? ?? ?? 48 01 D8 "
+    "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF 66 0F 6E B4 88";
+inline constexpr char kPdaStaticRecord[] =
+    "48 8D 05 ?? ?? ?? ?? 48 83 FF 10 48 8D 0C BF 48 8D 84 88 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 0F 42 C8 66 0F 6E 31";
+
+struct OdstPdaProbe
+{
+    uint32_t reader = 0;                         // the record reader
+    uint32_t readyGlobal = 0, snapshotGlobal = 0; // client globals (rva): the ready pointer, the snapshot pointer
+    uint32_t snapshotField = 0x44;               // the snapshot's byte that selects the game-state record
+    uint32_t guestGlobal = 0, guestOffset = 0;   // the client global holding the guest image; the guest global's offset
+    uint32_t layoutGlobal = 0;                   // the client global pointing at the layout struct
+    uint32_t add = 0;                            // added to lo32 + hi32 (32-bit)
+    int32_t sub = 0;                             // added after the guest pointer (sign-extended)
+    uint32_t record = 0;                         // the game-state record's offset (+ player * 20)
+    uint32_t staticBase = 0, staticOffset = 0;   // the static record (rva, + offset + player * 20)
+    const char* missing = nullptr;
+};
+
+inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
+{
+    OdstPdaProbe out;
+    const uint32_t native = detail::ScriptNative(image, "pda_is_active_deterministic");
+    uint32_t nb = 0, ne = 0, rb = 0, re = 0;
+    if (!native || !MatchAt(image, native, ParsePattern(kPdaNative)) || !image.Extent(native, nb, ne))
+    {
+        out.missing = "pda_is_active_deterministic in the script table, with its body";
+        return out;
+    }
+    const std::vector<uint32_t> call = FindAll(image, nb, ne - nb, ParsePattern(kPdaNativeCall), 2);
+    if (call.size() != 1)
+    {
+        out.missing = "the native's call of its record reader";
+        return out;
+    }
+    const int64_t reader = static_cast<int64_t>(call[0]) + 10 + Rel32(image, call[0] + 6);
+    if (reader <= 0 || !image.Extent(static_cast<uint32_t>(reader), rb, re) || rb != static_cast<uint32_t>(reader))
+    {
+        out.missing = "the record reader's start";
+        return out;
+    }
+    const auto unique = [&](const char* text) {
+        const std::vector<uint32_t> hits = FindAll(image, rb, re - rb, ParsePattern(text), 2);
+        return hits.size() == 1 ? hits[0] : 0u;
+    };
+    const uint32_t ready = unique(kPdaReady), state = unique(kPdaStateRecord), fallback = unique(kPdaStaticRecord);
+    if (!ready || !state || !fallback)
+    {
+        out.missing = !ready ? "the reader's ready and snapshot checks" : !state ? "the reader's game-state record"
+                                                                             : "the reader's static record";
+        return out;
+    }
+    const auto u32 = [&image](uint32_t rva) {
+        uint32_t v = 0;
+        std::memcpy(&v, image.base + rva, 4);
+        return v;
+    };
+    out.reader = rb;
+    out.readyGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready));
+    out.snapshotGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready + 12));
+    out.guestGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state));
+    out.guestOffset = u32(state + 10);
+    out.layoutGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state + 19));
+    out.add = u32(state + 63);
+    out.sub = static_cast<int32_t>(u32(state + 72));
+    out.record = u32(state + 89);
+    out.staticBase = static_cast<uint32_t>(detail::LeaTarget(image, fallback));
+    out.staticOffset = u32(fallback + 19);
+    // Every global the probe reads lies in the client's data, past its code.
+    const uint64_t codeEnd = static_cast<uint64_t>(image.codeRva) + image.codeSize;
+    for (const uint32_t global : {out.readyGlobal, out.snapshotGlobal, out.guestGlobal, out.layoutGlobal, out.staticBase})
+        if (global < codeEnd || !image.Holds(global, 8))
+        {
+            out = OdstPdaProbe{};
+            out.missing = "the reader's globals in the client's data";
+            return out;
+        }
+    if (out.record > 0x100000 || out.staticOffset > 0x100000)
+    {
+        out = OdstPdaProbe{};
+        out.missing = "record offsets of a plausible size";
+    }
+    return out;
+}
+
 // ---- the HUD widget draw's crosshair gate ----------------------------------------------------------------------------
 // The client's own widget draw (its version of halo3.dll's chud_draw_widget +0x2EDF24, which the game's callers reach
 // through a pass-through) keeps the game's crosshair gate: for a widget of scripting class 2 it asks a gate (in the

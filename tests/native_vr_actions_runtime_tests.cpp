@@ -64,6 +64,8 @@ void Logf(const char*,...){}
 namespace drive_cascade {
 bool OpenModuleImage(uintptr_t,size_t,drive_resolve::Image&,const char*& why){why="the test fixture";return false;}
 }
+bool Game_ReclaimerOdstLevel() noexcept {return false;}
+bool g_hostIsProjectReclaimer=false;
 bool Game_ReadVrActionBindings(vr_mapping::Transports& out,uint64_t,unsigned){out.fill(0x4000);return fallbackVerified;}
 GameTitle TitleAdapter_GetActiveTitle(){
     if(switchGenerationOnTitleRead){switchGenerationOnTitleRead=false;runtime.generation=++testGeneration;}
