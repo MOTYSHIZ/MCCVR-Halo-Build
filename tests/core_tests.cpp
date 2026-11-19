@@ -11157,6 +11157,11 @@ int main()
                       Halo2SaberViewTargetSlot(0, 1, 0) == 4 && Halo2SaberViewTargetSlot(2, 2, 1) == 12 &&
                       Halo2SaberViewTargetSlot(0, -1, 0) == UINT64_MAX,
                 "the view-target draw reads slot offset + half*2 + group*4 (Outskirts' load faulted on one)");
+            Check(Halo2SaberViewTargetSlotInTable(0, 0, 0) && Halo2SaberViewTargetSlotInTable(1, 2, 1) &&
+                      Halo2SaberViewTargetSlotInTable(11, 0, 0) && !Halo2SaberViewTargetSlotInTable(12, 0, 0) &&
+                      !Halo2SaberViewTargetSlotInTable(2, 2, 1) && !Halo2SaberViewTargetSlotInTable(0xFF, 0, 0) &&
+                      !Halo2SaberViewTargetSlotInTable(0, -1, 0) && !Halo2SaberViewTargetSlotInTable(0, 3, 0),
+                "a view naming a slot outside the twelve (a list built from freed particle records) is never drawn");
             {
                 // The particle release: retail bytes of 0x2E0E36 and 0x2DEBA0.
                 const uint8_t site[kHalo2SaberSceneFenceSiteBytes]{
