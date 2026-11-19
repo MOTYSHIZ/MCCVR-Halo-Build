@@ -479,7 +479,7 @@ __declspec(noinline) bool ReadPda(PdaRead& out) noexcept {
         if(const uintptr_t snapshot=static_cast<uintptr_t>(u64(clientBase+pda.snapshotGlobal)))
             out.snapshot=*reinterpret_cast<const volatile uint8_t*>(snapshot+pda.snapshotField);
         out.staticFlags=u32(clientBase+pda.staticBase+pda.staticOffset);
-        const uintptr_t guest=static_cast<uintptr_t>(u64(clientBase+pda.guestGlobal));
+        const uintptr_t guest=pda.guestDirect?clientBase+pda.guestGlobal:static_cast<uintptr_t>(u64(clientBase+pda.guestGlobal));
         const uintptr_t layout=static_cast<uintptr_t>(u64(clientBase+pda.layoutGlobal));
         const uintptr_t state=guest?static_cast<uintptr_t>(u64(guest+pda.guestOffset)):0;
         if(state&&layout) {
