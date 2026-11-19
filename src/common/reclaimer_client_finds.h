@@ -235,6 +235,9 @@ inline constexpr char kPromptFlagClear[] =
 // 0.10.6 (an MSVC build) keeps the answered bits in a byte register: test r8b,1; jne; test r8b,2; jne; test r8b,4; jne.
 inline constexpr char kPromptFlagClearReg[] =
     "48 8D 0D ?? ?? ?? ?? C6 04 08 00 40 F6 ?? 01 75 ?? 40 F6 ?? 02 75 ?? 40 F6 ?? 04 75";
+// 0.10.7: the same tests with near jumps (jne rel32).
+inline constexpr char kPromptFlagClearRegNear[] =
+    "48 8D 0D ?? ?? ?? ?? C6 04 08 00 40 F6 ?? 01 0F 85 ?? ?? ?? ?? 40 F6 ?? 02 0F 85 ?? ?? ?? ?? 40 F6 ?? 04 0F 85";
 // The two natives' own bodies: the unit's controller, then the setter with the prompt's kind (0, then 1).
 inline constexpr char kConfirmNative[] = "48 83 EC 28 48 8B 01 8B 08 31 D2 E8";
 inline constexpr char kCancelNative[] = "48 83 EC 28 48 8B 01 8B 08 B2 01 E8";
@@ -316,8 +319,9 @@ inline OdstPrompt FindOdstPrompt(const Image& image)
     const std::vector<uint32_t> set = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagSet), 2);
     // The clear in either known form; exactly one place in the code between them.
     std::vector<uint32_t> clear = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClear), 2);
-    for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClearReg), 2))
-        clear.push_back(hit);
+    for (const char* form : {kPromptFlagClearReg, kPromptFlagClearRegNear})
+        for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(form), 2))
+            clear.push_back(hit);
     uint32_t b = 0, e = 0;
     if (set.size() != 1)
         out.missing = set.empty() ? "the prompt setter's store" : "a single prompt setter's store (more than one)";
