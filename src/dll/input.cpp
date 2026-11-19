@@ -1766,7 +1766,7 @@ void Input_StepHeadKeys(VrPadState& pad)
         const auto mode = TitleAdapter_GetRuntimeMode();
         Game_ReclaimerInputDeviceTick(
             (mode == RuntimeMode::Gameplay || mode == RuntimeMode::Vehicle || mode == RuntimeMode::Turret) &&
-            !Menu_IsOpen() && !VR_IsPausePresentation() && !VR_IsPausePresentationTarget());
+            !Menu_IsOpen() && !VR_IsPausePresentation() && !VR_IsPausePresentationTarget() && VR_SessionFocused());
     }
     const bool rawX = pad.x, rawY = pad.y, rawA = pad.a, rawB = pad.b;
     static HeadKeyGesture talkGesture, scoreboardGesture;

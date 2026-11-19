@@ -171,6 +171,7 @@ void Apply()
             std::abs(actual.x-target.x)>2 || std::abs(actual.y-target.y)>2) {
             Cancel(); Fault(); return;
         }
+        Game_ReclaimerNoteSyntheticInput();   // a set cursor may count as input to Windows: the mod's own
     }
     if (!resting) {
         lastX = result.x;
