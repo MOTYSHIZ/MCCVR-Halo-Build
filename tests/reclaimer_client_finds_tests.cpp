@@ -310,6 +310,42 @@ int main()
         CHECK(FindNavpointDrawFromVersion(h.View(), 0x3000).missing != nullptr);
     }
 
+    // VISR's constants, 0.10.6 and later: the stores without REX prefixes, and the list kept in a global (0x3F40).
+    {
+        Fake f;
+        f.Function(0x1400, 0x1600);
+        // movss [rax+0x40],xmm3; movss [rax+0x44],xmm0; mov dword [rax+0x48],1.0
+        f.Put(0x1480, {0xF3, 0x0F, 0x11, 0x58, 0x40, 0xF3, 0x0F, 0x11, 0x40, 0x44, 0xC7, 0x40, 0x48, 0x00, 0x00, 0x80,
+                       0x3F});
+        CHECK(FindVisrCamera(f.View()).missing != nullptr);
+        const Find constants = FindVisrConstants(f.View());
+        CHECK(!constants.missing && constants.function == 0x1400 && constants.at == 0x1480);
+        CHECK(FindVisrConstantsList(f.View(), 0x1400) == 0);   // no list stores yet
+        // mov [rip+list],r15; mov [rip+list+8],rsi; mov [rip+list+0x10],r15
+        const auto ripStore = [&f](uint32_t at, uint8_t rex, uint8_t modrm, uint32_t target) {
+            const int32_t d = static_cast<int32_t>(target) - static_cast<int32_t>(at + 7);
+            f.Put(at, {rex, 0x89, modrm});
+            std::memcpy(&f.image[at + 3], &d, 4);
+        };
+        ripStore(0x1500, 0x4C, 0x3D, 0x3F40);
+        ripStore(0x1507, 0x48, 0x35, 0x3F48);
+        ripStore(0x150E, 0x4C, 0x3D, 0x3F50);
+        CHECK(FindVisrConstantsList(f.View(), 0x1400) == 0x3F40);
+        // A second global's stores in the same function: refused.
+        Fake g = f;
+        const auto ripStoreG = [&g](uint32_t at, uint8_t rex, uint8_t modrm, uint32_t target) {
+            const int32_t d = static_cast<int32_t>(target) - static_cast<int32_t>(at + 7);
+            g.Put(at, {rex, 0x89, modrm});
+            std::memcpy(&g.image[at + 3], &d, 4);
+        };
+        ripStoreG(0x1540, 0x4C, 0x3D, 0x3F80);
+        ripStoreG(0x1547, 0x48, 0x35, 0x3F88);
+        ripStoreG(0x154E, 0x4C, 0x3D, 0x3F90);
+        CHECK(FindVisrConstantsList(g.View(), 0x1400) == 0);
+        // The 0.10.0 shape (REX on the second store and the mov) is still found.
+        CHECK(!FindVisrConstants(Visr().View()).missing && FindVisrConstants(Visr().View()).at == 0x1480);
+    }
+
     // The input device the prompts show: the controller's store and the keyboard's, in one function, name the same two
     // globals in data (0x3F10 the device, 0x3F20 the controller flag).
     {

@@ -137,9 +137,17 @@ int main()
             std::printf("%-22s exe+0x%X\n", what, rva);
     };
     const reclaimer_client::Find camera = reclaimer_client::FindVisrCamera(image);
-    report("VISR camera", camera.function, camera.missing);
     const reclaimer_client::Find constants = reclaimer_client::FindVisrConstants(image);
+    const uint32_t list = constants.missing ? 0 : reclaimer_client::FindVisrConstantsList(image, constants.function);
+    if (camera.missing && list)
+        // 0.10.6 and later: the builder reads VISR's camera itself and keeps its list in a global; the mod corrects
+        // the block there, width and height (reclaimer_visr_camera.inl).
+        std::printf("%-22s not used: read inside its constants' builder (0.10.6 and later)\n", "VISR camera");
+    else
+        report("VISR camera", camera.function, camera.missing);
     report("VISR constants", constants.function, constants.missing);
+    if (list)
+        report("VISR constants list", list, nullptr);
     if (!camera.missing && !constants.missing)
         report("VISR finds agree", camera.function,
                reclaimer_client::VisrAgree(image, camera.function, constants.function));
