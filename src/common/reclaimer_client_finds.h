@@ -15,7 +15,8 @@
 //   VISR's constants   0.10.0 exe+0x2B24250   0.10.4 exe+0x377B7B0
 //   navpoint draw      0.10.0 exe+0x2D839B0   0.10.4 exe+0x3A5EAC0 (count read exe+0x2D83C69 / exe+0x3A5EEF0)
 // and in 0.10.5 (2026-11-16): VISR's camera exe+0x379D310, constants exe+0x37A2C40, navpoint draw exe+0x3A87350, and
-// the widget draw's crosshair gate (widget draw exe+0x3C42430, gate exe+0x3AB7B40, crosshair check exe+0x3AB7970).
+// the widget draw's crosshair gate (widget draw exe+0x3C42430, gate exe+0x3AB7B40, crosshair check exe+0x3AB7970), and
+// VISR's view user (set at exe+0x3CCF712 in exe+0x3CCF6F0; user exe+0x54B6A58, first-frame flags exe+0x6AE1FEC).
 
 #include <cstddef>
 #include <cstdint>
@@ -344,6 +345,105 @@ inline OdstPrompt FindOdstPrompt(const Image& image)
     return out;
 }
 
+// ---- ODST's VISR map (the PDA): a LOG-ONLY probe ---------------------------------------------------------------------
+// Reclaimer's pda_is_active_deterministic native asks a reader (`lea rcx,[rsp+0x28]; call READER`) for the player's
+// PDA record and answers "active" from its flag bits 5 or 11. The reader takes the record from one of two places: a
+// record in the game's state memory, reached through the guest image's global +OFFSET and a layout struct of the
+// client's ((lo32(s[0]) + hi32(s[0]) + ADD) + [guest+OFFSET] + dword s[8] + SUB) & ~0xF, + RECORD + player * 20), used
+// while a snapshot struct's byte +0x44 is 1; else a static record in the client's data (STATIC + OFFSET2 + player * 20).
+// Which of them tracks the map being open is not proven: the DLL only reads and logs both (docs/ODST-PROMPT-AND-MAP-
+// EVIDENCE-2026-11-15.md), and nothing acts on them.
+inline constexpr char kPdaNative[] = "48 83 EC 48 48 8B 01 8B 08 BA 03 10 00 00 E8";
+inline constexpr char kPdaNativeCall[] =
+    "48 8D 4C 24 28 E8 ?? ?? ?? ?? 0F B6 4C 24 45 83 E1 01 F6 44 24 44 01 B8 01 00 00 00 0F 44 C1";
+inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 8B 41 44";
+inline constexpr char kPdaStateRecord[] =
+    "48 8B 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
+    "48 83 FF 10 0F 83 ?? ?? ?? ?? 8B 48 08 48 8B 00 48 01 CB 89 C1 48 C1 E8 20 01 C8 05 ?? ?? ?? ?? 48 01 D8 "
+    "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF 66 0F 6E B4 88";
+inline constexpr char kPdaStaticRecord[] =
+    "48 8D 05 ?? ?? ?? ?? 48 83 FF 10 48 8D 0C BF 48 8D 84 88 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 0F 42 C8 66 0F 6E 31";
+
+struct OdstPdaProbe
+{
+    uint32_t reader = 0;                         // the record reader
+    uint32_t readyGlobal = 0, snapshotGlobal = 0; // client globals (rva): the ready pointer, the snapshot pointer
+    uint32_t snapshotField = 0x44;               // the snapshot's byte that selects the game-state record
+    uint32_t guestGlobal = 0, guestOffset = 0;   // the client global holding the guest image; the guest global's offset
+    uint32_t layoutGlobal = 0;                   // the client global pointing at the layout struct
+    uint32_t add = 0;                            // added to lo32 + hi32 (32-bit)
+    int32_t sub = 0;                             // added after the guest pointer (sign-extended)
+    uint32_t record = 0;                         // the game-state record's offset (+ player * 20)
+    uint32_t staticBase = 0, staticOffset = 0;   // the static record (rva, + offset + player * 20)
+    const char* missing = nullptr;
+};
+
+inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
+{
+    OdstPdaProbe out;
+    const uint32_t native = detail::ScriptNative(image, "pda_is_active_deterministic");
+    uint32_t nb = 0, ne = 0, rb = 0, re = 0;
+    if (!native || !MatchAt(image, native, ParsePattern(kPdaNative)) || !image.Extent(native, nb, ne))
+    {
+        out.missing = "pda_is_active_deterministic in the script table, with its body";
+        return out;
+    }
+    const std::vector<uint32_t> call = FindAll(image, nb, ne - nb, ParsePattern(kPdaNativeCall), 2);
+    if (call.size() != 1)
+    {
+        out.missing = "the native's call of its record reader";
+        return out;
+    }
+    const int64_t reader = static_cast<int64_t>(call[0]) + 10 + Rel32(image, call[0] + 6);
+    if (reader <= 0 || !image.Extent(static_cast<uint32_t>(reader), rb, re) || rb != static_cast<uint32_t>(reader))
+    {
+        out.missing = "the record reader's start";
+        return out;
+    }
+    const auto unique = [&](const char* text) {
+        const std::vector<uint32_t> hits = FindAll(image, rb, re - rb, ParsePattern(text), 2);
+        return hits.size() == 1 ? hits[0] : 0u;
+    };
+    const uint32_t ready = unique(kPdaReady), state = unique(kPdaStateRecord), fallback = unique(kPdaStaticRecord);
+    if (!ready || !state || !fallback)
+    {
+        out.missing = !ready ? "the reader's ready and snapshot checks" : !state ? "the reader's game-state record"
+                                                                             : "the reader's static record";
+        return out;
+    }
+    const auto u32 = [&image](uint32_t rva) {
+        uint32_t v = 0;
+        std::memcpy(&v, image.base + rva, 4);
+        return v;
+    };
+    out.reader = rb;
+    out.readyGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready));
+    out.snapshotGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready + 12));
+    out.guestGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state));
+    out.guestOffset = u32(state + 10);
+    out.layoutGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state + 19));
+    out.add = u32(state + 63);
+    out.sub = static_cast<int32_t>(u32(state + 72));
+    out.record = u32(state + 89);
+    out.staticBase = static_cast<uint32_t>(detail::LeaTarget(image, fallback));
+    out.staticOffset = u32(fallback + 19);
+    // Every global the probe reads lies in the client's data, past its code.
+    const uint64_t codeEnd = static_cast<uint64_t>(image.codeRva) + image.codeSize;
+    for (const uint32_t global : {out.readyGlobal, out.snapshotGlobal, out.guestGlobal, out.layoutGlobal, out.staticBase})
+        if (global < codeEnd || !image.Holds(global, 8))
+        {
+            out = OdstPdaProbe{};
+            out.missing = "the reader's globals in the client's data";
+            return out;
+        }
+    if (out.record > 0x100000 || out.staticOffset > 0x100000)
+    {
+        out = OdstPdaProbe{};
+        out.missing = "record offsets of a plausible size";
+    }
+    return out;
+}
+
 // ---- the HUD widget draw's crosshair gate ----------------------------------------------------------------------------
 // The client's own widget draw (its version of halo3.dll's chud_draw_widget +0x2EDF24, which the game's callers reach
 // through a pass-through) keeps the game's crosshair gate: for a widget of scripting class 2 it asks a gate (in the
@@ -539,6 +639,109 @@ inline NavpointDraw FindNavpointDraw(const Image& image)
     }
     if (!out.draw)
         out.missing = "a version that calls a draw with the navpoint count read";
+    return out;
+}
+// ---- VISR's view user ------------------------------------------------------------------------------------------------
+// VISR's outlines take their colours (enemy, ally, objective, item) from a category mask that the client's own object
+// pass draws only while a global names the local player whose view is being drawn (0 to 3). The client's wrapper of
+// a player's view sets it for the call and then -1, and with it raises that player's first-pass flag, which makes the
+// first object pass of the view set the mask up again. The mod draws each eye outside that wrapper, so the eyes saw
+// -1, drew no mask, and outlined everything with the categories of the game's own flat view.
+// Shape, in the wrapper: mov [rip+USER],r32; cmp r32,3; ja; movzx r32,byte [rip+ENABLE]; test al,al; je;
+// lea r64,[rip+FLAGS]; and later in the same function mov dword [rip+USER],-1.
+inline constexpr char kVisrViewUserSet[] =
+    "89 ?? ?? ?? ?? ?? 83 ?? 03 77 ?? 0F B6 ?? ?? ?? ?? ?? 84 C0 74 ?? ?? 8D ?? ?? ?? ?? ??";
+// Read by the object pass: mov r32,[rip+USER]; cmp r32,3; ja.
+inline constexpr char kVisrViewUserRead[] = "8B ?? ?? ?? ?? ?? 83 ?? 03 77";
+
+struct VisrViewUser
+{
+    uint32_t wrapper = 0, at = 0;              // the wrapper and its store
+    uint32_t user = 0, enable = 0, flags = 0;  // the globals (RVAs)
+    uint32_t reader = 0;                       // an object pass that reads the user and the flags
+    const char* missing = nullptr;
+};
+
+inline bool RipModrm(uint8_t modrm) { return (modrm & 0xC7) == 0x05; }
+inline uint32_t RipTarget(const Image& image, uint32_t dispAt, uint32_t instructionEnd)
+{
+    return static_cast<uint32_t>(static_cast<int64_t>(instructionEnd) + Rel32(image, dispAt));
+}
+
+inline VisrViewUser FindVisrViewUser(const Image& image)
+{
+    VisrViewUser out;
+    const std::vector<uint32_t> hits =
+        FindAll(image, image.codeRva, image.codeSize, ParsePattern(kVisrViewUserSet), 2);
+    if (hits.size() != 1)
+    {
+        out.missing = hits.empty() ? "the store of the view's player" : "a single store of the view's player";
+        return out;
+    }
+    const uint32_t at = hits[0];
+    const uint8_t* b = image.base + at;
+    uint32_t begin = 0, end = 0;
+    if (!RipModrm(b[1]) || (b[7] & 0xF8) != 0xF8 || !RipModrm(b[13]) || !RipModrm(b[24]) ||
+        (b[22] & 0xF8) != 0x48)
+    {
+        out.missing = "the store, test and flags of the view's player as rip-relative globals";
+        return out;
+    }
+    if (!image.Extent(at, begin, end))
+    {
+        out.missing = "the wrapper's function extent";
+        return out;
+    }
+    const uint32_t user = RipTarget(image, at + 2, at + 6);
+    const uint32_t enable = RipTarget(image, at + 14, at + 18);
+    const uint32_t flags = RipTarget(image, at + 25, at + 29);
+    const bool inCode = [&] {
+        for (const uint32_t g : {user, enable, flags})
+            if (!image.Holds(g, 4) || (g >= image.codeRva && g - image.codeRva < image.codeSize))
+                return true;
+        return false;
+    }();
+    if (inCode)
+    {
+        out.missing = "the view's player, enable and flags in data";
+        return out;
+    }
+    // The wrapper sets the user back to -1 after the view.
+    bool reset = false;
+    for (const uint32_t r : FindAll(image, at, end - at, ParsePattern("C7 05 ?? ?? ?? ?? FF FF FF FF"), 8))
+        reset = reset || RipTarget(image, r + 2, r + 10) == user;
+    if (!reset)
+    {
+        out.missing = "the wrapper's reset of the view's player to -1";
+        return out;
+    }
+    // An object pass reads the user (and tests it against 3) and addresses the same flags.
+    for (const uint32_t r : FindAll(image, image.codeRva, image.codeSize, ParsePattern(kVisrViewUserRead), 4096))
+    {
+        uint32_t rb = 0, re = 0;
+        if (!RipModrm(image.base[r + 1]) || RipTarget(image, r + 2, r + 6) != user || r == at ||
+            !image.Extent(r, rb, re))
+            continue;
+        for (const uint32_t l : FindAll(image, rb, re - rb, ParsePattern("8D ?? ?? ?? ?? ??"), 65536))
+            if (l > rb && (image.base[l - 1] & 0xF8) == 0x48 && RipModrm(image.base[l + 1]) &&
+                RipTarget(image, l + 2, l + 6) == flags)
+            {
+                out.reader = rb;
+                break;
+            }
+        if (out.reader)
+            break;
+    }
+    if (!out.reader)
+    {
+        out.missing = "an object pass reading the view's player and its flags";
+        return out;
+    }
+    out.wrapper = begin;
+    out.at = at;
+    out.user = user;
+    out.enable = enable;
+    out.flags = flags;
     return out;
 }
 } // namespace reclaimer_client

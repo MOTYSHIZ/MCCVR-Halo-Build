@@ -12,6 +12,8 @@ dist/
 *.lib
 *.dll
 *.exe
+# The injector Microsoft cleared, shipped as is (AGENTS.md, "The mod loader").
+!tools/injector-cleared/HaloMCCVRInject.exe
 
 # Visual Studio / VS Code
 .vs/

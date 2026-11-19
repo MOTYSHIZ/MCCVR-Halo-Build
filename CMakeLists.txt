@@ -491,6 +491,19 @@ set_target_properties(halomccvr_injector PROPERTIES OUTPUT_NAME "HaloMCCVRInject
 target_include_directories(halomccvr_injector PRIVATE src/common)
 target_compile_definitions(halomccvr_injector PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
     HALOMCCVR_DEV_DIAGNOSTICS=$<BOOL:${HALOMCCVR_DEV_DIAGNOSTICS}>)
+# Releases ship the very file Microsoft cleared (tools/injector-cleared/), and packaging checks that this build is
+# still the same program (tools/compare-injector-code.ps1). That file was built with the MSVC 14.42 toolset, so the
+# injector alone is built with 14.42 while the rest uses the newest one: another toolset generates different code and
+# packaging would refuse it as a changed injector.
+set(HALOMCCVR_INJECTOR_VC_TOOLS "14.42.34433" CACHE STRING "MSVC toolset version the injector is built with")
+if(CMAKE_GENERATOR MATCHES "^Visual Studio" AND CMAKE_GENERATOR_INSTANCE AND
+   EXISTS "${CMAKE_GENERATOR_INSTANCE}/VC/Tools/MSVC/${HALOMCCVR_INJECTOR_VC_TOOLS}/bin/Hostx64/x64/cl.exe")
+    set_target_properties(halomccvr_injector PROPERTIES VS_GLOBAL_VCToolsVersion "${HALOMCCVR_INJECTOR_VC_TOOLS}")
+else()
+    message(WARNING "MSVC ${HALOMCCVR_INJECTOR_VC_TOOLS} is not installed: HaloMCCVRInject.exe is built with the "
+        "default toolset and packaging will likely refuse it as a changed injector (Visual Studio Installer, "
+        "Individual components: MSVC v143 build tools v14.42-17.12)")
+endif()
 
 # Version information for each program and DLL the mod ships (src/common/version.rc.in): the details Windows shows,
 # and what tells antivirus who a program is. Major.minor.patch only, never the commit, so that an unchanged program

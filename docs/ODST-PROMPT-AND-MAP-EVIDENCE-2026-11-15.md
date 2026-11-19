@@ -125,8 +125,16 @@ Reclaimer opens the PDA as a screen in Halo 3's UI (exe+0x36E8D70 logs "[odst] P
 Its `pda_is_active_deterministic` (exe+0x3731B40) reads a 20-byte record per player (exe+0x372F8E0) whose flags word
 gives "active" by bit 5 or bit 11, but the record is found through run-time pointers into the game's state (with a
 static fallback in the client's data), not a fixed place. Unproven without a live probe, so the map rows stay off on
-Reclaimer and the right stick keeps turning there. A follow-up: probe that record live (or the UI window manager's
-screen list) and add the find beside the prompts'.
+Reclaimer and the right stick keeps turning there.
+
+**Log-only probe (2026-11-18, 0.10.5 client SHA-256 `F2E6F0B7…8173`).** `reclaimer_client::FindOdstPdaProbe` finds the
+native through the script table, its one call of the record reader (exe+0x3756CF0), and in the reader its "ready" and
+snapshot checks, the game-state record's address arithmetic (guest image global +0x204FD18; + lo32 + hi32 of the
+layout struct + 0x20000 + its dword +8 - 0x1C8DC, aligned down to 16; + 0x1854 + player * 20) and the static record
+(client data + 0x1858 + player * 20). On 0.10.5 the prompt find also moved and still resolves (setter exe+0x37617E0,
+bytes exe+0x69CF404). The DLL reads player 0's two records and logs a line each time either flags word, the snapshot's
+selecting byte (+0x44) or "ready" changes ("ODST map probe (Project Reclaimer, log only): ..."). Nothing acts on them:
+the user's run with the map opened and closed decides which record, if either, tracks it.
 
 ## Not established
 

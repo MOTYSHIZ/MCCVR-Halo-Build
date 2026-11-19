@@ -70,8 +70,10 @@ void RenderOdstScopeBody(void* view)
         }
         if(g_odstCamera.fpCameraUpload)
             g_odstCamera.fpCameraUpload(bytes+layout.rootSecondaryCompact,bytes+layout.rootSecondaryDerived);
+        const int32_t visrUserBefore=ReclaimerVisrViewUserBegin();
         g_odstCamera.prepareView(view,0);
         g_odstCamera.originalRenderView(view);
+        ReclaimerVisrViewUserEnd(visrUserBefore);
         VR_CaptureScope();g_odstScopeRendered.fetch_add(1,std::memory_order_relaxed);
     }
     __finally

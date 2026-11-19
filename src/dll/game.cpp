@@ -2886,6 +2886,7 @@ namespace
     bool InstallHalo3PlayerTags(uintptr_t base, size_t size, uint32_t generation);
     // Project Reclaimer's VISR gets the headset eye's field of view (reclaimer_visr_camera.inl).
     bool InstallReclaimerVisrCamera();
+    bool InstallReclaimerVisrViewUser();
     void ReportReclaimerVisrCamera();
     bool RemoveHalo3PlayerTags();
     void ReportHalo3PlayerTags();
@@ -14487,6 +14488,39 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
     // the client's VISR camera by reclaimer_visr_camera.inl. Written by each eye's render, read by the client's VISR.
     std::atomic<float> g_reclaimerEyeVerticalFov{0.0f};
     std::atomic<float> g_reclaimerEyeTanX{0.0f};   // and its horizontal half-width (tangent), from the same projection
+    // PROJECT RECLAIMER'S VISR OUTLINES (InstallReclaimerVisrViewUser): the client's globals naming the local player
+    // whose view is being drawn, VISR's enable, and the players' first-pass flags. Null until found by shape.
+    std::atomic<volatile int32_t*> g_reclaimerVisrViewUser{nullptr};
+    std::atomic<const volatile uint8_t*> g_reclaimerVisrViewEnable{nullptr};
+    std::atomic<volatile uint8_t*> g_reclaimerVisrViewFlags{nullptr};
+    std::atomic<uint64_t> g_reclaimerVisrEyeViews{0};
+    constexpr int32_t kReclaimerVisrViewUserUntouched = INT32_MIN;
+    // Each eye (and the scope) is drawn as the first local player's view, as the client's own view wrapper draws its
+    // view: the client's object pass draws VISR's category mask only for a named player (0 to 3), and the eyes, drawn
+    // outside that wrapper, read -1, so their outlines took their colours (enemy, ally, objective) from the mask of the
+    // flat view. As the wrapper does, the player's first-pass flag is raised when VISR is enabled, so the eye's first
+    // object pass sets the mask up again for it. Inside the wrapper (a player already named) nothing is changed. The
+    // value it had is returned for ReclaimerVisrViewUserEnd. It spans the view's preparation too: the client's object
+    // passes run from there (named around the render alone, the eyes still read -1, dev counts 2026-11-16).
+    int32_t ReclaimerVisrViewUserBegin()
+    {
+        volatile int32_t* const user = g_reclaimerVisrViewUser.load(std::memory_order_acquire);
+        if (!user)
+            return kReclaimerVisrViewUserUntouched;
+        const int32_t before = *user;
+        if (before >= 0 && before <= 3)
+            return kReclaimerVisrViewUserUntouched;
+        *user = 0;
+        if (*g_reclaimerVisrViewEnable.load(std::memory_order_relaxed))
+            g_reclaimerVisrViewFlags.load(std::memory_order_relaxed)[0] = 1;
+        g_reclaimerVisrEyeViews.fetch_add(1, std::memory_order_relaxed);
+        return before;
+    }
+    void ReclaimerVisrViewUserEnd(int32_t before)
+    {
+        if (before != kReclaimerVisrViewUserUntouched)
+            *g_reclaimerVisrViewUser.load(std::memory_order_relaxed) = before;
+    }
 
     void __fastcall RenderViewHook(void* view)
     {
@@ -14875,6 +14909,8 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             // by this per-view preparation stage, not the view structure
             // directly. Re-run it after each eye matrix rebuild.
             g_aimFramePass.store(aimFrameFrame, std::memory_order_release);
+            // From the view's preparation, where the client's object passes run, to the end of its render.
+            const int32_t visrUserBefore = ReclaimerVisrViewUserBegin();
             if (g_prepareView)
                 g_prepareView(view, 0);
             if (g_hostIsProjectReclaimer)
@@ -14889,6 +14925,7 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
                 }
             }
             g_origRenderView(view);
+            ReclaimerVisrViewUserEnd(visrUserBefore);
             g_aimFramePass.store(false, std::memory_order_release);
             g_eyeFpView.store(nullptr, std::memory_order_release);
             monoCaptured = VR_CaptureRenderedEye(eye);
@@ -14948,8 +14985,10 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             memcpy(reinterpret_cast<char*>(view)+0x1E8,
                    reinterpret_cast<char*>(view)+0x98,0x90);
             g_scopeRenderActive.store(true,std::memory_order_release);
+            const int32_t scopeVisrUserBefore=ReclaimerVisrViewUserBegin();
             if(g_prepareView) g_prepareView(view,0);
             g_origRenderView(view);
+            ReclaimerVisrViewUserEnd(scopeVisrUserBefore);
             g_scopeRenderActive.store(false,std::memory_order_release);
             VR_CaptureScope();
             VR_EndScopeRaster();
@@ -19288,10 +19327,12 @@ static constexpr bool kOdstMappedFpEnabled = false;
                    bytes + layout.rootCurrentDerived, layout.derivedSize);
             g_odstCamera.eyeView.store(view, std::memory_order_release);
             g_aimFramePass.store(aimFrameFrame, std::memory_order_release);
+            const int32_t visrUserBefore = ReclaimerVisrViewUserBegin();   // the view's preparation and render
             g_odstPreparingEyeHud = true;
             g_odstCamera.prepareView(view, 0);
             g_odstPreparingEyeHud = false;
             original(view);
+            ReclaimerVisrViewUserEnd(visrUserBefore);
             g_aimFramePass.store(false, std::memory_order_release);
             g_odstCamera.eyeView.store(nullptr, std::memory_order_release);
             bool captured = VR_CaptureRenderedEye(eye);
@@ -21748,6 +21789,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         // Project Reclaimer's VISR (reclaimer_visr_camera.inl): one hook on the client's own camera for VISR, once per
         // process; fails closed alone.
         (void)InstallReclaimerVisrCamera();
+        (void)InstallReclaimerVisrViewUser();   // its outlines' categories drawn for each eye; no hook
         // The loaded map's tag names (halo3_tag_names.inl): two sites, no hook, read-only; not bound, vehicles are
         // identified by their physics alone, as before.
         (void)InstallHalo3TagNames(base,size,runtimeGeneration);

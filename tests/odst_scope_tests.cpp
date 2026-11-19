@@ -50,6 +50,9 @@ static float VR_GetScopeZoom(){return zoom;}
 static bool VR_BeginScopeRaster(){raster=targetReady;return raster;}
 static void Phase(){++step;if(step==faultStep)RaiseException(0xE0431111,0,0,nullptr);}
 static void VR_CaptureScope(){Phase();Check(raster&&g_scopeRenderActive,"scope capture owns private raster");++copies;}
+static int visrViewUsers=0;
+static int32_t ReclaimerVisrViewUserBegin(){++visrViewUsers;return 0;}
+static void ReclaimerVisrViewUserEnd(int32_t){--visrViewUsers;}
 static void VR_EndScopeRaster(){Check(raster,"raster ends once");raster=false;++ends;}
 static void Viewport(void*,void*){Phase();}
 static void Matrices(void*,void*,void* derived,float){std::memset(derived,0xBD,0xC0);Phase();}

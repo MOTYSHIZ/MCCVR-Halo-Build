@@ -527,7 +527,10 @@ try {
 
     # HaloMCCVRInject.exe is meant to stay byte-identical from release to
     # release, so that Microsoft's clearance of it as a false positive keeps
-    # applying. A different file is never packaged by accident.
+    # applying. The cleared file itself is shipped: a rebuild of the same source
+    # differs in its build stamps whenever the compiler or Windows SDK is
+    # updated. The rebuild must still be the same program, so a changed injector
+    # is never packaged by accident.
     $injectorPinPath = Join-Path $repoRoot 'tools\injector-cleared.sha256'
     $injectorPin = @(Get-Content -LiteralPath $injectorPinPath |
         Where-Object { $_ -match '^[0-9A-Fa-f]{64}\s' })
@@ -535,12 +538,28 @@ try {
         throw "Could not read the cleared injector's SHA-256 from $injectorPinPath."
     }
     $injectorCleared = $injectorPin[0].Substring(0, 64).ToUpperInvariant()
-    $injectorBuilt = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $repoRoot `
-        "$packageBuildDir\Release\HaloMCCVRInject.exe")).Hash
+    $injectorClearedPath = Join-Path $repoRoot 'tools\injector-cleared\HaloMCCVRInject.exe'
+    if (-not (Test-Path -LiteralPath $injectorClearedPath -PathType Leaf) -or
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $injectorClearedPath).Hash -ne $injectorCleared) {
+        throw "$injectorClearedPath is missing or does not hash to $injectorCleared ($injectorPinPath)."
+    }
+    $injectorBuiltPath = Join-Path $repoRoot "$packageBuildDir\Release\HaloMCCVRInject.exe"
+    $injectorBuilt = (Get-FileHash -Algorithm SHA256 -LiteralPath $injectorBuiltPath).Hash
+    $shipClearedInjector = $true
     if ($injectorBuilt -ne $injectorCleared) {
-        $injectorNotice = "HaloMCCVRInject.exe HAS CHANGED. Built $injectorBuilt; " +
-            "Microsoft was asked to clear $injectorCleared. Windows Defender may flag " +
-            'this release until the new file is submitted and cleared.'
+        Invoke-Tool {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File `
+                (Join-Path $repoRoot 'tools\compare-injector-code.ps1') `
+                -Cleared $injectorClearedPath -Built $injectorBuiltPath
+        }
+        $injectorCompare = $LASTEXITCODE
+    } else {
+        $injectorCompare = 0
+    }
+    if ($injectorCompare -ne 0) {
+        $injectorNotice = "HaloMCCVRInject.exe HAS CHANGED. Built $injectorBuilt is a " +
+            "different program from the $injectorCleared Microsoft was asked to clear. " +
+            'Windows Defender may flag this release until the new file is submitted and cleared.'
         Write-Host ''
         Write-Host ('!' * 78) -ForegroundColor Red
         Write-Host $injectorNotice -ForegroundColor Red
@@ -548,10 +567,12 @@ try {
         Write-Host ''
         if (-not $AcceptInjectorChange) {
             throw ($injectorNotice + ' If the change is intended, package with ' +
-                '-AcceptInjectorChange, submit the new file to Microsoft, and ' +
+                '-AcceptInjectorChange, submit the new file to Microsoft, then ' +
+                'replace tools\injector-cleared\HaloMCCVRInject.exe with it and ' +
                 'record its SHA-256 in tools\injector-cleared.sha256.')
         }
         Write-Warning 'Packaging a changed HaloMCCVRInject.exe (-AcceptInjectorChange).'
+        $shipClearedInjector = $false
     }
 
     $finalCommit = (& git -C $repoRoot rev-parse HEAD).Trim()
@@ -580,6 +601,13 @@ try {
         --prefix $packageDir --component launcher }
     if ($LASTEXITCODE -ne 0) {
         throw 'Launcher staging failed.'
+    }
+    if ($shipClearedInjector) {
+        $stagedInjector = Join-Path $payloadDir 'HaloMCCVRInject.exe'
+        Copy-Item -LiteralPath $injectorClearedPath -Destination $stagedInjector -Force
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath $stagedInjector).Hash -ne $injectorCleared) {
+            throw 'Staging the cleared HaloMCCVRInject.exe failed.'
+        }
     }
 
     $configGenerator = Join-Path $repoRoot `
