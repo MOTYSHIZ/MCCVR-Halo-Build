@@ -73,6 +73,8 @@ bool VR_IsPausePresentationTarget() { return pauseScreen; }
 bool VR_IsCutsceneTheaterActive() { return false; }
 static bool hostPanelScreen = false;
 bool D3D_HostUiPanelIsScreen() { return hostPanelScreen; }
+static unsigned syntheticInputs = 0;
+void Game_ReclaimerNoteSyntheticInput() noexcept { ++syntheticInputs; }
 
 static int checks = 0, failures = 0;
 static void Check(bool ok, const char* name) {

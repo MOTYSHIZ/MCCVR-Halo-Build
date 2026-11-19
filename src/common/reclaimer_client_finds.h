@@ -864,4 +864,68 @@ inline VisrViewUser FindVisrViewUser(const Image& image)
     out.flags = flags;
     return out;
 }
+
+// ---- The input device its prompts show ----------------------------------------------------------------------------
+// The client draws its button prompts (the game's training hints among them) for the device last used: a mouse click
+// or key in its menus makes it "keyboard and mouse", and only a controller button or a stick past the deadzone in a
+// menu makes it "controller" again (both logged as "[menus] input device: ..."). The mod's menu pointer clicks, so a
+// pointer click left last in a menu kept keyboard pictures in the prompts of the game that followed. Its main loop
+// keeps two globals: the device (1 keyboard and mouse, 2 controller) and a controller flag the prompts read.
+// Shape (0.10.6, exe+0x4B4D78 and exe+0x4B4162 in one function):
+//   controller: mov byte [rip+DEVICE],2; mov al,1; xchg [rip+CONTROLLER],al
+//   keyboard:   mov byte [rip+DEVICE],1; xor eax,eax; xchg [rip+CONTROLLER],al
+inline constexpr char kInputDeviceController[] = "C6 05 ?? ?? ?? ?? 02 B0 01 86 05 ?? ?? ?? ??";
+inline constexpr char kInputDeviceKeyboard[] = "C6 05 ?? ?? ?? ?? 01 ?? C0 86 05 ?? ?? ?? ??";
+
+struct InputDevice
+{
+    uint32_t controllerAt = 0, keyboardAt = 0;  // the two stores
+    uint32_t device = 0, controller = 0;        // the globals (RVAs)
+    const char* missing = nullptr;
+};
+
+inline InputDevice FindInputDevice(const Image& image)
+{
+    InputDevice out;
+    const std::vector<uint32_t> hits =
+        FindAll(image, image.codeRva, image.codeSize, ParsePattern(kInputDeviceController), 2);
+    if (hits.size() != 1)
+    {
+        out.missing = hits.empty() ? "the store of the controller as the input device"
+                                   : "a single store of the controller as the input device";
+        return out;
+    }
+    const uint32_t at = hits[0];
+    uint32_t begin = 0, end = 0;
+    if (!image.Extent(at, begin, end))
+    {
+        out.missing = "the input device's function extent";
+        return out;
+    }
+    const uint32_t device = RipTarget(image, at + 2, at + 7);
+    const uint32_t controller = RipTarget(image, at + 11, at + 15);
+    if (device == controller || !image.Holds(device, 1) || !image.Holds(controller, 1) || image.InCode(device) ||
+        image.InCode(controller))
+    {
+        out.missing = "the input device and its controller flag in data";
+        return out;
+    }
+    // The keyboard's store, in the same function, sets the same two globals.
+    for (const uint32_t k : FindAll(image, begin, end - begin, ParsePattern(kInputDeviceKeyboard), 8))
+        if ((image.base[k + 7] == 0x31 || image.base[k + 7] == 0x33) && RipTarget(image, k + 2, k + 7) == device &&
+            RipTarget(image, k + 11, k + 15) == controller)
+        {
+            out.keyboardAt = k;
+            break;
+        }
+    if (!out.keyboardAt)
+    {
+        out.missing = "the keyboard's store of the same input device";
+        return out;
+    }
+    out.controllerAt = at;
+    out.device = device;
+    out.controller = controller;
+    return out;
+}
 } // namespace reclaimer_client
