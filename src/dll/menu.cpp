@@ -1794,8 +1794,8 @@ namespace
                 ImGui::TextWrapped("Prompts and the VISR map: while one of ODST's tutorial prompts waits (\"A to "
                     "confirm, B to reject\") or the VISR map is open, these rows answer it, and the controls they use do "
                     "nothing else until it is gone. Every other time those controls keep the jobs the rows above give "
-                    "them. In Project Reclaimer, confirm and reject answer the prompts; its VISR map is not supported "
-                    "yet, so there the map rows do nothing and the right stick keeps turning.");
+                    "them. In the map the bumpers turn the page and the right stick's up and down zoom, as on a "
+                    "gamepad. The same in MCC and in Project Reclaimer.");
                 for(unsigned action=0;action<vr_mapping::OdstCount;++action)
                 {
                     ImGui::PushID(static_cast<int>(300+action));

@@ -747,14 +747,20 @@ struct ModMapper
 // them. The VISR map is a screen of the game's that reads the gamepad's buttons themselves (A, B, the D-pad). These rows
 // press those only while a prompt waits or the map is open (`ODST-PROMPT-AND-MAP-EVIDENCE-2026-11-15.md`), and while
 // they do, the controls they use press nothing else, so the on-foot and vehicle rows keep their controls untouched.
-enum OdstAction : unsigned { PromptConfirm, PromptReject, MapUp, MapDown, MapLeft, MapRight, OdstCount };
+// The map's pages and zoom (2026-11-19): its screen (halo3odst.dll +0x30A45C) turns the page on UI events 4 and 5, the
+// shoulder buttons, and zooms on events 0x18 and 0x19, the right stick's up and down (each tested against the zoom's
+// limit, +0x1644). Of the D-pad it handles only 8 and 9, up and down (+0x30B168).
+enum OdstAction : unsigned { PromptConfirm, PromptReject, MapUp, MapDown, MapLeft, MapRight, MapPreviousPage, MapNextPage,
+    MapZoomIn, MapZoomOut, OdstCount };
 // ODST's own accept and cancel actions (halo3odst.dll's control builder reads them into the prompts' tests).
 inline constexpr unsigned kOdstAcceptAction=0x12,kOdstCancelAction=0x13;
 // Files keep these keys: vr_bind_odst_prompt_confirm, and _2 to _4 for further inputs.
 inline constexpr const char* kOdstKeys[OdstCount]{"odst_prompt_confirm","odst_prompt_reject","odst_map_up",
-    "odst_map_down","odst_map_left","odst_map_right"};
+    "odst_map_down","odst_map_left","odst_map_right","odst_map_previous_page","odst_map_next_page","odst_map_zoom_in",
+    "odst_map_zoom_out"};
 inline constexpr const char* kOdstNames[OdstCount]{"Confirm (prompts and the VISR map)",
-    "Reject (prompts and the VISR map)","Map D-pad up","Map D-pad down","Map D-pad left","Map D-pad right"};
+    "Reject (prompts and the VISR map)","Map D-pad up","Map D-pad down","Map D-pad left","Map D-pad right",
+    "Map previous page (left bumper)","Map next page (right bumper)","Map zoom in","Map zoom out"};
 // The confirm and reject rows count in a prompt and in the map; the D-pad rows in the map only.
 inline constexpr bool OdstMapOnly(OdstAction action) noexcept { return action>=MapUp&&action<OdstCount; }
 // A control an ODST row may list: a row's, and the right stick's left and right (only the map takes the stick).
@@ -764,10 +770,14 @@ using OdstBindings=std::array<ExtraRow,OdstCount>;
 inline constexpr OdstBindings kOdstDefaults{{
     {Input{kNoneHeld,A},Input{},Input{},Input{}},
     {Input{kNoneHeld,B},Input{},Input{},Input{}},
-    {Input{kNoneHeld,RightStickUp},Input{},Input{},Input{}},
-    {Input{kNoneHeld,RightStickDown},Input{},Input{},Input{}},
     {Input{kNoneHeld,RightStickLeft},Input{},Input{},Input{}},
-    {Input{kNoneHeld,RightStickRight},Input{},Input{},Input{}}}};
+    {Input{kNoneHeld,RightStickRight},Input{},Input{},Input{}},
+    {Input{},Input{},Input{},Input{}},
+    {Input{},Input{},Input{},Input{}},
+    {Input{kNoneHeld,SupportGrip},Input{},Input{},Input{}},
+    {Input{kNoneHeld,PrimaryGrip},Input{},Input{},Input{}},
+    {Input{kNoneHeld,RightStickUp},Input{},Input{},Input{}},
+    {Input{kNoneHeld,RightStickDown},Input{},Input{},Input{}}}};
 inline constexpr uint32_t kRightStickSides=Bit(RightStickUp)|Bit(RightStickDown)|Bit(RightStickLeft)|Bit(RightStickRight);
 // True if a map row uses the right stick: the map then takes the stick from turning.
 inline bool OdstMapUsesRightStick(const OdstBindings& rows) noexcept
@@ -795,7 +805,8 @@ inline bool ParseOdstInput(const char* text,Input& input) noexcept
     return true;
 }
 // The buttons each ODST row presses: in a prompt, the game's own button for accept or cancel (`accept`, `cancel`: what
-// the player's layout has, the engine's A and B when unread); in the map, the gamepad's A, B and D-pad themselves.
+// the player's layout has, the engine's A and B when unread); in the map, the gamepad's A, B, D-pad and shoulder buttons
+// themselves.
 struct OdstButtons { uint32_t accept=0x1000,cancel=0x2000; };
 inline uint32_t OdstRowButtons(uint32_t pressed,bool prompt,bool map,const OdstButtons& buttons) noexcept
 {
@@ -803,8 +814,17 @@ inline uint32_t OdstRowButtons(uint32_t pressed,bool prompt,bool map,const OdstB
     uint32_t out=0;
     if(pressed&(1u<<PromptConfirm)) out|=(prompt?buttons.accept:0u)|(map?kA:0u);
     if(pressed&(1u<<PromptReject)) out|=(prompt?buttons.cancel:0u)|(map?kB:0u);
-    if(map) for(unsigned a=MapUp;a<OdstCount;++a) if(pressed&(1u<<a)) out|=kDpad[a-MapUp];
+    if(map) for(unsigned a=MapUp;a<=MapRight;++a) if(pressed&(1u<<a)) out|=kDpad[a-MapUp];
+    if(map&&(pressed&(1u<<MapPreviousPage))) out|=0x100;   // left shoulder
+    if(map&&(pressed&(1u<<MapNextPage))) out|=0x200;       // right shoulder
     return out;
+}
+// The map's zoom rows as the right stick's up and down, all the way (+1 in, -1 out, 0 neither or both).
+inline int OdstMapZoom(uint32_t pressed,bool map) noexcept
+{
+    if(!map) return 0;
+    const bool in=(pressed&(1u<<MapZoomIn))!=0,out=(pressed&(1u<<MapZoomOut))!=0;
+    return in==out?0:in?1:-1;
 }
 struct OdstMapper
 {

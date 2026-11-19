@@ -516,12 +516,16 @@ void CheckInputPresets()
         Check(input_preset::SameScheme(movedLoaded,moved)&&!input_preset::SameScheme(movedLoaded,Config{}),
             "the Pause row round trips in a preset, and a change to it is another scheme");
     }
-    // ODST's prompt and map rows: A confirms and B rejects while a prompt waits or the map is open; the map's D-pad rows
-    // are the right stick, in the map only; outside both, nothing is claimed and nothing pressed.
+    // ODST's prompt and map rows: A confirms and B rejects while a prompt waits or the map is open; in the map only, the
+    // right stick's up and down zoom, its left and right are the D-pad's up and down (the two the map handles), and the
+    // grips are the bumpers that turn its pages; outside both, nothing is claimed and nothing pressed.
     {
         OdstBindings rows=kOdstDefaults;
-        Check(rows[PromptConfirm][0].press==A&&rows[PromptReject][0].press==B&&rows[MapUp][0].press==RightStickUp&&
-            rows[MapLeft][0].press==RightStickLeft&&rows[MapRight][0].press==RightStickRight,"the defaults: A, B, the stick");
+        Check(rows[PromptConfirm][0].press==A&&rows[PromptReject][0].press==B&&rows[MapUp][0].press==RightStickLeft&&
+            rows[MapDown][0].press==RightStickRight&&rows[MapLeft][0].press==Unbound&&rows[MapRight][0].press==Unbound&&
+            rows[MapZoomIn][0].press==RightStickUp&&rows[MapZoomOut][0].press==RightStickDown&&
+            rows[MapPreviousPage][0].press==SupportGrip&&rows[MapNextPage][0].press==PrimaryGrip,
+            "the defaults: A, B, the stick, the grips");
         Check(OdstMapUsesRightStick(rows),"the default map rows take the right stick");
         const OdstButtons game{};
         OdstMapper m;
@@ -541,10 +545,23 @@ void CheckInputPresets()
         Check(!m.Step(StickSideSources(0.f,1.f),true,false,rows),"the map's D-pad rows are not live in a prompt alone");
         m.Step(0,false,true,rows);
         pressed=m.Step(StickSideSources(0.f,1.f),false,true,rows,&claimed);
-        Check(pressed==(1u<<MapUp)&&OdstRowButtons(pressed,false,true,game)==0x1,"in the map, stick up is D-pad up");
-        Check((claimed&kRightStickSides)==kRightStickSides&&(claimed&Bit(A)),"the map claims the stick, A and B");
+        Check(pressed==(1u<<MapZoomIn)&&OdstRowButtons(pressed,false,true,game)==0&&OdstMapZoom(pressed,true)==1,
+            "in the map, stick up zooms in: the stick's own up, no button");
+        Check((claimed&kRightStickSides)==kRightStickSides&&(claimed&Bit(A))&&(claimed&Bit(SupportGrip))&&
+            (claimed&Bit(PrimaryGrip)),"the map claims the stick, A and B, and the grips");
+        pressed=m.Step(StickSideSources(0.f,-1.f),false,true,rows);
+        Check(pressed==(1u<<MapZoomOut)&&OdstMapZoom(pressed,true)==-1&&OdstMapZoom(pressed,false)==0,
+            "stick down zooms out, in the map only");
+        Check(OdstMapZoom((1u<<MapZoomIn)|(1u<<MapZoomOut),true)==0,"both zooms at once: neither");
         pressed=m.Step(StickSideSources(-.9f,.2f),false,true,rows);
-        Check(pressed==(1u<<MapLeft)&&OdstRowButtons(pressed,false,true,game)==0x4,"stick left is D-pad left, no diagonal");
+        Check(pressed==(1u<<MapUp)&&OdstRowButtons(pressed,false,true,game)==0x1,"stick left is D-pad up, no diagonal");
+        m.Step(0,false,true,rows);
+        pressed=m.Step(Bit(SupportGrip),false,true,rows);
+        Check(pressed==(1u<<MapPreviousPage)&&OdstRowButtons(pressed,false,true,game)==0x100,"the left grip: left bumper");
+        m.Step(0,false,true,rows);
+        pressed=m.Step(Bit(PrimaryGrip),false,true,rows);
+        Check(pressed==(1u<<MapNextPage)&&OdstRowButtons(pressed,false,true,game)==0x200&&
+            OdstRowButtons(pressed,true,false,game)==0,"the right grip: right bumper, in the map only");
         Check(StickSideSources(.6f,-.7f)==Bit(RightStickDown)&&StickSideSources(.3f,.4f)==0&&
             StickSideSources(std::numeric_limits<float>::quiet_NaN(),1.f)==0,"one direction past half way, the stronger");
         m.Step(0,false,true,rows);

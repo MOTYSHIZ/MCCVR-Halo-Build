@@ -136,6 +136,22 @@ bytes exe+0x69CF404). The DLL reads player 0's two records and logs a line each 
 selecting byte (+0x44) or "ready" changes ("ODST map probe (Project Reclaimer, log only): ..."). Nothing acts on them:
 the user's run with the map opened and closed decides which record, if either, tracks it.
 
+**Map rows on (2026-11-19, 0.10.6 client SHA-256 `6D54CE58…4FDB`).** In the user's run the game-state record's flags
+went from 0x7DF / 0x002 (active 0) to 0x8xx (bit 11, active 1) at the VISR map tutorial (14:13:04) and back at 14:15:52,
+the low bits changing while the map was used; the static record stayed 0x7DF. The DLL now takes the map as open when
+the reader's own record (the game-state one while the snapshot byte is 1, else the static one) is active and "ready" is
+set, and logs each change ("ODST map (Project Reclaimer): ... the map is open|closed"). If the probe is not found, the
+map rows stay off and the log says so.
+
+### The map's pages and zoom (halo3odst.dll)
+
+The PDA screen's button handler +0x30A45C (called for event type 0xD with the UI event at +0x24, after the filter
++0x30A3B0) turns the page on UI events 4 and 5 (+0x30A752, +0x30A6A4; keyboard 0x2F, 0x30) -- the shoulder buttons -- and
+handles 0x18 and 0x19 (+0x30A58F, +0x30A832) against the zoom value at +0x1644 (the filter's stick group), the right
+stick's up and down. Of the D-pad only 8 and 9 reach +0x30B168. So the map rows press the shoulder buttons for the page
+rows (defaults: the grips) and the right stick's own up or down, all the way, for the zoom rows (default: the stick's up
+and down); the D-pad up and down rows default to the stick's left and right, D-pad left and right to nothing.
+
 ## Not established
 
 - In-headset behaviour. The user's report ("A and Y both confirm, the right stick click rejects") is not explained by
