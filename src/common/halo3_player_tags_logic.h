@@ -135,8 +135,9 @@ inline constexpr size_t kReclaimerVersionBytes = 0x60;
 // 0x28; ret), so the call above was not in the first bytes searched (2026-11-15). ThunkCallee follows such a
 // pass-through, or a jmp rel32, to the function it calls.
 
-// Where the pass-through at `code` goes, relative to `code`: sub rsp,imm8; call rel32; [nop;] add rsp,imm8; ret, or
-// jmp rel32. False for anything else.
+// Where the pass-through at `code` goes, relative to `code`: sub rsp,imm8; call rel32; [nop;] add rsp,imm8; ret, its
+// framed form (0.10.6, below), or jmp rel32. False for anything else. kThunkBytes covers the longest.
+inline constexpr size_t kThunkBytes = 32;
 inline bool ThunkCallee(const uint8_t* code, size_t size, int64_t& offset)
 {
     const auto rel32 = [&](size_t at) {
@@ -148,6 +149,30 @@ inline bool ThunkCallee(const uint8_t* code, size_t size, int64_t& offset)
     if (size >= 5 && code[0] == 0xE9)
     {
         offset = 5 + static_cast<int64_t>(rel32(1));
+        return true;
+    }
+    // Project Reclaimer 0.10.6 (built with MSVC, 2026-11-19) frames its pass-throughs for unwinding: push rbp;
+    // sub rsp,imm8; lea rbp,[rsp+imm8]; [mov qword [rbp-8],-2;] call rel32; [nop;] add rsp,imm8; pop rbp; ret.
+    if (size >= 10 && code[0] == 0x55 && code[1] == 0x48 && code[2] == 0x83 && code[3] == 0xEC && code[5] == 0x48 &&
+        code[6] == 0x8D && code[7] == 0x6C && code[8] == 0x24)
+    {
+        static constexpr uint8_t kEhState[] = {0x48, 0xC7, 0x45, 0xF8, 0xFE, 0xFF, 0xFF, 0xFF};
+        size_t at = 10;
+        bool ehState = at + sizeof(kEhState) <= size;
+        for (size_t i = 0; ehState && i < sizeof(kEhState); ++i)
+            ehState = code[at + i] == kEhState[i];
+        if (ehState)
+            at += sizeof(kEhState);
+        if (at + 5 > size || code[at] != 0xE8)
+            return false;
+        const size_t call = at;
+        at += 5;
+        if (at < size && code[at] == 0x90)
+            ++at;
+        if (at + 6 > size || code[at] != 0x48 || code[at + 1] != 0x83 || code[at + 2] != 0xC4 ||
+            code[at + 3] != code[4] || code[at + 4] != 0x5D || code[at + 5] != 0xC3)
+            return false;
+        offset = static_cast<int64_t>(call) + 5 + static_cast<int64_t>(rel32(call + 1));
         return true;
     }
     if (size < 15 || code[0] != 0x48 || code[1] != 0x83 || code[2] != 0xEC || code[4] != 0xE8)

@@ -3292,6 +3292,15 @@ constexpr uint64_t Halo2SaberViewTargetPointerOffset(uint32_t slotOffset, int32_
     return static_cast<uint64_t>(kHalo2SaberViewSlotsRva + kHalo2SaberViewSlotPointerOffset) +
         index * kHalo2SaberViewSlotStride;
 }
+// Whether a view names one of the twelve slots. The particle draw lists (0x1DFF320 / 0x1DFF350 / 0x1DFF380) are
+// built by 0x470630 from the emitters' particle records: each entry's slot offset is the record's byte +0x128. Every
+// real slot holds a cached state object that is never freed, so only an index outside the table can hand the draw a
+// bad object; it comes from a list built while the particle workers were freeing records (they once ran during the
+// second eye: 0xC419B, +0x107449 with a slot outside the twelve, and 0x1074B1 OMSetBlendState on 2026-11-16).
+constexpr bool Halo2SaberViewTargetSlotInTable(uint32_t slotOffset, int32_t group, uint8_t half) noexcept
+{
+    return Halo2SaberViewTargetSlot(slotOffset, group, half) < kHalo2SaberViewSlotCount;
+}
 // Its callers zero this span of the render context before every call.
 inline constexpr uint32_t kHalo2SaberSceneContextResetOffset = 0x10;
 inline constexpr uint32_t kHalo2SaberSceneContextResetBytes = 0xC8;

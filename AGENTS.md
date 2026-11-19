@@ -159,15 +159,22 @@ four identical crashes.
   positive. A clearance covers one file's exact bytes, so a release with a
   different injector loses it, and players may see Defender warnings again.
   `tools/injector-cleared.sha256` holds the cleared file's SHA-256.
-- Its bytes come from `src/injector/`, `src/common/injector_policy.h`, what it
-  uses of `src/common/reclaimer_host_logic.h`, its CMake target (settings,
-  version resource, `1.0.0`) and the compiler. Change these only for a reason
-  the user has agreed to, say so loudly when a change touches them, and keep
-  such a change in its own commit.
-- `tools/package-candidate.ps1` refuses to package a different injector. For an
-  intended change, package with `-AcceptInjectorChange`, say so in that
-  release's notes, submit the new file to Microsoft, and then record its
-  SHA-256 in `tools/injector-cleared.sha256`.
+- Releases ship that file itself, `tools/injector-cleared/HaloMCCVRInject.exe`.
+  A rebuild of the same source is not byte-identical once Visual Studio or the
+  Windows SDK is updated (build stamps, import hints), so the build's own
+  injector is only used for the tests and for the check below.
+- Its program comes from `src/injector/`, `src/common/injector_policy.h`, what
+  it uses of `src/common/reclaimer_host_logic.h`, its CMake target (settings,
+  version resource, `1.0.0`) and the compiler (pinned to MSVC 14.42 for this
+  target). Change these only for a reason the user has agreed to, say so loudly
+  when a change touches them, and keep such a change in its own commit.
+- `tools/package-candidate.ps1` checks that the rebuilt injector is the same
+  program as the cleared file (`tools/compare-injector-code.ps1`: every section
+  byte with only build stamps masked) and refuses to package a different one.
+  For an intended change, package with `-AcceptInjectorChange` (it then ships
+  the rebuilt file), say so in that release's notes, submit the new file to
+  Microsoft, and then put it in `tools/injector-cleared/` and record its SHA-256
+  in `tools/injector-cleared.sha256`.
 
 ## Deployment
 

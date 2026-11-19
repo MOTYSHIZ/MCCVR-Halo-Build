@@ -254,6 +254,18 @@ def git(repo: Path, *args: str) -> bytes:
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True).stdout
 
 
+CLEARED_INJECTOR = "tools/injector-cleared/HaloMCCVRInject.exe"
+
+
+def cleared_injector_is_pinned(repo: Path, commit: str) -> bool:
+    # The one binary the source keeps on purpose: the injector Microsoft cleared, shipped as is (AGENTS.md, "The mod
+    # loader"). Allowed only while it is the exact file tools/injector-cleared.sha256 names.
+    pin = git(repo, "show", f"{commit}:tools/injector-cleared.sha256").decode("utf-8")
+    pinned = [line.split()[0].lower() for line in pin.splitlines() if re.match(r"[0-9A-Fa-f]{64}\s", line)]
+    data = git(repo, "show", f"{commit}:{CLEARED_INJECTOR}")
+    return len(pinned) == 1 and hashlib.sha256(data).hexdigest() == pinned[0]
+
+
 def check_source(path: Path, repo: Path, commit: str) -> int:
     tree = {}
     for entry in git(repo, "ls-tree", "-rz", commit).split(b"\0"):
@@ -265,8 +277,12 @@ def check_source(path: Path, repo: Path, commit: str) -> int:
         decoded = name.decode("utf-8")
         require(decoded.split("/", 1)[0].casefold() not in {"out", ".git", ".codex", "build"},
                 f"Private/build directory tracked in source: {decoded}")
-        require(PurePosixPath(decoded).suffix.lower() not in {".exe", ".dll", ".pdb", ".obj", ".lib", ".log", ".zip", ".7z", ".dmp"},
-                f"Binary/build/log artifact in source archive: {decoded}")
+        if decoded == CLEARED_INJECTOR:
+            require(cleared_injector_is_pinned(repo, commit),
+                    f"{decoded} does not hash to tools/injector-cleared.sha256")
+        else:
+            require(PurePosixPath(decoded).suffix.lower() not in {".exe", ".dll", ".pdb", ".obj", ".lib", ".log", ".zip", ".7z", ".dmp"},
+                    f"Binary/build/log artifact in source archive: {decoded}")
         tree["Halo-MCC-VR/" + decoded] = digest
     with zipfile.ZipFile(path) as archive:
         files = zip_files(archive)
