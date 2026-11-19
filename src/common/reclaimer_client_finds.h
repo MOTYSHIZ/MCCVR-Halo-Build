@@ -211,10 +211,76 @@ inline Find FindVisrCamera(const Image& image)
     return out;
 }
 
+// The start of movss [r+disp8],xmm (F3, an optional REX, 0F 11, a modrm with an 8-bit displacement and no SIB) that
+// ends exactly at `end`, or 0.
+inline uint32_t MovssStoreEndingAt(const Image& image, uint32_t end, uint8_t disp)
+{
+    for (const uint32_t length : {5u, 6u})
+    {
+        if (end < length + 1 || !image.Holds(end - length, length))
+            continue;
+        const uint8_t* p = image.base + end - length;
+        const bool rex = length == 6;
+        if (p[0] != 0xF3 || (rex && (p[1] & 0xF0) != 0x40))
+            continue;
+        const uint8_t* op = p + (rex ? 2 : 1);
+        if (op[0] == 0x0F && op[1] == 0x11 && (op[2] & 0xC0) == 0x40 && (op[2] & 7) != 4 && op[3] == disp)
+            return end - length;
+    }
+    return 0;
+}
+
+// VISR's constants' stores: movss [r+0x40],-tanX; movss [r+0x44],tanY; mov dword [r+0x48],1.0, each with or without a
+// REX prefix. 0.10.0 to 0.10.5 (kVisrConstantsStores) had REX on the second movss and the mov; 0.10.6 and 0.10.7, an
+// MSVC build, have none (exe+0x45BFC5E in 0.10.7). Each match's start (the first movss).
+inline std::vector<uint32_t> FindVisrConstantsStores(const Image& image, size_t max = 2)
+{
+    std::vector<uint32_t> out;
+    // "48 00 00 80 3F": the mov's displacement and 1.0; before it, its modrm ([r+disp8], reg 0, no SIB) and C7.
+    for (const uint32_t imm : FindAll(image, image.codeRva, image.codeSize, ParsePattern("48 00 00 80 3F"), 4096))
+    {
+        if (imm < 3 || (image.base[imm - 1] & 0xF8) != 0x40 || image.base[imm - 1] == 0x44 ||
+            image.base[imm - 2] != 0xC7)
+            continue;
+        // The mov without a REX prefix, then with one (a byte 0x4X before it).
+        uint32_t first = 0;
+        for (const uint32_t mov : {imm - 2, imm - 3})
+        {
+            if (mov == imm - 3 && (image.base[mov] & 0xF0) != 0x40)
+                continue;
+            const uint32_t second = MovssStoreEndingAt(image, mov, 0x44);
+            first = second ? MovssStoreEndingAt(image, second, 0x40) : 0;
+            if (first)
+                break;
+        }
+        if (!first)
+            continue;
+        out.push_back(first);
+        if (out.size() >= max)
+            break;
+    }
+    return out;
+}
+
 inline Find FindVisrConstants(const Image& image)
 {
-    return FindUniqueFunction(image, kVisrConstantsStores, "its stores of -tanX, tanY and 1.0");
+    Find out;
+    const std::vector<uint32_t> hits = FindVisrConstantsStores(image);
+    uint32_t b = 0, e = 0;
+    if (hits.empty())
+        out.missing = "its stores of -tanX, tanY and 1.0";
+    else if (hits.size() > 1)
+        out.missing = "a single match (more than one)";
+    else if (!image.Extent(hits[0], b, e))
+        out.missing = "the match's function extent";
+    else
+    {
+        out.function = b;
+        out.at = hits[0];
+    }
+    return out;
 }
+
 
 // The two VISR finds agree: the camera has exactly one calling function (VISR's state builder), and that function
 // also calls the constants' builder. Null when they agree, else what did not.
@@ -533,6 +599,35 @@ inline bool ReadsAndTestsUser(const Image& image, uint32_t r, uint32_t global)
             return true;
     }
     return false;
+}
+
+// 0.10.6 and later: the builder keeps its list of constant buffers ({capacity, items, count}, items of 0x28 bytes:
+// name, its length, capacity, data, its length) in a global it stores whole: mov [rip+A],r64; mov [rip+A+8],r64;
+// mov [rip+A+0x10],r64 (exe+0x45C071B in 0.10.7). The global's RVA, or 0 when the builder has no such stores, or names
+// more than one global.
+inline uint32_t FindVisrConstantsList(const Image& image, uint32_t function)
+{
+    uint32_t begin = 0, end = 0, found = 0;
+    if (!image.Extent(function, begin, end) || begin != function)
+        return 0;
+    const auto store = [&](uint32_t at, uint32_t& target) {
+        if (!image.Holds(at, 7) || (image.base[at] & 0xFB) != 0x48 || image.base[at + 1] != 0x89 ||
+            !RipModrm(image.base[at + 2]))
+            return false;
+        target = RipTarget(image, at + 3, at + 7);
+        return true;
+    };
+    for (uint32_t at = begin; at + 21 <= end; ++at)
+    {
+        uint32_t a = 0, b = 0, c = 0;
+        if (!store(at, a) || !store(at + 7, b) || !store(at + 14, c) || b != a + 8 || c != a + 0x10 ||
+            !image.Holds(a, 0x18) || image.InCode(a))
+            continue;
+        if (found && found != a)
+            return 0;
+        found = a;
+    }
+    return found;
 }
 
 inline VisrViewUser FindVisrViewUser(const Image& image)
