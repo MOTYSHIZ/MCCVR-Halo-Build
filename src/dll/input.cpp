@@ -891,6 +891,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         // confirm and reject press the game's own accept and cancel buttons (the map: A and B themselves), and the map's
         // D-pad rows its D-pad. The controls those rows use press nothing else meanwhile; every other row is untouched.
         uint32_t odstButtons=0,odstClaimed=0;
+        int odstZoom=0;   // the map's zoom rows: the right stick up (+1) or down (-1), all the way
         {
             const OdstRowsState odst=OdstRows(controlsTitle,inputNow);
             uint32_t odstSources=actionSources;
@@ -910,6 +911,7 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                 if(accept) buttons.accept=accept;
                 if(cancel) buttons.cancel=cancel;
                 odstButtons=vr_mapping::OdstRowButtons(pressed,odst.prompt,odst.map,buttons);
+                odstZoom=vr_mapping::OdstMapZoom(pressed,odst.map);
                 actionSources&=~odstClaimed;
                 static std::atomic<uint64_t> shownButtons{0};
                 const uint64_t shown=(uint64_t(buttons.accept)<<32)|buttons.cancel|(layoutRead?1ull<<63:0);
@@ -1458,13 +1460,16 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                     ? 0 : ToRawStick(pad.turnY);
             }
         }
-        // ODST's VISR map with its D-pad rows on the right stick: the stick is theirs, so the map is sent none of it
-        // (neither the stick nor a hand-steered aim, which means nothing there).
+        // ODST's VISR map with its rows on the right stick: the stick is theirs, so the map is sent none of it (neither
+        // the stick nor a hand-steered aim, which means nothing there) but what the zoom rows press: the stick's own up
+        // or down, which the map's screen zooms on.
         if (pad.odstMapStick)
         {
             state->Gamepad.sThumbRX = 0;
             state->Gamepad.sThumbRY = 0;
         }
+        if (odstZoom)
+            state->Gamepad.sThumbRY = odstZoom > 0 ? SHORT(32767) : SHORT(-32768);
     }
 
     std::atomic<unsigned> g_diagReads{0}, g_diagPadValid{0}, g_diagMerged{0};
