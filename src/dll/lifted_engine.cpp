@@ -17,6 +17,7 @@
 
 #include "../common/config.h"
 #include "../common/halo3_dll_locate_logic.h"
+#include "../common/halo3_player_tags_logic.h"
 #include "../common/lifted_engine_logic.h"
 #include "../common/log.h"
 #include "../common/reclaimer_host_logic.h"
@@ -58,6 +59,11 @@ struct Record
     volatile uint64_t* replacementSlot = nullptr;
     void* replacement = nullptr;
     void* replacementEntry = nullptr;
+    // Hooks: when the version is only a pass-through, the function it passes to, hooked itself (MinHook, its
+    // trampoline then being `replacement`) in place of the slot. Project Reclaimer 0.10.6 calls that function directly
+    // from its own code (its widget draw asks the playback gate's), so a hook on the stub's call alone never saw those
+    // calls (2026-11-19: the crosshair stayed in the middle of the view). Null when the slot is used.
+    void* implementation = nullptr;
     // Hooks: the client's own version of the function its callers reach, whether or not it runs the translated body
     // (ClientVersion); null when there is none.
     void* clientVersion = nullptr;
@@ -149,6 +155,9 @@ std::vector<Record*> g_allRecords;
 // The stub slots of the client's own versions of guest functions, by guest RVA; built on the first hook.
 std::unordered_map<uint32_t, volatile uint64_t*> g_replacements;
 bool g_replacementsBuilt = false;
+// Per function behind the versions' pass-throughs: how many game functions' versions pass to it. Only one that a
+// single game function reaches is hooked itself (AttachReplacement); a shared one would take the others' calls too.
+std::unordered_map<uintptr_t, uint32_t> g_implementationUsers;
 size_t g_codeReadable = 0; // how much from g_code is readable: the code and the stubs past it (BuildReplacements)
 // The guest image's code section as halo3.dll has it: what signature searches read (sig::SetScanShadow).
 std::vector<uint8_t> g_shadow;
@@ -613,6 +622,30 @@ bool GuestCallTarget(uint32_t returnRva, uint32_t& target)
     return true;
 }
 
+// A version as its stub reaches it: up to four pass-throughs (a jmp rel32, sub rsp; call; add rsp; ret, or 0.10.6's
+// framed form; halo3_player_tags::ThunkCallee) to the function that does the work. Itself when it is none.
+const uint8_t* PastPassThroughs(const uint8_t* function)
+{
+    // Only to a function of the client's own image: a jump out of it is a hook's (MinHook writes one over a start).
+    static const auto image = [] {
+        const auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
+            base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+        return std::pair<const uint8_t*, size_t>{base, nt->OptionalHeader.SizeOfImage};
+    }();
+    for (int hop = 0; hop < 4 && Readable(function, halo3_player_tags::kThunkBytes); ++hop)
+    {
+        int64_t offset = 0;
+        if (!halo3_player_tags::ThunkCallee(function, halo3_player_tags::kThunkBytes, offset))
+            break;
+        const uint8_t* const next = function + offset;
+        if (next < image.first || static_cast<size_t>(next - image.first) >= image.second)
+            break;
+        function = next;
+    }
+    return function;
+}
+
 // Which guest functions the client replaced with versions of its own, from the stubs its translated code calls them
 // through (lifted_engine_logic.h, ForEachStubCall). A stub named for two functions, or a function with two stubs, is
 // left out.
@@ -661,6 +694,10 @@ void BuildReplacements()
         if (!inserted && found->second != slot)
             found->second = nullptr;
     }
+    for (const auto& [rva, slot] : g_replacements)
+        if (slot)
+            ++g_implementationUsers[reinterpret_cast<uintptr_t>(
+                PastPassThroughs(reinterpret_cast<const uint8_t*>(static_cast<uintptr_t>(*slot))))];
     LOG("RECLAIMER 0.10: the client calls %zu game functions' own versions of it through stubs past the translated "
         "code (%zu calls named the function)", g_replacements.size(), named);
 }
@@ -683,12 +720,14 @@ void AttachReplacement(Record* record)
         std::memcpy(&rel, function + 1, 4);
         function += 5 + static_cast<int64_t>(rel);
     }
+    // What the version passes to: where the work is, and what the client's own code may call directly.
+    const uint8_t* const implementation = PastPassThroughs(function);
     constexpr size_t kLook = 0xA0;
-    if (!Readable(function, kLook))
+    if (!Readable(function, kLook) || !Readable(implementation, kLook))
         return;
     const lifted_engine::Record* entry = lifted_engine::FindStart(g_table, record->rva);
     const bool wraps = lifted_engine::CallsTranslatedFunction(
-        function, kLook, reinterpret_cast<uint64_t>(function), g_code + entry->hostOffset, record->body,
+        implementation, kLook, reinterpret_cast<uint64_t>(implementation), g_code + entry->hostOffset, record->body,
         [](uint64_t address, uint64_t& value) {
             if (!Readable(reinterpret_cast<const void*>(address), 8))
                 return false;
@@ -706,6 +745,27 @@ void AttachReplacement(Record* record)
     record->replacementEntry = MakeStub(record, &LiftedReplacementEntry);
     if (!record->replacementEntry)
         return;
+    // A pass-through's function that this game function's version alone reaches: hooked itself, so every caller in the
+    // client reaches the detour, the stub's (through the pass-through) and the client's own direct ones alike.
+    const auto users = g_implementationUsers.find(reinterpret_cast<uintptr_t>(implementation));
+    if (implementation != function && users != g_implementationUsers.end() && users->second == 1)
+    {
+        void* trampoline = nullptr;
+        void* const target = const_cast<uint8_t*>(implementation);
+        if (MH_CreateHook(target, record->replacementEntry, &trampoline) == MH_OK)
+        {
+            record->implementation = target;
+            record->replacement = trampoline;
+            LOG("RECLAIMER 0.10: halo3.dll+0x%X: the client's own version of it (exe+0x%llX) passes to exe+0x%llX, "
+                "which the client's own code also calls directly: the hook is placed on that function, for every caller",
+                record->rva, static_cast<unsigned long long>(reinterpret_cast<uint64_t>(function) - exe),
+                static_cast<unsigned long long>(reinterpret_cast<uint64_t>(implementation) - exe));
+            return;
+        }
+        LOG("RECLAIMER 0.10: halo3.dll+0x%X: the function its version passes to (exe+0x%llX) could not be hooked; the "
+            "stub's call alone is", record->rva,
+            static_cast<unsigned long long>(reinterpret_cast<uint64_t>(implementation) - exe));
+    }
     record->replacementSlot = slot;
     record->replacement = version;
     LOG("RECLAIMER 0.10: halo3.dll+0x%X: its callers call the client's own version of it (exe+0x%llX), which never "
@@ -713,9 +773,15 @@ void AttachReplacement(Record* record)
         record->rva, static_cast<unsigned long long>(reinterpret_cast<uint64_t>(function) - exe));
 }
 
-// Points the stub at the hook's entry (on) or back at the client's version.
+// Points the stub at the hook's entry (on) or back at the client's version; or turns the hook on the function the
+// version passes to on or off.
 void SetReplacement(Record* record, bool on)
 {
+    if (record->implementation)
+    {
+        (void)(on ? MH_EnableHook(record->implementation) : MH_DisableHook(record->implementation));
+        return;
+    }
     if (!record->replacementSlot)
         return;
     const auto value = static_cast<LONG64>(reinterpret_cast<uint64_t>(on ? record->replacementEntry : record->replacement));
@@ -1299,6 +1365,8 @@ MH_STATUS RemoveHook(LPVOID target)
     if (found != g_hooks.end())
     {
         SetReplacement(found->second, false);
+        if (found->second->implementation)
+            (void)MH_RemoveHook(found->second->implementation);
         status = MH_RemoveHook(reinterpret_cast<LPVOID>(found->second->body));
         if (status == MH_OK)
             g_hooks.erase(found); // the record stays: a stub may still be running
