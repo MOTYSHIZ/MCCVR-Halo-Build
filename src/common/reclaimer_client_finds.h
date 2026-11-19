@@ -232,6 +232,9 @@ inline const char* VisrAgree(const Image& image, uint32_t camera, uint32_t const
 inline constexpr char kPromptFlagSet[] = "48 8D 15 ?? ?? ?? ?? 41 B0 01 89 D9 41 D2 E0 4C 89 74 24 ?? F0 45 08 04 16";
 inline constexpr char kPromptFlagClear[] =
     "48 8D 0D ?? ?? ?? ?? C6 04 08 00 0F B6 44 24 ?? A8 01 75 ?? A8 02 75 ?? A8 04 75";
+// 0.10.6 (an MSVC build) keeps the answered bits in a byte register: test r8b,1; jne; test r8b,2; jne; test r8b,4; jne.
+inline constexpr char kPromptFlagClearReg[] =
+    "48 8D 0D ?? ?? ?? ?? C6 04 08 00 40 F6 ?? 01 75 ?? 40 F6 ?? 02 75 ?? 40 F6 ?? 04 75";
 // The two natives' own bodies: the unit's controller, then the setter with the prompt's kind (0, then 1).
 inline constexpr char kConfirmNative[] = "48 83 EC 28 48 8B 01 8B 08 31 D2 E8";
 inline constexpr char kCancelNative[] = "48 83 EC 28 48 8B 01 8B 08 B2 01 E8";
@@ -311,7 +314,10 @@ inline OdstPrompt FindOdstPrompt(const Image& image)
 {
     OdstPrompt out;
     const std::vector<uint32_t> set = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagSet), 2);
-    const std::vector<uint32_t> clear = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClear), 2);
+    // The clear in either known form; exactly one place in the code between them.
+    std::vector<uint32_t> clear = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClear), 2);
+    for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClearReg), 2))
+        clear.push_back(hit);
     uint32_t b = 0, e = 0;
     if (set.size() != 1)
         out.missing = set.empty() ? "the prompt setter's store" : "a single prompt setter's store (more than one)";
@@ -357,12 +363,14 @@ inline constexpr char kPdaNative[] = "48 83 EC 48 48 8B 01 8B 08 BA 03 10 00 00 
 inline constexpr char kPdaNativeCall[] =
     "48 8D 4C 24 28 E8 ?? ?? ?? ?? 0F B6 4C 24 45 83 E1 01 F6 44 24 44 01 B8 01 00 00 00 0F 44 C1";
 inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 8B 41 44";
+// The guest image: `mov rax,[rip+G]` (0.10.0-0.10.5: a pointer to it) or `lea rax,[rip+G]` (0.10.6: the image is part
+// of the executable); the second opcode byte says which. The flags load is movd (66 0F 6E) or vmovd (C5 F9 6E).
 inline constexpr char kPdaStateRecord[] =
-    "48 8B 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
+    "48 ?? 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
     "48 83 FF 10 0F 83 ?? ?? ?? ?? 8B 48 08 48 8B 00 48 01 CB 89 C1 48 C1 E8 20 01 C8 05 ?? ?? ?? ?? 48 01 D8 "
-    "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF 66 0F 6E B4 88";
+    "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF ?? ?? 6E B4 88";
 inline constexpr char kPdaStaticRecord[] =
-    "48 8D 05 ?? ?? ?? ?? 48 83 FF 10 48 8D 0C BF 48 8D 84 88 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 0F 42 C8 66 0F 6E 31";
+    "48 8D 05 ?? ?? ?? ?? 48 83 FF 10 48 8D 0C BF 48 8D 84 88 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 0F 42 C8 ?? ?? 6E 31";
 
 struct OdstPdaProbe
 {
@@ -370,6 +378,7 @@ struct OdstPdaProbe
     uint32_t readyGlobal = 0, snapshotGlobal = 0; // client globals (rva): the ready pointer, the snapshot pointer
     uint32_t snapshotField = 0x44;               // the snapshot's byte that selects the game-state record
     uint32_t guestGlobal = 0, guestOffset = 0;   // the client global holding the guest image; the guest global's offset
+    bool guestDirect = false;                    // guestGlobal IS the guest image (0.10.6), not a pointer to it
     uint32_t layoutGlobal = 0;                   // the client global pointing at the layout struct
     uint32_t add = 0;                            // added to lo32 + hi32 (32-bit)
     int32_t sub = 0;                             // added after the guest pointer (sign-extended)
@@ -419,6 +428,24 @@ inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
     out.reader = rb;
     out.readyGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready));
     out.snapshotGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready + 12));
+    const uint8_t guestOpcode = image.base[state + 1];
+    if (guestOpcode != 0x8B && guestOpcode != 0x8D)
+    {
+        out.missing = "the reader's guest image (a load or an address)";
+        out.reader = 0;
+        return out;
+    }
+    const auto isVecLoad = [&image](uint32_t at) {
+        return (image.base[at] == 0x66 && image.base[at + 1] == 0x0F) ||
+               (image.base[at] == 0xC5 && image.base[at + 1] == 0xF9);
+    };
+    if (!isVecLoad(state + 84) || !isVecLoad(fallback + 34))
+    {
+        out.missing = "the reader's flags loads (movd or vmovd)";
+        out.reader = 0;
+        return out;
+    }
+    out.guestDirect = guestOpcode == 0x8D;
     out.guestGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state));
     out.guestOffset = u32(state + 10);
     out.layoutGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state + 19));
