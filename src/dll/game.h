@@ -240,6 +240,11 @@ inline GameTitle Game_ControlsTitle(GameTitle active) noexcept
 {
     return active == GameTitle::Halo3 && Game_ReclaimerOdstLevel() ? GameTitle::Halo3ODST : active;
 }
+// Project Reclaimer shows its prompts for the device it last saw (reclaimer_input_device.inl). The mod notes each mouse
+// click, wheel or key it sends itself; the tick, from the headset's input loop, puts the controller's buttons back once
+// the game is played again (`playing`: no menu, no pause).
+void Game_ReclaimerNoteSyntheticInput() noexcept;
+void Game_ReclaimerInputDeviceTick(bool playing) noexcept;
 
 // Head-tracking controls, driven by hotkeys so we can tune it live in-headset.
 void Game_ToggleHeadTracking(); // F2
