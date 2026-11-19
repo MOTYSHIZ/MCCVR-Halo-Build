@@ -20067,8 +20067,9 @@ static constexpr bool kOdstMappedFpEnabled = false;
         const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image, widgetDraw);
         if (gate.missing)
         {
-            LOG("Project Reclaimer HUD: its widget draw (exe+0x%X): %s not found; the crosshair keeps the game's gate "
-                "(as up to 0.10.4)", widgetDraw, gate.missing);
+            LOG("Project Reclaimer HUD: its widget draw (exe+0x%X): %s not found: no shims of 0.10.5's kind to hook. "
+                "Its gate is the playback check's, answered by that check's hook (on the function the client calls, "
+                "0.10.6 and later; on the game's own, up to 0.10.4)", widgetDraw, gate.missing);
             return false;
         }
         void* const gateTarget = reinterpret_cast<void*>(exe + gate.gate);
