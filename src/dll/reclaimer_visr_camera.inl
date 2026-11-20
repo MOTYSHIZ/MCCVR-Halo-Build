@@ -46,41 +46,75 @@ void* g_reclaimerVisrConstantsTarget = nullptr;
 std::atomic<uint32_t> g_reclaimerVisrWidthsFixed{0};
 std::atomic<uint32_t> g_reclaimerVisrWidthWasBits{0}, g_reclaimerVisrWidthNowBits{0};
 
+// Corrects VISR's screen-to-view block among a builder's constant buffers (`items`: `count` items of 0x28 bytes, the
+// data at +0x18 and its length at +0x20). `wholeFov`: the block was built from the game's field of view (0.10.6 and
+// later, whose builder reads the camera itself), so its height takes the eye's too; else only its width.
+void FixReclaimerVisrBlocks(const uint8_t* items, uint64_t count, bool wholeFov)
+{
+    const float tanX = g_reclaimerEyeTanX.load(std::memory_order_relaxed);
+    const float fov = g_reclaimerEyeVerticalFov.load(std::memory_order_relaxed);
+    if (!items || !(tanX > 0.05f && tanX < 20.0f) || !(fov > 0.1f && fov < 3.0f) ||
+        !g_enabled.load(std::memory_order_relaxed) || !VR_IsStereoEnabled())
+        return;
+    const float tanY = tanf(0.5f * fov);
+    for (uint64_t i = 0; i < count && i < 64; ++i)
+    {
+        const uint8_t* item = items + i * 0x28;
+        float* c = *reinterpret_cast<float* const*>(item + 0x18);
+        if (*reinterpret_cast<const uint64_t*>(item + 0x20) != 0x110 || !c)
+            continue;
+        const float twoX = c[0x10 / 4], minusTwoY = c[0x24 / 4], minusX = c[0x40 / 4], y = c[0x44 / 4];
+        const bool shape = c[0x48 / 4] == 1.0f && twoX > 0.0f && fabsf(minusX + 0.5f * twoX) <= 1e-4f * twoX &&
+                           fabsf(minusTwoY + 2.0f * y) <= 1e-4f * fabsf(minusTwoY) && y > 0.0f;
+        if (!shape || (!wholeFov && fabsf(y - tanY) > 0.02f * tanY))
+            continue;   // not VISR's block, or (width only) not built from the eye's field of view
+        uint32_t was = 0, now = 0;
+        memcpy(&was, &twoX, sizeof(was));
+        c[0x10 / 4] = 2.0f * tanX;
+        c[0x40 / 4] = -tanX;
+        if (wholeFov)
+        {
+            c[0x24 / 4] = -2.0f * tanY;
+            c[0x44 / 4] = tanY;
+        }
+        memcpy(&now, &c[0x10 / 4], sizeof(now));
+        g_reclaimerVisrWidthWasBits.store(was, std::memory_order_relaxed);
+        g_reclaimerVisrWidthNowBits.store(now, std::memory_order_relaxed);
+        g_reclaimerVisrWidthsFixed.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 __declspec(noinline) void* __fastcall ReclaimerVisrConstantsDetour(void* out, uint32_t width, uint32_t height,
                                                                   void* r9, void* state)
 {
     void* const result = g_reclaimerVisrConstantsOriginal(out, width, height, r9, state);
     __try
     {
-        const float tanX = g_reclaimerEyeTanX.load(std::memory_order_relaxed);
-        const float fov = g_reclaimerEyeVerticalFov.load(std::memory_order_relaxed);
-        if (!out || !(tanX > 0.05f && tanX < 20.0f) || !(fov > 0.1f && fov < 3.0f) ||
-            !g_enabled.load(std::memory_order_relaxed) || !VR_IsStereoEnabled())
-            return result;
-        const float tanY = tanf(0.5f * fov);
         const uint64_t* vec = static_cast<const uint64_t*>(out);   // {capacity, items, count}
-        const auto* items = reinterpret_cast<const uint8_t*>(vec[1]);
-        const uint64_t count = vec[2];
-        for (uint64_t i = 0; items && i < count && i < 64; ++i)
-        {
-            const uint8_t* item = items + i * 0x28;
-            float* c = *reinterpret_cast<float* const*>(item + 0x18);
-            if (*reinterpret_cast<const uint64_t*>(item + 0x20) != 0x110 || !c)
-                continue;
-            const float twoX = c[0x10 / 4], minusTwoY = c[0x24 / 4], minusX = c[0x40 / 4], y = c[0x44 / 4];
-            const bool shape = c[0x48 / 4] == 1.0f && twoX > 0.0f && fabsf(minusX + 0.5f * twoX) <= 1e-4f * twoX &&
-                               fabsf(minusTwoY + 2.0f * y) <= 1e-4f * fabsf(minusTwoY) && y > 0.0f;
-            if (!shape || fabsf(y - tanY) > 0.02f * tanY)
-                continue;   // not VISR's block, or not built from the eye's field of view
-            uint32_t was = 0, now = 0;
-            memcpy(&was, &twoX, sizeof(was));
-            c[0x10 / 4] = 2.0f * tanX;
-            c[0x40 / 4] = -tanX;
-            memcpy(&now, &c[0x10 / 4], sizeof(now));
-            g_reclaimerVisrWidthWasBits.store(was, std::memory_order_relaxed);
-            g_reclaimerVisrWidthNowBits.store(now, std::memory_order_relaxed);
-            g_reclaimerVisrWidthsFixed.fetch_add(1, std::memory_order_relaxed);
-        }
+        if (vec)
+            FixReclaimerVisrBlocks(reinterpret_cast<const uint8_t*>(vec[1]), vec[2], false);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+    }
+    return result;
+}
+
+// 0.10.6 and later (an MSVC build): the builder reads VISR's camera itself (the camera's function is gone) and keeps
+// its list in a global (reclaimer_client::FindVisrConstantsList), so the block is corrected there, whole. Its five
+// arguments are passed through as they came.
+using ReclaimerVisrListBuilderFn = void*(__fastcall*)(void*, uint64_t, void*, uint64_t, uint64_t);
+ReclaimerVisrListBuilderFn g_reclaimerVisrListBuilderOriginal = nullptr;
+const volatile uint64_t* g_reclaimerVisrConstantsList = nullptr;   // {capacity, items, count}
+
+__declspec(noinline) void* __fastcall ReclaimerVisrListBuilderDetour(void* a, uint64_t b, void* c, uint64_t d,
+                                                                    uint64_t e)
+{
+    void* const result = g_reclaimerVisrListBuilderOriginal(a, b, c, d, e);
+    __try
+    {
+        if (const volatile uint64_t* list = g_reclaimerVisrConstantsList)
+            FixReclaimerVisrBlocks(reinterpret_cast<const uint8_t*>(list[1]), list[2], true);
     }
     __except (EXCEPTION_EXECUTE_HANDLER)
     {
@@ -142,9 +176,34 @@ bool InstallReclaimerVisrCamera()
     const reclaimer_client::Find camera = reclaimer_client::FindVisrCamera(image);
     if (camera.missing)
     {
-        LOG("Project Reclaimer VISR: StockFallback: its camera: %s not found; VISR keeps the client's field of view",
-            camera.missing);
-        return false;
+        // 0.10.6 and later: no camera of its own; the constants' builder reads it and keeps its list in a global.
+        const reclaimer_client::Find constants = reclaimer_client::FindVisrConstants(image);
+        const uint32_t list = constants.missing ? 0 : reclaimer_client::FindVisrConstantsList(image, constants.function);
+        if (!list)
+        {
+            LOG("Project Reclaimer VISR: StockFallback: its camera: %s not found, and its constants: %s; VISR keeps "
+                "the client's field of view", camera.missing,
+                constants.missing ? constants.missing : "the global its list is kept in not found");
+            return false;
+        }
+        void* const builder = reinterpret_cast<void*>(exe + constants.function);
+        g_reclaimerVisrConstantsList = reinterpret_cast<const volatile uint64_t*>(exe + list);
+        if (MH_CreateHook(builder, reinterpret_cast<void*>(&ReclaimerVisrListBuilderDetour),
+                          reinterpret_cast<void**>(&g_reclaimerVisrListBuilderOriginal)) != MH_OK ||
+            MH_EnableHook(builder) != MH_OK)
+        {
+            (void)MH_RemoveHook(builder);
+            g_reclaimerVisrListBuilderOriginal = nullptr;
+            g_reclaimerVisrConstantsList = nullptr;
+            LOG("Project Reclaimer VISR: StockFallback: its constants' builder could not be hooked; VISR keeps the "
+                "client's field of view");
+            return false;
+        }
+        g_reclaimerVisrConstantsTarget = builder;
+        g_reclaimerViewCameraTarget = builder;   // installed: the builder stands in for the camera
+        LOG("Project Reclaimer VISR: installed on its constants' builder (exe+0x%X, which reads VISR's camera itself; "
+            "its list at exe+0x%X): VISR's field of view becomes the eye's, width and height", constants.function, list);
+        return true;
     }
     void* const target = reinterpret_cast<void*>(exe + camera.function);
     if (MH_CreateHook(target, reinterpret_cast<void*>(&ReclaimerViewCameraDetour),

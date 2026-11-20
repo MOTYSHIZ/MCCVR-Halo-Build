@@ -20106,12 +20106,77 @@ static constexpr bool kOdstMappedFpEnabled = false;
     WeaponIkModeFn g_realWeaponIkMode = nullptr;
     uintptr_t g_weaponIkModeReturn = 0;   // the decision's mode call's guest return address
     float g_weaponIkNoIkBlend = 0.0f;
+
+    // WHO SETS THE WEAPON-IK MODE (log only). ODST's silenced SMG kept its left hand on the grip in Reclaimer's ODST
+    // levels (2026-11-19) while Halo 3's levels were right: each distinct caller (the guest return address and the
+    // native one), with its modes and whether the decision's override applied, is counted and reported every 30 s by
+    // the cold worker (ReportWeaponIkModeCallers). A fixed table, no allocation, in the hook.
+    struct WeaponIkModeCaller
+    {
+        std::atomic<uintptr_t> guest{0}, native{0};
+        std::atomic<uint32_t> modes{0};   // mode << 8 | mode2
+        std::atomic<uint32_t> calls{0}, overridden{0};
+        std::atomic<uint32_t> blendBits{0};
+    };
+    constexpr unsigned kWeaponIkModeCallers = 12;
+    WeaponIkModeCaller g_weaponIkModeCallers[kWeaponIkModeCallers];
+    std::atomic<uint32_t> g_weaponIkModeCallersFull{0};
+    // Bit n: a mode 3 / n call with no guest return address goes to the no-IK branch. 1 << 2: the decision's.
+    std::atomic<uint32_t> g_weaponIkForceOffModes{1u << 2};
+    void NoteWeaponIkModeCaller(uintptr_t guest, uintptr_t native, int mode, int mode2, float blend, bool overridden)
+        noexcept
+    {
+        const uint32_t modes = (static_cast<uint32_t>(mode & 0xFF) << 8) | static_cast<uint32_t>(mode2 & 0xFF);
+        const uintptr_t key = guest | 1;   // never 0, so an empty slot is told apart
+        for (auto& c : g_weaponIkModeCallers)
+        {
+            uintptr_t g = c.guest.load(std::memory_order_acquire);
+            if (!g)
+            {
+                uintptr_t expected = 0;
+                if (c.guest.compare_exchange_strong(expected, key, std::memory_order_acq_rel))
+                {
+                    c.native.store(native, std::memory_order_relaxed);
+                    c.modes.store(modes, std::memory_order_release);
+                    g = key;
+                }
+                else
+                    g = expected;
+            }
+            if (g != key || c.native.load(std::memory_order_relaxed) != native ||
+                c.modes.load(std::memory_order_acquire) != modes)
+                continue;
+            c.calls.fetch_add(1, std::memory_order_relaxed);
+            if (overridden)
+                c.overridden.fetch_add(1, std::memory_order_relaxed);
+            uint32_t bits = 0;
+            std::memcpy(&bits, &blend, sizeof(bits));
+            c.blendBits.store(bits, std::memory_order_relaxed);
+            return;
+        }
+        g_weaponIkModeCallersFull.fetch_add(1, std::memory_order_relaxed);
+    }
+
     __declspec(noinline) uint64_t __fastcall GuardedWeaponIkModeHook(void* state, int mode, int mode2, float blend)
     {
         g_halo3CoreCallbacks.fetch_add(1, std::memory_order_acq_rel);
         __try
         {
-            if (g_weaponIkModeReturn && HALOMCCVR_GAME_RETURN_ADDRESS() == g_weaponIkModeReturn)
+            const uintptr_t guestReturn = HALOMCCVR_GAME_RETURN_ADDRESS();
+            // The decision's call: from the game's translated decision (its guest return address), or, from 0.10.6, from
+            // the client's own copies of that decision (exe+0x56F9915 and exe+0x565E597 in 0.10.7), which call the
+            // setter through a shim that leaves no guest return address (0). Those copies make the decision's weapon-IK
+            // call, mode 3 / 2, which no other caller makes (the 30 s caller report, 2026-11-19): with the guest return
+            // address unknown, that call is the decision's. Without it the native weapon IK stayed on, and ODST's SMG
+            // pinned the left hand to its grip.
+            const uint32_t forceOff = g_weaponIkForceOffModes.load(std::memory_order_relaxed);
+            const bool overridden = g_weaponIkModeReturn &&
+                (guestReturn == g_weaponIkModeReturn ||
+                 (lifted::Active() && !guestReturn && mode == 3 && mode2 >= 0 && mode2 < 32 &&
+                  ((forceOff >> mode2) & 1u)));
+            NoteWeaponIkModeCaller(guestReturn, reinterpret_cast<uintptr_t>(_ReturnAddress()), mode, mode2, blend,
+                                   overridden);
+            if (overridden)
                 return g_realWeaponIkMode(state, 1, 3, g_weaponIkNoIkBlend);
             return g_realWeaponIkMode(state, mode, mode2, blend);
         }
@@ -20119,6 +20184,43 @@ static constexpr bool kOdstMappedFpEnabled = false;
         {
             g_halo3CoreCallbacks.fetch_sub(1, std::memory_order_acq_rel);
         }
+    }
+
+    // Cold worker, every 30 s while the hook is in: the callers seen since the last report, then cleared.
+    void ReportWeaponIkModeCallers()
+    {
+        static uint64_t next = 0;
+        const uint64_t now = GetTickCount64();
+        if (!g_realWeaponIkMode || now < next)
+            return;
+        next = now + 30000;
+        const auto exe = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        const auto halo3 = reinterpret_cast<uintptr_t>(lifted::Active() ? lifted::Halo3Module()
+                                                                         : GetModuleHandleW(L"halo3.dll"));
+        std::string rows;
+        for (auto& c : g_weaponIkModeCallers)
+        {
+            const uint32_t calls = c.calls.exchange(0, std::memory_order_relaxed);
+            const uintptr_t guest = c.guest.load(std::memory_order_relaxed) & ~uintptr_t{1};
+            if (!calls)
+                continue;
+            const uintptr_t native = c.native.load(std::memory_order_relaxed);
+            const uint32_t modes = c.modes.load(std::memory_order_relaxed);
+            const uint32_t bits = c.blendBits.load(std::memory_order_relaxed);
+            float blend = 0.0f;
+            std::memcpy(&blend, &bits, sizeof(blend));
+            char row[200];
+            sprintf_s(row, "%s[guest %s+0x%llX native exe+0x%llX mode %u,%u blend %.3f: %u calls, %u overridden]",
+                      rows.empty() ? "" : " ", halo3 && guest >= halo3 ? "halo3" : "raw",
+                      static_cast<unsigned long long>(halo3 && guest >= halo3 ? guest - halo3 : guest),
+                      static_cast<unsigned long long>(native >= exe ? native - exe : native), modes >> 8, modes & 0xFF,
+                      blend, calls, c.overridden.exchange(0, std::memory_order_relaxed));
+            rows += row;
+        }
+        if (!rows.empty())
+            LOG("Weapon-IK mode callers (30 s; override at guest halo3+0x%llX%s): %s",
+                static_cast<unsigned long long>(g_weaponIkModeReturn && halo3 ? g_weaponIkModeReturn - halo3 : 0),
+                g_weaponIkModeCallersFull.exchange(0, std::memory_order_relaxed) ? ", table full" : "", rows.c_str());
     }
 
     // Project Reclaimer 0.10's class gate (g_halo3LiftedClassGate): the widget draw's first ask answered yes.
@@ -30808,7 +30910,7 @@ static constexpr bool kOdstMappedFpEnabled = false;
         ReachSimTraceFlush();   // whatever title is up: a trace's last ticks are written after its game has gone
 #endif
         if(title==GameTitle::HaloReach){ReportReachContactMelee();ReportReachMuzzle();ReportReachSightTrace();ReportReachHeadRelative();ReportReachNavMarkers();ReportReachNavProjection();}
-        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportReclaimerVisrCamera(); }
+        if(title==GameTitle::Halo3) { ReportHalo3ContactMelee(); ReportHalo3WeaponHaptics(); ReportHalo3Avatar(); ReportHalo3PartDraw(); ReportHalo3PlayerTags(); ReportReclaimerVisrCamera(); ReportWeaponIkModeCallers(); }
         if(title==GameTitle::Halo3ODST){ReportOdstContactMelee();ReportOdstMuzzle();ReportOdstWeaponHaptics();ReportOdstControllerFingers();ReportOdstPlayerTags();}
         if(auto* melee=SharedMeleeForTitle(title))
             LOG("Physical melee title=%d: requested=%d world-contact=%d threshold=%.2f m/s; "
@@ -59732,6 +59834,11 @@ void Game_DevSetBroadswordRide(bool ride)
 {
     g_devBroadswordRideOff.store(!ride, std::memory_order_relaxed);
     LOG("Halo 4 Broadsword view (dev): %s", ride ? "on the seat camera's point" : "the observer's, as the game makes it");
+}
+void Game_DevSetWeaponIkForceOff(uint32_t mask)
+{
+    g_weaponIkForceOffModes.store(mask, std::memory_order_relaxed);
+    LOG("Weapon-IK mode (dev): mode 3 calls with no guest return address turned off for second modes 0x%X", mask);
 }
 static std::atomic<bool> g_devSeatPitchCheckHoldOff{false};
 void Game_DevSetSeatPitchCheckHold(bool hold)

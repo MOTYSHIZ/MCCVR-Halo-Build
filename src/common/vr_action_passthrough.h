@@ -73,11 +73,9 @@ inline constexpr uint32_t WithoutHostMenuButton(uint32_t transport) noexcept
 }
 
 // PROJECT RECLAIMER'S FLASHLIGHT, ODST's VISR. Halo 3's player-control builder reads the flashlight (action 0x11, three
-// reads from halo3+0xF5C70) inside the range the bridge serves, and the client lights the trooper's VISR from it. The
-// client fills that action from bindings of its own, which need not be the button the layout the mod reads names (see
-// kHostMenuButtons): with only the real button pressed, no press of the VISR row reached the game (2026-11-19, ODST's
-// Mombasa Streets). There the bridge carries the action as well as the real button. The builder keeps the game's own
-// record while a real button holds it (NativeVrActions ReadOwned), so a press is one press however it arrives.
+// reads from halo3+0xF5C70) inside the range the bridge serves. On Reclaimer the bridge carries it as well as the real
+// button: the builder keeps the game's own record while a real button holds it (NativeVrActions ReadOwned), so a press
+// is one press however it arrives.
 inline constexpr uint32_t HostBridgeAlsoActions(bool projectReclaimer) noexcept
 {
     return projectReclaimer ? 1u << Flashlight : 0u;

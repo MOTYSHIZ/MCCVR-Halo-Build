@@ -242,7 +242,7 @@ inline GameTitle Game_ControlsTitle(GameTitle active) noexcept
 }
 // Project Reclaimer shows its prompts for the device it last saw (reclaimer_input_device.inl). The mod notes each mouse
 // click, wheel or key it sends itself; the tick, from the headset's input loop, puts the controller's buttons back once
-// the game is played again (`playing`: no menu, no pause).
+// the game is played again (`playing`: no menu, no pause, the headset focused), and after the headset's own menu.
 void Game_ReclaimerNoteSyntheticInput() noexcept;
 void Game_ReclaimerInputDeviceTick(bool playing) noexcept;
 
@@ -483,6 +483,9 @@ void Game_DevNoteFireTrigger(bool pressed);
 // A gun-slaved seat's pitch check (Halo 3 / ODST): false lets the stick servo run while the check collects its
 // evidence, as before the hold existed. For comparing the two in one sitting; a player build always holds.
 void Game_DevSetSeatPitchCheckHold(bool hold);
+// Project Reclaimer weapon IK (dev): the second modes (bit n: mode 3 / n) a call with no guest return address is turned
+// off for (GuardedWeaponIkModeHook); a player build turns off mode 3 / 2, the decision's.
+void Game_DevSetWeaponIkForceOff(uint32_t mask);
 // Halo 4's Broadsword view: true stands it on the seat camera's point, false leaves the observer as the game makes
 // it (the line still measures how far it trails). A player build always rides.
 void Game_DevSetBroadswordRide(bool ride);
