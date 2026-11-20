@@ -19998,6 +19998,8 @@ static constexpr bool kOdstMappedFpEnabled = false;
     constexpr unsigned kWeaponIkModeCallers = 12;
     WeaponIkModeCaller g_weaponIkModeCallers[kWeaponIkModeCallers];
     std::atomic<uint32_t> g_weaponIkModeCallersFull{0};
+    // Bit n: a mode 3 / n call with no guest return address goes to the no-IK branch. 1 << 2: the decision's.
+    std::atomic<uint32_t> g_weaponIkForceOffModes{1u << 2};
     void NoteWeaponIkModeCaller(uintptr_t guest, uintptr_t native, int mode, int mode2, float blend, bool overridden)
         noexcept
     {
@@ -20038,7 +20040,17 @@ static constexpr bool kOdstMappedFpEnabled = false;
         __try
         {
             const uintptr_t guestReturn = HALOMCCVR_GAME_RETURN_ADDRESS();
-            const bool overridden = g_weaponIkModeReturn && guestReturn == g_weaponIkModeReturn;
+            // The decision's call: from the game's translated decision (its guest return address), or, from 0.10.6, from
+            // the client's own copies of that decision (exe+0x56F9915 and exe+0x565E597 in 0.10.7), which call the
+            // setter through a shim that leaves no guest return address (0). Those copies make the decision's weapon-IK
+            // call, mode 3 / 2, which no other caller makes (the 30 s caller report, 2026-11-19): with the guest return
+            // address unknown, that call is the decision's. Without it the native weapon IK stayed on, and ODST's SMG
+            // pinned the left hand to its grip.
+            const uint32_t forceOff = g_weaponIkForceOffModes.load(std::memory_order_relaxed);
+            const bool overridden = g_weaponIkModeReturn &&
+                (guestReturn == g_weaponIkModeReturn ||
+                 (lifted::Active() && !guestReturn && mode == 3 && mode2 >= 0 && mode2 < 32 &&
+                  ((forceOff >> mode2) & 1u)));
             NoteWeaponIkModeCaller(guestReturn, reinterpret_cast<uintptr_t>(_ReturnAddress()), mode, mode2, blend,
                                    overridden);
             if (overridden)
@@ -59699,6 +59711,11 @@ void Game_DevSetBroadswordRide(bool ride)
 {
     g_devBroadswordRideOff.store(!ride, std::memory_order_relaxed);
     LOG("Halo 4 Broadsword view (dev): %s", ride ? "on the seat camera's point" : "the observer's, as the game makes it");
+}
+void Game_DevSetWeaponIkForceOff(uint32_t mask)
+{
+    g_weaponIkForceOffModes.store(mask, std::memory_order_relaxed);
+    LOG("Weapon-IK mode (dev): mode 3 calls with no guest return address turned off for second modes 0x%X", mask);
 }
 static std::atomic<bool> g_devSeatPitchCheckHoldOff{false};
 void Game_DevSetSeatPitchCheckHold(bool hold)
