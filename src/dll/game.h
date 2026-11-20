@@ -485,6 +485,9 @@ void Game_DevNoteFireTrigger(bool pressed);
 // A gun-slaved seat's pitch check (Halo 3 / ODST): false lets the stick servo run while the check collects its
 // evidence, as before the hold existed. For comparing the two in one sitting; a player build always holds.
 void Game_DevSetSeatPitchCheckHold(bool hold);
+// Project Reclaimer weapon IK (dev): the second modes (bit n: mode 3 / n) a call with no guest return address is turned
+// off for (GuardedWeaponIkModeHook); a player build turns off mode 3 / 2, the decision's.
+void Game_DevSetWeaponIkForceOff(uint32_t mask);
 // Halo 4's Broadsword view: true stands it on the seat camera's point, false leaves the observer as the game makes
 // it (the line still measures how far it trails). A player build always rides.
 void Game_DevSetBroadswordRide(bool ride);
