@@ -413,3 +413,30 @@ Campaign Evolved's reload commits since `5adbc7c`, checked against this port. No
 | `a389b7a`: a grip still closed as a shell goes in is not the two-handed hold's until it opens (`loadGripHolds`, off on the shotgun); pump sounds on the player's emitter. | Ported the grip rule (built in, no file key). The emitter fix is Unreal-only; the click here is the game's 2D sound. |
 | `1daf662`: manual reload out of Experimental and on by default. | Not changed: the branch is on hold, and `manual_reload` stays off by default until the user decides. |
 | Menu restyle, Player IK | No Player IK commits since `5adbc7c`; the menu restyle is Campaign Evolved's own UI. |
+
+## Setup layout and headset notices (2026-11-21, workbench only)
+
+The user found the setup steps well described in the menu but with nothing in the headset once it was closed, and the
+game's own blue HUD messages too short (about 95 characters) for instructions. So the mod's notice panel is now the
+primary message for this, restyled in Halo 3's HUD look. Nothing was run in the game.
+
+- **The notice panel** (`src/dll/native_subtitles.cpp`, `RasterizeNotice`): Bahnschrift (the HUD-like face the
+  waypoint labels use) in the HUD's light blue with a soft glow, on a dark see-through bar sized to the text with a
+  thin top and bottom line and bracket corners, under an optional small letter-spaced heading. Warnings are amber.
+  The vehicle camera note's fallback uses the same panel, so it changes look too. Showing the same notice again only
+  extends it (no new picture). `NativeNotice_Hide` takes an instruction away when its step is cancelled.
+- **The calibration steps** (`vr.cpp`, `ShowReloadCaptureInstruction` / `ShowReloadCaptureResult`): when the menu
+  closes on an armed step, the headset says what to do (which hand, which stick, the size in cm, updated as the stick
+  changes it), then what was kept ("POUCH SET", "MAGAZINE WELL SIZED", "HANDLE GRAB SPOT SET") or why nothing was
+  ("NOT SET": no squeeze in 30 s, no gun reloaded by hand, the gun has no part to set, the headset's position lost).
+  The handle grab spot step now shows a small blue sphere at the current spot, as the other two steps do.
+- **A gun learned its reload** (`manual_reload_game.inl`, `reload_clip_store::LearnedThisSession`): "RELOAD LEARNED",
+  once a gun per session (it learns a full and an empty reload), only with "Move the gun with its own reload
+  animation" on. Clips loaded from the file do not count.
+- **F1 › Controls › Reload and holsters**, under Manual Reload, now reads in order: what it is; *Set up the gun in
+  your hand* (the gun's name as players know it, "Reload this gun by hand", then three numbered steps: 1 pouch,
+  2 magazine well, 3 handle grab spot, each with its current value and Reset); *How it plays* (rack, reload
+  animation, hand on the magazine); *Helpers* (zones, prompts, sounds); *Fine tuning (every gun)* (grab radius,
+  pouch location and offsets, the other games' insertion radius, the generic item, needle shake). Same settings and
+  config keys; descriptions are wrapped to the panel instead of fixed lines.
+- Multiplayer: all of it is the mod's own panel and spheres in this headset; nothing reaches the game.

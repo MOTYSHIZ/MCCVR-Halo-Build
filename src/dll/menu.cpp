@@ -39,6 +39,7 @@
 #include "hand_tracks.h"
 #include "reload_clip_store.h"
 #include "reload_weapon_settings.h"
+#include "../common/manual_reload_parts.h"
 #include "../common/input_preset.h"
 #include "../common/default_controls.h"
 #include "../common/menu_mirror.h"
@@ -2386,118 +2387,137 @@ namespace
             ImGui::TextDisabled("Gestures only: button and keyboard reload are off.");
         if (g_config.manual_reload)
         {
-            ImGui::TextDisabled("Halo 3 and ODST (assault rifle, battle rifle, SMGs, sniper rifle, magnums):\n"
-                "tap reload and the magazine drops out. Take one at your hip, bring it under the gun and push it\n"
-                "up into the well. The trigger waits until a round is in the gun. The game reloads by itself,\n"
-                "unseen, and your gun keeps its own count. Other Halo 3 and ODST weapons reload the game's way.\n"
-                "Other games: hold your support grip at your hip to take a magazine, bring it below your\n"
-                "weapon hand and let go.\n"
-                "Safe in co-op: only buttons and the trigger reach the game; the magazines are drawn by the mod.");
-            SettingGap();
-            changed |= ImGui::Checkbox("Rack the handle after an empty magazine", &g_config.manual_reload_rack);
-            ImGui::TextDisabled("Halo 3 and ODST: a gun that ran dry needs its charging handle or slide pulled back\n"
-                "with your support hand once the new magazine is in. Off: seating the magazine chambers a round.");
-            SettingGap();
-            changed |= ImGui::Checkbox("Move the gun with its own reload animation", &g_config.manual_reload_animation);
-            ImGui::TextDisabled("Each gun learns its reload from the game the first time it reloads (you will not see\n"
-                "it). After that the magazine slides out and in along the gun's own animation, the handle moves\n"
-                "with it, and the Covenant carbine, spiker and mauler reload by hand too.");
-#if HALOMCCVR_SETTINGS_WINDOW
-            ImGui::TextDisabled("The learned animations are in halomccvr_reload_clips.bin beside halomccvr.cfg.\n"
-                "Delete that file to have every gun learn its reload again.");
-#else
-            {
-                const uint32_t learned = reload_clip_store::LearnedCount();
-                ImGui::TextDisabled("Learned so far: %u reload animation%s.", learned, learned == 1 ? "" : "s");
-                if (ImGui::Button("Forget learned reload animations")) reload_clip_store::ForgetAll();
-            }
-#endif
-            SettingGap();
-            changed |= ImGui::Checkbox("Draw my hand on the magazine and the handle", &g_config.manual_reload_hand_follow);
-            ImGui::TextDisabled("Your support hand is drawn on the magazine as you push it in, and on the charging\n"
-                "handle or slide as you pull it, so it rides the gun when you turn it.");
-            SettingGap();
+            // Laid out as a setup (user 2026-11-21: the steps were all there but read as one long list): what it is,
+            // then the gun in hand step by step, then how it plays, the helpers, and the fine tuning for every gun.
+            OptionNote("Halo 3 and ODST (assault rifle, battle rifle, SMGs, sniper rifle, magnums): tap reload and the "
+                "magazine drops out. Take a new one from the pouch at your hip, bring it under the gun and push it up "
+                "into the well. The trigger waits until a round is in the gun. Other Halo 3 and ODST weapons reload the "
+                "game's way. Other games: hold your support grip at your hip to take a magazine, bring it below your "
+                "weapon hand and let go. Safe in co-op: only buttons and the trigger reach the game; the magazines are "
+                "drawn by the mod.");
 #if !HALOMCCVR_SETTINGS_WINDOW
+            SettingGap();
             {
-                // THE HELD GUN (halomccvr_reloads.txt) and the in-headset calibrations.
+                // THE HELD GUN (halomccvr_reloads.txt) and the in-headset calibrations: each step is armed here and
+                // done in the headset with the menu closed, where a notice says what to do and what was kept.
+                SettingGroup gunSetup("Set up the gun in your hand");
                 bool builtIn = false;
                 const char* gun = VR_ManualReloadHeldGun(builtIn);
                 reload_weapon_file::Entry entry{};
                 const bool listed = gun && reload_weapon_settings::Get(gun, entry);
+                const char* shown = manual_reload::GunDisplayName(gun);
                 if (gun && builtIn)
                 {
                     bool byHand = !(listed && entry.enabled == 0);
-                    ImGui::Text("Gun in hand: %s", gun);
+                    ImGui::Text("Gun in hand: %s", shown);
                     if (ImGui::Checkbox("Reload this gun by hand", &byHand)) reload_weapon_settings::SetEnabled(gun, byHand);
-                    if (ImGui::Button("Set the handle grab spot to my hand")) VR_ReloadCaptureArm(2);
+                    OptionNote("Three steps, best in this order. For each, press its button, close the menu and follow "
+                        "the message in your headset. Every step can be done again or reset.");
+                    SettingGap();
+                    if (ImGui::Button("1. Set the pouch to my hand")) VR_ReloadCaptureArm(1);
                     ImGui::SameLine();
-                    if (ImGui::Button("Reset grab spot")) reload_weapon_settings::ClearHandle(gun);
-                    if (listed && entry.handleSet)
-                        ImGui::TextDisabled("Grab spot: %.0f cm back, %.0f cm up, %.0f cm aside of the handle.",
-                                            entry.handle[0], entry.handle[1], entry.handle[2]);
-                    if (ImGui::Button("Size this gun's magazine well")) VR_ReloadCaptureArm(4);
-                    ImGui::SameLine();
-                    if (ImGui::Button("Reset well size")) reload_weapon_settings::ClearSeat(gun);
-                    if (listed && std::isfinite(entry.seat))
-                        ImGui::TextDisabled("Magazine well reach for this gun: %.0f cm.", entry.seat);
+                    if (listed && std::isfinite(entry.pouch))
+                    {
+                        ImGui::TextDisabled("Reach for this gun: %.0f cm", entry.pouch);
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset##pouchreach")) reload_weapon_settings::ClearPouch(gun);
+                    }
                     else
-                        ImGui::TextDisabled("Magazine well reach for this gun: 10 cm.");
-                    ImGui::TextDisabled("How close to the well's line a magazine (or shell) must come to go on. Close the\n"
-                        "menu: a blue sphere shows it at the gun. Push your support hand's stick up or down to resize it,\n"
-                        "then squeeze that hand's grip to keep it.");
+                        ImGui::TextDisabled("Reach: the Magazine grab radius (%.0f cm)",
+                                            g_config.weapon_body_zone_radius_m * 100.0f);
+                    OptionNote("Where you take magazines from. The place is for every gun, the reach for this gun.");
+                    SettingGap();
+                    if (ImGui::Button("2. Size the magazine well")) VR_ReloadCaptureArm(4);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("Reach: %.0f cm", listed && std::isfinite(entry.seat) ? entry.seat : 10.0f);
+                    if (listed && std::isfinite(entry.seat))
+                    {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset##wellreach")) reload_weapon_settings::ClearSeat(gun);
+                    }
+                    OptionNote("How close to the well a magazine (or shell) must come to go in.");
+                    SettingGap();
+                    if (ImGui::Button("3. Set the handle grab spot")) VR_ReloadCaptureArm(2);
+                    ImGui::SameLine();
+                    if (listed && entry.handleSet)
+                    {
+                        ImGui::TextDisabled("%.0f cm back, %.0f cm up, %.0f cm aside", entry.handle[0],
+                                            entry.handle[1], entry.handle[2]);
+                        ImGui::SameLine();
+                        if (ImGui::Button("Reset##grabspot")) reload_weapon_settings::ClearHandle(gun);
+                    }
+                    else
+                        ImGui::TextDisabled("Built-in spot");
+                    OptionNote(g_config.manual_reload_rack
+                        ? "Where your hand takes the charging handle, slide or pump to pull it back."
+                        : "Where your hand takes the charging handle, slide or pump to pull it back (used when "
+                          "\"Rack the handle after an empty magazine\" is on, and for the shotgun's pump).");
+                    SettingGap();
                     if (ImGui::Button("Forget this gun's learned reload")) VR_ManualReloadForgetHeldGun();
                     ImGui::SameLine();
                     ImGui::TextDisabled("(it learns it again on its next reload)");
                 }
-                else if (gun && listed && entry.enabled == 0)
-                {
-                    bool byHand = false;
-                    ImGui::Text("Gun in hand: %s", gun);
-                    if (ImGui::Checkbox("Reload this gun by hand", &byHand)) reload_weapon_settings::SetEnabled(gun, true);
-                }
                 else
-                    ImGui::TextDisabled(gun ? "The gun in hand reloads the game's way." :
-                                              "Hold a gun to set it up here.");
-                if (gun && builtIn)
                 {
-                    if (listed && std::isfinite(entry.pouch))
-                        ImGui::TextDisabled("Pouch reach for this gun: %.0f cm.", entry.pouch);
-                    else
-                        ImGui::TextDisabled("Pouch reach for this gun: the Magazine grab radius (%.0f cm).",
-                                            g_config.weapon_body_zone_radius_m * 100.0f);
-                    if (listed && std::isfinite(entry.pouch))
+                    if (gun && listed && entry.enabled == 0)
                     {
-                        if (ImGui::Button("Reset this gun's pouch reach")) reload_weapon_settings::ClearPouch(gun);
+                        bool byHand = false;
+                        ImGui::Text("Gun in hand: %s", shown);
+                        if (ImGui::Checkbox("Reload this gun by hand", &byHand)) reload_weapon_settings::SetEnabled(gun, true);
                     }
+                    else
+                        ImGui::TextDisabled(gun ? "The gun in hand reloads the game's way." :
+                                                  "Hold a Halo 3 or ODST gun to set it up here.");
+                    if (ImGui::Button("Set the pouch to my hand")) VR_ReloadCaptureArm(1);
+                    OptionNote("Where you take magazines from, for every gun. Press it, close the menu and follow the "
+                        "message in your headset.");
                 }
-                if (ImGui::Button("Set the pouch to my hand")) VR_ReloadCaptureArm(1);
-                ImGui::TextDisabled("Close the menu: a blue sphere rides your support hand. Push that hand's stick up or\n"
-                    "down to grow or shrink it (the reach for the gun you hold), then squeeze the support grip where\n"
-                    "the pouch should be. The place is for every gun, the size for this gun only.");
                 const int armed = VR_ReloadCaptureArmed();
                 if (armed)
                 {
-                    if (armed == 4)
-                        ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "Close the menu, size the sphere at the gun "
-                            "with your support hand's stick and squeeze its grip.");
-                    else
-                        ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "Close the menu, put your support hand where "
-                            "the %s should be and squeeze its grip.", armed == 1 ? "pouch" : "handle grab spot");
+                    ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "%s is waiting: close the menu and follow the "
+                        "message in your headset.", armed == 1 ? "The pouch step" : armed == 4 ? "The well step" :
+                        "The handle grab spot step");
+                    ImGui::SameLine();
                     if (ImGui::Button("Cancel")) VR_ReloadCaptureArm(0);
                 }
-                ImGui::TextDisabled("Per-gun settings are kept in halomccvr_reloads.txt beside halomccvr.cfg.");
+                OptionNote("Per-gun settings are kept in halomccvr_reloads.txt beside halomccvr.cfg.");
             }
-            SettingGap();
 #endif
+            ImGui::SeparatorText("How it plays");
+            changed |= ImGui::Checkbox("Rack the handle after an empty magazine", &g_config.manual_reload_rack);
+            OptionNote("Halo 3 and ODST: a gun that ran dry needs its charging handle or slide pulled back with your "
+                "support hand once the new magazine is in. Off: seating the magazine chambers a round.");
+            SettingGap();
+            changed |= ImGui::Checkbox("Move the gun with its own reload animation", &g_config.manual_reload_animation);
+            OptionNote("Each gun learns its reload from the game the first time it reloads (you will not see it; your "
+                "headset says when). After that the magazine slides out and in along the gun's own animation, the "
+                "handle moves with it, and the Covenant carbine, spiker and mauler reload by hand too.");
+#if HALOMCCVR_SETTINGS_WINDOW
+            OptionNote("The learned animations are in halomccvr_reload_clips.bin beside halomccvr.cfg. Delete that file "
+                "to have every gun learn its reload again.");
+#else
+            {
+                const uint32_t learned = reload_clip_store::LearnedCount();
+                ImGui::TextDisabled("Learned so far: %u reload animation%s.", learned, learned == 1 ? "" : "s");
+                ImGui::SameLine();
+                if (ImGui::Button("Forget them all")) reload_clip_store::ForgetAll();
+            }
+#endif
+            SettingGap();
+            changed |= ImGui::Checkbox("Draw my hand on the magazine and the handle", &g_config.manual_reload_hand_follow);
+            OptionNote("Your support hand is drawn on the magazine as you push it in, and on the charging handle or "
+                "slide as you pull it, so it rides the gun when you turn it.");
+            ImGui::SeparatorText("Helpers");
             changed |= ImGui::Checkbox("Show reload zones", &g_config.manual_reload_show_zones);
-            ImGui::TextDisabled("See-through spheres where your support hand works: the pouch, the well while you\n"
-                "hold a magazine, and the charging handle. Green: your hand is in it and it will take. Amber: in it,\n"
-                "nothing to do there now. Red: out of reach.");
+            OptionNote("See-through spheres where your support hand works: the pouch, the well while you hold a "
+                "magazine, and the charging handle. Green: your hand is in it and it will take. Amber: in it, nothing "
+                "to do there now. Red: out of reach.");
             SettingGap();
             changed |= ImGui::Checkbox("Show reload prompts", &g_config.manual_reload_prompts);
-            ImGui::TextDisabled("Waypoints for what the reload waits on. PULL over the charging handle when a round has\n"
-                "waited 2 seconds to be chambered; MAG over the pouch when you pull the trigger with the magazine\n"
-                "out (gone once you take one). Only you see them.");
+            OptionNote("Waypoints for what the reload waits on. PULL over the charging handle when a round has waited 2 "
+                "seconds to be chambered; MAG over the pouch when you pull the trigger with the magazine out (gone once "
+                "you take one). Only you see them.");
             if (g_config.manual_reload_prompts)
             {
                 changed |= vr_menu::SliderFloat("Prompt size (m wide)", &g_config.manual_reload_prompt_width_m,
@@ -2509,18 +2529,20 @@ namespace
             }
             SettingGap();
             changed |= ImGui::Checkbox("Reload sounds", &g_config.manual_reload_sounds);
-            ImGui::TextDisabled("The game's own reload sound is not played (its reload is hidden); the gun clicks\n"
-                "as a magazine goes in and as you rack the handle. Only you hear these.");
-            SettingGap();
+            OptionNote("The game's own reload sound is not played (its reload is hidden); the gun clicks as a magazine "
+                "goes in and as you rack the handle. Only you hear these.");
+            ImGui::SeparatorText("Fine tuning (every gun)");
             changed |= vr_menu::SliderFloat("Magazine grab radius (m)",
                 &g_config.weapon_body_zone_radius_m,0.08f,0.40f,"%.2f");
+            OptionNote("How close to the pouch your hand must be to take a magazine, for a gun without its own reach "
+                "(step 1 above sets one).");
             changed|=Combo("Reserve magazine location",&g_config.weapon_pouch_location,
                 "Support-side front hip\0Behind support shoulder\0");
             SettingGap();
             {
             SettingGroup reserveOffsets("Reserve magazine offsets", SettingGroup::kNameOnly);
-            ImGui::TextDisabled("Offsets follow your body direction. Positive side moves toward the weapon hand; "
-                                "left-handed mode mirrors it.");
+            OptionNote("Where the pouch sits, moved from its location above. Step 1 sets these for you. Offsets follow "
+                "your body direction; positive side moves toward the weapon hand; left-handed mode mirrors it.");
             changed|=vr_menu::SliderFloat("Reserve side offset (m)",&g_config.weapon_pouch_offset_x_m,-.40f,.40f,"%.3f");
             SettingGap();
             changed|=vr_menu::SliderFloat("Reserve height offset (m)",&g_config.weapon_pouch_offset_y_m,-.40f,.40f,"%.3f");
@@ -2530,10 +2552,12 @@ namespace
             SettingGap();
             changed |= vr_menu::SliderFloat("Magazine insertion radius (m)",
                 &g_config.weapon_insert_radius_m,0.06f,0.30f,"%.2f");
+            OptionNote("Other games only: how close below the weapon hand a magazine must be let go. Halo 3 and ODST "
+                "use each gun's well reach (step 2 above).");
             SettingGap();
             changed |= ImGui::Checkbox("Generic reload item for unknown weapons", &g_config.weapon_unknown_reload_visual);
-            ImGui::TextDisabled("Detected unfamiliar weapons use a blue reload item.\n"
-                "Native ammo and reload rules still apply; it is not the mod's own mesh.");
+            OptionNote("Detected unfamiliar weapons use a blue reload item. Native ammo and reload rules still apply; "
+                "it is not the mod's own mesh.");
             SettingGap();
             {
             SettingGroup needleShake("Needle shake reload", SettingGroup::kNameOnly);

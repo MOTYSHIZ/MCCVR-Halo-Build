@@ -71,6 +71,30 @@ struct Weapon
     bool loadGripHolds = true;
 };
 
+// The name a player knows a gun by, for the menu and the headset's notices (the kit model's name otherwise).
+inline const char* GunDisplayName(const char* name) noexcept
+{
+    if (!name) return "";
+    struct Row { const char* model; const char* shown; };
+    static constexpr Row kRows[]{
+        {"fp_assault_rifle", "Assault Rifle"}, {"fp_battle_rifle", "Battle Rifle"}, {"fp_smg", "SMG"},
+        {"fp_smg_silenced", "Silenced SMG"}, {"fp_sniper_rifle", "Sniper Rifle"}, {"fp_magnum", "Magnum"},
+        {"fp_automag", "Automag"}, {"fp_covenant_carbine", "Covenant Carbine"}, {"fp_spike_rifle", "Spiker"},
+        {"fp_excavator", "Mauler"}, {"fp_shotgun", "Shotgun"}};
+    for (const Row& row : kRows)
+        if (std::strcmp(row.model, name) == 0) return row.shown;
+    return name;
+}
+
+// What the support hand pulls back on this gun: the pistols' slide, the shotgun's pump, else the charging handle.
+inline const char* RackPartName(const char* name) noexcept
+{
+    if (!name) return "charging handle";
+    if (std::strcmp(name, "fp_magnum") == 0 || std::strcmp(name, "fp_automag") == 0) return "slide";
+    if (std::strcmp(name, "fp_shotgun") == 0) return "pump";
+    return "charging handle";
+}
+
 // The built-in weapons: magazine-fed guns whose magazine goes up into the gun and whose kit model has both a
 // magazine and a chambering part. Matched on the kit's render model name, so Halo 3 and ODST share a row.
 inline Weapon BuiltInWeapon(const char* name) noexcept

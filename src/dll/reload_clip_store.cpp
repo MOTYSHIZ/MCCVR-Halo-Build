@@ -46,6 +46,8 @@ std::atomic<uint64_t> g_forgetIdentity{0};
 std::atomic<int> g_forgetTitle{0};
 std::atomic<bool> g_dirty{false};         // the file holds a clip that is gone: write it again
 std::atomic<uint32_t> g_learned{0};
+std::atomic<uint32_t> g_learnedLive{0};       // LearnedThisSession
+std::atomic<uint64_t> g_lastLearnedIdentity{0};
 
 void Analyze(Slot& s) noexcept
 {
@@ -263,6 +265,8 @@ void FinishRecording(reload_clip::Clip* clip, bool complete) noexcept
             {
                 s.state.store(Complete, std::memory_order_release);
                 CountLearned();
+                g_lastLearnedIdentity.store(s.clip.identity, std::memory_order_relaxed);
+                g_learnedLive.fetch_add(1, std::memory_order_release);
                 return;
             }
         }
@@ -383,4 +387,10 @@ void Forget(GameTitle title, uint64_t identity) noexcept
     g_forgetTitle.store(int(title) + 1, std::memory_order_release);
 }
 uint32_t LearnedCount() noexcept { return g_learned.load(std::memory_order_relaxed); }
+uint32_t LearnedThisSession(uint64_t& lastIdentity) noexcept
+{
+    const uint32_t count = g_learnedLive.load(std::memory_order_acquire);
+    lastIdentity = g_lastLearnedIdentity.load(std::memory_order_relaxed);
+    return count;
+}
 } // namespace reload_clip_store

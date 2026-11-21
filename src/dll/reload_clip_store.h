@@ -35,4 +35,7 @@ void ForgetAll() noexcept;
 // The menu: forget one gun's learned clips (both kinds), so a reload learned badly is learned again.
 void Forget(GameTitle title, uint64_t identity) noexcept;
 uint32_t LearnedCount() noexcept;
+// Clips learned from a reload in this session (not loaded from the file), and the gun of the last one: the worker
+// tells the player when a gun has learned its reload. Any thread.
+uint32_t LearnedThisSession(uint64_t& lastIdentity) noexcept;
 } // namespace reload_clip_store

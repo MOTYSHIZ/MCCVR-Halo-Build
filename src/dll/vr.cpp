@@ -11476,7 +11476,77 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         int kind = 0; uint64_t armedAt = 0; bool released = false, holding = false;
         float size = 0;            // the pouch calibration: the reach being set (m), resized by the support stick
         uint64_t sizedAt = 0;      // its last tick (the stick's rate is per second)
+        int shownCm = -1;          // the size its instruction last showed (-1: not shown since the menu closed)
+        uint64_t notice = 0;       // that instruction (NativeNotice_Hide when the step is cancelled)
     } g_reloadCapture;
+    constexpr uint64_t kReloadCaptureTimeoutMs = 30000;
+
+    // THE CALIBRATIONS' NOTICES, in the notice panel (native_subtitles.h; user 2026-11-21: the steps had a good
+    // description in the menu but nothing in the headset once it was closed): what to do, the size being chosen as it
+    // changes, then what was kept, or why nothing was. Only this headset shows them. Input thread; no allocation.
+    void ShowReloadCaptureInstruction(ReloadCapture& cap, bool leftHanded, const char* gun, bool gunBuiltIn,
+                                      uint64_t now)
+    {
+        const wchar_t* hand = leftHanded ? L"right" : L"left";
+        const wchar_t* stick = leftHanded ? L"Right" : L"Left";
+        const char* name = manual_reload::GunDisplayName(gun);
+        const int cm = int(std::lround(cap.size * 100.0f));
+        const uint64_t elapsed = now > cap.armedAt ? now - cap.armedAt : 0;
+        const float seconds = elapsed < kReloadCaptureTimeoutMs ? float(kReloadCaptureTimeoutMs - elapsed) * 0.001f : 1.0f;
+        wchar_t text[256]{};
+        const wchar_t* heading = L"";
+        if (cap.kind == 1)
+        {
+            heading = L"SET THE POUCH";
+            swprintf_s(text, L"Put your %ls hand where you want to take magazines from and squeeze its grip.\n"
+                       L"%ls stick up or down sizes the sphere: %d cm%hs%hs.", hand, stick, cm,
+                       gun && gunBuiltIn ? " for the " : "", gun && gunBuiltIn ? name : "");
+        }
+        else if (cap.kind == 4)
+        {
+            heading = L"SIZE THE MAGAZINE WELL";
+            swprintf_s(text, L"%hs: %ls stick up or down sizes the sphere at the gun: %d cm.\n"
+                       L"Squeeze your %ls grip to keep it.", gun ? name : "The gun", stick, cm, hand);
+        }
+        else if (cap.kind == 2)
+        {
+            heading = L"SET THE HANDLE GRAB SPOT";
+            swprintf_s(text, L"%hs: put your %ls hand where you want to grab the %hs and squeeze its grip.",
+                       gun ? name : "The gun", hand, manual_reload::RackPartName(gun));
+        }
+        else return;
+        cap.notice = NativeNotice_Show(heading, text, seconds, NoticeTone::Info);
+        cap.shownCm = cap.kind == 2 ? 0 : cm;
+    }
+
+    // The squeeze's result: `taken` or not, and if not, why (the step's kind says which part was missing).
+    void ShowReloadCaptureResult(int kind, bool taken, const char* gun, bool gunBuiltIn, float size)
+    {
+        const char* name = manual_reload::GunDisplayName(gun);
+        const int cm = int(std::lround(size * 100.0f));
+        wchar_t text[256]{};
+        if (taken)
+        {
+            const wchar_t* heading = kind == 1 ? L"POUCH SET" : kind == 4 ? L"MAGAZINE WELL SIZED" : L"HANDLE GRAB SPOT SET";
+            if (kind == 1 && gun && gunBuiltIn)
+                swprintf_s(text, L"Saved for every gun. Its reach for the %hs: %d cm.", name, cm);
+            else if (kind == 1)
+                swprintf_s(text, L"Saved for every gun. Its reach: %d cm.", cm);
+            else if (kind == 4)
+                swprintf_s(text, L"Saved for the %hs: %d cm.", name, cm);
+            else
+                swprintf_s(text, L"Saved for the %hs.", name);
+            NativeNotice_Show(heading, text, 4.0f, NoticeTone::Info);
+            return;
+        }
+        if (kind == 1)
+            swprintf_s(text, L"The headset's position was lost. Nothing changed: try again from the menu.");
+        else if (!gun || !gunBuiltIn)
+            swprintf_s(text, L"Hold a gun you reload by hand, then try again from the menu. Nothing changed.");
+        else
+            swprintf_s(text, L"The %hs has no %hs to set here. Nothing changed.", name, manual_reload::RackPartName(gun));
+        NativeNotice_Show(L"NOT SET", text, 6.0f, NoticeTone::Warning);
+    }
     uint32_t g_manualReloadTapsSeen = 0;
     // dropped, grabbed, seated, racked, pressed, lost; then presses retried, counts clamped to the game's, pushes abandoned
     std::atomic<uint32_t> g_manualReloadEvents[9]{};
@@ -16310,7 +16380,12 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     if(request==1||request==2||request==4)
                         g_reloadCapture={request,inputNow,false,false,
                             request==4?reloadSettings.seatLateral:reloadSettings.pouchRadius,inputNow};
-                    else if(request==3) g_reloadCapture.kind=0;
+                    else if(request==3)
+                    {
+                        // Cancelled in the menu: its instruction goes too (if it is still the one shown).
+                        if(g_reloadCapture.kind) NativeNotice_Hide(g_reloadCapture.notice);
+                        g_reloadCapture.kind=0;
+                    }
                     auto& cap=g_reloadCapture;
                     const float grip=supportGripActive?rawSupportGrip:std::numeric_limits<float>::quiet_NaN();
                     const bool gripValid=std::isfinite(grip);
@@ -16333,9 +16408,20 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                     }
                     if(cap.kind)
                     {
-                        if(Menu_IsOpen()) cap.armedAt=inputNow;
-                        else if(inputNow-cap.armedAt>30000) { cap.kind=0;g_reloadCaptureTimeouts.fetch_add(1); }
-                        else if(gripValid)
+                        if(Menu_IsOpen()) { cap.armedAt=inputNow;cap.shownCm=-1; }
+                        else if(inputNow-cap.armedAt>kReloadCaptureTimeoutMs)
+                        {
+                            cap.kind=0;g_reloadCaptureTimeouts.fetch_add(1);
+                            NativeNotice_Show(L"NOT SET",L"No grip squeeze within 30 seconds. Nothing changed.",6.0f,
+                                              NoticeTone::Warning);
+                        }
+                        else
+                        {
+                        // What to do, in the headset once the menu is closed, and again as the size changes.
+                        const int shownCm=cap.kind==2?0:int(std::lround(cap.size*100.0f));
+                        if(cap.shownCm!=shownCm)
+                            ShowReloadCaptureInstruction(cap,leftHanded,reloadGunName,reloadIn.weapon.enabled,inputNow);
+                        if(gripValid)
                         {
                             if(grip<0.35f) cap.released=true;
                             if(cap.released&&grip>0.55f)
@@ -16389,8 +16475,10 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                                 }
                                 if(taken) { g_reloadCaptures.fetch_add(1);VR_PulseHandHaptics(true,0.6f,60); }
                                 else g_reloadCaptureRefusals.fetch_add(1);
+                                ShowReloadCaptureResult(cap.kind,taken,reloadGunName,reloadIn.weapon.enabled,cap.size);
                                 cap.kind=0;cap.holding=true;
                             }
+                        }
                         }
                     }
                     g_reloadCaptureArmed.store(cap.kind,std::memory_order_release);
@@ -16578,6 +16666,14 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 // The receiver being sized: a sphere of the size being chosen around the gun's well.
                 auto& m=g_reloadMarkers[g_reloadMarkerCount++];
                 m.position=reloadIn.geometry.well;m.radius=g_reloadCapture.size;
+                m.color[0]=0.47f;m.color[1]=0.82f;m.color[2]=1.0f;m.color[3]=0.30f;
+                g_reloadMarkersAt=inputNow;
+            }
+            if(g_reloadCapture.kind==2&&!Menu_IsOpen()&&reloadOut.rackZoneValid)
+            {
+                // The handle's grab spot being set: where it is now, a small sphere, so the hand has a start.
+                auto& m=g_reloadMarkers[g_reloadMarkerCount++];
+                m.position=reloadOut.rackZone;m.radius=0.03f;
                 m.color[0]=0.47f;m.color[1]=0.82f;m.color[2]=1.0f;m.color[3]=0.30f;
                 g_reloadMarkersAt=inputNow;
             }

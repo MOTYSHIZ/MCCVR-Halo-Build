@@ -522,6 +522,38 @@ void Report()
         if (line[0]) LOG("%s", line);
     }
     {
+        // A gun learned its reload in this session: say so in the headset, once a gun (it learns a full and an empty
+        // reload; the first is news, the second is not). Only this headset shows it.
+        static uint32_t announced = 0;
+        static uint64_t guns[48]{};
+        static size_t gunCount = 0;
+        uint64_t identity = 0;
+        const uint32_t learned = reload_clip_store::LearnedThisSession(identity);
+        if (learned != announced)
+        {
+            announced = learned;
+            bool known = false;
+            for (size_t i = 0; i < gunCount; ++i) known = known || guns[i] == identity;
+            if (!known && identity)
+            {
+                if (gunCount < std::size(guns)) guns[gunCount++] = identity;
+                if (g_config.manual_reload && g_config.manual_reload_animation)
+                {
+                    bool builtIn = false;
+                    const char* gun = VR_ManualReloadHeldGun(builtIn);
+                    wchar_t text[192]{};
+                    if (gun && VR_ManualReloadHeldIdentity() == identity)
+                        swprintf_s(text, L"%hs: its magazine now moves along the gun's own reload animation.",
+                                   manual_reload::GunDisplayName(gun));
+                    else
+                        swprintf_s(text, L"A gun learned its reload: its magazine now moves along the gun's own "
+                                         L"reload animation.");
+                    NativeNotice_Show(L"RELOAD LEARNED", text, 4.0f, NoticeTone::Info);
+                }
+            }
+        }
+    }
+    {
         static uint64_t lastClips[5]{};
         static ULONGLONG clipsAt = 0;
         const uint64_t clips[]{held.load(), clipPosed.load(), ejectPlayed.load(), clipsRecorded.load(), clipsRefused.load()};

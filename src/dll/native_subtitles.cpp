@@ -49,10 +49,12 @@ std::shared_ptr<const NativeSubtitleImage> g_image;
 uint64_t g_consumed = 0, g_revision = 0;
 RasterCaption g_lastRasterized{};
 // The notice (NativeNotice_Show): its text under the lock, its image published like a caption's.
-constexpr uint32_t kNoticeCapacity = 256;
+constexpr uint32_t kNoticeCapacity = 256, kNoticeHeadingCapacity = 64;
 SRWLOCK g_noticeLock = SRWLOCK_INIT;
 wchar_t g_noticeText[kNoticeCapacity]{};
-uint32_t g_noticeLength = 0;
+wchar_t g_noticeHeading[kNoticeHeadingCapacity]{};
+uint32_t g_noticeLength = 0, g_noticeHeadingLength = 0;
+NoticeTone g_noticeTone = NoticeTone::Info;
 uint64_t g_noticeExpires = 0, g_noticeSerial = 0;
 uint64_t g_noticeRasterized = 0; // worker
 std::shared_ptr<const NativeSubtitleImage> g_noticeImage;
@@ -361,6 +363,188 @@ static std::shared_ptr<const NativeSubtitleImage> RasterizeLabel(const RasterCap
     return result;
 }
 
+// The HUD's face at `px` (a positive height is the cell, negative the letters), selected into `dc`: Bahnschrift
+// SemiBold SemiCondensed, as the waypoint labels, else Bahnschrift, else Segoe UI Semibold. Returns the font to
+// delete and the one it replaced in `previous`.
+static HFONT SelectHudFont(HDC dc, int px, HGDIOBJ& previous) {
+    previous = nullptr;
+    const wchar_t* faces[]{L"Bahnschrift SemiBold SemiConden", L"Bahnschrift", L"Segoe UI Semibold"};
+    for (int i = 0; i < 3; ++i) {
+        HFONT font = CreateFontW(-px, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
+            CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, faces[i]);
+        if (!font) continue;
+        HGDIOBJ before = SelectObject(dc, font);
+        wchar_t face[LF_FACESIZE]{};
+        GetTextFaceW(dc, LF_FACESIZE, face);
+        if (i == 2 || _wcsnicmp(face, L"Bahnschrift", 11) == 0) { previous = before; return font; }
+        SelectObject(dc, before);
+        DeleteObject(font);
+    }
+    return nullptr;
+}
+
+// Two box-blur passes (about a Gaussian) of a w x h coverage map, radius r.
+static void BlurTwice(const std::vector<float>& cover, std::vector<float>& blur, int w, int h, int r) {
+    std::vector<float> tmp(size_t(w) * h);
+    blur.assign(size_t(w) * h, 0.0f);
+    for (int pass = 0; pass < 2; ++pass) {
+        const std::vector<float>& src = pass == 0 ? cover : blur;
+        for (int y = 0; y < h; ++y) {
+            float sum = 0;
+            for (int x = -r; x <= r; ++x) sum += src[size_t(y) * w + std::clamp(x, 0, w - 1)];
+            for (int x = 0; x < w; ++x) {
+                tmp[size_t(y) * w + x] = sum / float(2 * r + 1);
+                sum += src[size_t(y) * w + std::min(x + r + 1, w - 1)] - src[size_t(y) * w + std::max(x - r, 0)];
+            }
+        }
+        for (int x = 0; x < w; ++x) {
+            float sum = 0;
+            for (int y = -r; y <= r; ++y) sum += tmp[size_t(std::clamp(y, 0, h - 1)) * w + x];
+            for (int y = 0; y < h; ++y) {
+                blur[size_t(y) * w + x] = sum / float(2 * r + 1);
+                sum += tmp[size_t(std::min(y + r + 1, h - 1)) * w + x] - tmp[size_t(std::max(y - r, 0)) * w + x];
+            }
+        }
+    }
+}
+
+// THE NOTICE in the style of Halo 3's HUD (user 2026-11-21: "stylize the mod's panel to look more in line with Halo
+// and make it primary"): a dark see-through bar sized to the text, a thin line along its top and bottom and brighter
+// bracket corners, an optional small letter-spaced heading, and the text in the HUD's face with a soft glow. Blue
+// for information, amber for a warning. The text is as large as fits (two or three lines at most at the smallest).
+// Worker only; premultiplied alpha.
+static std::shared_ptr<const NativeSubtitleImage> RasterizeNotice(const wchar_t* heading, uint32_t headingLength,
+    const wchar_t* text, uint32_t textLength, NoticeTone tone, uint64_t expires) {
+    if (!textLength) return {};
+    constexpr int w = NativeSubtitleImage::width, h = NativeSubtitleImage::height;
+    constexpr int kMargin = 16, kPadX = 80, kPadY = 30, kGap = 6, kHeadingPx = 50, kSmallestPx = 44;
+    constexpr int kMaxTextW = w - 2 * kMargin - 2 * kPadX;
+    HDC dc = CreateCompatibleDC(nullptr);
+    if (!dc) return {};
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = w; info.bmiHeader.biHeight = -h;
+    info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits) { if (bitmap) DeleteObject(bitmap); DeleteDC(dc); return {}; }
+    const auto previousBitmap = SelectObject(dc, bitmap);
+    memset(bits, 0, size_t(w) * h * 4);
+    SetBkMode(dc, TRANSPARENT);
+    // The heading's size and the text's, the text as large as fits under it. Only the heading is letter-spaced:
+    // DrawText breaks lines without the spacing, so spaced wrapped text would run past its box. The heading is one
+    // short line, measured with the spacing and drawn with TextOut.
+    RECT headingRect{0, 0, 0, 0};
+    constexpr int kHeadingSpacing = 10;
+    if (headingLength) {
+        HGDIOBJ before = nullptr;
+        if (HFONT font = SelectHudFont(dc, kHeadingPx, before)) {
+            SetTextCharacterExtra(dc, kHeadingSpacing);
+            SIZE size{};
+            GetTextExtentPoint32W(dc, heading, int(headingLength), &size);
+            headingRect = {0, 0, std::min<LONG>(size.cx, kMaxTextW), size.cy};
+            SetTextCharacterExtra(dc, 0);
+            SelectObject(dc, before); DeleteObject(font);
+        } else headingLength = 0;
+    }
+    const int headingH = headingLength ? int(headingRect.bottom) : 0;
+    const int maxBodyH = h - 2 * kMargin - 2 * kPadY - (headingLength ? headingH + kGap : 0);
+    int bodyPx = 0;
+    RECT bodyRect{0, 0, 0, 0};
+    for (int px = 96; px >= kSmallestPx; px -= 6) {
+        HGDIOBJ before = nullptr;
+        HFONT font = SelectHudFont(dc, px, before);
+        if (!font) break;
+        bodyRect = {0, 0, kMaxTextW, 0};
+        DrawTextW(dc, text, int(textLength), &bodyRect, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+        SelectObject(dc, before); DeleteObject(font);
+        bodyPx = px;
+        if (bodyRect.bottom <= maxBodyH) break;
+    }
+    if (!bodyPx) { SelectObject(dc, previousBitmap); DeleteObject(bitmap); DeleteDC(dc); return {}; }
+    const int bodyW = std::min<int>(bodyRect.right, kMaxTextW), bodyH = std::min<int>(bodyRect.bottom, maxBodyH);
+    const int contentW = std::max<int>(bodyW, headingRect.right);
+    const int boxW = std::clamp(contentW + 2 * kPadX, 760, w - 2 * kMargin);
+    const int boxH = std::min(h - 2 * kMargin, (headingLength ? headingH + kGap : 0) + bodyH + 2 * kPadY);
+    const int boxL = (w - boxW) / 2, boxT = (h - boxH) / 2, boxR = boxL + boxW, boxB = boxT + boxH;
+    // The heading in the green channel, the text in the red one: one picture gives both coverages.
+    const int textTop = boxT + kPadY;
+    if (headingLength) {
+        HGDIOBJ before = nullptr;
+        if (HFONT font = SelectHudFont(dc, kHeadingPx, before)) {
+            SetTextCharacterExtra(dc, kHeadingSpacing);
+            SetTextColor(dc, RGB(0, 255, 0));
+            // Centred on its width less the spacing after the last letter.
+            const int left = (w - int(headingRect.right) + kHeadingSpacing) / 2;
+            RECT clip{boxL + kPadX, textTop, boxR - kPadX, textTop + headingH};
+            ExtTextOutW(dc, std::max(left, int(clip.left)), textTop, ETO_CLIPPED, &clip, heading, UINT(headingLength),
+                nullptr);
+            SetTextCharacterExtra(dc, 0);
+            SelectObject(dc, before); DeleteObject(font);
+        }
+    }
+    {
+        HGDIOBJ before = nullptr;
+        if (HFONT font = SelectHudFont(dc, bodyPx, before)) {
+            SetTextColor(dc, RGB(255, 0, 0));
+            const int top = textTop + (headingLength ? headingH + kGap : 0);
+            RECT r{boxL + kPadX, top, boxR - kPadX, top + bodyH};
+            DrawTextW(dc, text, int(textLength), &r, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(dc, before); DeleteObject(font);
+        }
+    }
+    GdiFlush();
+    const auto* pixels = static_cast<const uint8_t*>(bits);   // B, G, R, A
+    std::vector<float> cover(size_t(w) * h), blur;
+    for (int i = 0; i < w * h; ++i) cover[i] = std::max(pixels[4 * i + 1], pixels[4 * i + 2]) / 255.0f;
+    BlurTwice(cover, blur, w, h, 10);
+    // Halo 3's HUD blue (measured off the game's ammo bars and tracker), as the waypoint labels; amber for a warning.
+    const bool warning = tone == NoticeTone::Warning;
+    const float accent[3]{warning ? 1.00f : 0.47f, warning ? 0.66f : 0.82f, warning ? 0.18f : 1.00f};
+    const float body[3]{warning ? 1.00f : 0.84f, warning ? 0.90f : 0.94f, warning ? 0.74f : 1.00f};
+    const float glow[3]{warning ? 1.00f : 0.12f, warning ? 0.42f : 0.52f, warning ? 0.04f : 1.00f};
+    const float back[3]{warning ? 0.08f : 0.01f, warning ? 0.04f : 0.05f, warning ? 0.01f : 0.10f};
+    constexpr float kBackAlpha = 0.58f, kLineAlpha = 0.45f, kCornerAlpha = 0.95f, kOpacity = 0.96f;
+    constexpr int kLine = 3, kCorner = 6, kCornerLong = 70, kCornerTall = 30;
+    auto rgba = std::make_shared<std::vector<uint8_t>>(size_t(w) * h * 4);
+    for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+        const size_t i = size_t(y) * w + x;
+        float col[3]{0, 0, 0}, a = 0;
+        auto over = [&](const float* c, float alpha) {
+            if (alpha <= 0) return;
+            for (int k = 0; k < 3; ++k) col[k] = c[k] * alpha + col[k] * (1 - alpha);
+            a = alpha + a * (1 - alpha);
+        };
+        const bool inBox = x >= boxL && x < boxR && y >= boxT && y < boxB;
+        if (inBox) {
+            // Darkest along the middle, a touch lighter toward the top and bottom edges.
+            const float edge = std::fabs((y - boxT) / float(std::max(boxH - 1, 1)) - 0.5f) * 2.0f;
+            over(back, kBackAlpha * (0.92f + 0.08f * edge));
+            const bool topLine = y < boxT + kLine, bottomLine = y >= boxB - kLine;
+            if (topLine || bottomLine) over(accent, kLineAlpha);
+            const bool nearSide = x < boxL + kCornerLong || x >= boxR - kCornerLong;
+            const bool nearEnd = y < boxT + kCornerTall || y >= boxB - kCornerTall;
+            const bool cornerH = nearSide && (y < boxT + kCorner || y >= boxB - kCorner);
+            const bool cornerV = nearEnd && (x < boxL + kCorner || x >= boxR - kCorner);
+            if (cornerH || cornerV) over(accent, kCornerAlpha);
+        }
+        const float c = cover[i];
+        const float g = std::min(blur[i] * 1.5f, 1.0f) * 0.5f * (1.0f - c);
+        over(glow, g);
+        over(accent, pixels[4 * i + 1] / 255.0f);
+        over(body, pixels[4 * i + 2] / 255.0f);
+        for (int k = 0; k < 3; ++k)
+            (*rgba)[4 * i + k] = uint8_t(std::clamp(col[k] * kOpacity, 0.0f, 1.0f) * 255.0f + 0.5f);
+        (*rgba)[4 * i + 3] = uint8_t(std::clamp(a * kOpacity, 0.0f, 1.0f) * 255.0f + 0.5f);
+    }
+    SelectObject(dc, previousBitmap); DeleteObject(bitmap); DeleteDC(dc);
+    auto result = std::make_shared<NativeSubtitleImage>();
+    result->expiresAtMs = expires; result->revision = ++g_revision;
+    result->rgba = rgba;
+    return result;
+}
+
 void NativeSubtitles_Capture(GameTitle title, uint32_t generation,
     const wchar_t* text, float seconds, bool theatre, uint8_t channel, bool refreshed) noexcept {
     const uint32_t duration = subtitles::DurationMs(seconds);
@@ -386,15 +570,42 @@ std::shared_ptr<const NativeSubtitleImage> NativeSubtitles_Read() {
 }
 
 void NativeNotice_Show(const wchar_t* text, float seconds) noexcept {
+    NativeNotice_Show(nullptr, text, seconds, NoticeTone::Info);
+}
+
+uint64_t NativeNotice_Show(const wchar_t* heading, const wchar_t* text, float seconds, NoticeTone tone) noexcept {
     const uint32_t duration = subtitles::DurationMs(seconds);
-    if (!text || !duration) return;
+    if (!text || !duration) return 0;
+    // Copied before the lock, so the lock is held only for the swap. No allocation: any thread may call this.
+    wchar_t nextText[kNoticeCapacity]{}, nextHeading[kNoticeHeadingCapacity]{};
+    uint32_t length = 0, headingLength = 0;
+    while (length + 1 < kNoticeCapacity && text[length]) { nextText[length] = text[length]; ++length; }
+    while (heading && headingLength + 1 < kNoticeHeadingCapacity && heading[headingLength]) {
+        nextHeading[headingLength] = heading[headingLength]; ++headingLength;
+    }
     AcquireSRWLockExclusive(&g_noticeLock);
-    uint32_t length = 0;
-    while (length + 1 < kNoticeCapacity && text[length]) { g_noticeText[length] = text[length]; ++length; }
-    g_noticeText[length] = 0;
-    g_noticeLength = length;
+    const bool same = length == g_noticeLength && headingLength == g_noticeHeadingLength && tone == g_noticeTone &&
+        !memcmp(nextText, g_noticeText, length * sizeof(wchar_t)) &&
+        !memcmp(nextHeading, g_noticeHeading, headingLength * sizeof(wchar_t));
+    if (!same) {
+        memcpy(g_noticeText, nextText, sizeof(nextText));
+        memcpy(g_noticeHeading, nextHeading, sizeof(nextHeading));
+        g_noticeLength = length;
+        g_noticeHeadingLength = headingLength;
+        g_noticeTone = tone;
+        ++g_noticeSerial;
+    }
+    // The same notice again only stays longer: the worker keeps its picture and moves its expiry.
     g_noticeExpires = GetTickCount64() + duration;
-    ++g_noticeSerial;
+    const uint64_t serial = g_noticeSerial;
+    ReleaseSRWLockExclusive(&g_noticeLock);
+    return serial;
+}
+
+void NativeNotice_Hide(uint64_t notice) noexcept {
+    if (!notice) return;
+    AcquireSRWLockExclusive(&g_noticeLock);
+    if (g_noticeSerial == notice) g_noticeExpires = 0;
     ReleaseSRWLockExclusive(&g_noticeLock);
 }
 
@@ -469,26 +680,39 @@ void NativeSubtitles_Poll(bool levelRunning) {
         }
         if(image) std::atomic_store_explicit(&g_image,image,std::memory_order_release);
     }
-    // The notice: rasterized when its text changes, dropped when it has expired.
+    // The notice: rasterized when its text changes, its expiry moved when the same one is shown again, dropped when
+    // it has expired.
     {
         RasterCaption notice{};
+        wchar_t heading[kNoticeHeadingCapacity]{};
+        uint32_t headingLength = 0;
+        NoticeTone tone = NoticeTone::Info;
         uint64_t serial = 0;
         AcquireSRWLockShared(&g_noticeLock);
         serial = g_noticeSerial;
         notice.length = g_noticeLength;
         notice.expires = g_noticeExpires;
         memcpy(notice.text, g_noticeText, sizeof(wchar_t) * (g_noticeLength + 1));
+        memcpy(heading, g_noticeHeading, sizeof(heading));
+        headingLength = g_noticeHeadingLength;
+        tone = g_noticeTone;
         ReleaseSRWLockShared(&g_noticeLock);
+        const auto shown = NativeNotice_Read();
         if (!notice.length || now >= notice.expires) {
-            if (NativeNotice_Read())
+            if (shown)
                 std::atomic_store_explicit(&g_noticeImage,std::shared_ptr<const NativeSubtitleImage>{},
                     std::memory_order_release);
+            g_noticeRasterized = 0;   // the same notice shown again later is drawn again
         } else if (serial != g_noticeRasterized) {
             g_noticeRasterized = serial;
-            // Twice a caption's size: a short line, read at a glance while driving.
-            if (auto image = Rasterize(notice, 132))
+            if (auto image = RasterizeNotice(heading, headingLength, notice.text, notice.length, tone, notice.expires))
                 std::atomic_store_explicit(&g_noticeImage,
                     std::shared_ptr<const NativeSubtitleImage>(std::move(image)),std::memory_order_release);
+        } else if (shown && shown->expiresAtMs != notice.expires) {
+            auto longer = std::make_shared<NativeSubtitleImage>(*shown);   // the same pixels, shared
+            longer->expiresAtMs = notice.expires;
+            std::atomic_store_explicit(&g_noticeImage,
+                std::shared_ptr<const NativeSubtitleImage>(std::move(longer)),std::memory_order_release);
         }
     }
     // The labels: each rasterized when its text or opacity changes.
