@@ -105,6 +105,17 @@ int main()
            L"Hold the left controller by your head and click its stick to\r\nactivate VISR database");
     EXPECT(L"You are separated from your ODST squad\r\n \xE100  Continue", c,
            L"You are separated from your ODST squad\r\nPress A to continue");
+    // The HUD's VISR prompts (hud_messages), as MCC gives them and with Reclaimer's pictures.
+    EXPECT(L"Press \xE44C to open VISR NAV data", c,
+           L"Hold the left controller by your head and click its stick to\r\nopen VISR NAV data");
+    EXPECT(L"Press \xE44C to open VISR COMM data", c,
+           L"Hold the left controller by your head and click its stick to\r\nopen VISR COMM data");
+    EXPECT(L"Press \xE10D to open VISR INTEL data", c,
+           L"Hold the left controller by your head and click its stick to\r\nopen VISR INTEL data");
+    EXPECT(L"Press [Tab] to activate Visual Intelligence System", c,
+           L"Hold the left controller by your head and click its stick to\r\nactivate Visual Intelligence System");
+    // A HUD prompt with a picture the rewrite does not know stays the game's own.
+    EXPECT(L"Hold \xE445 to open door", c, nullptr);
     // A line of no kit form with a key name stays the game's own.
     EXPECT(L"Press [Q] to dance", c, nullptr);
 

@@ -24,6 +24,7 @@ EXTERN g_nativeVrReaderOdst:QWORD
 EXTERN g_nativeVrReaderHalo4:QWORD
 EXTERN g_odstTitleTextHook:QWORD
 EXTERN g_odstTitleLookupHook:QWORD
+EXTERN g_odstHudMessageHook:QWORD
 
 PRESERVING_READER MACRO thunkName, hookPointer
 thunkName PROC FRAME
@@ -56,7 +57,9 @@ thunkName PROC FRAME
     .endprolog
     ; rcx (state) and edx (action) still hold the native arguments.
     ; Six saved registers (30h) plus locals (88h): original native return address.
-    ; Pass it explicitly; the C++ hook's own return address is inside this thunk.
+    ; Pass it explicitly; the C++ hook's own return address is inside this thunk. The native r8 (a third
+    ; argument some hooks need) goes on in r9; both are restored below.
+    mov r9, r8
     mov r8, QWORD PTR [rsp+0B8h]
     call QWORD PTR [hookPointer]
     movdqa xmm0, XMMWORD PTR [rsp+20h]
@@ -89,4 +92,6 @@ PRESERVING_READER OdstTitleTextThunk, g_odstTitleTextHook
 ; Project Reclaimer's string lookup (its version of Halo 3's, reclaimer_client::FindOdstTitleText): the hook keys on
 ; the native caller (r8) to rewrite only chud_show_cinematic_title's line, and returns the lookup's rax.
 PRESERVING_READER OdstTitleLookupThunk, g_odstTitleLookupHook
+; ODST's HUD message text for a player (odst_prompt_text::ResolveHudMessage): user, string id, the buffer in r9.
+PRESERVING_READER OdstHudMessageThunk, g_odstHudMessageHook
 END

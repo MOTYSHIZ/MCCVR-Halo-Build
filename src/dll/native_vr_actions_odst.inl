@@ -37,9 +37,10 @@ struct Runtime {
     HMODULE module{};
     uintptr_t base{}, state{};
     std::atomic<uint32_t> generation{};
-    // 0 the converter, 1 the reader, 2 the chud's text setter (TitleText; optional: the bridge stands without it)
-    void* target[3]{}, *original[3]{};
-    bool enabled[3]{}, attempted{};
+    // 0 the converter, 1 the reader, 2 the chud's text setter (TitleText), 3 the HUD message text (HudText); 2 and 3
+    // are optional: the bridge stands without them
+    void* target[4]{}, *original[4]{};
+    bool enabled[4]{}, attempted{};
     std::atomic<bool> admitted{}, faulted{};
     std::atomic<uint32_t> callbacks{};
     std::atomic<uint64_t> converted{}, routed{}, readerAt{};
@@ -236,6 +237,68 @@ void ReportTitleText() noexcept {
     }
     odst_text::ReportKept("");
 }
+// ODST'S HUD PROMPTS IN VR WORDS ("Press [Back] to open VISR NAV data"): the HUD message text function fills the
+// player's 256-character buffer; the line is rewritten in place after it returns. The chud asks for its lines each
+// time it draws them, so a line is counted once per showing (the last few lines' sums), not per call.
+struct HudText {
+    std::atomic<uint32_t> rewritten{}, kept{}, faults{};
+    std::atomic<uint32_t> recent[4]{};
+    std::atomic<uint32_t> next{};
+    uint32_t reported{};
+} hudText;
+using GetHudMessage=void(__fastcall*)(int,int,wchar_t*);
+uint32_t TextSum(const wchar_t* text) noexcept {
+    uint32_t sum=2166136261u;
+    for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i) sum=(sum^text[i])*16777619u;
+    return sum|1u;
+}
+bool NewShowing(uint32_t sum) noexcept {
+    for(auto& seen:hudText.recent) if(seen.load(std::memory_order_relaxed)==sum) return false;
+    hudText.recent[hudText.next.fetch_add(1,std::memory_order_relaxed)&3u].store(sum,std::memory_order_relaxed);
+    return true;
+}
+__declspec(noinline) void HudMessageFor(wchar_t* text) noexcept {
+    __try {
+        if(!text || !text[0]) return;
+        odst_prompt_text::Controls controls{};
+        if(!g_config.vr_action_mapping || !odst_text::Read(controls)) return;
+        wchar_t said[odst_prompt_text::kMaxChars+1];
+        const unsigned n=odst_prompt_text::Rewrite(text,controls,said);
+        const bool fresh=NewShowing(TextSum(text));
+        if(n) {
+            static_assert(odst_prompt_text::kMaxChars+1<=odst_prompt_text::kHudMessageChars);
+            std::memcpy(text,said,(static_cast<size_t>(n)+1)*sizeof(wchar_t));
+            if(fresh) hudText.rewritten.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+        if(!fresh) return;
+        for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
+            if(odst_prompt_text::glyph::Private(text[i])) {
+                hudText.kept.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteKept(text);
+                break;
+            }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        hudText.faults.fetch_add(1,std::memory_order_relaxed);
+    }
+}
+// Entered through the preserving thunk: user, string id, the native caller, the buffer (the native r8).
+void __fastcall HudMessageHook(int user,int stringId,uintptr_t,wchar_t* buffer) {
+    runtime.callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try {
+        reinterpret_cast<GetHudMessage>(runtime.original[3])(user,stringId,buffer);
+        HudMessageFor(buffer);
+    } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
+}
+void ReportHudText() noexcept {
+    const uint32_t rewritten=hudText.rewritten.load(std::memory_order_relaxed);
+    const uint32_t kept=hudText.kept.load(std::memory_order_relaxed);
+    if(rewritten+kept!=hudText.reported) {
+        hudText.reported=rewritten+kept;
+        LOG("ODST HUD prompts: %u lines said in VR words, %u kept as the game's own%s",rewritten,kept,
+            hudText.faults.load(std::memory_order_relaxed)?" (a line could not be read)":"");
+    }
+}
 // The reader is entered through a register-preserving asm thunk (native_vr_reader_thunks.asm).
 void* const hooks[]{reinterpret_cast<void*>(&ConverterHook),reinterpret_cast<void*>(&NativeVrReaderThunkOdst)};
 bool ProveConsumerBounds(uintptr_t base) {
@@ -250,7 +313,7 @@ bool Retire() {
     publication.cancelEpoch.fetch_add(1,std::memory_order_acq_rel);
     prompt.proved.store(false,std::memory_order_release);
     prompt.stampMs.store(0,std::memory_order_release);
-    for(unsigned i=0;i<3;++i) if(runtime.enabled[i]) {
+    for(unsigned i=0;i<4;++i) if(runtime.enabled[i]) {
         const auto status=MCCVR_DisableHookForRetirement(runtime.target[i]);
         if(status!=MH_OK && status!=MH_ERROR_DISABLED) return false;
         runtime.enabled[i]=false;
@@ -258,13 +321,16 @@ bool Retire() {
     const void* functions[]{hooks[0],hooks[1],reinterpret_cast<void*>(&ReaderHook),reinterpret_cast<void*>(&ReadOwned),
         reinterpret_cast<void*>(&Current),reinterpret_cast<void*>(&ReadController),reinterpret_cast<void*>(&ReadFrames),
         reinterpret_cast<void*>(&PublishPromptState),reinterpret_cast<void*>(&OdstTitleTextThunk),
-        reinterpret_cast<void*>(&TitleTextHook),reinterpret_cast<void*>(&TitleTextFor)};
+        reinterpret_cast<void*>(&TitleTextHook),reinterpret_cast<void*>(&TitleTextFor),
+        reinterpret_cast<void*>(&OdstHudMessageThunk),reinterpret_cast<void*>(&HudMessageHook),
+        reinterpret_cast<void*>(&HudMessageFor)};
     const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,
-        runtime.original[2],nullptr,nullptr};
-    if(!WaitForNativeDetourQuiescence(functions,trampolines,11,runtime.callbacks)) return false;
+        runtime.original[2],nullptr,nullptr,runtime.original[3],nullptr,nullptr};
+    static_assert(sizeof(functions)==sizeof(trampolines));
+    if(!WaitForNativeDetourQuiescence(functions,trampolines,14,runtime.callbacks)) return false;
     prompt.tlsIndex=nullptr;
     prompt.readReturn=0;
-    for(unsigned i=0;i<3;++i) if(runtime.target[i]) {
+    for(unsigned i=0;i<4;++i) if(runtime.target[i]) {
         if(MH_RemoveHook(runtime.target[i])!=MH_OK) return false;
         runtime.target[i]=runtime.original[i]=nullptr;
     }
@@ -368,6 +434,19 @@ void Poll() {
                         "+0x%X)",runtime.enabled[2]?"said in VR words":"the game's own words kept, the hook did not install",
                         where.setterRva,where.titleCallRva);
                 }
+                // ODST's HUD prompts in VR words: one signature, a function start. Optional, as the titles.
+                const auto hud=odst_prompt_text::ResolveHudMessage(image);
+                if(!hud.rva)
+                    LOG("ODST HUD prompts: the game's own words kept; not found: %s",hud.missing);
+                else {
+                    auto* target=reinterpret_cast<void*>(base+hud.rva);
+                    if(MH_CreateHook(target,reinterpret_cast<void*>(&OdstHudMessageThunk),&runtime.original[3])==MH_OK) {
+                        runtime.target[3]=target;
+                        runtime.enabled[3]=MH_EnableHook(target)==MH_OK;
+                    }
+                    LOG("ODST HUD prompts: %s (the HUD message text +0x%X)",
+                        runtime.enabled[3]?"said in VR words":"the game's own words kept, the hook did not install",hud.rva);
+                }
             }
         }
         else
@@ -390,6 +469,7 @@ void Poll() {
             runtime.converted.load(),runtime.routed.load(),runtime.faulted.load()?" TRANSPORT FALLBACK (guarded access fault)":"");
     }
     if(runtime.enabled[2]) ReportTitleText();
+    if(runtime.enabled[3]) ReportHudText();
 }
 
 } // namespace native_odst

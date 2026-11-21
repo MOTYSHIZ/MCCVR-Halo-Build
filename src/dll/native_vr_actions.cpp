@@ -33,6 +33,7 @@ void NativeVrReaderThunkOdst();
 void NativeVrReaderThunkHalo4();
 void OdstTitleTextThunk();
 void OdstTitleLookupThunk();
+void OdstHudMessageThunk();
 }
 
 namespace {
@@ -459,6 +460,7 @@ void* (*g_nativeVrReaderHalo3)(void*,unsigned,uintptr_t)=&native_h3::ReaderHook;
 void* (*g_nativeVrReaderOdst)(void*,unsigned,uintptr_t)=&native_odst::ReaderHook;
 void* (*g_nativeVrReaderHalo4)(void*,unsigned,uintptr_t)=&native_h4::ReaderHook;
 void (*g_odstTitleTextHook)(int,const wchar_t*,float)=&native_odst::TitleTextHook;
+void (*g_odstHudMessageHook)(int,int,uintptr_t,wchar_t*)=&native_odst::HudMessageHook;
 }
 void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,const vr_mapping::Input& padX,
     const vr_mapping::Input& padY) noexcept {
@@ -700,11 +702,34 @@ __declspec(noinline) wchar_t* BufferOf(void* context) noexcept {
     __try { return *reinterpret_cast<wchar_t* const*>(static_cast<uint8_t*>(context)+0x40); }
     __except(EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
 }
+// Another caller of the lookup whose line is one of the HUD's VISR prompts: where that prompt is fetched (logged by
+// the worker, read-only; the line is not changed there until that caller's buffer is known).
+std::atomic<uintptr_t> hudCallers[4]{};
+std::atomic<uint32_t> hudCallersShown{};
+wchar_t hudLine[64]{};
+__declspec(noinline) void NoteOtherCaller(wchar_t* text,uintptr_t caller) noexcept {
+    __try {
+        const wchar_t* kit=odst_prompt_text::detail::KitLineFor(text);
+        if(!kit || !std::wcsstr(kit,L"VISR") || std::wcschr(kit,L'\r')) return;   // the HUD's one-line VISR prompts
+        for(auto& seen:hudCallers) {
+            uintptr_t expected=0;
+            if(seen.load(std::memory_order_relaxed)==caller) return;
+            if(seen.compare_exchange_strong(expected,caller,std::memory_order_acq_rel)) {
+                unsigned i=0;
+                for(;kit[i]&&i<63;++i) hudLine[i]=kit[i]<0x80?kit[i]:L'#';
+                hudLine[i]=0;
+                return;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
 // Entered through the preserving thunk (OdstTitleLookupThunk): `caller` is the lookup's own return address.
 uintptr_t __fastcall Hook(void* context,unsigned,uintptr_t caller) {
-    wchar_t* text=caller&&(caller==returns[0]||caller==returns[1])&&context?BufferOf(context):nullptr;
+    const bool title=caller&&(caller==returns[0]||caller==returns[1]);
+    wchar_t* text=context?BufferOf(context):nullptr;
     const uintptr_t result=reinterpret_cast<Lookup>(original)(context);
-    if(text) Rewrite(text);
+    if(text && title) Rewrite(text);
+    else if(text && caller) NoteOtherCaller(text,caller);
     return result;
 }
 __declspec(noinline) bool Find(reclaimer_client::OdstTitleText& found) noexcept {
@@ -725,6 +750,16 @@ void Poll() {
             LOG("ODST tutorial text (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",r,k);
         }
         odst_text::ReportKept(" (Project Reclaimer)");
+        const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        for(uint32_t i=hudCallersShown.load(std::memory_order_relaxed);i<4;++i) {
+            const uintptr_t caller=hudCallers[i].load(std::memory_order_acquire);
+            if(!caller) break;
+            hudCallersShown.store(i+1,std::memory_order_relaxed);
+            char line[64]{};
+            for(unsigned k=0;k<63&&hudLine[k];++k) line[k]=static_cast<char>(hudLine[k]>=0x20&&hudLine[k]<0x7F?hudLine[k]:'#');
+            LOG("ODST HUD prompts (Project Reclaimer): \"%s\" is looked up by exe+0x%llX (not said in VR words yet)",
+                line,static_cast<unsigned long long>(caller-base));
+        }
         return;
     }
     if(!Game_ReclaimerOdstLevel()) return;

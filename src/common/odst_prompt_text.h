@@ -118,6 +118,35 @@ inline Where Resolve(const drive_resolve::Image& im)
     return w;
 }
 
+// The HUD message text for a player (user < 4, string id, a 256-character buffer): the user's chud definition's
+// message list (records of 0x1FC bytes, its tag at +0x184), the string lookup into the buffer, then the in-place
+// post-pass over the buffer with its size (mov r8d,0x100; mov rdx,rsi; mov ecx,ebx; call). ODST's "Press [Back] to
+// open VISR NAV data" and the like come through it (H3ODSTEK tags\ui\hud\hud_messages).
+inline constexpr char kHudMessage[] =
+    "83 F9 04 0F 8D ?? ?? ?? ?? 48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 05 ?? ?? ?? ?? "
+    "49 8B F0 8B EA 8B D9 48 85 C0 74 ?? 83 78 04 00 75 ?? 33 FF EB ?? 8B 48 04 48 8B 05 ?? ?? ?? ?? 48 8D 3C 88 8B CB "
+    "E8 ?? ?? ?? ?? 48 63 C8 48 69 C1 FC 01 00 00 8B 8C 38 84 01 00 00 83 F9 FF 74 ?? 4C 8B C6 8B D5 E8 ?? ?? ?? ?? "
+    "84 C0 74 ?? 41 B8 00 01 00 00 48 8B D6 8B CB E8";
+// Its buffer: the post-pass's size, in characters; the rewrite (at most kMaxChars and a terminator) fits.
+inline constexpr unsigned kHudMessageChars = 0x100;
+struct HudWhere
+{
+    uint32_t rva = 0;
+    char missing[96]{};
+};
+inline HudWhere ResolveHudMessage(const drive_resolve::Image& im)
+{
+    HudWhere h{};
+    Where w{};
+    const uint32_t at = detail::Unique(im, kHudMessage, "the HUD message text function", w);
+    if (at && drive_resolve::FunctionStartOf(im, at) != at)
+        detail::Note(w, "the HUD message text function is not a function's start (.pdata)");
+    else if (at)
+        h.rva = at;
+    std::snprintf(h.missing, sizeof(h.missing), "%s", w.missing);
+    return h;
+}
+
 // ------------------------------------------------------------------------------------------------------- the glyphs
 // ODST's button pictures (the editing kit's glyph table, H3ODSTEK atlas_tag_test.exe): the actions each stands for.
 namespace glyph
@@ -538,6 +567,13 @@ inline void Wrap(wchar_t* text, unsigned length, unsigned width) noexcept
 namespace detail
 {
 inline constexpr const wchar_t* kKitLines[] = {
+    // The HUD's VISR prompts (tags\ui\hud\hud_messages).
+    L"Press \xE44C" L" to open VISR NAV data",
+    L"Press \xE44C" L" to open VISR COMM data",
+    L"Press \xE44C" L" to open VISR INTEL data",
+    L"Press \xE44C" L" to open VISR database",
+    L"Press \xE44C" L" to activate Visual Intelligence System",
+    // The tutorials' titles (tags\ui\chapter_titles\atlas\h100).
     L"Use  \xE454" L"  to look around the pod",
     L"Do you like these settings?\r\n   \xE451" L"  Accept Settings    \xE452" L"  Invert Camera",
     L"Your STAMINA will regenerate over time\r\n \xE451" L"  Continue",

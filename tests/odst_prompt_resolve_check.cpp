@@ -184,6 +184,12 @@ int main(int argc, char** argv)
         const auto text = odst_prompt_text::Resolve(laid.image);
         PrintText("halo3odst.dll", text);
         failures += text.ok ? 0 : 1;
+        const auto hud = odst_prompt_text::ResolveHudMessage(laid.image);
+        if (hud.rva)
+            std::printf("  halo3odst.dll: HUD prompts RESOLVED. the HUD message text +0x%X\n", hud.rva);
+        else
+            std::printf("  halo3odst.dll: HUD prompts NOT RESOLVED, the game's own words stay: %s\n", hud.missing);
+        failures += hud.rva ? 0 : 1;
     }
     if (!halo3.empty() && GetFileAttributesW(halo3.c_str()) != INVALID_FILE_ATTRIBUTES)
     {

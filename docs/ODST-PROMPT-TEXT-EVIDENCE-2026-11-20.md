@@ -52,6 +52,22 @@ start in .pdata). `halomccvr_odst_prompt_resolve_check` runs this on the DLLs on
 not found, one log line names what is missing ("ODST tutorial text: the game's own words kept; ...") and the bridge
 is otherwise unchanged.
 
+### HUD prompts (MCC)
+
+"Press [Back] to open VISR NAV data" (and COMM, INTEL, database, "activate Visual Intelligence System") is not a title:
+it is a HUD message (`tags\ui\hud\hud_messages`, in every ODST map). Seen in the 2026-11-21 video at 03:46-03:50 and
+absent from the title log. halo3odst.dll **+0x30052C** (user < 4, string id, buffer) fetches a HUD message for a
+player: the user's chud definition (0x1FC-byte records, its message list at +0x184), the string lookup (+0x127684)
+into the buffer, then an in-place post-pass with the buffer's size 0x100 (+0x32301C). It is hooked through the
+preserving thunk (`OdstHudMessageThunk`; the thunk now hands the native r8, the buffer, to the hook in r9) and the line
+is rewritten in place after it returns. The chud fetches its lines as it draws them, so a line is counted once per
+showing. Found by one signature (`kHudMessage`, a function start); `halomccvr_odst_prompt_resolve_check`: RESOLVED
++0x30052C. Only lines the rewrite knows change ("Hold [use] to open door" keeps its picture).
+
+On Project Reclaimer the HUD path is the client's own and not found yet. Its title-lookup hook now logs any other
+caller that fetches one of these VISR prompts ("ODST HUD prompts (Project Reclaimer): ... is looked up by exe+0x...").
+That log line names the caller to hook next.
+
 ## Project Reclaimer 0.10.7 (client SHA-256 `D361EC8D8A22BB2A…`)
 
 The client runs `chud_show_cinematic_title` as its own native (script table entry, native exe+0x432A180). That native:
