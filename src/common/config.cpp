@@ -1618,6 +1618,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_zoom")) { g_config.aim_frame_zoom = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_stereo")) { g_config.aim_frame_stereo = atoi(val) != 0; continue; }
+        if (!strcmp(key, "developer_settings")) { g_config.developer_settings = atoi(val) != 0; continue; }
+        if (!strcmp(key, "odst_reset_training")) { g_config.odst_reset_training = atoi(val) != 0; continue; }
         if (!strcmp(key, "halo2_camera_shake")) { g_config.halo2_camera_shake = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_3d_strength")) { g_config.aim_frame_3d_strength = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_size_deg_1")) { g_config.aim_frame_size_deg[0] = (float)atof(val); continue; }
@@ -3579,6 +3581,14 @@ void ConfigSave()
     fprintf(f, "# The frame in 3D: each eye sees its own picture of the zoomed view. 0 = one flat picture.\n");
     fprintf(f, "# (default %d)\n", d.aim_frame_stereo ? 1 : 0);
     fprintf(f, "aim_frame_stereo = %d\n\n", g_config.aim_frame_stereo ? 1 : 0);
+    if (g_config.developer_settings)
+    {
+        fprintf(f, "# Developer settings on the Advanced page. 1 = shown. (written only while on)\n");
+        fprintf(f, "developer_settings = 1\n\n");
+        fprintf(f, "# Developer: ODST Mombasa Streets' tutorials play again (their done marks read as not done; the\n");
+        fprintf(f, "# saved marks are not changed). 1 = on. (default 0)\n");
+        fprintf(f, "odst_reset_training = %d\n\n", g_config.odst_reset_training ? 1 : 0);
+    }
     fprintf(f, "# The frame's 3D strength: its eye spacing as a multiple of yours. (default %.1f, range 1 to 10)\n",
             d.aim_frame_3d_strength);
     fprintf(f, "aim_frame_3d_strength = %.2f\n\n", g_config.aim_frame_3d_strength);

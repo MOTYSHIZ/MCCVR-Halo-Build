@@ -37,10 +37,10 @@ struct Runtime {
     HMODULE module{};
     uintptr_t base{}, state{};
     std::atomic<uint32_t> generation{};
-    // 0 the converter, 1 the reader, 2 the chud's text setter (TitleText), 3 the HUD message text (HudText); 2 and 3
-    // are optional: the bridge stands without them
-    void* target[4]{}, *original[4]{};
-    bool enabled[4]{}, attempted{};
+    // 0 the converter, 1 the reader, 2 the chud's text setter (TitleText), 3 the HUD message text (HudText), 4
+    // gp_boolean_get (Training, developer only); 2-4 are optional: the bridge stands without them
+    void* target[5]{}, *original[5]{};
+    bool enabled[5]{}, attempted{};
     std::atomic<bool> admitted{}, faulted{};
     std::atomic<uint32_t> callbacks{};
     std::atomic<uint64_t> converted{}, routed{}, readerAt{};
@@ -206,6 +206,7 @@ __declspec(noinline) const wchar_t* TitleTextFor(const wchar_t* text) noexcept {
         if(!g_config.vr_action_mapping || !odst_text::Read(controls)) return text;
         if(odst_prompt_text::Rewrite(text,controls,titleText.buffer)) {
             titleText.rewritten.fetch_add(1,std::memory_order_relaxed);
+            odst_text::NoteSaid(text,titleText.buffer);
             return titleText.buffer;
         }
         bool pictures=false;
@@ -236,6 +237,7 @@ void ReportTitleText() noexcept {
             titleText.faults.load(std::memory_order_relaxed)?" (a line could not be read)":"");
     }
     odst_text::ReportKept("");
+    odst_text::ReportSaid("");
 }
 // ODST'S HUD PROMPTS IN VR WORDS ("Press [Back] to open VISR NAV data"): the HUD message text function fills the
 // player's 256-character buffer; the line is rewritten in place after it returns. The chud asks for its lines each
@@ -267,8 +269,11 @@ __declspec(noinline) void HudMessageFor(wchar_t* text) noexcept {
         const bool fresh=NewShowing(TextSum(text));
         if(n) {
             static_assert(odst_prompt_text::kMaxChars+1<=odst_prompt_text::kHudMessageChars);
+            if(fresh) {
+                hudText.rewritten.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteSaid(text,said);
+            }
             std::memcpy(text,said,(static_cast<size_t>(n)+1)*sizeof(wchar_t));
-            if(fresh) hudText.rewritten.fetch_add(1,std::memory_order_relaxed);
             return;
         }
         if(!fresh) return;
@@ -299,6 +304,51 @@ void ReportHudText() noexcept {
             hudText.faults.load(std::memory_order_relaxed)?" (a line could not be read)":"");
     }
 }
+// DEVELOPER: ODST'S TUTORIALS AGAIN (odst_training_reset.h). gp_boolean_get answers "not done" for the tutorials'
+// marks while "Reset ODST training" is on; every other mark, and every mark while it is off, is the game's own answer.
+// Installed only when developer settings are on as the bridge installs. Script thread.
+struct Training {
+    using Lookup=int(__fastcall*)(uint32_t,int);
+    using Tag=const uint8_t*(__fastcall*)();
+    Lookup lookup{};
+    Tag tag{};
+    std::atomic<uint32_t> held{}, faults{};
+    uint32_t reported{};
+} training;
+using GpGet=uint8_t(__fastcall*)(uint32_t);
+__declspec(noinline) bool HeldMark(uint32_t id) noexcept {
+    __try {
+        const uint8_t* tag=training.tag();
+        if(!tag) return false;
+        int32_t count=0;
+        std::memcpy(&count,tag+odst_training::kBooleanCountOffset,sizeof(count));
+        if(count!=odst_training::kBooleanCount) return false;
+        return odst_training::TrainingMark(training.lookup(id,odst_training::kBooleans));
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        training.faults.fetch_add(1,std::memory_order_relaxed);
+        return false;
+    }
+}
+// Entered through the preserving thunk: the mark's string id; the answer in al.
+uintptr_t __fastcall GpBooleanHook(uint32_t id,unsigned,uintptr_t,uintptr_t) {
+    runtime.callbacks.fetch_add(1,std::memory_order_acq_rel);
+    uintptr_t answer=0;
+    __try {
+        if(g_config.developer_settings && g_config.odst_reset_training && HeldMark(id))
+            training.held.fetch_add(1,std::memory_order_relaxed);
+        else
+            answer=reinterpret_cast<GpGet>(runtime.original[4])(id);
+    } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
+    return answer;
+}
+void ReportTraining() noexcept {
+    const uint32_t held=training.held.load(std::memory_order_relaxed);
+    if(held && !training.reported) {
+        training.reported=held;
+        LOG("ODST training reset (developer): Mombasa Streets reads its tutorials' done marks as not done%s",
+            training.faults.load(std::memory_order_relaxed)?" (a read faulted)":"");
+    }
+}
 // The reader is entered through a register-preserving asm thunk (native_vr_reader_thunks.asm).
 void* const hooks[]{reinterpret_cast<void*>(&ConverterHook),reinterpret_cast<void*>(&NativeVrReaderThunkOdst)};
 bool ProveConsumerBounds(uintptr_t base) {
@@ -313,7 +363,7 @@ bool Retire() {
     publication.cancelEpoch.fetch_add(1,std::memory_order_acq_rel);
     prompt.proved.store(false,std::memory_order_release);
     prompt.stampMs.store(0,std::memory_order_release);
-    for(unsigned i=0;i<4;++i) if(runtime.enabled[i]) {
+    for(unsigned i=0;i<5;++i) if(runtime.enabled[i]) {
         const auto status=MCCVR_DisableHookForRetirement(runtime.target[i]);
         if(status!=MH_OK && status!=MH_ERROR_DISABLED) return false;
         runtime.enabled[i]=false;
@@ -323,14 +373,15 @@ bool Retire() {
         reinterpret_cast<void*>(&PublishPromptState),reinterpret_cast<void*>(&OdstTitleTextThunk),
         reinterpret_cast<void*>(&TitleTextHook),reinterpret_cast<void*>(&TitleTextFor),
         reinterpret_cast<void*>(&OdstHudMessageThunk),reinterpret_cast<void*>(&HudMessageHook),
-        reinterpret_cast<void*>(&HudMessageFor)};
+        reinterpret_cast<void*>(&HudMessageFor),reinterpret_cast<void*>(&OdstGpBooleanThunk),
+        reinterpret_cast<void*>(&GpBooleanHook),reinterpret_cast<void*>(&HeldMark)};
     const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,
-        runtime.original[2],nullptr,nullptr,runtime.original[3],nullptr,nullptr};
+        runtime.original[2],nullptr,nullptr,runtime.original[3],nullptr,nullptr,runtime.original[4],nullptr,nullptr};
     static_assert(sizeof(functions)==sizeof(trampolines));
-    if(!WaitForNativeDetourQuiescence(functions,trampolines,14,runtime.callbacks)) return false;
+    if(!WaitForNativeDetourQuiescence(functions,trampolines,17,runtime.callbacks)) return false;
     prompt.tlsIndex=nullptr;
     prompt.readReturn=0;
-    for(unsigned i=0;i<4;++i) if(runtime.target[i]) {
+    for(unsigned i=0;i<5;++i) if(runtime.target[i]) {
         if(MH_RemoveHook(runtime.target[i])!=MH_OK) return false;
         runtime.target[i]=runtime.original[i]=nullptr;
     }
@@ -447,6 +498,25 @@ void Poll() {
                     LOG("ODST HUD prompts: %s (the HUD message text +0x%X)",
                         runtime.enabled[3]?"said in VR words":"the game's own words kept, the hook did not install",hud.rva);
                 }
+                // Developer: ODST's tutorials again. Only with developer settings on; three shapes that must agree.
+                if(g_config.developer_settings) {
+                    const auto gp=odst_training::Resolve(image);
+                    if(!gp.ok)
+                        LOG("ODST training reset (developer): off; not found or not agreeing: %s",gp.missing);
+                    else {
+                        training.lookup=reinterpret_cast<Training::Lookup>(base+gp.lookupRva);
+                        training.tag=reinterpret_cast<Training::Tag>(base+gp.tagRva);
+                        training.reported=0;
+                        auto* target=reinterpret_cast<void*>(base+gp.getRva);
+                        if(MH_CreateHook(target,reinterpret_cast<void*>(&OdstGpBooleanThunk),&runtime.original[4])==MH_OK) {
+                            runtime.target[4]=target;
+                            runtime.enabled[4]=MH_EnableHook(target)==MH_OK;
+                        }
+                        LOG("ODST training reset (developer): %s (gp_boolean_get +0x%X, its lookup +0x%X, the progression "
+                            "tag +0x%X); Reset ODST training is %s",runtime.enabled[4]?"ready":"the hook did not install",
+                            gp.getRva,gp.lookupRva,gp.tagRva,g_config.odst_reset_training?"on":"off");
+                    }
+                }
             }
         }
         else
@@ -469,7 +539,12 @@ void Poll() {
             runtime.converted.load(),runtime.routed.load(),runtime.faulted.load()?" TRANSPORT FALLBACK (guarded access fault)":"");
     }
     if(runtime.enabled[2]) ReportTitleText();
-    if(runtime.enabled[3]) ReportHudText();
+    if(runtime.enabled[4]) ReportTraining();
+    if(runtime.enabled[3]) {
+        ReportHudText();
+        odst_text::ReportKept("");
+        odst_text::ReportSaid("");
+    }
 }
 
 } // namespace native_odst

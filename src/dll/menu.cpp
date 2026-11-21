@@ -3994,6 +3994,15 @@ namespace
         // Alt+F4 on its exit path) kept inverting the controls mid-session, so
         // they are reachable only from this menu now.
         }
+        // Developer tools: shown only when halomccvr.cfg says developer_settings = 1.
+        if (g_config.developer_settings && SectionHeader("Developer##section", ImGuiTreeNodeFlags_None))
+        {
+        changed |= ImGui::Checkbox("Reset ODST training (dev)##odsttraining", &g_config.odst_reset_training);
+        ImGui::TextDisabled("ODST in MCC: Mombasa Streets treats its tutorials (look, health, VISR, VISR database, "
+                            "NAV beacons) as not done yet, so they play again. Start from Prepare To Drop, solo, "
+                            "with the Blind skull off. Your saved progress is not changed: turn this off and the game "
+                            "remembers what it did before. Live.");
+        }
         if (SectionHeader("Tracking calibration##section", ImGuiTreeNodeFlags_None))
         {
         ImGui::Text("Tracking calibration  (yaw %+.0f, pitch %+.0f, up-vector %s)",

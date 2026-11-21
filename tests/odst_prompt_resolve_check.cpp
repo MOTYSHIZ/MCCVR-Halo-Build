@@ -12,6 +12,7 @@
 // chud_show_cinematic_title's call of it must agree in halo3odst.dll, and must not be found in halo3.dll.
 #include "../src/common/odst_prompt_resolve.h"
 #include "../src/common/odst_prompt_text.h"
+#include "../src/common/odst_training_reset.h"
 
 #include <windows.h>
 #include <cstdio>
@@ -190,6 +191,13 @@ int main(int argc, char** argv)
         else
             std::printf("  halo3odst.dll: HUD prompts NOT RESOLVED, the game's own words stay: %s\n", hud.missing);
         failures += hud.rva ? 0 : 1;
+        const auto gp = odst_training::Resolve(laid.image);
+        if (gp.ok)
+            std::printf("  halo3odst.dll: training reset RESOLVED. gp_boolean_get +0x%X, its lookup +0x%X, the "
+                        "progression tag's getter +0x%X\n", gp.getRva, gp.lookupRva, gp.tagRva);
+        else
+            std::printf("  halo3odst.dll: training reset NOT RESOLVED: %s\n", gp.missing);
+        failures += gp.ok ? 0 : 1;
     }
     if (!halo3.empty() && GetFileAttributesW(halo3.c_str()) != INVALID_FILE_ATTRIBUTES)
     {

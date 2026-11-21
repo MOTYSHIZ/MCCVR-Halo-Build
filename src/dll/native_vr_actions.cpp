@@ -12,6 +12,7 @@
 #include "../common/minhook_lifecycle.h"
 #include "../common/odst_prompt_resolve.h"
 #include "../common/odst_prompt_text.h"
+#include "../common/odst_training_reset.h"
 #include "drive_cascade.h"
 #include "reclaimer_client_image.h"
 #include <windows.h>
@@ -34,6 +35,7 @@ void NativeVrReaderThunkHalo4();
 void OdstTitleTextThunk();
 void OdstTitleLookupThunk();
 void OdstHudMessageThunk();
+void OdstGpBooleanThunk();
 }
 
 namespace {
@@ -362,20 +364,47 @@ void NoteKept(const wchar_t* text) noexcept {   // the script thread
     lastKept[n]=0;
     lastKeptSerial.fetch_add(1,std::memory_order_release);
 }
+// A line for the log: printable as itself, CR as |, LF as /, other characters (the pictures) as <U+....>.
+template<size_t N> void Escape(const wchar_t* text,char (&line)[N]) noexcept {
+    size_t used=0;
+    for(unsigned i=0;text[i]&&used+10<N;++i) {
+        const wchar_t ch=text[i];
+        if(ch>=0x20&&ch<0x7F) line[used++]=static_cast<char>(ch);
+        else if(ch==L'\r') line[used++]='|';
+        else if(ch==L'\n') line[used++]='/';
+        else used+=static_cast<size_t>(std::snprintf(line+used,N-used,"<U+%04X>",static_cast<unsigned>(ch)));
+    }
+    line[used<N?used:N-1]=0;
+}
 void ReportKept(const char* who) noexcept {   // the worker
     const uint32_t serial=lastKeptSerial.load(std::memory_order_acquire);
     if(serial==lastKeptShown) return;
     lastKeptShown=serial;
     char line[128*9]{};
-    size_t used=0;
-    for(unsigned i=0;i<127&&lastKept[i]&&used+10<sizeof(line);++i) {
-        const wchar_t ch=lastKept[i];
-        if(ch>=0x20&&ch<0x7F) line[used++]=static_cast<char>(ch);
-        else if(ch==L'\r') line[used++]='|';
-        else if(ch==L'\n') line[used++]='/';
-        else used+=static_cast<size_t>(std::snprintf(line+used,sizeof(line)-used,"<U+%04X>",static_cast<unsigned>(ch)));
-    }
+    Escape(lastKept,line);
     LOG("ODST tutorial text%s: kept the game's own words for \"%s\" (CR as |, LF as /)",who,line);
+}
+// The last line said in VR words, as the game wrote it and as it was said: the worker names both, so the log shows
+// which tutorials and prompts appeared.
+wchar_t lastSaidFrom[128]{}, lastSaidTo[256]{};
+std::atomic<uint32_t> lastSaidSerial{};
+uint32_t lastSaidShown=0;
+void NoteSaid(const wchar_t* from,const wchar_t* to) noexcept {   // the script or chud thread
+    unsigned n=0;
+    for(;from[n]&&n<127u;++n) lastSaidFrom[n]=from[n];
+    lastSaidFrom[n]=0;
+    for(n=0;to[n]&&n<255u;++n) lastSaidTo[n]=to[n];
+    lastSaidTo[n]=0;
+    lastSaidSerial.fetch_add(1,std::memory_order_release);
+}
+void ReportSaid(const char* who) noexcept {   // the worker
+    const uint32_t serial=lastSaidSerial.load(std::memory_order_acquire);
+    if(serial==lastSaidShown) return;
+    lastSaidShown=serial;
+    char from[128*9]{}, to[256*2]{};
+    Escape(lastSaidFrom,from);
+    Escape(lastSaidTo,to);
+    LOG("ODST tutorial text%s: said \"%s\" as \"%s\" (CR as |, LF as /)",who,from,to);
 }
 // The controls the text names, or false while the input thread has not read them (the game's own text stays).
 bool Read(odst_prompt_text::Controls& c) noexcept {
@@ -461,6 +490,7 @@ void* (*g_nativeVrReaderOdst)(void*,unsigned,uintptr_t)=&native_odst::ReaderHook
 void* (*g_nativeVrReaderHalo4)(void*,unsigned,uintptr_t)=&native_h4::ReaderHook;
 void (*g_odstTitleTextHook)(int,const wchar_t*,float)=&native_odst::TitleTextHook;
 void (*g_odstHudMessageHook)(int,int,uintptr_t,wchar_t*)=&native_odst::HudMessageHook;
+uintptr_t (*g_odstGpBooleanHook)(uint32_t,unsigned,uintptr_t,uintptr_t)=&native_odst::GpBooleanHook;
 }
 void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,const vr_mapping::Input& padX,
     const vr_mapping::Input& padY) noexcept {
@@ -686,6 +716,7 @@ __declspec(noinline) void Rewrite(wchar_t* text) noexcept {
         if(!g_config.vr_action_mapping || !Game_ReclaimerOdstLevel() || !odst_text::Read(controls)) return;
         const unsigned n=odst_prompt_text::Rewrite(text,controls,buffer);
         if(n) {
+            odst_text::NoteSaid(text,buffer);
             std::memcpy(text,buffer,(static_cast<size_t>(n)+1)*sizeof(wchar_t));   // within the native's 1024
             rewritten.fetch_add(1,std::memory_order_relaxed);
             return;
@@ -750,6 +781,7 @@ void Poll() {
             LOG("ODST tutorial text (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",r,k);
         }
         odst_text::ReportKept(" (Project Reclaimer)");
+        odst_text::ReportSaid(" (Project Reclaimer)");
         const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
         for(uint32_t i=hudCallersShown.load(std::memory_order_relaxed);i<4;++i) {
             const uintptr_t caller=hudCallers[i].load(std::memory_order_acquire);

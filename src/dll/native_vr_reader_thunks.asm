@@ -25,6 +25,7 @@ EXTERN g_nativeVrReaderHalo4:QWORD
 EXTERN g_odstTitleTextHook:QWORD
 EXTERN g_odstTitleLookupHook:QWORD
 EXTERN g_odstHudMessageHook:QWORD
+EXTERN g_odstGpBooleanHook:QWORD
 
 PRESERVING_READER MACRO thunkName, hookPointer
 thunkName PROC FRAME
@@ -94,4 +95,6 @@ PRESERVING_READER OdstTitleTextThunk, g_odstTitleTextHook
 PRESERVING_READER OdstTitleLookupThunk, g_odstTitleLookupHook
 ; ODST's HUD message text for a player (odst_prompt_text::ResolveHudMessage): user, string id, the buffer in r9.
 PRESERVING_READER OdstHudMessageThunk, g_odstHudMessageHook
+; ODST's gp_boolean_get (odst_training_reset.h): the mark's string id in ecx; returns the hook's al.
+PRESERVING_READER OdstGpBooleanThunk, g_odstGpBooleanHook
 END
