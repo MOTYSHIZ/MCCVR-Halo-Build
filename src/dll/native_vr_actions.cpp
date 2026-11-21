@@ -32,6 +32,7 @@ void NativeVrH3ActionEdgesThunk();
 void NativeVrReaderThunkOdst();
 void NativeVrReaderThunkHalo4();
 void OdstTitleTextThunk();
+void OdstTitleLookupThunk();
 }
 
 namespace {
@@ -638,8 +639,89 @@ bool NativeVrActions_GestureRouting(GameTitle requested,uint64_t now) noexcept {
 void NativeVrActions_Halo3CoreRetired() {
     native_h3::Poll();
 }
+// PROJECT RECLAIMER'S ODST TUTORIAL TEXT IN VR WORDS (reclaimer_client::FindOdstTitleText, odst_prompt_text.h): its
+// chud_show_cinematic_title is a native of the client's own that looks the title's string up into a 1024-character
+// buffer, then measures it and copies it into the chud. The client's lookup is hooked; only when it returns to that
+// native, and only while an ODST level runs, the buffer is rewritten before the native measures it. Found once, by shape,
+// on the worker; the hook stays for the process (the client's code never unloads).
+namespace reclaimer_odst_text {
+std::atomic<bool> attempted{false};
+void* original=nullptr;
+uintptr_t returns[2]{};
+wchar_t buffer[odst_prompt_text::kMaxChars+1]{};   // the script thread's only: the line is copied back at once
+std::atomic<uint32_t> rewritten{}, kept{};
+uint32_t reported=0;
+using Lookup=uintptr_t(__fastcall*)(void*);
+__declspec(noinline) void Rewrite(wchar_t* text) noexcept {
+    __try {
+        odst_prompt_text::Controls controls{};
+        if(!g_config.vr_action_mapping || !Game_ReclaimerOdstLevel() || !odst_text::Read(controls)) return;
+        const unsigned n=odst_prompt_text::Rewrite(text,controls,buffer);
+        if(n) {
+            std::memcpy(text,buffer,(static_cast<size_t>(n)+1)*sizeof(wchar_t));   // within the native's 1024
+            rewritten.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+        for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
+            if(odst_prompt_text::glyph::Private(text[i])) {kept.fetch_add(1,std::memory_order_relaxed);break;}
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+__declspec(noinline) wchar_t* BufferOf(void* context) noexcept {
+    __try { return *reinterpret_cast<wchar_t* const*>(static_cast<uint8_t*>(context)+0x40); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+// Entered through the preserving thunk (OdstTitleLookupThunk): `caller` is the lookup's own return address.
+uintptr_t __fastcall Hook(void* context,unsigned,uintptr_t caller) {
+    wchar_t* text=caller&&(caller==returns[0]||caller==returns[1])&&context?BufferOf(context):nullptr;
+    const uintptr_t result=reinterpret_cast<Lookup>(original)(context);
+    if(text) Rewrite(text);
+    return result;
+}
+__declspec(noinline) bool Find(reclaimer_client::OdstTitleText& found) noexcept {
+    __try {
+        reclaimer_client::Image image;
+        if(!reclaimer_client::ClientImageInMemory(image)) return false;
+        found=reclaimer_client::FindOdstTitleText(image);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Worker: once per process, as the first ODST level runs on Reclaimer; then what it did, each time that changes.
+void Poll() {
+    if(!g_hostIsProjectReclaimer) return;
+    if(attempted.load(std::memory_order_relaxed)) {
+        const uint32_t r=rewritten.load(std::memory_order_relaxed),k=kept.load(std::memory_order_relaxed);
+        if(r+k!=reported) {
+            reported=r+k;
+            LOG("ODST tutorial text (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",r,k);
+        }
+        return;
+    }
+    if(!Game_ReclaimerOdstLevel()) return;
+    attempted.store(true,std::memory_order_relaxed);
+    reclaimer_client::OdstTitleText found{};
+    if(!Find(found)) {
+        LOG("ODST tutorial text (Project Reclaimer): the game's own words kept; the client executable could not be read");
+        return;
+    }
+    if(found.missing) {
+        LOG("ODST tutorial text (Project Reclaimer): the game's own words kept; not found: %s",found.missing);
+        return;
+    }
+    const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    returns[0]=base+found.returns[0];
+    returns[1]=found.returns[1]?base+found.returns[1]:0;
+    auto* target=reinterpret_cast<void*>(base+found.lookup);
+    const bool hooked=MH_CreateHook(target,reinterpret_cast<void*>(&OdstTitleLookupThunk),&original)==MH_OK &&
+        MH_EnableHook(target)==MH_OK;
+    LOG("ODST tutorial text (Project Reclaimer): %s (chud_show_cinematic_title's native exe+0x%X, its string lookup "
+        "exe+0x%X)",hooked?"said in VR words":"the game's own words kept, the hook did not install",found.native,
+        found.lookup);
+}
+}
+extern "C" uintptr_t (*g_odstTitleLookupHook)(void*,unsigned,uintptr_t)=&reclaimer_odst_text::Hook;
 void NativeVrActions_Poll() {
     reclaimer_odst_prompt::Poll();
+    reclaimer_odst_text::Poll();
     native_ce::Poll();
     native_h3::Poll();
     native_odst::Poll();

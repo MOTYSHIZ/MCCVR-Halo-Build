@@ -1027,4 +1027,84 @@ inline InputDevice FindInputDevice(const Image& image)
     out.controller = controller;
     return out;
 }
+
+// ---- ODST's tutorial text (odst_prompt_text.h) ---------------------------------------------------------------------
+// Reclaimer runs chud_show_cinematic_title as a native of its own (exe+0x432A180 in 0.10.7). It clears a 0x800-byte
+// buffer on its stack (1024 characters), has the title's string looked up into it through the client's version of
+// Halo 3's string lookup (the guest context passed in rcx, the buffer at +0x40), measures it (at most 255 characters:
+// cmp rdx,0xFE) and copies it into each player's chud. The mod rewrites the buffer as the lookup returns to this native,
+// before it is measured: presentation only, as in MCC.
+inline constexpr char kTitleNative[] = "chud_show_cinematic_title";
+// lea rcx,[rbp+BUF]; mov r8d,0x800; xor edx,edx; call (the clear)
+inline constexpr char kTitleBufferClear[] = "48 8D 4D ?? 41 B8 00 08 00 00 31 D2 E8";
+// lea rax,[rbp+BUF]; mov rdi,rax; mov [rbx+40h],rax (the buffer into the guest context)
+inline constexpr char kTitleBufferArg[] = "48 8D 45 ?? 48 89 C7 48 89 43 40";
+// mov rcx,rbx; call LOOKUP; nop (each of the native's lookups)
+inline constexpr char kTitleLookupCall[] = "48 89 D9 E8 ?? ?? ?? ?? 90";
+// The measure: at most 0xFF characters.
+inline constexpr char kTitleMeasure[] = "48 81 FA FE 00 00 00";
+
+struct OdstTitleText
+{
+    uint32_t native = 0;       // chud_show_cinematic_title's native
+    uint32_t lookup = 0;       // the string lookup it calls (to hook)
+    uint32_t returns[2]{};     // where each of its lookup calls returns (the hook rewrites only for these)
+    const char* missing = nullptr;
+};
+
+inline OdstTitleText FindOdstTitleText(const Image& image)
+{
+    OdstTitleText out;
+    const uint32_t native = detail::ScriptNative(image, kTitleNative);
+    uint32_t b = 0, e = 0;
+    if (!native || !image.Extent(native, b, e) || b != native)
+    {
+        out.missing = "chud_show_cinematic_title in the script table, with its body";
+        return out;
+    }
+    const std::vector<uint32_t> clear = FindAll(image, b, e - b, ParsePattern(kTitleBufferClear), 2);
+    const std::vector<uint32_t> arg = FindAll(image, b, e - b, ParsePattern(kTitleBufferArg), 2);
+    if (clear.size() != 1 || arg.size() != 1 || image.base[clear[0] + 3] != image.base[arg[0] + 3])
+    {
+        out.missing = "the native's 1024-character buffer, cleared and handed to the lookup";
+        return out;
+    }
+    if (FindAll(image, b, e - b, ParsePattern(kTitleMeasure), 2).size() != 1)
+    {
+        out.missing = "the native's measure of at most 255 characters";
+        return out;
+    }
+    const std::vector<uint32_t> calls = FindAll(image, arg[0], e - arg[0], ParsePattern(kTitleLookupCall), 3);
+    if (calls.empty() || calls.size() > 2)
+    {
+        out.missing = "the native's lookup calls after the buffer is handed over";
+        return out;
+    }
+    for (size_t i = 0; i < calls.size(); ++i)
+    {
+        const int64_t target = static_cast<int64_t>(calls[i]) + 8 + Rel32(image, calls[i] + 4);
+        uint32_t lb = 0, le = 0;
+        if (!image.InCode(target) || !image.Extent(static_cast<uint32_t>(target), lb, le) ||
+            lb != static_cast<uint32_t>(target) || (out.lookup && out.lookup != lb))
+        {
+            out.missing = "one lookup function, called by each of the native's lookup calls";
+            return out;
+        }
+        out.lookup = lb;
+        out.returns[i] = calls[i] + 8;
+    }
+    // The lookup takes the buffer from the context it is given: a load of [rcx+0x40] near its start.
+    bool readsBuffer = false;
+    for (uint32_t at = out.lookup; at + 4 <= out.lookup + 0x40 && image.Holds(at, 4); ++at)
+        readsBuffer = readsBuffer || ((image.base[at] & 0xFB) == 0x48 && image.base[at + 1] == 0x8B &&
+                                      (image.base[at + 2] & 0xC7) == 0x41 && image.base[at + 3] == 0x40);
+    if (!readsBuffer)
+    {
+        out.missing = "the lookup's read of the buffer from its context (+0x40)";
+        out.lookup = 0;
+        return out;
+    }
+    out.native = native;
+    return out;
+}
 } // namespace reclaimer_client

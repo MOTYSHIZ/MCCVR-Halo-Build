@@ -185,6 +185,9 @@ int main()
     const reclaimer_client::InputDevice device = reclaimer_client::FindInputDevice(image);
     report("prompt input device", device.device, device.missing);
     report("prompt controller flag", device.controller, device.missing);
+    const reclaimer_client::OdstTitleText title = reclaimer_client::FindOdstTitleText(image);
+    report("ODST title native", title.native, title.missing);
+    report("ODST title lookup", title.lookup, title.missing);
     std::printf("%s: %d find(s) failed\n", path, failures);
     return failures ? 1 : 0;
 }

@@ -23,6 +23,7 @@ EXTERN g_nativeVrH3ActionEdges:QWORD
 EXTERN g_nativeVrReaderOdst:QWORD
 EXTERN g_nativeVrReaderHalo4:QWORD
 EXTERN g_odstTitleTextHook:QWORD
+EXTERN g_odstTitleLookupHook:QWORD
 
 PRESERVING_READER MACRO thunkName, hookPointer
 thunkName PROC FRAME
@@ -85,4 +86,7 @@ PRESERVING_READER NativeVrReaderThunkHalo4, g_nativeVrReaderHalo4
 ; xmm2 (the seconds) live across it: chud_show_cinematic_title for every player calls it in a loop with xmm2 set once
 ; (halo3odst.dll +0x1BA5DA..+0x1BA5FD). The same preserving thunk enters its hook; rax is unused (the setter is void).
 PRESERVING_READER OdstTitleTextThunk, g_odstTitleTextHook
+; Project Reclaimer's string lookup (its version of Halo 3's, reclaimer_client::FindOdstTitleText): the hook keys on
+; the native caller (r8) to rewrite only chud_show_cinematic_title's line, and returns the lookup's rax.
+PRESERVING_READER OdstTitleLookupThunk, g_odstTitleLookupHook
 END
