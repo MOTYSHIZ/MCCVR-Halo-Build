@@ -17,6 +17,12 @@
 // and in 0.10.5 (2026-11-16): VISR's camera exe+0x379D310, constants exe+0x37A2C40, navpoint draw exe+0x3A87350, and
 // the widget draw's crosshair gate (widget draw exe+0x3C42430, gate exe+0x3AB7B40, crosshair check exe+0x3AB7970), and
 // VISR's view user (set at exe+0x3CCF712 in exe+0x3CCF6F0; user exe+0x54B6A58, first-frame flags exe+0x6AE1FEC).
+// 0.10.6 (2026-11-19) is built with MSVC and calls its versions of game functions directly from its own code, each
+// behind a framed pass-through (halo3_player_tags::ThunkCallee); the mod hooks those versions themselves
+// (lifted_engine.cpp). Found there: VISR's view user (wrapper exe+0x4AB8090, user exe+0x85C3488, flags exe+0x87ABD74,
+// object pass exe+0x574BE10, which compares the user with 3 two stores before its ja) and the navpoint version, which
+// is its draw (exe+0x4EC0D40, count exe+0x872B200). VISR's camera reads are inlined into the version of +0x279BEC
+// (exe+0x568A9C0) and its constants' builder (exe+0x46C9E30) takes other arguments: both left unhooked, VISR as drawn.
 
 #include <cstddef>
 #include <cstdint>
@@ -38,6 +44,7 @@ struct Image
     const void* context = nullptr;
 
     bool Holds(uint64_t rva, size_t length) const { return rva <= size && length <= size - rva; }
+    bool InCode(int64_t rva) const { return rva >= codeRva && rva - codeRva < static_cast<int64_t>(codeSize); }
     bool Extent(uint32_t rva, uint32_t& begin, uint32_t& end) const
     {
         return extent && extent(context, rva, begin, end) && begin <= rva && rva < end && Holds(begin, end - begin);
@@ -204,10 +211,76 @@ inline Find FindVisrCamera(const Image& image)
     return out;
 }
 
+// The start of movss [r+disp8],xmm (F3, an optional REX, 0F 11, a modrm with an 8-bit displacement and no SIB) that
+// ends exactly at `end`, or 0.
+inline uint32_t MovssStoreEndingAt(const Image& image, uint32_t end, uint8_t disp)
+{
+    for (const uint32_t length : {5u, 6u})
+    {
+        if (end < length + 1 || !image.Holds(end - length, length))
+            continue;
+        const uint8_t* p = image.base + end - length;
+        const bool rex = length == 6;
+        if (p[0] != 0xF3 || (rex && (p[1] & 0xF0) != 0x40))
+            continue;
+        const uint8_t* op = p + (rex ? 2 : 1);
+        if (op[0] == 0x0F && op[1] == 0x11 && (op[2] & 0xC0) == 0x40 && (op[2] & 7) != 4 && op[3] == disp)
+            return end - length;
+    }
+    return 0;
+}
+
+// VISR's constants' stores: movss [r+0x40],-tanX; movss [r+0x44],tanY; mov dword [r+0x48],1.0, each with or without a
+// REX prefix. 0.10.0 to 0.10.5 (kVisrConstantsStores) had REX on the second movss and the mov; 0.10.6 and 0.10.7, an
+// MSVC build, have none (exe+0x45BFC5E in 0.10.7). Each match's start (the first movss).
+inline std::vector<uint32_t> FindVisrConstantsStores(const Image& image, size_t max = 2)
+{
+    std::vector<uint32_t> out;
+    // "48 00 00 80 3F": the mov's displacement and 1.0; before it, its modrm ([r+disp8], reg 0, no SIB) and C7.
+    for (const uint32_t imm : FindAll(image, image.codeRva, image.codeSize, ParsePattern("48 00 00 80 3F"), 4096))
+    {
+        if (imm < 3 || (image.base[imm - 1] & 0xF8) != 0x40 || image.base[imm - 1] == 0x44 ||
+            image.base[imm - 2] != 0xC7)
+            continue;
+        // The mov without a REX prefix, then with one (a byte 0x4X before it).
+        uint32_t first = 0;
+        for (const uint32_t mov : {imm - 2, imm - 3})
+        {
+            if (mov == imm - 3 && (image.base[mov] & 0xF0) != 0x40)
+                continue;
+            const uint32_t second = MovssStoreEndingAt(image, mov, 0x44);
+            first = second ? MovssStoreEndingAt(image, second, 0x40) : 0;
+            if (first)
+                break;
+        }
+        if (!first)
+            continue;
+        out.push_back(first);
+        if (out.size() >= max)
+            break;
+    }
+    return out;
+}
+
 inline Find FindVisrConstants(const Image& image)
 {
-    return FindUniqueFunction(image, kVisrConstantsStores, "its stores of -tanX, tanY and 1.0");
+    Find out;
+    const std::vector<uint32_t> hits = FindVisrConstantsStores(image);
+    uint32_t b = 0, e = 0;
+    if (hits.empty())
+        out.missing = "its stores of -tanX, tanY and 1.0";
+    else if (hits.size() > 1)
+        out.missing = "a single match (more than one)";
+    else if (!image.Extent(hits[0], b, e))
+        out.missing = "the match's function extent";
+    else
+    {
+        out.function = b;
+        out.at = hits[0];
+    }
+    return out;
 }
+
 
 // The two VISR finds agree: the camera has exactly one calling function (VISR's state builder), and that function
 // also calls the constants' builder. Null when they agree, else what did not.
@@ -247,11 +320,12 @@ struct WidgetGate
 // Past up to two pass-throughs (sub rsp; call X; nop; add rsp; ret) from `rva`.
 inline uint32_t PastPassThroughs(const Image& image, uint32_t rva)
 {
-    for (int hop = 0; hop < 2 && image.Holds(rva, 16); ++hop)
+    for (int hop = 0; hop < 2 && image.Holds(rva, halo3_player_tags::kThunkBytes); ++hop)
     {
         int64_t offset = 0;
-        if (!halo3_player_tags::ThunkCallee(image.base + rva, 16, offset))
-            break;
+        if (!halo3_player_tags::ThunkCallee(image.base + rva, halo3_player_tags::kThunkBytes, offset) ||
+            !image.InCode(static_cast<int64_t>(rva) + offset))
+            break;   // not a pass-through, or a jump out of the code (a hook's, MinHook writes one over a start)
         rva = static_cast<uint32_t>(static_cast<int64_t>(rva) + offset);
     }
     return rva;
@@ -344,6 +418,10 @@ struct NavpointDraw
     uint32_t version = 0;      // the version the search started from, past any pass-through
     uint32_t draw = 0;         // its own draw (the function to hook)
     uint32_t countDisp = 0;    // the rva of the count block's disp32 in the draw
+    // 0.10.6: the version is the draw itself, in the recompiled engine's convention (its context in rcx), so it is
+    // not hooked as a native draw: the game function's own hook reaches it (lifted_engine.cpp hooks the function a
+    // version passes to) and only the count is taken from here.
+    bool versionIsDraw = false;
     const char* missing = nullptr;
 };
 
@@ -353,11 +431,11 @@ inline NavpointDraw FindNavpointDrawFromVersion(const Image& image, uint32_t ver
 {
     using namespace halo3_player_tags;
     NavpointDraw out;
-    for (int hop = 0; hop < 2 && image.Holds(version, 16); ++hop)
+    for (int hop = 0; hop < 2 && image.Holds(version, kThunkBytes); ++hop)
     {
         int64_t offset = 0;
-        if (!ThunkCallee(image.base + version, 16, offset))
-            break;
+        if (!ThunkCallee(image.base + version, kThunkBytes, offset) || !image.InCode(static_cast<int64_t>(version) + offset))
+            break;   // not a pass-through, or a hook's jump out of the code
         version = static_cast<uint32_t>(static_cast<int64_t>(version) + offset);
     }
     out.version = version;
@@ -368,9 +446,25 @@ inline NavpointDraw FindNavpointDrawFromVersion(const Image& image, uint32_t ver
     }
     const std::vector<uint32_t> calls =
         FindAll(image, version, static_cast<uint32_t>(kReclaimerVersionBytes), ParsePattern(kReclaimerVersionPattern), 2);
+    if (calls.empty())
+    {
+        // 0.10.6 (2026-11-19): no draw of its own; the version reads the count itself as it walks the entries.
+        uint32_t vb = 0, ve = 0;
+        const long disp =
+            image.Extent(version, vb, ve) && vb == version ? FindReclaimerCountRead(image.base + vb, ve - vb) : -1;
+        if (disp < 0)
+        {
+            out.missing = "the call of its own draw in its version, or the version's own read of the entry count";
+            return out;
+        }
+        out.draw = version;
+        out.countDisp = version + static_cast<uint32_t>(disp);
+        out.versionIsDraw = true;
+        return out;
+    }
     if (calls.size() != 1)
     {
-        out.missing = calls.empty() ? "the call of its own draw in its version" : "a single call of its own draw";
+        out.missing = "a single call of its own draw";
         return out;
     }
     const uint64_t call = calls[0] + static_cast<uint32_t>(kReclaimerVersionCallRel);
@@ -416,8 +510,45 @@ inline NavpointDraw FindNavpointDraw(const Image& image)
         }
         out = found;
     }
+    if (out.draw)
+        return out;
+    // 0.10.6: the versions are the draws, reached through pass-throughs. Every function a pass-through leads to that
+    // reads the count must read the same global (more than one does: the draw and the update).
+    uint32_t global = 0;
+    for (uint32_t at = image.codeRva; at + kThunkBytes <= image.codeRva + image.codeSize; ++at)
+    {
+        if (image.base[at] != 0x55 && image.base[at] != 0x48)
+            continue;
+        uint32_t b = 0, e = 0;
+        int64_t offset = 0;
+        if (!ThunkCallee(image.base + at, kThunkBytes, offset) || !image.Extent(at, b, e) || b != at)
+            continue;
+        const int64_t callee = static_cast<int64_t>(at) + offset;
+        uint32_t cb = 0, ce = 0;
+        if (callee <= 0 || !image.Extent(static_cast<uint32_t>(callee), cb, ce) || cb != callee)
+            continue;
+        const long disp = FindReclaimerCountRead(image.base + cb, ce - cb);
+        if (disp < 0)
+            continue;
+        const uint32_t dispAt = cb + static_cast<uint32_t>(disp);
+        const uint32_t target = static_cast<uint32_t>(static_cast<int64_t>(dispAt) + 4 + Rel32(image, dispAt));
+        if (global && global != target)
+        {
+            out = NavpointDraw{};
+            out.missing = "a single navpoint count (two versions read different ones)";
+            return out;
+        }
+        global = target;
+        if (!out.draw)
+        {
+            out.version = at;
+            out.draw = cb;
+            out.countDisp = dispAt;
+            out.versionIsDraw = true;
+        }
+    }
     if (!out.draw)
-        out.missing = "a version that calls a draw with the navpoint count read";
+        out.missing = "a version that calls a draw with the navpoint count read, or reads it itself";
     return out;
 }
 // ---- VISR's view user ------------------------------------------------------------------------------------------------
@@ -430,8 +561,9 @@ inline NavpointDraw FindNavpointDraw(const Image& image)
 // lea r64,[rip+FLAGS]; and later in the same function mov dword [rip+USER],-1.
 inline constexpr char kVisrViewUserSet[] =
     "89 ?? ?? ?? ?? ?? 83 ?? 03 77 ?? 0F B6 ?? ?? ?? ?? ?? 84 C0 74 ?? ?? 8D ?? ?? ?? ?? ??";
-// Read by the object pass: mov r32,[rip+USER]; cmp r32,3; ja.
-inline constexpr char kVisrViewUserRead[] = "8B ?? ?? ?? ?? ?? 83 ?? 03 77";
+// Read by the object pass: mov r32,[rip+USER], then cmp of that register with 3 within kVisrViewUserCmpWindow bytes
+// (0.10.5 compared at once; 0.10.6 puts two stores between the compare and its ja, and may load into r8-r15).
+inline constexpr uint32_t kVisrViewUserCmpWindow = 16;
 
 struct VisrViewUser
 {
@@ -442,9 +574,60 @@ struct VisrViewUser
 };
 
 inline bool RipModrm(uint8_t modrm) { return (modrm & 0xC7) == 0x05; }
+inline bool RipModrmAt(const Image& image, uint32_t at) { return image.Holds(at, 1) && RipModrm(image.base[at]); }
 inline uint32_t RipTarget(const Image& image, uint32_t dispAt, uint32_t instructionEnd)
 {
     return static_cast<uint32_t>(static_cast<int64_t>(instructionEnd) + Rel32(image, dispAt));
+}
+
+// Whether at `r` there is mov r32,[rip+disp32] (an optional REX before it) that reads `global`, and the same
+// register is compared with 3 soon after.
+inline bool ReadsAndTestsUser(const Image& image, uint32_t r, uint32_t global)
+{
+    if (!image.Holds(r, 6 + kVisrViewUserCmpWindow + 4) || image.base[r] != 0x8B || !RipModrmAt(image, r + 1))
+        return false;
+    const uint32_t end = r + 6;
+    if (static_cast<uint32_t>(static_cast<int64_t>(end) + Rel32(image, r + 2)) != global)
+        return false;
+    const bool rexR = r > 0 && (image.base[r - 1] & 0xF4) == 0x44;   // 0x44/0x4C: the destination is r8-r15
+    const uint8_t reg = (image.base[r + 1] >> 3) & 7;
+    for (uint32_t at = end; at < end + kVisrViewUserCmpWindow; ++at)
+    {
+        const bool rex = image.base[at] == 0x41;
+        const uint32_t op = at + (rex ? 1u : 0u);
+        if (rex == rexR && image.base[op] == 0x83 && image.base[op + 1] == (0xF8 | reg) && image.base[op + 2] == 3)
+            return true;
+    }
+    return false;
+}
+
+// 0.10.6 and later: the builder keeps its list of constant buffers ({capacity, items, count}, items of 0x28 bytes:
+// name, its length, capacity, data, its length) in a global it stores whole: mov [rip+A],r64; mov [rip+A+8],r64;
+// mov [rip+A+0x10],r64 (exe+0x45C071B in 0.10.7). The global's RVA, or 0 when the builder has no such stores, or names
+// more than one global.
+inline uint32_t FindVisrConstantsList(const Image& image, uint32_t function)
+{
+    uint32_t begin = 0, end = 0, found = 0;
+    if (!image.Extent(function, begin, end) || begin != function)
+        return 0;
+    const auto store = [&](uint32_t at, uint32_t& target) {
+        if (!image.Holds(at, 7) || (image.base[at] & 0xFB) != 0x48 || image.base[at + 1] != 0x89 ||
+            !RipModrm(image.base[at + 2]))
+            return false;
+        target = RipTarget(image, at + 3, at + 7);
+        return true;
+    };
+    for (uint32_t at = begin; at + 21 <= end; ++at)
+    {
+        uint32_t a = 0, b = 0, c = 0;
+        if (!store(at, a) || !store(at + 7, b) || !store(at + 14, c) || b != a + 8 || c != a + 0x10 ||
+            !image.Holds(a, 0x18) || image.InCode(a))
+            continue;
+        if (found && found != a)
+            return 0;
+        found = a;
+    }
+    return found;
 }
 
 inline VisrViewUser FindVisrViewUser(const Image& image)
@@ -494,12 +677,17 @@ inline VisrViewUser FindVisrViewUser(const Image& image)
         out.missing = "the wrapper's reset of the view's player to -1";
         return out;
     }
-    // An object pass reads the user (and tests it against 3) and addresses the same flags.
-    for (const uint32_t r : FindAll(image, image.codeRva, image.codeSize, ParsePattern(kVisrViewUserRead), 4096))
+    // An object pass reads the user (and tests it against 3) and addresses the same flags. Every mov from the user's
+    // global is looked at, however many other loads share the opcode (no cap: a cap could stop short of the reader).
+    for (uint32_t r = image.codeRva; r + 6 <= image.codeRva + image.codeSize; ++r)
     {
+        const uint8_t* next = static_cast<const uint8_t*>(
+            std::memchr(image.base + r, 0x8B, image.codeRva + image.codeSize - r));
+        if (!next)
+            break;
+        r = static_cast<uint32_t>(next - image.base);
         uint32_t rb = 0, re = 0;
-        if (!RipModrm(image.base[r + 1]) || RipTarget(image, r + 2, r + 6) != user || r == at ||
-            !image.Extent(r, rb, re))
+        if (r == at || !ReadsAndTestsUser(image, r, user) || !image.Extent(r, rb, re))
             continue;
         for (const uint32_t l : FindAll(image, rb, re - rb, ParsePattern("8D ?? ?? ?? ?? ??"), 65536))
             if (l > rb && (image.base[l - 1] & 0xF8) == 0x48 && RipModrm(image.base[l + 1]) &&
@@ -521,6 +709,70 @@ inline VisrViewUser FindVisrViewUser(const Image& image)
     out.user = user;
     out.enable = enable;
     out.flags = flags;
+    return out;
+}
+
+// ---- The input device its prompts show ----------------------------------------------------------------------------
+// The client draws its button prompts (the game's training hints among them) for the device last used: a mouse click
+// or key in its menus makes it "keyboard and mouse", and only a controller button or a stick past the deadzone in a
+// menu makes it "controller" again (both logged as "[menus] input device: ..."). The mod's menu pointer clicks, so a
+// pointer click left last in a menu kept keyboard pictures in the prompts of the game that followed. Its main loop
+// keeps two globals: the device (1 keyboard and mouse, 2 controller) and a controller flag the prompts read.
+// Shape (0.10.6, exe+0x4B4D78 and exe+0x4B4162 in one function):
+//   controller: mov byte [rip+DEVICE],2; mov al,1; xchg [rip+CONTROLLER],al
+//   keyboard:   mov byte [rip+DEVICE],1; xor eax,eax; xchg [rip+CONTROLLER],al
+inline constexpr char kInputDeviceController[] = "C6 05 ?? ?? ?? ?? 02 B0 01 86 05 ?? ?? ?? ??";
+inline constexpr char kInputDeviceKeyboard[] = "C6 05 ?? ?? ?? ?? 01 ?? C0 86 05 ?? ?? ?? ??";
+
+struct InputDevice
+{
+    uint32_t controllerAt = 0, keyboardAt = 0;  // the two stores
+    uint32_t device = 0, controller = 0;        // the globals (RVAs)
+    const char* missing = nullptr;
+};
+
+inline InputDevice FindInputDevice(const Image& image)
+{
+    InputDevice out;
+    const std::vector<uint32_t> hits =
+        FindAll(image, image.codeRva, image.codeSize, ParsePattern(kInputDeviceController), 2);
+    if (hits.size() != 1)
+    {
+        out.missing = hits.empty() ? "the store of the controller as the input device"
+                                   : "a single store of the controller as the input device";
+        return out;
+    }
+    const uint32_t at = hits[0];
+    uint32_t begin = 0, end = 0;
+    if (!image.Extent(at, begin, end))
+    {
+        out.missing = "the input device's function extent";
+        return out;
+    }
+    const uint32_t device = RipTarget(image, at + 2, at + 7);
+    const uint32_t controller = RipTarget(image, at + 11, at + 15);
+    if (device == controller || !image.Holds(device, 1) || !image.Holds(controller, 1) || image.InCode(device) ||
+        image.InCode(controller))
+    {
+        out.missing = "the input device and its controller flag in data";
+        return out;
+    }
+    // The keyboard's store, in the same function, sets the same two globals.
+    for (const uint32_t k : FindAll(image, begin, end - begin, ParsePattern(kInputDeviceKeyboard), 8))
+        if ((image.base[k + 7] == 0x31 || image.base[k + 7] == 0x33) && RipTarget(image, k + 2, k + 7) == device &&
+            RipTarget(image, k + 11, k + 15) == controller)
+        {
+            out.keyboardAt = k;
+            break;
+        }
+    if (!out.keyboardAt)
+    {
+        out.missing = "the keyboard's store of the same input device";
+        return out;
+    }
+    out.controllerAt = at;
+    out.device = device;
+    out.controller = controller;
     return out;
 }
 } // namespace reclaimer_client

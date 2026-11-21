@@ -650,6 +650,8 @@ void VR_RequestRecenter();
 void VR_RequestPausePresentation(bool paused);
 bool VR_IsPausePresentation();
 bool VR_IsPausePresentationTarget();
+// The headset's session has the input (FOCUSED): no runtime dashboard or other overlay over the game.
+bool VR_SessionFocused();
 
 // F10: toggle whether the flat screen follows the head (vs. staying pinned in
 // the world). Only matters while head tracking is on.

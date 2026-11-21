@@ -4,6 +4,7 @@
 #include "../common/exclusive_input.h"
 #include "../common/log.h"
 #include "d3d11_hook.h"
+#include "game.h"
 #include "menu.h"
 #include "title_adapter.h"
 #include "vr.h"
@@ -88,6 +89,9 @@ bool Button(bool down, bool posted = false)
     mouseDown = down;
     mouseDownPosted = down && posted;
     if (down) clickCount.fetch_add(1, std::memory_order_relaxed);
+    // Project Reclaimer takes a click as the keyboard and mouse in use; its prompts go back to the controller's buttons
+    // once the game is played again (reclaimer_input_device.inl).
+    Game_ReclaimerNoteSyntheticInput();
     return true;
 }
 void Fault()
@@ -167,6 +171,7 @@ void Apply()
             std::abs(actual.x-target.x)>2 || std::abs(actual.y-target.y)>2) {
             Cancel(); Fault(); return;
         }
+        Game_ReclaimerNoteSyntheticInput();   // a set cursor may count as input to Windows: the mod's own
     }
     if (!resting) {
         lastX = result.x;
@@ -194,6 +199,7 @@ void Apply()
             if (posted ? !PostMessageW(window, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<WORD>(delta)),
                                        MAKELPARAM(static_cast<WORD>(target.x), static_cast<WORD>(target.y)))
                        : SendInput(1, &wheel, sizeof(wheel)) != 1) Fault();
+            else Game_ReclaimerNoteSyntheticInput();
             // What a screen that does not scroll was sent, to set beside the report.
             static unsigned wheelLogs = 0;
             if (wheelLogs < 24 && ++wheelLogs)

@@ -124,6 +124,8 @@ bool SetLive(const std::string& name, int value)
     // A gun-slaved seat's pitch check: 1 the pitch stick is held while it collects (what a player build does),
     // 0 the stick servo runs through it.
     else if (name == "seat_pitch_check_hold") Game_DevSetSeatPitchCheckHold(value != 0);
+    // Project Reclaimer weapon IK: bit n turns mode 3 / n off where the caller is unknown (4 = the decision's, 3 / 2).
+    else if (name == "weapon_ik_force_off") Game_DevSetWeaponIkForceOff(static_cast<uint32_t>(value));
     // Halo 4's Broadsword view: 1 on the seat camera's point (what a player build does), 0 the observer.
     else if (name == "broadsword_ride") Game_DevSetBroadswordRide(value != 0);
     // The first-person ladder's fault bits (config.h): the ladders read the value at every evaluation, so

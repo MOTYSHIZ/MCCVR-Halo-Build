@@ -240,6 +240,146 @@ int main()
         Fake m = f;
         put(m, 0x1010, {0x89, 0x05}, 0x1200);
         CHECK(FindVisrViewUser(m.View()).missing != nullptr);
+        // 0.10.6's object pass: mov ecx,[USER]; cmp ecx,3; two stores; ja (the compiler's order): still the reader.
+        Fake n = f;
+        std::fill(n.image.begin() + 0x1410, n.image.begin() + 0x1420, 0xCC);
+        put(n, 0x1410, {0x8B, 0x0D}, 0x3F00);
+        n.Put(0x1416, {0x83, 0xF9, 0x03, 0x48, 0x89, 0xBD, 0xA8, 0x04, 0x00, 0x00, 0x48, 0x89, 0x8D, 0xE0, 0x04, 0x00,
+                       0x00, 0x77, 0x1A});
+        const VisrViewUser nu = FindVisrViewUser(n.View());
+        CHECK(!nu.missing && nu.reader == 0x1400);
+        // ... but a compare of another register is not this read's test.
+        Fake o = n;
+        o.Put(0x1416, {0x83, 0xFA, 0x03});
+        CHECK(FindVisrViewUser(o.View()).missing != nullptr);
+        // ... nor a load into r9 (REX.R) compared as ecx.
+        Fake q = n;
+        q.Put(0x140F, {0x44});
+        CHECK(FindVisrViewUser(q.View()).missing != nullptr);
+    }
+
+    // Project Reclaimer 0.10.6's framed pass-through (exe+0x579E020 to exe+0x4EBF450, 2026-11-19).
+    {
+        const uint8_t framed[] = {0x55, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8D, 0x6C, 0x24, 0x30, 0x48, 0xC7, 0x45, 0xF8,
+                                  0xFE, 0xFF, 0xFF, 0xFF, 0xE8, 0x19, 0x14, 0x72, 0xFF, 0x90, 0x48, 0x83, 0xC4, 0x30,
+                                  0x5D, 0xC3, 0x66, 0x90};
+        int64_t offset = 0;
+        CHECK(halo3_player_tags::ThunkCallee(framed, sizeof(framed), offset) && 0x579E020 + offset == 0x4EBF450);
+        uint8_t noPop[sizeof(framed)];
+        std::memcpy(noPop, framed, sizeof(framed));
+        noPop[28] = 0x90;   // the frame not undone: a real function
+        CHECK(!halo3_player_tags::ThunkCallee(noPop, sizeof(noPop), offset));
+        uint8_t otherFrame[sizeof(framed)];
+        std::memcpy(otherFrame, framed, sizeof(framed));
+        otherFrame[27] = 0x40;   // add rsp,0x40 after sub rsp,0x30
+        CHECK(!halo3_player_tags::ThunkCallee(otherFrame, sizeof(otherFrame), offset));
+        CHECK(!halo3_player_tags::ThunkCallee(framed, 20, offset));   // cut short
+    }
+
+    // 0.10.6's navpoint version: a framed pass-through at 0x3000 to the version 0x3100, which is the draw itself and
+    // reads the count (no draw of its own); a second version 0x3400 reads the same count.
+    {
+        Fake f;
+        f.Function(0x3000, 0x3020);
+        f.Put(0x3000, {0x55, 0x48, 0x83, 0xEC, 0x30, 0x48, 0x8D, 0x6C, 0x24, 0x30, 0x48, 0xC7, 0x45, 0xF8, 0xFE, 0xFF,
+                       0xFF, 0xFF});
+        f.Call(0x3012, 0x3100);
+        f.Put(0x3017, {0x90, 0x48, 0x83, 0xC4, 0x30, 0x5D, 0xC3});
+        f.Function(0x3100, 0x3300);
+        // mov rax,[rip+X]; test rax,rax; je; mov [rbp+0x50],rax; imul rax,[rax],0x74
+        f.Put(0x3180, {0x48, 0x8B, 0x05, 0x00, 0x0B, 0x00, 0x00, 0x48, 0x85, 0xC0, 0x0F, 0x84, 0x09, 0x1F, 0x00, 0x00,
+                       0x48, 0x89, 0x45, 0x50, 0x48, 0x6B, 0x00, 0x74});
+        const Image image = f.View();
+        const NavpointDraw v = FindNavpointDrawFromVersion(image, 0x3000);
+        CHECK(!v.missing && v.versionIsDraw && v.version == 0x3100 && v.draw == 0x3100 && v.countDisp == 0x3183);
+        const NavpointDraw offline = FindNavpointDraw(image);
+        CHECK(!offline.missing && offline.versionIsDraw && offline.draw == 0x3100);
+        // A second version reading another count global: no single count, refused offline.
+        Fake g = f;
+        g.Function(0x3400, 0x3420);
+        std::copy(f.image.begin() + 0x3000, f.image.begin() + 0x3012, g.image.begin() + 0x3400);
+        g.Call(0x3412, 0x3500);
+        g.Put(0x3417, {0x90, 0x48, 0x83, 0xC4, 0x30, 0x5D, 0xC3});
+        g.Function(0x3500, 0x3600);
+        g.Put(0x3580, {0x48, 0x8B, 0x05, 0x00, 0x0C, 0x00, 0x00, 0x48, 0x85, 0xC0, 0x0F, 0x84, 0x09, 0x1F, 0x00, 0x00,
+                       0x48, 0x6B, 0x00, 0x74});
+        CHECK(FindNavpointDraw(g.View()).missing != nullptr);
+        // The version with no count read and no call of a draw: refused.
+        Fake h = f;
+        h.Put(0x3194, {0x90, 0x90, 0x90, 0x90});
+        CHECK(FindNavpointDrawFromVersion(h.View(), 0x3000).missing != nullptr);
+    }
+
+    // VISR's constants, 0.10.6 and later: the stores without REX prefixes, and the list kept in a global (0x3F40).
+    {
+        Fake f;
+        f.Function(0x1400, 0x1600);
+        // movss [rax+0x40],xmm3; movss [rax+0x44],xmm0; mov dword [rax+0x48],1.0
+        f.Put(0x1480, {0xF3, 0x0F, 0x11, 0x58, 0x40, 0xF3, 0x0F, 0x11, 0x40, 0x44, 0xC7, 0x40, 0x48, 0x00, 0x00, 0x80,
+                       0x3F});
+        CHECK(FindVisrCamera(f.View()).missing != nullptr);
+        const Find constants = FindVisrConstants(f.View());
+        CHECK(!constants.missing && constants.function == 0x1400 && constants.at == 0x1480);
+        CHECK(FindVisrConstantsList(f.View(), 0x1400) == 0);   // no list stores yet
+        // mov [rip+list],r15; mov [rip+list+8],rsi; mov [rip+list+0x10],r15
+        const auto ripStore = [&f](uint32_t at, uint8_t rex, uint8_t modrm, uint32_t target) {
+            const int32_t d = static_cast<int32_t>(target) - static_cast<int32_t>(at + 7);
+            f.Put(at, {rex, 0x89, modrm});
+            std::memcpy(&f.image[at + 3], &d, 4);
+        };
+        ripStore(0x1500, 0x4C, 0x3D, 0x3F40);
+        ripStore(0x1507, 0x48, 0x35, 0x3F48);
+        ripStore(0x150E, 0x4C, 0x3D, 0x3F50);
+        CHECK(FindVisrConstantsList(f.View(), 0x1400) == 0x3F40);
+        // A second global's stores in the same function: refused.
+        Fake g = f;
+        const auto ripStoreG = [&g](uint32_t at, uint8_t rex, uint8_t modrm, uint32_t target) {
+            const int32_t d = static_cast<int32_t>(target) - static_cast<int32_t>(at + 7);
+            g.Put(at, {rex, 0x89, modrm});
+            std::memcpy(&g.image[at + 3], &d, 4);
+        };
+        ripStoreG(0x1540, 0x4C, 0x3D, 0x3F80);
+        ripStoreG(0x1547, 0x48, 0x35, 0x3F88);
+        ripStoreG(0x154E, 0x4C, 0x3D, 0x3F90);
+        CHECK(FindVisrConstantsList(g.View(), 0x1400) == 0);
+        // The 0.10.0 shape (REX on the second store and the mov) is still found.
+        CHECK(!FindVisrConstants(Visr().View()).missing && FindVisrConstants(Visr().View()).at == 0x1480);
+    }
+
+    // The input device the prompts show: the controller's store and the keyboard's, in one function, name the same two
+    // globals in data (0x3F10 the device, 0x3F20 the controller flag).
+    {
+        // mov byte [rip+device],value; <two bytes>; xchg [rip+flag],al -- rip-relative to each instruction's end.
+        const auto store = [](Fake& f, uint32_t at, uint8_t value, uint8_t a, uint8_t b, uint32_t device,
+                               uint32_t flag) {
+            const int32_t d = static_cast<int32_t>(device) - static_cast<int32_t>(at + 7);
+            const int32_t c = static_cast<int32_t>(flag) - static_cast<int32_t>(at + 15);
+            f.Put(at, {0xC6, 0x05});
+            std::memcpy(&f.image[at + 2], &d, 4);
+            f.Put(at + 6, {value, a, b, 0x86, 0x05});
+            std::memcpy(&f.image[at + 11], &c, 4);
+        };
+        Fake f;
+        f.Function(0x2000, 0x2200);
+        store(f, 0x2040, 0x01, 0x31, 0xC0, 0x3F10, 0x3F20);   // keyboard: 1, xor eax,eax
+        store(f, 0x2100, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);   // controller: 2, mov al,1
+        const InputDevice found = FindInputDevice(f.View());
+        CHECK(!found.missing && found.device == 0x3F10 && found.controller == 0x3F20 && found.controllerAt == 0x2100 &&
+              found.keyboardAt == 0x2040);
+        // The keyboard's store naming another device: refused.
+        Fake g = f;
+        store(g, 0x2040, 0x01, 0x31, 0xC0, 0x3F30, 0x3F20);
+        CHECK(FindInputDevice(g.View()).missing != nullptr);
+        // Two controller stores: refused.
+        Fake h = f;
+        store(h, 0x2180, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);
+        CHECK(FindInputDevice(h.View()).missing != nullptr);
+        // Globals in code: refused.
+        Fake k;
+        k.Function(0x2000, 0x2200);
+        store(k, 0x2040, 0x01, 0x31, 0xC0, 0x1F10, 0x1F20);
+        store(k, 0x2100, 0x02, 0xB0, 0x01, 0x1F10, 0x1F20);
+        CHECK(FindInputDevice(k.View()).missing != nullptr);
     }
 
     if (g_failures)

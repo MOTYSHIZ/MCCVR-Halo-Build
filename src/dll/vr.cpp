@@ -24006,6 +24006,11 @@ bool VR_IsPausePresentation()
     return g_pausePresentation.load();
 }
 
+bool VR_SessionFocused()
+{
+    return g_sessionStateShared.load(std::memory_order_acquire) == XR_SESSION_STATE_FOCUSED;
+}
+
 bool VR_IsPausePresentationTarget()
 {
     return g_pauseTarget.load();

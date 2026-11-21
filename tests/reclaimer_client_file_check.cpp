@@ -137,17 +137,34 @@ int main()
             std::printf("%-22s exe+0x%X\n", what, rva);
     };
     const reclaimer_client::Find camera = reclaimer_client::FindVisrCamera(image);
-    report("VISR camera", camera.function, camera.missing);
     const reclaimer_client::Find constants = reclaimer_client::FindVisrConstants(image);
+    const uint32_t list = constants.missing ? 0 : reclaimer_client::FindVisrConstantsList(image, constants.function);
+    if (camera.missing && list)
+        // 0.10.6 and later: the builder reads VISR's camera itself and keeps its list in a global; the mod corrects
+        // the block there, width and height (reclaimer_visr_camera.inl).
+        std::printf("%-22s not used: read inside its constants' builder (0.10.6 and later)\n", "VISR camera");
+    else
+        report("VISR camera", camera.function, camera.missing);
     report("VISR constants", constants.function, constants.missing);
+    if (list)
+        report("VISR constants list", list, nullptr);
     if (!camera.missing && !constants.missing)
         report("VISR finds agree", camera.function,
                reclaimer_client::VisrAgree(image, camera.function, constants.function));
     const reclaimer_client::WidgetGate gate = reclaimer_client::FindWidgetCrosshairGate(image);
-    report("widget draw (gate)", gate.widgetDraw, gate.missing);
-    report("crosshair gate", gate.gate, gate.missing);
-    report("crosshair check", gate.crosshair, gate.missing);
     const reclaimer_client::NavpointDraw draw = reclaimer_client::FindNavpointDraw(image);
+    if (gate.missing && !draw.missing && draw.versionIsDraw)
+        // 0.10.6 and later: the client's versions are the functions themselves behind framed pass-throughs, and its own
+        // code calls them directly; the mod hooks those (lifted_engine.cpp), the playback gate's among them, so the
+        // widget draw's gate needs no shims of 0.10.5's kind. Only the in-game log proves those hooks are reached.
+        std::printf("%-22s not used: no 0.10.5 shims; the versions are hooked themselves (the navpoint version is "
+                    "its draw)\n", "widget draw (gate)");
+    else
+    {
+        report("widget draw (gate)", gate.widgetDraw, gate.missing);
+        report("crosshair gate", gate.gate, gate.missing);
+        report("crosshair check", gate.crosshair, gate.missing);
+    }
     report("navpoint version", draw.version, draw.missing);
     report("navpoint draw", draw.draw, draw.missing);
     report("navpoint count read", draw.countDisp, draw.missing);
@@ -156,6 +173,9 @@ int main()
     report("VISR view player", viewUser.user, viewUser.missing);
     report("VISR first-pass flags", viewUser.flags, viewUser.missing);
     report("VISR object pass", viewUser.reader, viewUser.missing);
+    const reclaimer_client::InputDevice device = reclaimer_client::FindInputDevice(image);
+    report("prompt input device", device.device, device.missing);
+    report("prompt controller flag", device.controller, device.missing);
     std::printf("%s: %d find(s) failed\n", path, failures);
     return failures ? 1 : 0;
 }
