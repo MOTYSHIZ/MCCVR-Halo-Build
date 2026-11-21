@@ -33,14 +33,19 @@
 namespace
 {
     // THE MANUAL RELOAD'S RELOAD BUTTON (manual_reload_logic.h TapFilter): while the manual reload owns the held gun,
-    // a press is held back from the game; let go within half a second it is a tap (the magazine drops, through the VR
-    // thread), held longer it reaches the game as its own hold (pick up, use). One filter for every thread that polls.
+    // the press reaches the game as pressed (its pick up, board and use are not delayed) and opens the hidden-reload
+    // window at once (the reload that press starts in the game is unseen and unheard from its first frame); let go
+    // within a quarter second, with the same gun in hand, it is also a tap (the magazine drops, through the VR
+    // thread). manual_reload_hold_button: the old way, the press held back until it is known to be a tap or a hold.
+    // One filter for every thread that polls.
     std::mutex g_reloadTapLock;
     manual_reload::TapFilter g_reloadTap;
     bool FilterManualReload(bool down, bool owned, uint64_t now)
     {
         std::lock_guard<std::mutex> lock(g_reloadTapLock);
-        const auto result = g_reloadTap.Update(now, down, owned);
+        const auto result = g_reloadTap.Update(now, down, owned, VR_ManualReloadHeldIdentity(),
+                                               g_config.manual_reload_hold_button);
+        if (result.pressed) VR_ManualReloadNoteButtonPress();
         if (result.tap) VR_NoteManualReloadTap();
         return result.swallow;
     }

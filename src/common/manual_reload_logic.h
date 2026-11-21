@@ -33,7 +33,10 @@ struct Settings
     bool rack = true;               // the player racks a gun that ran dry (else seating chambers the round)
     bool lockBack = true;           // a handle or slide waiting to be racked is drawn held back until it is
     float pouchRadius = 0.20f;      // the pouch's reach (the weapon gestures' body zone)
-    float seatTravel = 0.08f;       // the magazine must have moved this far from where it was taken
+    // The magazine must have moved this far from where it was taken, or closed in on the well by as much (Campaign
+    // Evolved's reloadlift). 0, its default since 14b7fb5: a magazine held at the well goes in, whatever brought it
+    // there (a gun lowered to the pouch included). A magazine pulled out of the gun always needs kPulledTravel.
+    float seatTravel = 0.0f;
     float seatLateral = 0.10f;      // ... come within this of the well's axis (the receiver's reach)
     float seatAlignDeg = 90.0f;     // ... turned no more than this from the right way up
     float seatKeep = 0.30f;         // a push is abandoned if the magazine strays this far off the axis, or below it
@@ -172,6 +175,7 @@ public:
     // instead, nothing chambers). A pump is back all the way, then forward all the way.
     static constexpr float kRackDone = 0.92f, kPumpHome = 0.15f;
     static constexpr float kRackDue = 0.25f, kRackDueCancel = 0.12f;
+    static constexpr float kPulledTravel = 0.08f;    // a magazine pulled out goes back only after moving this far
     static constexpr float kRackDueReach = 1.5f;     // a due handle takes a grip this many reaches away (CampE 30c7c1b)
     static constexpr uint64_t kRackSpringMs = 90;    // the part runs home over this once let go
     static constexpr uint64_t kRackStuckMs = 1500;   // a rack that cannot be worked this long chambers by itself
@@ -298,7 +302,7 @@ public:
                     // A SHELL from the pouch (Campaign Evolved's shell feed). The game loads its shells ahead, unseen:
                     // it is asked as the first shell leaves the pouch, and again whenever it has stopped.
                     phase_ = Phase::MagHeld;
-                    grabbedAt_ = Magazine(in);
+                    NoteGrab(in);
                     gripOwned_ = true;
                     out.grabbed = true;
                     Pulse(out.supportHaptic, out.supportHapticMs, 0.7f, 50);
@@ -356,7 +360,7 @@ public:
                     weapon_interaction::Near(in.support, in.pouch, c.pouchRadius))
                 {
                     phase_ = Phase::MagHeld;
-                    grabbedAt_ = Magazine(in);
+                    NoteGrab(in);
                     gripOwned_ = true;
                     spent_ = false;
                     out.grabbed = true;
@@ -421,7 +425,7 @@ public:
                     }
                     phase_ = Phase::MagHeld;
                     spent_ = true;
-                    grabbedAt_ = Magazine(in);
+                    NoteGrab(in);
                     pullDepth_ = 0;
                     Pulse(out.supportHaptic, out.supportHapticMs, 0.7f, 50);
                     Pulse(out.primaryHaptic, out.primaryHapticMs, 0.6f, 50);
@@ -796,6 +800,12 @@ private:
         const float along = Along(in);
         return along >= -kPullReach && along <= 0.03f && Length(Lateral(in, along)) <= 0.05f;
     }
+    // Where a magazine (or shell) was taken, and how far from the well: the seat gate's measures.
+    void NoteGrab(const Input& in) noexcept
+    {
+        grabbedAt_ = Magazine(in);
+        grabbedWell_ = in.geometry.wellValid ? Length(grabbedAt_ - in.geometry.well) : 0.0f;
+    }
     static float InsertDepth(const Input& in) noexcept
     {
         return in.geometry.insertDepth > 0 ? in.geometry.insertDepth : in.weapon.insertDepth;
@@ -803,7 +813,10 @@ private:
     bool Capture(const Input& in, const Settings& c) const noexcept
     {
         const Vec m = Magazine(in);
-        if (Length(m - grabbedAt_) < c.seatTravel) return false;
+        const float travel = spent_ ? std::fmax(c.seatTravel, kPulledTravel) : c.seatTravel;
+        if (travel > 0 && Length(m - grabbedAt_) < travel &&
+            !(in.geometry.wellValid && grabbedWell_ - Length(m - in.geometry.well) >= travel))
+            return false;
         const float along = Along(in);
         // Within the receiver's reach of the line, and along it from that far below the push's start to that far
         // past home (Campaign Evolved's mouth test, one reach for all three).
@@ -853,9 +866,10 @@ private:
         }
         phase_ = Phase::Idle;
         // The still-closed grip stays the reload's until let go, but the two-handed hold may take it on the foregrip
-        // -- unless the rack is due, which that hand should do next.
+        // -- unless the rack is due, which that hand should do next, or the gun loads round by round (the shotgun:
+        // its grip opens before it holds the gun).
         gripOwned_ = true;
-        carry_ = !(in.weapon.rackChambers && RackHasWork());
+        carry_ = in.weapon.loadGripHolds && !(in.weapon.rackChambers && RackHasWork());
         catchUpAt_ = in.now + kPressCheckMs;
     }
     // The round goes into the chamber: the slide let go from the back, or the pump brought forward.
@@ -895,26 +909,30 @@ private:
     float rackGrab_[3]{};
     bool rackByHold_ = false, magPrompt_ = false, rackPromptNow_ = false, waitPrompt_ = false, inPouch_ = false;
     bool spent_ = false, carry_ = false;
-    float pullAlong_ = 0, pullDepth_ = 0;
+    float pullAlong_ = 0, pullDepth_ = 0, grabbedWell_ = 0;
     uint64_t rackDueSince_ = 0;
     bool missPending_ = false;
 };
 
-// THE RELOAD BUTTON: a tap drops the magazine, a hold is the game's (Halo 3's reload button is also pick up and
-// use). A press is held back from the game; let go within kHoldMs it is a tap, held longer it is passed to the game
-// from then on, as a hold. Runs on the thread that builds the game's pad.
+// THE RELOAD BUTTON: a tap drops the magazine; a hold is the game's (Halo 3's reload button is also pick up, board
+// and use). The press reaches the game as pressed (Campaign Evolved 5c52fd7), so a pick up or a board is never made
+// to wait; the reload that press starts in the game is hidden like any other the manual reload did not send. Let go
+// within kTapMs it is a tap too -- unless the held gun changed under it (the press picked one up). `withhold`
+// (manual_reload_hold_button) is the old way: the press is held back from the game until let go (a tap) or held
+// for kHoldMs (then it is the game's from then on). Runs on the thread that builds the game's pad.
 class TapFilter
 {
 public:
-    static constexpr uint64_t kHoldMs = 500;
-    struct Result { bool swallow = false; bool tap = false; };
+    static constexpr uint64_t kTapMs = 250, kHoldMs = 500;
+    struct Result { bool swallow = false; bool tap = false; bool pressed = false; };
     void Reset() noexcept { *this = TapFilter{}; }
-    Result Update(uint64_t now, bool down, bool owned) noexcept
+    // gun: the held gun's identity (any value that changes when it does).
+    Result Update(uint64_t now, bool down, bool owned, uint64_t gun = 0, bool withhold = true) noexcept
     {
         Result r{};
         if (!down)
         {
-            if (pending_ && owned) r.tap = true;
+            if (pending_ && owned && gun == gunAtPress_) r.tap = true;
             pending_ = passing_ = false;
             return r;
         }
@@ -924,13 +942,16 @@ public:
             if (!owned) { passing_ = true; return r; }
             pending_ = true;
             pressAt_ = now;
+            gunAtPress_ = gun;
+            withhold_ = withhold;
+            r.pressed = true;
         }
-        if (pending_ && now - pressAt_ >= kHoldMs) { pending_ = false; passing_ = true; }
-        r.swallow = pending_;
+        if (pending_ && now - pressAt_ >= (withhold_ ? kHoldMs : kTapMs)) { pending_ = false; passing_ = true; }
+        r.swallow = pending_ && withhold_;
         return r;
     }
 private:
-    bool pending_ = false, passing_ = false;
-    uint64_t pressAt_ = 0;
+    bool pending_ = false, passing_ = false, withhold_ = true;
+    uint64_t pressAt_ = 0, gunAtPress_ = 0;
 };
 } // namespace manual_reload

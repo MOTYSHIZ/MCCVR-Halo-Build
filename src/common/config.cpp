@@ -1456,6 +1456,7 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key,"weapon_holsters")) { g_config.weapon_holsters=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_magazine")) { g_config.manual_reload_magazine=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_rack")) { g_config.manual_reload_rack=atoi(val)!=0;continue; }
+        if (!strcmp(key,"manual_reload_hold_button")) { g_config.manual_reload_hold_button=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_animation")) { g_config.manual_reload_animation=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_hand_follow")) { g_config.manual_reload_hand_follow=atoi(val)!=0;continue; }
         if (!strcmp(key,"manual_reload_sounds")) { g_config.manual_reload_sounds=atoi(val)!=0;continue; }
@@ -3781,6 +3782,10 @@ void ConfigSave()
     fprintf(f, "# handle or slide pulled back. (defaults %d, %d)\n", d.manual_reload_magazine ? 1 : 0, d.manual_reload_rack ? 1 : 0);
     fprintf(f, "manual_reload_magazine = %d\nmanual_reload_rack = %d\n", g_config.manual_reload_magazine?1:0,
         g_config.manual_reload_rack?1:0);
+    fprintf(f, "# manual_reload_hold_button: 1 holds the reload button's press back from the game until it is a tap (the\n");
+    fprintf(f, "# magazine drops) or a half-second hold (the game's pick up and use); 0 gives the game every press at once and\n");
+    fprintf(f, "# a quarter-second tap drops the magazine as well. (default %d)\n", d.manual_reload_hold_button ? 1 : 0);
+    fprintf(f, "manual_reload_hold_button = %d\n", g_config.manual_reload_hold_button?1:0);
     fprintf(f, "# manual_reload_animation: the gun moves through its own reload animation, learned from the game's first\n");
     fprintf(f, "# reload of each gun (kept in halomccvr_reload_clips.bin); the Covenant carbine, spiker and mauler join once\n");
     fprintf(f, "# learned. manual_reload_hand_follow: the support hand is drawn on the magazine and the handle. (defaults %d, %d)\n",

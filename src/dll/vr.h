@@ -1203,6 +1203,11 @@ void VR_ReportReloadCapture() noexcept;
 bool VR_ManualReloadOwnsReload(GameTitle title, uint32_t generation) noexcept;
 bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept;
 void VR_NoteManualReloadTap() noexcept;
+// The reload button went down while the manual reload owns the gun: the game's reload that press starts is hidden
+// (its animation and sound) from its first frame. Any thread.
+void VR_ManualReloadNoteButtonPress() noexcept;
+// The held gun's identity as the manual reload last saw it (0: none it knows). Any thread.
+uint64_t VR_ManualReloadHeldIdentity() noexcept;
 // The game button the manual reload presses and takes taps of (the game's own reload binding where known).
 uint32_t VR_ManualReloadButton() noexcept;
 uint64_t VR_GetWeaponModelIdentity(GameTitle title,uint32_t generation,uint64_t space,uint64_t now) noexcept;

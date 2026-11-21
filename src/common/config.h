@@ -1700,6 +1700,10 @@ struct Config
     bool manual_reload_magazine = true;
     // ... and a gun that ran dry needs its handle or slide pulled back once the magazine is in (off: the seat chambers).
     bool manual_reload_rack = true;
+    // ... the reload button's press is held back from the game until it is known to be a tap (the manual reload's)
+    // or a hold (the game's). Off (the default, Campaign Evolved 5c52fd7): the press reaches the game at once and
+    // only a tap is the manual reload's too, so a pick up, a board or a use is not delayed.
+    bool manual_reload_hold_button = false;
     // ... the gun is posed from its own reload animation, learned from the game's reload (the magazine's way out
     // and in, the rack stroke; halomccvr_reload_clips.bin), and the Covenant magazine guns join once learned.
     bool manual_reload_animation = true;

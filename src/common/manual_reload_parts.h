@@ -66,6 +66,9 @@ struct Weapon
     // The magazine can be pulled out by a hand closed on it. Not where the support hand holds the gun there anyway
     // (a pistol's grip, the spiker's foregrip): those drop it by the button (Campaign Evolved's pullNeedsRelease).
     bool pullByHand = true;
+    // A grip still closed as a magazine or shell goes in may become the two-handed hold on the foregrip (Campaign
+    // Evolved's loadGripHolds). Not the shotgun's: loading shell after shell, the gun swung about between them.
+    bool loadGripHolds = true;
 };
 
 // The built-in weapons: magazine-fed guns whose magazine goes up into the gun and whose kit model has both a
@@ -120,6 +123,7 @@ inline Weapon BuiltInWeapon(const char* name) noexcept
         w.rackChambers = true;
         w.needsLearning = true;
         w.supportGripRacks = true;
+        w.loadGripHolds = false;
         w.insertDepth = 0.06f;
         return w;
     }

@@ -399,3 +399,17 @@ code still calls the engine's copies (the layer logs it). The recipe is in the r
 - Still gated, for a reason: the four Project Reclaimer hooks and ODST-level fingers there (each needs one
   Reclaimer run to show it works); the Covenant guns and the shotgun until their reload is learned (the way in comes
   from it); dual wield (two guns); other titles (no finger rig or palette posing there yet).
+
+## Catch-up with Campaign Evolved `4a6f997` (2026-11-21, workbench only)
+
+Campaign Evolved's reload commits since `5adbc7c`, checked against this port. Nothing was run in the game.
+
+| Campaign Evolved | Here |
+| --- | --- |
+| `5c52fd7`, `312bc78`: the reload button reaches the game as pressed; only the tap (250 ms) is the reload's, and a press that swapped the gun is no tap. | Ported. Swap, board, pick up and use were held back 500 ms before the game's own hold began. The press now opens the hidden-reload window at once, so the game's reload that press starts is unseen and unheard from its first frame. `manual_reload_hold_button = 1` restores the old withholding. |
+| `7039707`: a press or shot inside an open sound-mute window re-arms it. | Already so: the window here is only ever extended (now with a compare-exchange, since the pad's thread opens it too). |
+| `cee86b8`, `14b7fb5`: the seat's travel gate counts closing in on the receiver, then is off by default (the user's call). | Ported: off by default; when on, closing in on the well counts. A magazine just pulled out still needs 8 cm, or it would go straight back in. |
+| `177883d`: the held item lagged the gun by one frame of the pawn's move. | Not needed: the well is published in the gun hand's aim frame and rebuilt from the same pose, so the player's movement cancels out. |
+| `a389b7a`: a grip still closed as a shell goes in is not the two-handed hold's until it opens (`loadGripHolds`, off on the shotgun); pump sounds on the player's emitter. | Ported the grip rule (built in, no file key). The emitter fix is Unreal-only; the click here is the game's 2D sound. |
+| `1daf662`: manual reload out of Experimental and on by default. | Not changed: the branch is on hold, and `manual_reload` stays off by default until the user decides. |
+| Menu restyle, Player IK | No Player IK commits since `5adbc7c`; the menu restyle is Campaign Evolved's own UI. |

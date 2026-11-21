@@ -381,6 +381,8 @@ int main()
         sg.MoveMagazine(kWell + kAxis * -0.005f, 3);
         Check(sg.out.phase == Phase::Idle && sg.out.shellsWaiting == 1 && sg.out.loaded == 5,
               "home, the hand is free and the shell waits for the game to load a round for it");
+        Check(!sg.out.carryGrip && sg.out.blockTwoHand,
+              "a grip still closed past a shell is not the two-handed hold's until it opens (CampE loadGripHolds)");
         sg.Wait(700);
         Check(sg.out.loaded == 6 && sg.out.phase == Phase::Idle, "and is counted once the game has");
         sg.Grip(false); sg.Grip(true);
@@ -516,6 +518,18 @@ int main()
         r=tap.Update(2000,true,false);Check(!r.swallow,"not ours: straight to the game");
         r=tap.Update(2100,true,true);Check(!r.swallow,"a press begun as the game's stays the game's");
         r=tap.Update(2200,false,true);Check(!r.tap,"and is no tap");
+
+        // Passed through (Campaign Evolved 5c52fd7): the game has every press; a quick one is a tap too.
+        TapFilter pass;
+        r=pass.Update(0,true,true,7,false);Check(!r.swallow&&r.pressed&&!r.tap,"a press reaches the game at once");
+        r=pass.Update(200,true,true,7,false);Check(!r.swallow,"and is never held back");
+        r=pass.Update(240,false,true,7,false);Check(r.tap,"let go within a quarter second: a tap as well");
+        r=pass.Update(1000,true,true,7,false);r=pass.Update(1260,true,true,7,false);
+        r=pass.Update(1270,false,true,7,false);Check(!r.tap,"held a quarter second: the game's alone");
+        r=pass.Update(2000,true,true,7,false);r=pass.Update(2100,false,true,9,false);
+        Check(!r.tap,"a press that changed the gun (picked one up) is no tap");
+        r=pass.Update(3000,true,false,9,false);Check(!r.pressed&&!r.swallow,"not ours: no press noted");
+        r=pass.Update(3100,false,false,9,false);Check(!r.tap,"and no tap");
     }
     std::printf("Manual reload: %u checks, %u failures\n",checks,failures);
     return failures?1:0;

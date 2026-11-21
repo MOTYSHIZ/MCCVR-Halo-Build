@@ -11449,6 +11449,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
     // The HUD's count: weapon handle << 32 | loaded << 16 | shown reserve; and title << 56 | the time (ms).
     std::atomic<uint64_t> g_manualReloadHudWord{0}, g_manualReloadHudStamp{0};
     std::atomic<uint64_t> g_manualReloadQuietUntil{0};  // ms: the game's reload is hidden until then
+    // Two threads open the window (the VR thread, and the pad's on a reload button press): only ever later.
+    void ExtendManualReloadQuiet(uint64_t until) noexcept
+    {
+        uint64_t seen=g_manualReloadQuietUntil.load(std::memory_order_relaxed);
+        while(until>seen&&!g_manualReloadQuietUntil.compare_exchange_weak(seen,until,std::memory_order_release,
+                                                                          std::memory_order_relaxed)) {}
+    }
     bool g_manualReloadCarryGrip = false;  // the input tick's: a seated magazine's grip is still closed
     // The held gun's kit model name (a catalogue string: stable), and whether the manual reload knows it.
     std::atomic<const char*> g_manualReloadHeldGun{nullptr};
@@ -16428,11 +16435,7 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 const bool gameReloading=reloadOut.owned&&reloadIn.simValid&&reloadIn.sim.reloading;
                 if(reloadOut.owned&&(reloadOut.pressed||reloadOut.phase!=manual_reload::Phase::Idle||lastRound||
                                      gameReloading||reloadOut.shellsWaiting>0))
-                {
-                    const uint64_t until=inputNow+(reloadOut.pressed||lastRound?2500u:300u);
-                    if(until>g_manualReloadQuietUntil.load(std::memory_order_relaxed))
-                        g_manualReloadQuietUntil.store(until,std::memory_order_release);
-                }
+                    ExtendManualReloadQuiet(inputNow+(reloadOut.pressed||lastRound?2500u:300u));
                 g_manualReloadCarryGrip=reloadOut.owned&&reloadOut.carryGrip;
                 {
                     using manual_reload::Phase;
@@ -27540,6 +27543,13 @@ bool VR_ManualReloadTriggerHeld(GameTitle title, uint32_t generation) noexcept
 }
 
 void VR_NoteManualReloadTap() noexcept { g_manualReloadTaps.fetch_add(1,std::memory_order_acq_rel); }
+
+void VR_ManualReloadNoteButtonPress() noexcept { ExtendManualReloadQuiet(GetTickCount64()+2500u); }
+
+uint64_t VR_ManualReloadHeldIdentity() noexcept
+{
+    return g_manualReloadHeldModelId.load(std::memory_order_acquire);
+}
 
 uint32_t VR_ManualReloadButton() noexcept { return g_manualReloadButton.load(std::memory_order_acquire); }
 
