@@ -37,8 +37,9 @@ struct Runtime {
     HMODULE module{};
     uintptr_t base{}, state{};
     std::atomic<uint32_t> generation{};
-    void* target[2]{}, *original[2]{};
-    bool enabled[2]{}, attempted{};
+    // 0 the converter, 1 the reader, 2 the chud's text setter (TitleText; optional: the bridge stands without it)
+    void* target[3]{}, *original[3]{};
+    bool enabled[3]{}, attempted{};
     std::atomic<bool> admitted{}, faulted{};
     std::atomic<uint32_t> callbacks{};
     std::atomic<uint64_t> converted{}, routed{}, readerAt{};
@@ -190,6 +191,72 @@ void* __fastcall ReaderHook(void* state,unsigned action,uintptr_t caller) {
     } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
     return result;
 }
+// ODST'S TUTORIAL TEXT IN VR WORDS (odst_prompt_text.h): the chud's text setter, entered through the preserving thunk
+// (its callers keep xmm2 live), keeps the rewritten line instead of the game's. Script thread; a line now and then.
+struct TitleText {
+    wchar_t buffer[odst_prompt_text::kMaxChars+1]{};   // the setter copies it before it returns
+    std::atomic<uint32_t> rewritten{}, kept{}, faults{};
+    uint32_t reported{};                               // worker: rewritten+kept when last logged
+    // The last line kept as the game's own, for the log (its pictures as <U+....>): the next report names it.
+    wchar_t lastKept[96]{};
+    std::atomic<uint32_t> lastKeptSerial{};
+    uint32_t lastKeptShown{};
+} titleText;
+using SetText=void(__fastcall*)(int,const wchar_t*,float);
+__declspec(noinline) const wchar_t* TitleTextFor(const wchar_t* text) noexcept {
+    __try {
+        odst_prompt_text::Controls controls{};
+        if(!g_config.vr_action_mapping || !odst_text::Read(controls)) return text;
+        if(odst_prompt_text::Rewrite(text,controls,titleText.buffer)) {
+            titleText.rewritten.fetch_add(1,std::memory_order_relaxed);
+            return titleText.buffer;
+        }
+        bool pictures=false;
+        unsigned n=0;
+        for(;text[n]&&n<odst_prompt_text::kMaxChars;++n) pictures|=odst_prompt_text::glyph::Private(text[n]);
+        if(pictures) {
+            titleText.kept.fetch_add(1,std::memory_order_relaxed);
+            const unsigned copy=n<95u?n:95u;
+            for(unsigned i=0;i<copy;++i) titleText.lastKept[i]=text[i];
+            titleText.lastKept[copy]=0;
+            titleText.lastKeptSerial.fetch_add(1,std::memory_order_release);
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        titleText.faults.fetch_add(1,std::memory_order_relaxed);
+    }
+    return text;
+}
+void __fastcall TitleTextHook(int user,const wchar_t* text,float seconds) {
+    runtime.callbacks.fetch_add(1,std::memory_order_acq_rel);
+    __try {
+        reinterpret_cast<SetText>(runtime.original[2])(user,text?TitleTextFor(text):text,seconds);
+    } __finally {runtime.callbacks.fetch_sub(1,std::memory_order_release);}
+}
+// Worker: what the text hook did since the last report, and the last line it kept as the game's own.
+void ReportTitleText() noexcept {
+    const uint32_t rewritten=titleText.rewritten.load(std::memory_order_relaxed);
+    const uint32_t kept=titleText.kept.load(std::memory_order_relaxed);
+    if(rewritten+kept!=titleText.reported) {
+        titleText.reported=rewritten+kept;
+        LOG("ODST tutorial text: %u lines said in VR words, %u kept as the game's own%s",rewritten,kept,
+            titleText.faults.load(std::memory_order_relaxed)?" (a line could not be read)":"");
+    }
+    const uint32_t serial=titleText.lastKeptSerial.load(std::memory_order_acquire);
+    if(serial!=titleText.lastKeptShown) {
+        titleText.lastKeptShown=serial;
+        char line[96*9]{};
+        size_t used=0;
+        for(unsigned i=0;i<95&&titleText.lastKept[i]&&used+10<sizeof(line);++i) {
+            const wchar_t ch=titleText.lastKept[i];
+            if(ch>=0x20&&ch<0x7F) line[used++]=static_cast<char>(ch);
+            else if(ch==L'\r') continue;
+            else if(ch==L'\n') {line[used++]=' ';line[used++]='/';line[used++]=' ';}
+            else used+=static_cast<size_t>(std::snprintf(line+used,sizeof(line)-used,"<U+%04X>",static_cast<unsigned>(ch)));
+        }
+        LOG("ODST tutorial text: kept the game's own words for \"%s\" (not an English line of a known form, or a "
+            "control it names is unbound)",line);
+    }
+}
 // The reader is entered through a register-preserving asm thunk (native_vr_reader_thunks.asm).
 void* const hooks[]{reinterpret_cast<void*>(&ConverterHook),reinterpret_cast<void*>(&NativeVrReaderThunkOdst)};
 bool ProveConsumerBounds(uintptr_t base) {
@@ -204,19 +271,21 @@ bool Retire() {
     publication.cancelEpoch.fetch_add(1,std::memory_order_acq_rel);
     prompt.proved.store(false,std::memory_order_release);
     prompt.stampMs.store(0,std::memory_order_release);
-    for(unsigned i=0;i<2;++i) if(runtime.enabled[i]) {
+    for(unsigned i=0;i<3;++i) if(runtime.enabled[i]) {
         const auto status=MCCVR_DisableHookForRetirement(runtime.target[i]);
         if(status!=MH_OK && status!=MH_ERROR_DISABLED) return false;
         runtime.enabled[i]=false;
     }
     const void* functions[]{hooks[0],hooks[1],reinterpret_cast<void*>(&ReaderHook),reinterpret_cast<void*>(&ReadOwned),
         reinterpret_cast<void*>(&Current),reinterpret_cast<void*>(&ReadController),reinterpret_cast<void*>(&ReadFrames),
-        reinterpret_cast<void*>(&PublishPromptState)};
-    const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr,nullptr};
-    if(!WaitForNativeDetourQuiescence(functions,trampolines,8,runtime.callbacks)) return false;
+        reinterpret_cast<void*>(&PublishPromptState),reinterpret_cast<void*>(&OdstTitleTextThunk),
+        reinterpret_cast<void*>(&TitleTextHook),reinterpret_cast<void*>(&TitleTextFor)};
+    const void* trampolines[]{runtime.original[0],runtime.original[1],nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,
+        runtime.original[2],nullptr,nullptr};
+    if(!WaitForNativeDetourQuiescence(functions,trampolines,11,runtime.callbacks)) return false;
     prompt.tlsIndex=nullptr;
     prompt.readReturn=0;
-    for(unsigned i=0;i<2;++i) if(runtime.target[i]) {
+    for(unsigned i=0;i<3;++i) if(runtime.target[i]) {
         if(MH_RemoveHook(runtime.target[i])!=MH_OK) return false;
         runtime.target[i]=runtime.original[i]=nullptr;
     }
@@ -305,6 +374,21 @@ void Poll() {
                 }
                 else
                     LOG("ODST prompt and map rows: off, normal controls kept; not found or not agreeing: %s",found.missing);
+                // ODST's tutorial text in VR words (odst_prompt_text.h): two signatures that must agree. Optional: not
+                // found, the game's own words stay and the bridge is unchanged.
+                const auto where=odst_prompt_text::Resolve(image);
+                if(!where.ok)
+                    LOG("ODST tutorial text: the game's own words kept; not found or not agreeing: %s",where.missing);
+                else {
+                    auto* target=reinterpret_cast<void*>(base+where.setterRva);
+                    if(MH_CreateHook(target,reinterpret_cast<void*>(&OdstTitleTextThunk),&runtime.original[2])==MH_OK) {
+                        runtime.target[2]=target;
+                        runtime.enabled[2]=MH_EnableHook(target)==MH_OK;
+                    }
+                    LOG("ODST tutorial text: %s (the chud's text setter +0x%X, called by chud_show_cinematic_title at "
+                        "+0x%X)",runtime.enabled[2]?"said in VR words":"the game's own words kept, the hook did not install",
+                        where.setterRva,where.titleCallRva);
+                }
             }
         }
         else
@@ -325,6 +409,7 @@ void Poll() {
         runtime.reportAt=now+5000;
         LOG("Native VR action bridge ODST: converter=%llu directReads=%llu%s",
             runtime.converted.load(),runtime.routed.load(),runtime.faulted.load()?" TRANSPORT FALLBACK (guarded access fault)":"");
+        if(runtime.enabled[2]) ReportTitleText();
     }
 }
 

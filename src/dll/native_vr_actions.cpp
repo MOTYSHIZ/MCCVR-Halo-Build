@@ -11,6 +11,7 @@
 #include "../common/log.h"
 #include "../common/minhook_lifecycle.h"
 #include "../common/odst_prompt_resolve.h"
+#include "../common/odst_prompt_text.h"
 #include "drive_cascade.h"
 #include "reclaimer_client_image.h"
 #include <windows.h>
@@ -30,6 +31,7 @@ void NativeVrReaderThunkHalo3();
 void NativeVrH3ActionEdgesThunk();
 void NativeVrReaderThunkOdst();
 void NativeVrReaderThunkHalo4();
+void OdstTitleTextThunk();
 }
 
 namespace {
@@ -331,6 +333,35 @@ __declspec(noinline) void WitnessNativeRecord(GameTitle requested,unsigned actio
     SeatWitness_NoteNativeAction(requested,action,present,frames,milliseconds);
 }
 #endif
+// ODST'S TUTORIAL TEXT IN VR WORDS (odst_prompt_text.h): what presses VISR and the gamepad's X and Y, as the input
+// thread last read the player's rows and the game's layout (NativeVrActions_PublishOdstTextControls), for the chud
+// text hook on the game's script thread. Each input packs as three 5-bit controls (held, held, press); bit 63: read.
+namespace odst_text {
+std::atomic<uint64_t> controls{0};
+constexpr uint64_t Pack(const vr_mapping::Input& in) noexcept {
+    const auto bits=[](int source){ return static_cast<uint64_t>(source>=0&&source<32?source:vr_mapping::Unbound); };
+    return bits(in.held[0])|bits(in.held[1])<<5|bits(in.press)<<10;
+}
+constexpr vr_mapping::Input Unpack(uint64_t bits) noexcept {
+    vr_mapping::Input in{};
+    in.held[0]=static_cast<int>(bits&31u);
+    in.held[1]=static_cast<int>(bits>>5&31u);
+    in.press=static_cast<int>(bits>>10&31u);
+    return in;
+}
+// The controls the text names, or false while the input thread has not read them (the game's own text stays).
+bool Read(odst_prompt_text::Controls& c) noexcept {
+    const uint64_t packed=controls.load(std::memory_order_acquire);
+    if(!(packed>>63)) return false;
+    c.odst=g_config.vr_odst_bindings;
+    c.visr=Unpack(packed);
+    c.padX=Unpack(packed>>15);
+    c.padY=Unpack(packed>>30);
+    c.leftHanded=g_config.left_handed;
+    c.dpadRightHand=g_config.dpad_hand!=0;
+    return true;
+}
+}
 #include "native_vr_actions_ce.inl"
 #include "native_vr_actions_h3.inl"
 #include "native_vr_actions_odst.inl"
@@ -400,6 +431,13 @@ uintptr_t (*g_nativeVrH3ActionEdges)(uint32_t,void*,uintptr_t)=&native_h3::Actio
 void* (*g_nativeVrReaderHalo3)(void*,unsigned,uintptr_t)=&native_h3::ReaderHook;
 void* (*g_nativeVrReaderOdst)(void*,unsigned,uintptr_t)=&native_odst::ReaderHook;
 void* (*g_nativeVrReaderHalo4)(void*,unsigned,uintptr_t)=&native_h4::ReaderHook;
+void (*g_odstTitleTextHook)(int,const wchar_t*,float)=&native_odst::TitleTextHook;
+}
+void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,const vr_mapping::Input& padX,
+    const vr_mapping::Input& padY) noexcept {
+    const uint64_t packed=odst_text::Pack(visr)|odst_text::Pack(padX)<<15|odst_text::Pack(padY)<<30|1ull<<63;
+    if(odst_text::controls.load(std::memory_order_relaxed)!=packed)
+        odst_text::controls.store(packed,std::memory_order_release);
 }
 void NativeVrActions_BeginPoll() noexcept {
     pollPublished=false;

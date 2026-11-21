@@ -27,6 +27,7 @@
 #include "../common/physical_crouch_input.h"
 #include "../common/vr_action_passthrough.h"
 #include "../common/vehicle_seat_buttons.h"
+#include "../common/odst_prompt_text.h"
 #include "physical_crouch_camera.h"
 #include "native_vr_actions.h"
 #include "dev_pad.h"
@@ -540,6 +541,15 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             EffectiveBindings(mappingTitle,gameLayout,gameLayoutKnown):vr_mapping::Overrides{};
         // This game's rows' inputs: what each holds first, its mode, and its further inputs (VR Mappings).
         const vr_mapping::Inputs* rowInputs=mappingTitle>=0?&g_config.vr_inputs[mappingTitle]:nullptr;
+        // ODST's tutorial text in VR words (odst_prompt_text.h) names VISR's control and what presses the gamepad's X
+        // and Y (the map's waypoint and COMM lines, the repeat-training answer). Only stored when it changes.
+        if(controlsTitle==GameTitle::Halo3ODST&&mappingTitle>=0)
+            NativeVrActions_PublishOdstTextControls(
+                odst_prompt_text::ControlForAction(vr_mapping::Flashlight,effectiveBindings,rowInputs),
+                odst_prompt_text::ControlForButton(XINPUT_GAMEPAD_X,vr_mapping::Reload,effectiveBindings,gameLayout,
+                    gameLayoutKnown,rowInputs),
+                odst_prompt_text::ControlForButton(XINPUT_GAMEPAD_Y,vr_mapping::SwitchWeapon,effectiveBindings,gameLayout,
+                    gameLayoutKnown,rowInputs));
         // Zoom's own control for the lens: its row's press, or its first further input's where the row has none.
         int zoomSource=mappingTitle>=0&&g_config.vr_action_mapping?
             vr_mapping::Resolve(vr_mapping::Zoom,effectiveBindings[vr_mapping::Zoom]):vr_mapping::RightClick;

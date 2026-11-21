@@ -7,7 +7,11 @@
 // The MCC folder comes from --mcc or the HALOMCCVR_MCC_DIR environment variable; with neither (and no --dll) the check
 // is SKIPPED (exit 77). ODST's halo3odst.dll must resolve whole. Halo 3's halo3.dll (also what Project Reclaimer runs
 // ODST's levels on) must resolve NOTHING: it has no such prompt or map state, and the rows must stay off there.
+//
+// The same run checks ODST's tutorial text find (src/common/odst_prompt_text.h): the chud's text setter and
+// chud_show_cinematic_title's call of it must agree in halo3odst.dll, and must not be found in halo3.dll.
 #include "../src/common/odst_prompt_resolve.h"
+#include "../src/common/odst_prompt_text.h"
 
 #include <windows.h>
 #include <cstdio>
@@ -127,6 +131,14 @@ void Print(const char* name, const odst_prompt_resolve::Result& r)
     else
         std::printf("  %s: NOT RESOLVED, the ODST prompt and map rows stay off: %s\n", name, r.missing);
 }
+void PrintText(const char* name, const odst_prompt_text::Where& w)
+{
+    if (w.ok)
+        std::printf("  %s: tutorial text RESOLVED. the chud's text setter +0x%X, called by chud_show_cinematic_title at "
+                    "+0x%X\n", name, w.setterRva, w.titleCallRva);
+    else
+        std::printf("  %s: tutorial text NOT RESOLVED, the game's own words stay: %s\n", name, w.missing);
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -169,6 +181,9 @@ int main(int argc, char** argv)
         const auto r = odst_prompt_resolve::Resolve(laid.image, 0);
         Print("halo3odst.dll", r);
         failures += r.ok ? 0 : 1;
+        const auto text = odst_prompt_text::Resolve(laid.image);
+        PrintText("halo3odst.dll", text);
+        failures += text.ok ? 0 : 1;
     }
     if (!halo3.empty() && GetFileAttributesW(halo3.c_str()) != INVALID_FILE_ATTRIBUTES)
     {
@@ -184,6 +199,13 @@ int main(int argc, char** argv)
             if (r.ok)
             {
                 std::printf("  FAIL: Halo 3's engine must not resolve ODST's prompt and map state\n");
+                ++failures;
+            }
+            const auto text = odst_prompt_text::Resolve(laid.image);
+            PrintText("halo3.dll", text);
+            if (text.ok)
+            {
+                std::printf("  FAIL: Halo 3's engine must not resolve ODST's tutorial text setter\n");
                 ++failures;
             }
         }

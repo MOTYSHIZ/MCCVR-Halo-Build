@@ -22,6 +22,7 @@ EXTERN g_nativeVrReaderHalo3:QWORD
 EXTERN g_nativeVrH3ActionEdges:QWORD
 EXTERN g_nativeVrReaderOdst:QWORD
 EXTERN g_nativeVrReaderHalo4:QWORD
+EXTERN g_odstTitleTextHook:QWORD
 
 PRESERVING_READER MACRO thunkName, hookPointer
 thunkName PROC FRAME
@@ -80,4 +81,8 @@ PRESERVING_READER NativeVrReaderThunkHalo3, g_nativeVrReaderHalo3
 PRESERVING_READER NativeVrH3ActionEdgesThunk, g_nativeVrH3ActionEdges
 PRESERVING_READER NativeVrReaderThunkOdst, g_nativeVrReaderOdst
 PRESERVING_READER NativeVrReaderThunkHalo4, g_nativeVrReaderHalo4
+; ODST's chud text setter (user, text, seconds; odst_prompt_text.h) is no leaf reader, but its LTCG callers keep
+; xmm2 (the seconds) live across it: chud_show_cinematic_title for every player calls it in a loop with xmm2 set once
+; (halo3odst.dll +0x1BA5DA..+0x1BA5FD). The same preserving thunk enters its hook; rax is unused (the setter is void).
+PRESERVING_READER OdstTitleTextThunk, g_odstTitleTextHook
 END
