@@ -94,7 +94,11 @@ What names what:
   **Map previous/next page** rows;
 - VISR: the flashlight row's own control (else its first further input);
 - the map's X and Y lines and the repeat-training answer: the row whose action the game's layout puts on X or Y;
-- look: "turn your head"; move map: "push the left stick"; NAV beacons: the D-pad gesture up and down.
+- look: "aim with your gun hand". The look training waits on `player_action_test_look_relative_*`, test bits 7-10,
+  which the tests updater (+0x114FD0) sets from the control builder's look deltas (+0x18 yaw, +0x1C pitch): the
+  look stick. In VR the mod steers that stick from the gun hand's aim ("VR aim override active"), so the headset
+  alone does not answer it;
+- move map: "push the left stick"; NAV beacons: the D-pad gesture up and down.
 
 Kept as the game's own words: a line in another language or of another form, a picture this file does not know, a
 control the player left unbound, or a line too long for the chud. The log counts both ("ODST tutorial text: N lines said

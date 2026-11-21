@@ -296,7 +296,8 @@ inline bool PictureFor(wchar_t g, const Controls& c, Said& out) noexcept
     case glyph::kAccept: case glyph::kPlaceWaypoint: case glyph::kCommPlay: case glyph::kCommPause:
         out.first = PhraseForRow(c.odst[PromptConfirm], c); break;   // the game's A: the map's own, or accept
     case glyph::kCancel: out.first = PhraseForRow(c.odst[PromptReject], c); break;
-    case glyph::kLook: out.first = Fixed(L"", L"turn", L"your head"); break;
+    // The look tests read the game's look stick, which VR drives from the gun hand's aim (not the headset).
+    case glyph::kLook: out.first = Fixed(L"", L"aim", L"with your gun hand"); break;
     case glyph::kMove: case glyph::kMoveMap: out.first = Fixed(L"", L"push", L"the left stick"); break;
     case glyph::kFlashlight: out.first = PhraseFor(c.visr, c); break;
     case glyph::kBack: case glyph::kPdaClose: out.first = Fixed(detail::GestureLead(c), L"click", L"its stick"); break;

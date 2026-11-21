@@ -350,6 +350,32 @@ constexpr vr_mapping::Input Unpack(uint64_t bits) noexcept {
     in.press=static_cast<int>(bits>>10&31u);
     return in;
 }
+// The last line kept as the game's own (its pictures as <U+....> in the log), from either title's hook: the worker
+// names it, so a line the rewrite does not know can be added.
+wchar_t lastKept[128]{};
+std::atomic<uint32_t> lastKeptSerial{};
+uint32_t lastKeptShown=0;
+void NoteKept(const wchar_t* text) noexcept {   // the script thread
+    unsigned n=0;
+    for(;text[n]&&n<127u;++n) lastKept[n]=text[n];
+    lastKept[n]=0;
+    lastKeptSerial.fetch_add(1,std::memory_order_release);
+}
+void ReportKept(const char* who) noexcept {   // the worker
+    const uint32_t serial=lastKeptSerial.load(std::memory_order_acquire);
+    if(serial==lastKeptShown) return;
+    lastKeptShown=serial;
+    char line[128*9]{};
+    size_t used=0;
+    for(unsigned i=0;i<127&&lastKept[i]&&used+10<sizeof(line);++i) {
+        const wchar_t ch=lastKept[i];
+        if(ch>=0x20&&ch<0x7F) line[used++]=static_cast<char>(ch);
+        else if(ch==L'\r') line[used++]='|';
+        else if(ch==L'\n') line[used++]='/';
+        else used+=static_cast<size_t>(std::snprintf(line+used,sizeof(line)-used,"<U+%04X>",static_cast<unsigned>(ch)));
+    }
+    LOG("ODST tutorial text%s: kept the game's own words for \"%s\" (CR as |, LF as /)",who,line);
+}
 // The controls the text names, or false while the input thread has not read them (the game's own text stays).
 bool Read(odst_prompt_text::Controls& c) noexcept {
     const uint64_t packed=controls.load(std::memory_order_acquire);
@@ -663,7 +689,11 @@ __declspec(noinline) void Rewrite(wchar_t* text) noexcept {
             return;
         }
         for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
-            if(odst_prompt_text::glyph::Private(text[i])) {kept.fetch_add(1,std::memory_order_relaxed);break;}
+            if(odst_prompt_text::glyph::Private(text[i])) {
+                kept.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteKept(text);
+                break;
+            }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 __declspec(noinline) wchar_t* BufferOf(void* context) noexcept {
@@ -694,6 +724,7 @@ void Poll() {
             reported=r+k;
             LOG("ODST tutorial text (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",r,k);
         }
+        odst_text::ReportKept(" (Project Reclaimer)");
         return;
     }
     if(!Game_ReclaimerOdstLevel()) return;

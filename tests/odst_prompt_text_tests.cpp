@@ -55,7 +55,7 @@ int main()
     using namespace vr_mapping;
     const auto c = Defaults();
     // Mombasa Streets' look training.
-    EXPECT(L"Use  \xE454  to look around the pod", c, L"Turn your head to look around the pod");
+    EXPECT(L"Use  \xE454  to look around the pod", c, L"Aim with your gun hand to look around the pod");
     EXPECT(L"Do you like these settings?\r\n   \xE451  Accept Settings    \xE452  Invert Camera", c,
            L"Do you like these settings?\r\nPress A to accept settings, press B to invert camera");
     EXPECT(L"Your aiming has been set to Normal\r\n \xE451  Continue", c,

@@ -197,10 +197,6 @@ struct TitleText {
     wchar_t buffer[odst_prompt_text::kMaxChars+1]{};   // the setter copies it before it returns
     std::atomic<uint32_t> rewritten{}, kept{}, faults{};
     uint32_t reported{};                               // worker: rewritten+kept when last logged
-    // The last line kept as the game's own, for the log (its pictures as <U+....>): the next report names it.
-    wchar_t lastKept[96]{};
-    std::atomic<uint32_t> lastKeptSerial{};
-    uint32_t lastKeptShown{};
 } titleText;
 using SetText=void(__fastcall*)(int,const wchar_t*,float);
 __declspec(noinline) const wchar_t* TitleTextFor(const wchar_t* text) noexcept {
@@ -216,10 +212,7 @@ __declspec(noinline) const wchar_t* TitleTextFor(const wchar_t* text) noexcept {
         for(;text[n]&&n<odst_prompt_text::kMaxChars;++n) pictures|=odst_prompt_text::glyph::Private(text[n]);
         if(pictures) {
             titleText.kept.fetch_add(1,std::memory_order_relaxed);
-            const unsigned copy=n<95u?n:95u;
-            for(unsigned i=0;i<copy;++i) titleText.lastKept[i]=text[i];
-            titleText.lastKept[copy]=0;
-            titleText.lastKeptSerial.fetch_add(1,std::memory_order_release);
+            odst_text::NoteKept(text);
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         titleText.faults.fetch_add(1,std::memory_order_relaxed);
@@ -241,21 +234,7 @@ void ReportTitleText() noexcept {
         LOG("ODST tutorial text: %u lines said in VR words, %u kept as the game's own%s",rewritten,kept,
             titleText.faults.load(std::memory_order_relaxed)?" (a line could not be read)":"");
     }
-    const uint32_t serial=titleText.lastKeptSerial.load(std::memory_order_acquire);
-    if(serial!=titleText.lastKeptShown) {
-        titleText.lastKeptShown=serial;
-        char line[96*9]{};
-        size_t used=0;
-        for(unsigned i=0;i<95&&titleText.lastKept[i]&&used+10<sizeof(line);++i) {
-            const wchar_t ch=titleText.lastKept[i];
-            if(ch>=0x20&&ch<0x7F) line[used++]=static_cast<char>(ch);
-            else if(ch==L'\r') continue;
-            else if(ch==L'\n') {line[used++]=' ';line[used++]='/';line[used++]=' ';}
-            else used+=static_cast<size_t>(std::snprintf(line+used,sizeof(line)-used,"<U+%04X>",static_cast<unsigned>(ch)));
-        }
-        LOG("ODST tutorial text: kept the game's own words for \"%s\" (not an English line of a known form, or a "
-            "control it names is unbound)",line);
-    }
+    odst_text::ReportKept("");
 }
 // The reader is entered through a register-preserving asm thunk (native_vr_reader_thunks.asm).
 void* const hooks[]{reinterpret_cast<void*>(&ConverterHook),reinterpret_cast<void*>(&NativeVrReaderThunkOdst)};
@@ -409,8 +388,8 @@ void Poll() {
         runtime.reportAt=now+5000;
         LOG("Native VR action bridge ODST: converter=%llu directReads=%llu%s",
             runtime.converted.load(),runtime.routed.load(),runtime.faulted.load()?" TRANSPORT FALLBACK (guarded access fault)":"");
-        if(runtime.enabled[2]) ReportTitleText();
     }
+    if(runtime.enabled[2]) ReportTitleText();
 }
 
 } // namespace native_odst
