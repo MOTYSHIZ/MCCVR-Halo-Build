@@ -69,6 +69,15 @@ finds all of it by shape: the native through the script table, the buffer's clea
 slot, the 255 measure, one lookup function for every call, and the lookup's read of the buffer from its context.
 `halomccvr_reclaimer_client_file_check` reports `ODST title native exe+0x432A180` and `ODST title lookup exe+0x4250170`.
 
+**The lines arrive with Reclaimer's pictures already in place (0.10.8, log of 2026-11-21).** The lookup's buffer holds
+the client's own button pictures (U+E100 A, U+E101 B, U+E102 X, U+E103 Y, U+E104/E105 bumpers, U+E109 D-pad, U+E10D
+Back, U+E110/E111 sticks) or, while the client thinks a keyboard is in use, keyboard pictures (U+E13A, U+E143) and key
+names in brackets ("[Z]", "[1]"). None of the round-2 run's 24 lines was rewritten. A line with only key names carried
+no picture, so it was not counted either (the "activate VISR database" prompt). So the rewrite first matches each line
+by its words to the kit's English line (`detail::kKitLines`, every 11th string of the h100 list; a picture or a
+bracketed key name is one mark, whitespace runs one space) and says the kit line. The find still resolved on 0.10.8
+(native exe+0x44BB730, lookup exe+0x43E0B60).
+
 The input-device byte (exe+0x84C3913, which picks controller or keyboard pictures) belongs to the Project Reclaimer
 UpKeep session's fix and is not touched here. The VR words replace the pictures in the tutorial lines either way.
 

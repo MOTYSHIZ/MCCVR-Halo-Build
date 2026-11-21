@@ -689,7 +689,7 @@ __declspec(noinline) void Rewrite(wchar_t* text) noexcept {
             return;
         }
         for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
-            if(odst_prompt_text::glyph::Private(text[i])) {
+            if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') {
                 kept.fetch_add(1,std::memory_order_relaxed);
                 odst_text::NoteKept(text);
                 break;

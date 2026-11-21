@@ -89,6 +89,25 @@ int main()
     EXPECT(L"Press  \xE501  or  \xE502  for assistance", c,
            L"Hold the left controller by your head and push its stick up\r\nor down for assistance");
 
+    // Project Reclaimer 0.10.8 (its log, 2026-11-21): its own pictures, or a key name, in ODST's places.
+    EXPECT(L"Use \xE110  to move map", c, L"Push the left stick to move map");
+    EXPECT(L"Use \xE111  to zoom map", c, L"Push the right stick up or down to zoom map");
+    EXPECT(L"Press  [Z]  to place a waypoint\r\n \xE13A  Continue", c,
+           L"Press A to place a waypoint\r\nPress A to continue");
+    EXPECT(L"Would you like to repeat VISR training?\r\n   [1] Repeat    \xE143  Decline", c,
+           L"Would you like to repeat VISR training?\r\nPress Y to repeat, press B to decline");
+    EXPECT(L"Use  \xE109  or  \xE109  to select the TAYARI PLAZA beacon", c,
+           L"Hold the left controller by your head and push its stick up\r\nor down to select the TAYARI PLAZA beacon");
+    EXPECT(L"Press  \xE104  or  \xE105  to check COMM data", c, L"Squeeze the left or right grip to check COMM data");
+    EXPECT(L"Press  \xE10D  or  \xE101  to deactivate VISR database", c,
+           L"Hold the left controller by your head and click its stick or\r\npress B to deactivate VISR database");
+    EXPECT(L"Press  [Tab]  to activate VISR database", c,
+           L"Hold the left controller by your head and click its stick to\r\nactivate VISR database");
+    EXPECT(L"You are separated from your ODST squad\r\n \xE100  Continue", c,
+           L"You are separated from your ODST squad\r\nPress A to continue");
+    // A line of no kit form with a key name stays the game's own.
+    EXPECT(L"Press [Q] to dance", c, nullptr);
+
     // Left alone: other languages, no picture, a picture this file does not know.
     EXPECT(L"Sehen Sie sich mit \xE454 um", c, nullptr);
     EXPECT(L"La resistencia se regenera con el tiempo.\r\n\xE451 Continuar", c, nullptr);

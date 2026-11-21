@@ -531,13 +531,128 @@ inline void Wrap(wchar_t* text, unsigned length, unsigned width) noexcept
 }
 } // namespace detail
 
+// ODST's English tutorial lines that name a control, as the kit writes them (H3ODSTEK
+// tags\ui\chapter_titles\atlas\h100.multilingual_unicode_string_list, English is every 11th string). Project Reclaimer
+// puts its own button pictures, or a keyboard key's name in brackets ("[Z]"), in place of ODST's before the line reaches
+// the mod; such a line is matched to its kit line by its words, and the kit line is said.
+namespace detail
+{
+inline constexpr const wchar_t* kKitLines[] = {
+    L"Use  \xE454" L"  to look around the pod",
+    L"Do you like these settings?\r\n   \xE451" L"  Accept Settings    \xE452" L"  Invert Camera",
+    L"Your STAMINA will regenerate over time\r\n \xE451" L"  Continue",
+    L"Avoid combat to regain STAMINA\r\n \xE451" L"  Continue",
+    L"Would you like to repeat HEALTH training?\r\n   \xE503" L"  Repeat    \xE452" L"  Decline",
+    L"Find a medical kiosk to restore HEALTH\r\n \xE451" L"  Continue",
+    L"Press \xE448" L"  to activate your VISR",
+    L"Your VISR will help with target identification\r\n \xE451" L"  Continue",
+    L"Friendly units appear GREEN\r\n \xE451" L"  Continue",
+    L"Enemy units appear RED\r\n \xE451" L"  Continue",
+    L"Equipment and unlocked doors appear BLUE\r\n \xE451" L"  Continue",
+    L"Important objects appear YELLOW\r\n \xE451" L"  Continue",
+    L"Use your VISR to conduct a detailed search\r\n \xE451" L"  Continue",
+    L"Would you like to repeat VISR training?\r\n   \xE503" L" Repeat    \xE452" L"  Decline",
+    L"You are separated from your ODST squad\r\n \xE451" L"  Continue",
+    L"Contact city SUPERINTENDENT for assistance\r\n \xE451" L"  Continue",
+    L"Press  \xE501" L"  or  \xE502" L"  for assistance",
+    L"Press  \xE44C" L"  to activate VISR database",
+    L"NAV data will help you find your ODST squad\r\n \xE451" L"  Continue",
+    L"The green arrow indicates your current location\r\n \xE451" L"  Continue",
+    L"Use \xE50D" L"  to move map",
+    L"Use \xE50E" L"  to zoom map",
+    L"Use  \xE501" L"  or  \xE502" L"  to switch between NAV beacons",
+    L"Press  \xE505" L"  to place a waypoint\r\n \xE451" L"  Continue",
+    L"Note the waypoint marker in your compass\r\n \xE451" L"  Continue",
+    L"Press  \xE506" L"  to cycle waypoint selection",
+    L"New NAV data!\r\n \xE451" L"  Continue",
+    L"Use  \xE501" L"  or  \xE502" L"  to select the TAYARI PLAZA beacon",
+    L"Note the beacon marker in your compass\r\n \xE451" L"  Continue",
+    L"TAYARI PLAZA is the last known location of an ODST squadmate\r\n \xE451" L"  Continue",
+    L"Proceed to the beacon and begin your search\r\n \xE451" L"  Continue",
+    L"Press  \xE511" L"  or  \xE512" L"  to check INTEL data",
+    L"All mission objectives will be stored here\r\n \xE451" L"  Continue",
+    L"You have completed your first objective\r\n \xE451" L"  Continue",
+    L"Press  \xE44C" L"  to open VISR database",
+    L"Press  \xE511" L"  or  \xE512" L"  to check COMM data",
+    L"You may find COMM data hidden in the city\r\n \xE451" L"  Continue",
+    L"All audio and visual data will be stored here\r\n \xE451" L"  Continue",
+    L"Use  \xE50F" L"  or  \xE510" L"  to select data block",
+    L"Press  \xE509" L"  to play COMM data and  \xE50C" L"  to stop",
+    L"COMM data will play even if you close your VISR database\r\n \xE451" L"  Continue",
+    L"Would you like to repeat VISR database training?\r\n   \xE503" L"  Repeat    \xE452" L"  Decline",
+    L"Press  \xE44C" L"  or  \xE452" L"  to deactivate VISR database",
+    L"You have reached the NAV beacon\r\n \xE451" L"  Continue",
+    L"Search building for a clue to your squadmate's location\r\n \xE451" L"  Continue",
+    L"UPLIFT RESERVE is the last known location of an ODST squadmate\r\n \xE451" L"  Continue",
+    L"Now leaving MOMBASA STREETS\r\n \xE451" L"  Continue",
+    L"Superintendent SUPPLY-CACHE unlocked!\r\n \xE451" L"  Continue",
+    L"Check NAV data for supply-cache locations\r\n \xE451" L"  Continue",
+    L"Your aiming has been set to Normal\r\n \xE451" L"  Continue",
+    L"Your aiming has been set to Inverted\r\n \xE451" L"  Continue",
+    L"Settings can be changed from the PAUSE Menu\r\n \xE451" L"  Continue",
+    L"Your VISR is currently active\r\n \xE451" L"  Continue",
+    L"Press  \xE507" L"  to remove waypoint",
+    L"New INTEL data!\r\n \xE451" L"  Continue",
+    L"Contact city SUPERINTENDENT\r\n \xE451" L"  Continue",
+    L"Search TAYARI PLAZA for ODST squadmate\r\n \xE451" L"  Continue",
+    L"Objective Completed!\r\n \xE451" L"  Continue",
+    L"Would you like to perform TRAINING?\r\n   \xE503" L"  Accept    \xE452" L"  Decline",
+};
+// Walks a line as words: whitespace runs are one space, a picture or a bracketed key name ("[Z]", "[Left Mouse]") is one
+// mark; other characters are themselves.
+struct FormCursor
+{
+    const wchar_t* p;
+    static bool White(wchar_t ch) noexcept { return ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n'; }
+    unsigned Next() noexcept
+    {
+        if (!*p) return 0;
+        if (White(*p)) { while (White(*p)) ++p; return 1; }
+        if (glyph::Private(*p)) { ++p; return 2; }
+        if (*p == L'[')
+        {
+            const wchar_t* q = p + 1;
+            unsigned n = 0;
+            while (*q && *q != L']' && *q != L'\r' && *q != L'\n' && n < 24) { ++q; ++n; }
+            if (*q == L']' && n) { p = q + 1; return 2; }
+        }
+        return 3u + *p++;
+    }
+};
+inline bool SameForm(const wchar_t* a, const wchar_t* b) noexcept
+{
+    FormCursor x{a}, y{b};
+    bool mark = false;
+    for (unsigned n = 0; n <= 2 * kMaxChars; ++n)
+    {
+        const unsigned u = x.Next(), v = y.Next();
+        if (u != v) return false;
+        mark |= u == 2;
+        if (!u) return mark;
+    }
+    return false;
+}
+// The kit line `in` is a form of (its pictures ODST's own), or null.
+inline const wchar_t* KitLineFor(const wchar_t* in) noexcept
+{
+    for (const wchar_t* line : kKitLines)
+        if (SameForm(in, line)) return line;
+    return nullptr;
+}
+} // namespace detail
+
 // The text for `in` in VR words, into `out` (terminated): its length, or 0 to keep the game's own text (no picture in
-// it, a line of another form or language, a picture not known, a control unbound, or too long for the chud).
+// it, a line of another form or language, a picture not known, a control unbound, or too long for the chud). A line
+// of a kit line's form (Project Reclaimer's pictures or key names in ODST's places) is said as that kit line.
 inline constexpr unsigned kWrapWidth = 60;
 inline unsigned Rewrite(const wchar_t* in, const Controls& c, wchar_t (&out)[kMaxChars + 1]) noexcept
 {
     using namespace detail;
     out[0] = 0;
+    if (!in)
+        return 0;
+    if (const wchar_t* kit = KitLineFor(in))
+        in = kit;
     if (!in)
         return 0;
     const wchar_t* end = in;
