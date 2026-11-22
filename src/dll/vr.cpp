@@ -1412,6 +1412,11 @@ namespace
     PreparedFrame g_preparedFrame{};
     uint64_t g_nextPreparedSerial = 0;
     std::atomic<bool> g_preparedShouldRender{false};
+    // The prepared serial whose frame the game drew WITHOUT the eyes, to be shown flat on the screen
+    // (VR_PresentFlatFrame: Project Reclaimer's ODST VISR map); 0 none. Keyed to the serial so a frame is
+    // shown flat only when it really was drawn flat. Frames so shown, for the log.
+    std::atomic<uint64_t> g_flatFrameSerial{0};
+    std::atomic<uint64_t> g_flatFramesPresented{0};
     std::atomic<uint64_t> g_preparedViewSerialPublished{0};
 
     template <size_t N>
@@ -18419,7 +18424,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 }
                 TickRenderPlan();
                 const bool pausedPresentation = g_pausePresentation.load();
-                const bool stereo = !pausedPresentation && g_stereoEnabled.load() && viewsValid &&
+                // A frame the game drew without the eyes (VR_PresentFlatFrame) shows on the screen, as in a pause,
+                // but without the pause: nothing else changes.
+                const uint64_t flatSerial = g_flatFrameSerial.load(std::memory_order_acquire);
+                const bool flatFrame = flatSerial != 0 && flatSerial == g_preparedFrame.serial;
+                if (flatFrame)
+                    g_flatFramesPresented.fetch_add(1, std::memory_order_relaxed);
+                const bool stereo = !pausedPresentation && !flatFrame && g_stereoEnabled.load() && viewsValid &&
                                     g_stereoChain != XR_NULL_HANDLE && Game_IsHeadTracking();
 #if HALOMCCVR_HALO2_STEREO6DOF
                 const bool currentHalo2Title =
@@ -23391,6 +23402,18 @@ bool VR_IsCutsceneTheaterActive()
 bool VR_ShouldRenderPreparedFrame()
 {
     return g_preparedShouldRender.load(std::memory_order_acquire);
+}
+
+void VR_PresentFlatFrame() noexcept
+{
+    const uint64_t serial = g_preparedSerialPublished.load(std::memory_order_acquire);
+    if (serial)
+        g_flatFrameSerial.store(serial, std::memory_order_release);
+}
+
+uint64_t VR_FlatFramesPresented() noexcept
+{
+    return g_flatFramesPresented.load(std::memory_order_relaxed);
 }
 
 float VR_HeadsetRefreshHz()

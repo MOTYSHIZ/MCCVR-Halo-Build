@@ -670,6 +670,12 @@ bool VR_IsCutsceneTheaterActive();
 // synchronized/unfocused session commonly publishes false while the headset is
 // idle; game hooks must not treat the resulting absent eye raster as failure.
 bool VR_ShouldRenderPreparedFrame();
+// Render thread, in place of the eye passes: the game drew this prepared frame flat (stock, no eyes) and the headset
+// shows it on the screen quad, as a pause does, without the pause (input, runtime mode and tracking unchanged). It
+// holds for this prepared serial alone; the next frame drawn with eyes is stereo again. Allocation- and log-free.
+void VR_PresentFlatFrame() noexcept;
+// Frames shown flat that way so far (for the worker's log).
+uint64_t VR_FlatFramesPresented() noexcept;
 // The application-frame cadence implied by xrWaitFrame's reported period
 // (0 until the first valid period). This is not the physical panel refresh.
 float VR_HeadsetRefreshHz();
