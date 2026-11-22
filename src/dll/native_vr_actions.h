@@ -32,9 +32,11 @@ bool NativeVrActions_GestureRouting(GameTitle title, uint64_t now) noexcept;
 // PDA) is up, for controller 0, as the game's control builder last saw them. False: not proven, not ODST, or stale (no
 // control tick for a quarter second); both answers are then false. `raw`: the published bits, for the log.
 bool NativeVrActions_OdstPromptState(uint64_t now, bool& prompt, bool& map, uint32_t* raw = nullptr) noexcept;
-// ODST's tutorial text in VR words (odst_prompt_text.h): what presses VISR (the flashlight action's row) and the
-// gamepad's X and Y, as the input thread reads the player's rows and the game's layout. ODST's rows only.
-void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr, const vr_mapping::Input& padX,
-    const vr_mapping::Input& padY) noexcept;
+// ODST's tutorial text in VR words (odst_prompt_text.h): what presses VISR (the flashlight action's row) and each
+// gamepad button the text's pictures name (A B X Y LB RB LT RT), as the input thread reads the player's rows and the
+// game's layout. ODST's rows only.
+inline constexpr unsigned kOdstTextPadButtons = 8;
+void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,
+    const vr_mapping::Input (&pad)[kOdstTextPadButtons]) noexcept;
 constexpr uint32_t NativeVrActions_GestureBit(vr_mapping::Action action) noexcept
 { return action < vr_mapping::Count ? 1u << (18u + unsigned(action)) : 0; }

@@ -541,15 +541,19 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             EffectiveBindings(mappingTitle,gameLayout,gameLayoutKnown):vr_mapping::Overrides{};
         // This game's rows' inputs: what each holds first, its mode, and its further inputs (VR Mappings).
         const vr_mapping::Inputs* rowInputs=mappingTitle>=0?&g_config.vr_inputs[mappingTitle]:nullptr;
-        // ODST's tutorial text in VR words (odst_prompt_text.h) names VISR's control and what presses the gamepad's X
-        // and Y (the map's waypoint and COMM lines, the repeat-training answer). Only stored when it changes.
-        if(controlsTitle==GameTitle::Halo3ODST&&mappingTitle>=0)
+        // ODST's tutorial text in VR words (odst_prompt_text.h) names VISR's control and what presses each gamepad
+        // button (the map's waypoint and COMM lines, the repeat-training answer, the HUD's use / pick-up prompts): use
+        // / pick up first where the layout shares a button. Unread layout: X and Y as ODST's default, the rest kept as
+        // the game's own. Only stored when it changes.
+        if(controlsTitle==GameTitle::Halo3ODST&&mappingTitle>=0) {
+            vr_mapping::Input pad[kOdstTextPadButtons]{};
+            for(unsigned b=0;b<kOdstTextPadButtons;++b)
+                pad[b]=odst_prompt_text::ControlForButton(odst_prompt_text::kPadTransport[b],
+                    b==odst_prompt_text::kPadX?vr_mapping::Reload:b==odst_prompt_text::kPadY?vr_mapping::SwitchWeapon:
+                    vr_mapping::Count,effectiveBindings,gameLayout,gameLayoutKnown,rowInputs,vr_mapping::Interact);
             NativeVrActions_PublishOdstTextControls(
-                odst_prompt_text::ControlForAction(vr_mapping::Flashlight,effectiveBindings,rowInputs),
-                odst_prompt_text::ControlForButton(XINPUT_GAMEPAD_X,vr_mapping::Reload,effectiveBindings,gameLayout,
-                    gameLayoutKnown,rowInputs),
-                odst_prompt_text::ControlForButton(XINPUT_GAMEPAD_Y,vr_mapping::SwitchWeapon,effectiveBindings,gameLayout,
-                    gameLayoutKnown,rowInputs));
+                odst_prompt_text::ControlForAction(vr_mapping::Flashlight,effectiveBindings,rowInputs),pad);
+        }
         // Zoom's own control for the lens: its row's press, or its first further input's where the row has none.
         int zoomSource=mappingTitle>=0&&g_config.vr_action_mapping?
             vr_mapping::Resolve(vr_mapping::Zoom,effectiveBindings[vr_mapping::Zoom]):vr_mapping::RightClick;

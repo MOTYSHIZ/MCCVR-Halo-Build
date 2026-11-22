@@ -44,8 +44,15 @@ odst_prompt_text::Controls Defaults()
     using namespace vr_mapping;
     odst_prompt_text::Controls c{};
     c.visr = Input{kNoneHeld, DpadUp};   // ODST's flashlight row by default (kDefaults)
-    c.padX = Input{kNoneHeld, X};
-    c.padY = Input{kNoneHeld, Y};
+    // What presses each gamepad button: the default layout's rows, with use / pick up (the game's RB) on B.
+    c.pad[0] = Input{kNoneHeld, A};
+    c.pad[1] = Input{kNoneHeld, B};
+    c.pad[odst_prompt_text::kPadX] = Input{kNoneHeld, X};
+    c.pad[odst_prompt_text::kPadY] = Input{kNoneHeld, Y};
+    c.pad[4] = Input{kNoneHeld, SupportGrip};
+    c.pad[5] = Input{kNoneHeld, B};
+    c.pad[6] = Input{kNoneHeld, SupportTrigger};
+    c.pad[7] = Input{kNoneHeld, PrimaryTrigger};
     return c;
 }
 } // namespace
@@ -146,12 +153,28 @@ int main()
         mine.odst[PromptReject] = {Input{}, Input{}, Input{}, Input{}};
         EXPECT(L"Would you like to repeat HEALTH training?\r\n   \xE503  Repeat    \xE452  Decline", mine, nullptr);
     }
+    // MCC's HUD prompts: its own gamepad pictures, said as what presses that button; an item's picture stays.
+    EXPECT(L"Hold \xE105 to swap for\r\n\xE125", c, L"Hold B to swap for\r\n\xE125");
+    EXPECT(L"Hold \xE105 to arm explosive bolt", c, L"Hold B to arm explosive bolt");
+    EXPECT(L"Hold \xE105 to access data terminal", c, L"Hold B to access data terminal");
+    EXPECT(L"Out of ammo\r\nPress \xE103 to switch to \xE123", c, L"Out of ammo\r\nPress Y to switch to \xE123");
+    EXPECT(L"Hold \xE107 to charge", c, L"Pull and hold the right trigger to charge");
+    EXPECT(L"Hold \xE104 to steady", c, L"Squeeze and hold the left grip to steady");
+    EXPECT(L"Press \xE109 to drop flag", c,
+           L"Hold the left controller by your head and push its stick\r\ndown to drop flag");
+    // Held down, the D-pad gesture or Start is not said: the game's own words.
+    EXPECT(L"Hold \xE108 to drop flag", c, nullptr);
+    EXPECT(L"Press \xE10C to pause", c, nullptr);
+    // A button no row presses, or a layout not read yet, keeps the game's own words.
+    EXPECT(L"Hold \xE105 to swap for\r\n\xE125", odst_prompt_text::Controls{}, nullptr);
     // The D-pad gesture on the right hand.
     {
         auto right = c;
         right.dpadRightHand = true;
         EXPECT(L"Press  \xE44C  to open VISR database", right,
-               L"Hold the right controller by your head and click its stick\r\nto open VISR database");
+               L"Hold the right controller by your head and click the left\r\nstick to open VISR database");
+        EXPECT(L"Use  \xE501  or  \xE502  to switch between NAV beacons", right,
+               L"Hold the right controller by your head and push the left\r\nstick up or down to switch between NAV beacons");
     }
     // Unpublished controls (Controls{} defaults: nothing read yet) keep the game's own text where they are needed.
     EXPECT(L"Press \xE448  to activate your VISR", odst_prompt_text::Controls{}, nullptr);

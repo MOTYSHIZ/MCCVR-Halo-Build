@@ -158,8 +158,25 @@ inline constexpr wchar_t kWaypoint = 0xE501, kAltWaypoint = 0xE502, kRetrain = 0
                          kCommAll = 0xE50A, kCommPause = 0xE50B, kCommStop = 0xE50C, kMoveMap = 0xE50D,
                          kZoomMap = 0xE50E, kPrevRecord = 0xE50F, kNextRecord = 0xE510, kPrevScreen = 0xE511,
                          kNextScreen = 0xE512;
+// MCC's own gamepad pictures, written in place of an action's picture by its glyph callback (+0x323DCC: the engine's
+// buttons 10-15 and 0-1 as U+E100..E107, A B X Y LB RB LT RT; 2-5 the D-pad as E108..E10B; 6 Start E10C; 7 Back E10D)
+// and the map's resolver (+0x323BB8: E110 and E111 the move and look sticks). The HUD's prompts arrive with them.
+inline constexpr wchar_t kPadA = 0xE100, kPadRT = 0xE107, kPadUp = 0xE108, kPadDown = 0xE109, kPadLeft = 0xE10A,
+                         kPadRight = 0xE10B, kPadBack = 0xE10D, kPadMoveStick = 0xE110, kPadLookStick = 0xE111;
+inline constexpr unsigned kPadButtons = 8;   // U+E100..E107
 inline constexpr bool Private(wchar_t c) noexcept { return c >= 0xE000 && c <= 0xF8FF; }
+// A picture of a control this file says in words. Any other picture (a weapon's, an item's) is the line's own.
+inline constexpr bool Known(wchar_t g) noexcept
+{
+    return g == kFlashlight || g == kBack || (g >= kAccept && g <= kLook) || (g >= kWaypoint && g <= kRetrain) ||
+           (g >= kPlaceWaypoint && g <= kNextScreen) || (g >= kPadA && g <= kPadRight) || g == kPadBack ||
+           g == kPadMoveStick || g == kPadLookStick;
+}
 } // namespace glyph
+// The game's layout bit for each of U+E100..E107 (XInput's A B X Y LB RB; the triggers as the layout's bits 16, 17).
+inline constexpr uint32_t kPadTransport[glyph::kPadButtons]{0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200,
+                                                            1u << 16, 1u << 17};
+inline constexpr unsigned kPadX = 2, kPadY = 3;
 
 // -------------------------------------------------------------------------------------------- the player's controls
 // What the text names, as the player has it. The prompt and map rows are VR Mappings' ODST rows; the rest is what
@@ -169,8 +186,9 @@ struct Controls
 {
     vr_mapping::OdstBindings odst = vr_mapping::kOdstDefaults;
     vr_mapping::Input visr{};    // ODST's VISR: the flashlight action's row
-    vr_mapping::Input padX{};    // what presses the gamepad's X (the map's remove waypoint, COMM stop)
-    vr_mapping::Input padY{};    // what presses the gamepad's Y (next waypoint, play all, repeat training)
+    // What presses each gamepad button U+E100..E107 names (kPadTransport): X is the map's remove waypoint and COMM
+    // stop, Y next waypoint, play all and repeat training; the HUD's prompts name any of them.
+    vr_mapping::Input pad[glyph::kPadButtons]{};
     bool leftHanded = false;     // the gun hand is the left: its trigger and grip are the left ones
     bool dpadRightHand = false;  // the D-pad gesture's controller is the right one
 };
@@ -195,14 +213,22 @@ inline vr_mapping::Input ControlForAction(vr_mapping::Action action, const vr_ma
                 return more;
     return in;
 }
-// What presses a gamepad button (`button`, an XInput bit): the first row whose action the game's layout puts there.
-// While the layout is unread, the action `fallback` holds it (ODST's default layout).
+// What presses a gamepad button (`button`, a layout bit): the row whose action the game's layout puts there, the
+// `preferred` action first where several share it (use / pick up: the HUD's prompts are its), else the first. While the
+// layout is unread, the action `fallback` holds it (ODST's default layout; Count: none).
 inline vr_mapping::Input ControlForButton(uint32_t button, vr_mapping::Action fallback,
                                           const vr_mapping::Overrides& effective, const vr_mapping::Transports& layout,
-                                          bool layoutKnown, const vr_mapping::Inputs* rows) noexcept
+                                          bool layoutKnown, const vr_mapping::Inputs* rows,
+                                          vr_mapping::Action preferred = vr_mapping::Count) noexcept
 {
     if (layoutKnown)
     {
+        if (preferred < vr_mapping::Count && (layout[preferred] & button))
+        {
+            const auto in = ControlForAction(preferred, effective, rows);
+            if (vr_mapping::ListedSource(in.press))
+                return in;
+        }
         for (unsigned a = 0; a < vr_mapping::Count; ++a)
             if (layout[a] & button)
             {
@@ -234,6 +260,12 @@ inline const wchar_t* GestureLead(const Controls& c) noexcept
 {
     return c.dpadRightHand ? L"hold the right controller by your head and " : L"hold the left controller by your head and ";
 }
+// The gesture's stick: the left controller's, whichever controller is at the head (input.cpp's dpadMode reads moveX/Y
+// and the left click).
+inline const wchar_t* GestureStick(const Controls& c) noexcept
+{
+    return c.dpadRightHand ? L"the left stick" : L"its stick";
+}
 // The words for one control. False for one no row may list.
 inline bool Words(int source, const Controls& c, const wchar_t*& verb, const wchar_t*& object, const wchar_t*& dir,
                   const wchar_t*& lead) noexcept
@@ -257,7 +289,7 @@ inline bool Words(int source, const Controls& c, const wchar_t*& verb, const wch
     case DpadUp: case DpadDown: case DpadLeft: case DpadRight:
         lead = GestureLead(c);
         verb = L"push";
-        object = L"its stick";
+        object = GestureStick(c);
         dir = source == DpadUp ? L"up" : source == DpadDown ? L"down" : source == DpadLeft ? L"left" : L"right";
         return true;
     case HandOnGun: verb = L"put"; object = L"both hands on the gun"; return true;
@@ -329,13 +361,22 @@ inline bool PictureFor(wchar_t g, const Controls& c, Said& out) noexcept
     case glyph::kLook: out.first = Fixed(L"", L"aim", L"with your gun hand"); break;
     case glyph::kMove: case glyph::kMoveMap: out.first = Fixed(L"", L"push", L"the left stick"); break;
     case glyph::kFlashlight: out.first = PhraseFor(c.visr, c); break;
-    case glyph::kBack: case glyph::kPdaClose: out.first = Fixed(detail::GestureLead(c), L"click", L"its stick"); break;
+    case glyph::kBack: case glyph::kPdaClose: case glyph::kPadBack:
+        out.first = Fixed(detail::GestureLead(c), L"click", detail::GestureStick(c));
+        break;
     case glyph::kWaypoint: case glyph::kAltWaypoint:   // the engine's default layout: the D-pad's up and down
-        out.first = Fixed(detail::GestureLead(c), L"push", L"its stick");
+        out.first = Fixed(detail::GestureLead(c), L"push", detail::GestureStick(c));
         out.first.dir = g == glyph::kWaypoint ? L"up" : L"down";
         break;
-    case glyph::kRetrain: case glyph::kNextWaypoint: case glyph::kCommAll: out.first = PhraseFor(c.padY, c); break;
-    case glyph::kRemoveWaypoint: case glyph::kCommStop: out.first = PhraseFor(c.padX, c); break;
+    case glyph::kPadUp: case glyph::kPadDown: case glyph::kPadLeft: case glyph::kPadRight:   // the D-pad itself
+        out.first = Fixed(detail::GestureLead(c), L"push", detail::GestureStick(c));
+        out.first.dir = g == glyph::kPadUp ? L"up" : g == glyph::kPadDown ? L"down" : g == glyph::kPadLeft ? L"left"
+                                                                                                         : L"right";
+        break;
+    case glyph::kPadMoveStick: out.first = Fixed(L"", L"push", L"the left stick"); break;
+    case glyph::kPadLookStick: out.first = Fixed(L"", L"aim", L"with your gun hand"); break;
+    case glyph::kRetrain: case glyph::kNextWaypoint: case glyph::kCommAll: out.first = PhraseFor(c.pad[kPadY], c); break;
+    case glyph::kRemoveWaypoint: case glyph::kCommStop: out.first = PhraseFor(c.pad[kPadX], c); break;
     case glyph::kZoomMap:
         out.first = PhraseForRow(c.odst[MapZoomIn], c);
         out.second = PhraseForRow(c.odst[MapZoomOut], c);
@@ -345,7 +386,11 @@ inline bool PictureFor(wchar_t g, const Controls& c, Said& out) noexcept
     case glyph::kNextRecord: out.first = PhraseForRow(c.odst[MapDown], c); break;
     case glyph::kPrevScreen: out.first = PhraseForRow(c.odst[MapPreviousPage], c); break;
     case glyph::kNextScreen: out.first = PhraseForRow(c.odst[MapNextPage], c); break;
-    default: return false;
+    default:
+        if (g < glyph::kPadA || g > glyph::kPadRT)
+            return false;
+        out.first = PhraseFor(c.pad[g - glyph::kPadA], c);   // the row whose action the game puts on that button
+        break;
     }
     return out.first.ok && (!out.pair || out.second.ok);
 }
@@ -501,7 +546,7 @@ inline bool Rest(Writer& w, const wchar_t* p, const wchar_t* end, const Controls
         if (Space(*p)) { space = true; continue; }
         if (space && w.used) w.Put(L' ');
         space = false;
-        if (glyph::Private(*p))
+        if (glyph::Known(*p))
         {
             Said said{};
             if (!PictureFor(*p, c, said))
@@ -513,12 +558,27 @@ inline bool Rest(Writer& w, const wchar_t* p, const wchar_t* end, const Controls
     }
     return true;
 }
-// "Press|Use <picture> [or <picture>] to|for ...": the controls said in words, then the rest. False if the line is not one.
+// A control held down: "hold B", "pull and hold the right trigger". False for a direction or the D-pad gesture.
+inline bool HeldDown(Phrase& p) noexcept
+{
+    if (!p.ok || p.lead[0] || p.dir[0])
+        return false;
+    if (Same(p.verb, L"press")) p.verb = L"hold";
+    else if (Same(p.verb, L"pull")) p.verb = L"pull and hold";
+    else if (Same(p.verb, L"squeeze")) p.verb = L"squeeze and hold";
+    else if (Same(p.verb, L"click")) p.verb = L"click and hold";
+    else return false;
+    return true;
+}
+// "Press|Use|Hold <picture> [or <picture>] to|for ...": the controls said in words, then the rest. False if the line is
+// not one. "Hold" is the HUD's prompts (use / pick up, "Hold <RB> to swap for <weapon>").
 inline bool SentenceLine(Writer& w, const wchar_t* p, const wchar_t* end, const Controls& c) noexcept
 {
     p = SkipSpace(p, end);
+    bool hold = false;
     if (StartsWith(p, end, L"Press ")) p += 6;
     else if (StartsWith(p, end, L"Use ")) p += 4;
+    else if (StartsWith(p, end, L"Hold ")) { p += 5; hold = true; }
     else return false;
     p = SkipSpace(p, end);
     Said one{}, two{};
@@ -535,6 +595,8 @@ inline bool SentenceLine(Writer& w, const wchar_t* p, const wchar_t* end, const 
         either = true;
     }
     if (!StartsWith(p, end, L"to ") && !StartsWith(p, end, L"for "))
+        return false;
+    if (hold && (one.pair || !HeldDown(one.first) || (either && !HeldDown(two.first))))
         return false;
     w.capital = true;
     if (either) PutEither(w, one.first, two.first);
@@ -694,7 +756,7 @@ inline unsigned Rewrite(const wchar_t* in, const Controls& c, wchar_t (&out)[kMa
     const wchar_t* end = in;
     bool pictures = false;
     while (*end && end - in <= static_cast<ptrdiff_t>(kMaxChars))
-        pictures |= glyph::Private(*end++);
+        pictures |= glyph::Known(*end++);
     if (!pictures || *end)
         return 0;
     // Wrapping inserts line feeds in place of spaces: the lines keep "\r\n" as the stock text writes them.
@@ -704,7 +766,7 @@ inline unsigned Rewrite(const wchar_t* in, const Controls& c, wchar_t (&out)[kMa
         const wchar_t* stop = line;
         while (stop < end && *stop != L'\r' && *stop != L'\n') ++stop;
         bool has = false;
-        for (const wchar_t* p = line; p < stop; ++p) has |= glyph::Private(*p);
+        for (const wchar_t* p = line; p < stop; ++p) has |= glyph::Known(*p);
         if (!has)
             w.Put(line, static_cast<unsigned>(stop - line));
         else

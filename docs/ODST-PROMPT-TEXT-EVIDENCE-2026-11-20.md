@@ -64,6 +64,19 @@ is rewritten in place after it returns. The chud fetches its lines as it draws t
 showing. Found by one signature (`kHudMessage`, a function start); `halomccvr_odst_prompt_resolve_check`: RESOLVED
 +0x30052C. Only lines the rewrite knows change ("Hold [use] to open door" keeps its picture).
 
+**MCC's own gamepad pictures (2026-11-21 log).** The HUD's use / pick-up prompts arrive with MCC's pictures already in
+place: "Hold <U+E105> to swap for <weapon>", "Hold <U+E105> to access data terminal", "Press <U+E103> to switch to
+<weapon>". The glyph callback (+0x323DCC) writes the engine's buttons 10-15 and 0-1 as U+E100..E107 (A B X Y LB RB LT
+RT), 2-5 (the D-pad) as E108..E10B, 6 (Start) as E10C and 7 (Back) as E10D; the map's resolver (+0x323BB8) adds E110
+and E111, the move and look sticks. Each of E100..E107 is said as the row whose action the game's layout puts on that
+button, use / pick up first where several share it (RB holds reload and use). "Hold" is said "hold B", "pull and hold
+the right trigger". A picture that is not a control (the weapon offered) stays as it is. Start, and a held D-pad
+direction, keep the game's own words.
+
+The D-pad gesture's stick is the left controller's whichever controller is held at the head (input.cpp's dpadMode
+reads the left stick and its click), so the right-hand wording is "hold the right controller by your head and push the
+left stick". The Controls page's diagram (F1 › Controls) shows ODST's VISR database on the left stick click.
+
 On Project Reclaimer the HUD path is the client's own and not found yet. Its title-lookup hook now logs any other
 caller that fetches one of these VISR prompts ("ODST HUD prompts (Project Reclaimer): ... is looked up by exe+0x...").
 That log line names the caller to hook next.

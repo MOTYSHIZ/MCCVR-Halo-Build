@@ -256,6 +256,10 @@ inline Labels BuiltIns(const Setup& setup,const Gestures& gestures)
     detail::Add(labels,LeftMenu,"Pause (Start)");
     detail::Add(labels,LeftStickClick,"Both stick clicks: recentre, open menu");
     detail::Add(labels,RightStickClick,"Both stick clicks: recentre, open menu");
+    // ODST: with the D-pad gesture held the left stick's click is Back, the VISR database (input.cpp's dpadMode).
+    if(setup.game==GameTitle::Halo3ODST&&!setup.thumbrestDpad)
+        detail::Add(labels,LeftStickClick,gestures.dpadHand==1?"Right controller at your head: VISR database (Back)":
+            "Left controller at your head: VISR database (Back)");
     if(vehicle)
     {
         detail::Add(labels,Y,"Next camera (hold: recentre view)");
@@ -310,6 +314,9 @@ inline std::vector<GestureLine> GestureLines(const Setup& setup,const Gestures& 
         const bool right=gestures.dpadHand==1&&setup.game!=GameTitle::HaloCE;
         lines.push_back({"D-pad",std::string("Hold the ")+(right?"right controller to your head and push the left":
             "left controller to your head and push its")+" thumbstick the way you want the D-pad pressed."});
+        if(setup.game==GameTitle::Halo3ODST)
+            lines.push_back({"VISR database",std::string("Hold the ")+(right?"right controller to your head and click the "
+                "left":"left controller to your head and click its")+" thumbstick (the Back button)."});
     }
     if(setup.reclaimerHeadKeys)
     {

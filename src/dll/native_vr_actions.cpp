@@ -337,11 +337,14 @@ __declspec(noinline) void WitnessNativeRecord(GameTitle requested,unsigned actio
     SeatWitness_NoteNativeAction(requested,action,present,frames,milliseconds);
 }
 #endif
-// ODST'S TUTORIAL TEXT IN VR WORDS (odst_prompt_text.h): what presses VISR and the gamepad's X and Y, as the input
+// ODST'S TUTORIAL TEXT IN VR WORDS (odst_prompt_text.h): what presses VISR and each gamepad button, as the input
 // thread last read the player's rows and the game's layout (NativeVrActions_PublishOdstTextControls), for the chud
-// text hook on the game's script thread. Each input packs as three 5-bit controls (held, held, press); bit 63: read.
+// text hooks on the game's threads. Each input packs as three 5-bit controls (held, held, press), four to a word (VISR,
+// then the buttons A B X Y LB RB LT RT); bit 63 of each word: read. A rebind read mid-change mixes two readings for one
+// line at most.
 namespace odst_text {
-std::atomic<uint64_t> controls{0};
+constexpr unsigned kItems=1+odst_prompt_text::glyph::kPadButtons, kWords=(kItems+3)/4;
+std::atomic<uint64_t> controls[kWords]{};
 constexpr uint64_t Pack(const vr_mapping::Input& in) noexcept {
     const auto bits=[](int source){ return static_cast<uint64_t>(source>=0&&source<32?source:vr_mapping::Unbound); };
     return bits(in.held[0])|bits(in.held[1])<<5|bits(in.press)<<10;
@@ -408,12 +411,15 @@ void ReportSaid(const char* who) noexcept {   // the worker
 }
 // The controls the text names, or false while the input thread has not read them (the game's own text stays).
 bool Read(odst_prompt_text::Controls& c) noexcept {
-    const uint64_t packed=controls.load(std::memory_order_acquire);
-    if(!(packed>>63)) return false;
+    uint64_t packed[kWords]{};
+    for(unsigned i=0;i<kWords;++i) {
+        packed[i]=controls[i].load(std::memory_order_acquire);
+        if(!(packed[i]>>63)) return false;
+    }
+    const auto item=[&packed](unsigned k){ return Unpack(packed[k/4]>>(15*(k%4))); };
     c.odst=g_config.vr_odst_bindings;
-    c.visr=Unpack(packed);
-    c.padX=Unpack(packed>>15);
-    c.padY=Unpack(packed>>30);
+    c.visr=item(0);
+    for(unsigned b=0;b<odst_prompt_text::glyph::kPadButtons;++b) c.pad[b]=item(1+b);
     c.leftHanded=g_config.left_handed;
     c.dpadRightHand=g_config.dpad_hand!=0;
     return true;
@@ -492,11 +498,16 @@ void (*g_odstTitleTextHook)(int,const wchar_t*,float)=&native_odst::TitleTextHoo
 void (*g_odstHudMessageHook)(int,int,uintptr_t,wchar_t*)=&native_odst::HudMessageHook;
 uintptr_t (*g_odstGpBooleanHook)(uint32_t,unsigned,uintptr_t,uintptr_t)=&native_odst::GpBooleanHook;
 }
-void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,const vr_mapping::Input& padX,
-    const vr_mapping::Input& padY) noexcept {
-    const uint64_t packed=odst_text::Pack(visr)|odst_text::Pack(padX)<<15|odst_text::Pack(padY)<<30|1ull<<63;
-    if(odst_text::controls.load(std::memory_order_relaxed)!=packed)
-        odst_text::controls.store(packed,std::memory_order_release);
+void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,
+    const vr_mapping::Input (&pad)[kOdstTextPadButtons]) noexcept {
+    using namespace odst_text;
+    static_assert(kOdstTextPadButtons==odst_prompt_text::glyph::kPadButtons);
+    uint64_t packed[kWords]{};
+    for(unsigned k=0;k<kItems;++k) packed[k/4]|=Pack(k?pad[k-1]:visr)<<(15*(k%4));
+    for(unsigned i=0;i<kWords;++i) {
+        packed[i]|=1ull<<63;
+        if(controls[i].load(std::memory_order_relaxed)!=packed[i]) controls[i].store(packed[i],std::memory_order_release);
+    }
 }
 void NativeVrActions_BeginPoll() noexcept {
     pollPublished=false;
