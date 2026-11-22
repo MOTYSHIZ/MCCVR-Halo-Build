@@ -14571,6 +14571,18 @@ static int LegacyAnatomicalRenderNodeCount(GameTitle title,uint16_t tag,uint32_t
             g_origRenderView(view);
             return;
         }
+        // PROJECT RECLAIMER, ODST'S VISR MAP: drawn flat, as MCC shows it. In MCC the map stops ODST's camera and
+        // the headset shows the game's own 2D frame on the screen; Project Reclaimer runs Halo 3's eye loop
+        // through it, so each eye drew the full-screen map at the eye's field of view (too big, too close, the
+        // world below it). While the client's own pda_is_active_deterministic answers yes, the view renders stock
+        // with no eyes and this frame is presented on the screen quad. Not a pause: input (the map's VR Mappings
+        // rows), the runtime mode and tracking stay as they are.
+        if (g_hostIsProjectReclaimer && NativeVrActions_ReclaimerOdstMapOpen())
+        {
+            g_origRenderView(view);
+            VR_PresentFlatFrame();
+            return;
+        }
 
         // Compact camera produced by CamCopy: position +0x00, forward +0x0C,
         // up +0x18. It begins at view+0x08. Snapshot it so both eye calls start

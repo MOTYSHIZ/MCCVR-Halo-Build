@@ -40,3 +40,7 @@ void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,
     const vr_mapping::Input (&pad)[kOdstTextPadButtons]) noexcept;
 constexpr uint32_t NativeVrActions_GestureBit(vr_mapping::Action action) noexcept
 { return action < vr_mapping::Count ? 1u << (18u + unsigned(action)) : 0; }
+// Project Reclaimer only: whether ODST's VISR map (the PDA) is up for player 0, read as the client's own
+// pda_is_active_deterministic reads it. False before the map's records are found, outside an ODST level, or on a failed
+// read. A few guarded memory reads, no allocation or logging: the render thread may ask it once per view.
+bool NativeVrActions_ReclaimerOdstMapOpen() noexcept;

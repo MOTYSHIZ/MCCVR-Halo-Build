@@ -15,6 +15,7 @@
 #include "../common/odst_training_reset.h"
 #include "drive_cascade.h"
 #include "reclaimer_client_image.h"
+#include "vr.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
@@ -625,9 +626,11 @@ void ProbePda() {
     ++pdaLines;
     if(!read) {LOG("ODST map probe (Project Reclaimer, log only): the PDA records could not be read");return;}
     LOG("ODST map (Project Reclaimer): player 0's PDA, game-state record %s0x%03X (active %d), static record 0x%03X "
-        "(active %d); snapshot byte %d (1: the game-state record is the one asked), ready %d: the map is %s",
+        "(active %d); snapshot byte %d (1: the game-state record is the one asked), ready %d: the map is %s "
+        "(frames shown flat in the headset so far: %llu)",
         r.stateRead?"":"unread ",r.stateFlags&0xFFFu,r.stateRead?active(r.stateFlags):0,r.staticFlags&0xFFFu,
-        active(r.staticFlags),r.snapshot,r.ready?1:0,PdaMapOpen(r)?"open":"closed");
+        active(r.staticFlags),r.snapshot,r.ready?1:0,PdaMapOpen(r)?"open":"closed",
+        static_cast<unsigned long long>(VR_FlatFramesPresented()));
 }
 // Worker: once per process, when an ODST level runs on Reclaimer.
 void Poll() {
@@ -667,6 +670,12 @@ __declspec(noinline) bool Read(uint8_t& value) noexcept {
     __try { value=*reinterpret_cast<const volatile uint8_t*>(at); return true; }   // controller 0
     __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+}
+bool NativeVrActions_ReclaimerOdstMapOpen() noexcept {
+    if(!g_hostIsProjectReclaimer || !Game_ReclaimerOdstLevel() ||
+       !reclaimer_odst_prompt::pdaLive.load(std::memory_order_acquire)) return false;
+    reclaimer_odst_prompt::PdaRead r{};
+    return reclaimer_odst_prompt::ReadPda(r)&&reclaimer_odst_prompt::PdaMapOpen(r);
 }
 bool NativeVrActions_OdstPromptState(uint64_t now,bool& prompt,bool& map,uint32_t* raw) noexcept {
     prompt=map=false;
