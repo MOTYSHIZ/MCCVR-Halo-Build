@@ -746,20 +746,33 @@ __declspec(noinline) wchar_t* BufferOf(void* context) noexcept {
 }
 // Another caller of the lookup whose line is one of the HUD's VISR prompts: where that prompt is fetched (logged by
 // the worker, read-only; the line is not changed there until that caller's buffer is known).
-std::atomic<uintptr_t> hudCallers[4]{};
+constexpr unsigned kHudCallers=8;
+std::atomic<uintptr_t> hudCallers[kHudCallers]{};
+std::atomic<uint32_t> hudReady[kHudCallers]{};   // the slot's line is written
 std::atomic<uint32_t> hudCallersShown{};
-wchar_t hudLine[64]{};
+wchar_t hudLine[kHudCallers][64]{};
+// A HUD prompt: a one-line VISR prompt of the kit's, or a use / pick-up line ("Hold <picture> to swap for ...",
+// "Press [E] to ..."): a line that starts "Hold " or "Press " and names a control by a picture or a bracketed key.
+bool HudPromptLine(const wchar_t* text,const wchar_t* kit) noexcept {
+    if(kit) return std::wcsstr(kit,L"VISR")&&!std::wcschr(kit,L'\r');
+    if(std::wcsncmp(text,L"Hold ",5)&&std::wcsncmp(text,L"Press ",6)) return false;
+    for(unsigned i=0;text[i]&&i<64;++i)
+        if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') return true;
+    return false;
+}
 __declspec(noinline) void NoteOtherCaller(wchar_t* text,uintptr_t caller) noexcept {
     __try {
         const wchar_t* kit=odst_prompt_text::detail::KitLineFor(text);
-        if(!kit || !std::wcsstr(kit,L"VISR") || std::wcschr(kit,L'\r')) return;   // the HUD's one-line VISR prompts
-        for(auto& seen:hudCallers) {
+        if(!HudPromptLine(text,kit)) return;
+        const wchar_t* line=kit?kit:text;
+        for(unsigned s=0;s<kHudCallers;++s) {
             uintptr_t expected=0;
-            if(seen.load(std::memory_order_relaxed)==caller) return;
-            if(seen.compare_exchange_strong(expected,caller,std::memory_order_acq_rel)) {
+            if(hudCallers[s].load(std::memory_order_relaxed)==caller) return;
+            if(hudCallers[s].compare_exchange_strong(expected,caller,std::memory_order_acq_rel)) {
                 unsigned i=0;
-                for(;kit[i]&&i<63;++i) hudLine[i]=kit[i]<0x80?kit[i]:L'#';
-                hudLine[i]=0;
+                for(;line[i]&&i<63;++i) hudLine[s][i]=line[i];
+                hudLine[s][i]=0;
+                hudReady[s].store(1,std::memory_order_release);
                 return;
             }
         }
@@ -794,12 +807,12 @@ void Poll() {
         odst_text::ReportKept(" (Project Reclaimer)");
         odst_text::ReportSaid(" (Project Reclaimer)");
         const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-        for(uint32_t i=hudCallersShown.load(std::memory_order_relaxed);i<4;++i) {
-            const uintptr_t caller=hudCallers[i].load(std::memory_order_acquire);
-            if(!caller) break;
+        for(uint32_t i=hudCallersShown.load(std::memory_order_relaxed);i<kHudCallers;++i) {
+            if(!hudReady[i].load(std::memory_order_acquire)) break;
+            const uintptr_t caller=hudCallers[i].load(std::memory_order_relaxed);
             hudCallersShown.store(i+1,std::memory_order_relaxed);
-            char line[64]{};
-            for(unsigned k=0;k<63&&hudLine[k];++k) line[k]=static_cast<char>(hudLine[k]>=0x20&&hudLine[k]<0x7F?hudLine[k]:'#');
+            char line[64*9]{};
+            odst_text::Escape(hudLine[i],line);
             LOG("ODST HUD prompts (Project Reclaimer): \"%s\" is looked up by exe+0x%llX (not said in VR words yet)",
                 line,static_cast<unsigned long long>(caller-base));
         }
