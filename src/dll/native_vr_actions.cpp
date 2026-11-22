@@ -341,10 +341,11 @@ __declspec(noinline) void WitnessNativeRecord(GameTitle requested,unsigned actio
 // ODST'S TUTORIAL TEXT IN VR WORDS (odst_prompt_text.h): what presses VISR and each gamepad button, as the input
 // thread last read the player's rows and the game's layout (NativeVrActions_PublishOdstTextControls), for the chud
 // text hooks on the game's threads. Each input packs as three 5-bit controls (held, held, press), four to a word (VISR,
-// then the buttons A B X Y LB RB LT RT); bit 63 of each word: read. A rebind read mid-change mixes two readings for one
-// line at most.
+// the buttons A B X Y LB RB LT RT, then each action row); bit 63 of each word: read. A rebind read mid-change mixes two
+// readings for one line at most.
 namespace odst_text {
-constexpr unsigned kItems=1+odst_prompt_text::glyph::kPadButtons, kWords=(kItems+3)/4;
+constexpr unsigned kPadItems=1+odst_prompt_text::glyph::kPadButtons;
+constexpr unsigned kItems=kPadItems+vr_mapping::Count, kWords=(kItems+3)/4;
 std::atomic<uint64_t> controls[kWords]{};
 constexpr uint64_t Pack(const vr_mapping::Input& in) noexcept {
     const auto bits=[](int source){ return static_cast<uint64_t>(source>=0&&source<32?source:vr_mapping::Unbound); };
@@ -421,6 +422,7 @@ bool Read(odst_prompt_text::Controls& c) noexcept {
     c.odst=g_config.vr_odst_bindings;
     c.visr=item(0);
     for(unsigned b=0;b<odst_prompt_text::glyph::kPadButtons;++b) c.pad[b]=item(1+b);
+    for(unsigned a=0;a<vr_mapping::Count;++a) c.action[a]=item(kPadItems+a);
     c.leftHanded=g_config.left_handed;
     c.dpadRightHand=g_config.dpad_hand!=0;
     return true;
@@ -500,11 +502,12 @@ void (*g_odstHudMessageHook)(int,int,uintptr_t,wchar_t*)=&native_odst::HudMessag
 uintptr_t (*g_odstGpBooleanHook)(uint32_t,unsigned,uintptr_t,uintptr_t)=&native_odst::GpBooleanHook;
 }
 void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,
-    const vr_mapping::Input (&pad)[kOdstTextPadButtons]) noexcept {
+    const vr_mapping::Input (&pad)[kOdstTextPadButtons],const vr_mapping::Input (&actions)[vr_mapping::Count]) noexcept {
     using namespace odst_text;
     static_assert(kOdstTextPadButtons==odst_prompt_text::glyph::kPadButtons);
     uint64_t packed[kWords]{};
-    for(unsigned k=0;k<kItems;++k) packed[k/4]|=Pack(k?pad[k-1]:visr)<<(15*(k%4));
+    for(unsigned k=0;k<kItems;++k)
+        packed[k/4]|=Pack(k==0?visr:k<kPadItems?pad[k-1]:actions[k-kPadItems])<<(15*(k%4));
     for(unsigned i=0;i<kWords;++i) {
         packed[i]|=1ull<<63;
         if(controls[i].load(std::memory_order_relaxed)!=packed[i]) controls[i].store(packed[i],std::memory_order_release);
@@ -726,6 +729,7 @@ namespace reclaimer_odst_text {
 std::atomic<bool> attempted{false};
 void* original=nullptr;
 uintptr_t returns[2]{};
+uintptr_t hudReturns[2]{};   // the HUD message fetch's lookup calls (FindOdstHudText)
 wchar_t buffer[odst_prompt_text::kMaxChars+1]{};   // the script thread's only: the line is copied back at once
 std::atomic<uint32_t> rewritten{}, kept{};
 uint32_t reported=0;
@@ -744,6 +748,44 @@ __declspec(noinline) void Rewrite(wchar_t* text) noexcept {
         for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
             if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') {
                 kept.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteKept(text);
+                break;
+            }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+// A HUD prompt, fetched as the chud draws it (each frame): rewritten in place when it fits the 95 characters the chud
+// shows (its line holds more); counted and named once per showing.
+std::atomic<uint32_t> hudRewritten{}, hudKept{};
+uint32_t hudReported=0;
+std::atomic<uint32_t> hudRecent[4]{}, hudNext{};
+bool NewHudShowing(const wchar_t* text) noexcept {
+    uint32_t sum=2166136261u;
+    for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i) sum=(sum^text[i])*16777619u;
+    sum|=1u;
+    for(auto& seen:hudRecent) if(seen.load(std::memory_order_relaxed)==sum) return false;
+    hudRecent[hudNext.fetch_add(1,std::memory_order_relaxed)&3u].store(sum,std::memory_order_relaxed);
+    return true;
+}
+__declspec(noinline) void RewriteHud(wchar_t* text) noexcept {
+    __try {
+        if(!text[0]) return;
+        odst_prompt_text::Controls controls{};
+        if(!g_config.vr_action_mapping || !Game_ReclaimerOdstLevel() || !odst_text::Read(controls)) return;
+        wchar_t said[odst_prompt_text::kMaxChars+1];
+        const unsigned n=odst_prompt_text::Rewrite(text,controls,said);
+        const bool fresh=NewHudShowing(text);
+        if(n && n<reclaimer_client::kHudLineChars) {
+            if(fresh) {
+                hudRewritten.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteSaid(text,said);
+            }
+            std::memcpy(text,said,(static_cast<size_t>(n)+1)*sizeof(wchar_t));   // within the line's 96
+            return;
+        }
+        if(!fresh) return;
+        for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
+            if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') {
+                hudKept.fetch_add(1,std::memory_order_relaxed);
                 odst_text::NoteKept(text);
                 break;
             }
@@ -790,9 +832,11 @@ __declspec(noinline) void NoteOtherCaller(wchar_t* text,uintptr_t caller) noexce
 // Entered through the preserving thunk (OdstTitleLookupThunk): `caller` is the lookup's own return address.
 uintptr_t __fastcall Hook(void* context,unsigned,uintptr_t caller) {
     const bool title=caller&&(caller==returns[0]||caller==returns[1]);
+    const bool hud=caller&&(caller==hudReturns[0]||caller==hudReturns[1]);
     wchar_t* text=context?BufferOf(context):nullptr;
     const uintptr_t result=reinterpret_cast<Lookup>(original)(context);
     if(text && title) Rewrite(text);
+    else if(text && hud) RewriteHud(text);
     else if(text && caller) NoteOtherCaller(text,caller);
     return result;
 }
@@ -812,6 +856,11 @@ void Poll() {
         if(r+k!=reported) {
             reported=r+k;
             LOG("ODST tutorial text (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",r,k);
+        }
+        const uint32_t hr=hudRewritten.load(std::memory_order_relaxed),hk=hudKept.load(std::memory_order_relaxed);
+        if(hr+hk!=hudReported) {
+            hudReported=hr+hk;
+            LOG("ODST HUD prompts (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",hr,hk);
         }
         odst_text::ReportKept(" (Project Reclaimer)");
         odst_text::ReportSaid(" (Project Reclaimer)");
@@ -841,12 +890,21 @@ void Poll() {
     const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
     returns[0]=base+found.returns[0];
     returns[1]=found.returns[1]?base+found.returns[1]:0;
+    if(found.hud) {
+        hudReturns[0]=base+found.hudReturns[0];
+        hudReturns[1]=found.hudReturns[1]?base+found.hudReturns[1]:0;
+    }
     auto* target=reinterpret_cast<void*>(base+found.lookup);
     const bool hooked=MH_CreateHook(target,reinterpret_cast<void*>(&OdstTitleLookupThunk),&original)==MH_OK &&
         MH_EnableHook(target)==MH_OK;
     LOG("ODST tutorial text (Project Reclaimer): %s (chud_show_cinematic_title's native exe+0x%X, its string lookup "
         "exe+0x%X)",hooked?"said in VR words":"the game's own words kept, the hook did not install",found.native,
         found.lookup);
+    if(found.hud)
+        LOG("ODST HUD prompts (Project Reclaimer): %s (the HUD message fetch exe+0x%X)",
+            hooked?"said in VR words":"the game's own words kept, the hook did not install",found.hud);
+    else
+        LOG("ODST HUD prompts (Project Reclaimer): the game's own words kept; not found: %s",found.hudMissing);
 }
 }
 extern "C" uintptr_t (*g_odstTitleLookupHook)(void*,unsigned,uintptr_t)=&reclaimer_odst_text::Hook;

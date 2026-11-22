@@ -164,13 +164,38 @@ inline constexpr wchar_t kWaypoint = 0xE501, kAltWaypoint = 0xE502, kRetrain = 0
 inline constexpr wchar_t kPadA = 0xE100, kPadRT = 0xE107, kPadUp = 0xE108, kPadDown = 0xE109, kPadLeft = 0xE10A,
                          kPadRight = 0xE10B, kPadBack = 0xE10D, kPadMoveStick = 0xE110, kPadLookStick = 0xE111;
 inline constexpr unsigned kPadButtons = 8;   // U+E100..E107
+// The kit's action pictures (the glyph table's button_jump ... button_use_equipment), as Project Reclaimer's HUD prompts
+// arrive with them ("Hold <U+E45E> to swap for <weapon>"). E445 (action / reload), E45D (generic action) and E45E (pick
+// up the primary weapon) are the use / pick-up prompts' button.
+inline constexpr wchar_t kJump = 0xE443, kSwitchGrenade = 0xE444, kActionReload = 0xE445, kSwitchWeapon = 0xE446,
+                         kMeleeAttack = 0xE447, kThrowGrenade = 0xE449, kFire = 0xE44A, kCrouch = 0xE44D,
+                         kScopeZoom = 0xE44E, kActionGeneric = 0xE45D, kActionWeaponPrimary = 0xE45E,
+                         kUseEquipment = 0xE461;
+// The action row each of those names (vr_mapping::Count: not one of them).
+inline constexpr vr_mapping::Action ActionOf(wchar_t g) noexcept
+{
+    switch (g)
+    {
+    case kJump: return vr_mapping::Jump;
+    case kSwitchGrenade: return vr_mapping::SwitchGrenade;
+    case kActionReload: case kActionGeneric: case kActionWeaponPrimary: return vr_mapping::Interact;
+    case kSwitchWeapon: return vr_mapping::SwitchWeapon;
+    case kMeleeAttack: return vr_mapping::Melee;
+    case kThrowGrenade: return vr_mapping::Grenade;
+    case kFire: return vr_mapping::Fire;
+    case kCrouch: return vr_mapping::Crouch;
+    case kScopeZoom: return vr_mapping::Zoom;
+    case kUseEquipment: return vr_mapping::Equipment;
+    default: return vr_mapping::Count;
+    }
+}
 inline constexpr bool Private(wchar_t c) noexcept { return c >= 0xE000 && c <= 0xF8FF; }
 // A picture of a control this file says in words. Any other picture (a weapon's, an item's) is the line's own.
 inline constexpr bool Known(wchar_t g) noexcept
 {
     return g == kFlashlight || g == kBack || (g >= kAccept && g <= kLook) || (g >= kWaypoint && g <= kRetrain) ||
            (g >= kPlaceWaypoint && g <= kNextScreen) || (g >= kPadA && g <= kPadRight) || g == kPadBack ||
-           g == kPadMoveStick || g == kPadLookStick;
+           g == kPadMoveStick || g == kPadLookStick || ActionOf(g) != vr_mapping::Count;
 }
 } // namespace glyph
 // The game's layout bit for each of U+E100..E107 (XInput's A B X Y LB RB; the triggers as the layout's bits 16, 17).
@@ -189,6 +214,7 @@ struct Controls
     // What presses each gamepad button U+E100..E107 names (kPadTransport): X is the map's remove waypoint and COMM
     // stop, Y next waypoint, play all and repeat training; the HUD's prompts name any of them.
     vr_mapping::Input pad[glyph::kPadButtons]{};
+    vr_mapping::Input action[vr_mapping::Count]{};   // each action row's control (the kit's action pictures)
     bool leftHanded = false;     // the gun hand is the left: its trigger and grip are the left ones
     bool dpadRightHand = false;  // the D-pad gesture's controller is the right one
 };
@@ -387,6 +413,11 @@ inline bool PictureFor(wchar_t g, const Controls& c, Said& out) noexcept
     case glyph::kPrevScreen: out.first = PhraseForRow(c.odst[MapPreviousPage], c); break;
     case glyph::kNextScreen: out.first = PhraseForRow(c.odst[MapNextPage], c); break;
     default:
+        if (const auto a = glyph::ActionOf(g); a != Count)
+        {
+            out.first = PhraseFor(c.action[a], c);
+            break;
+        }
         if (g < glyph::kPadA || g > glyph::kPadRT)
             return false;
         out.first = PhraseFor(c.pad[g - glyph::kPadA], c);   // the row whose action the game puts on that button

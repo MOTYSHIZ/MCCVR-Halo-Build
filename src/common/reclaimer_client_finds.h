@@ -1050,7 +1050,74 @@ struct OdstTitleText
     uint32_t lookup = 0;       // the string lookup it calls (to hook)
     uint32_t returns[2]{};     // where each of its lookup calls returns (the hook rewrites only for these)
     const char* missing = nullptr;
+    // ODST's HUD prompts ("Press <Back> to open VISR NAV data", "Hold <use> to swap for <weapon>"): the client's fetch of
+    // a HUD message for the chud (FindOdstHudText). Zero, with hudMissing, when not found: the title text still works.
+    uint32_t hud = 0;          // the fetch
+    uint32_t hudReturns[2]{};  // where its lookup calls return (the call and the client's resume of it)
+    const char* hudMissing = nullptr;
 };
+
+// THE HUD MESSAGE FETCH. After its lookup it hands the line to the chud's post-pass with the size 0x15E
+// (mov qword [reg+0x40],0x15E) and then cuts a line of 95 characters or more at the 95th (cmp rax,0x5F; a zero
+// written at +0xBE): its line holds at least 96 characters, and the chud shows 95. Found by those two, after a call of
+// the lookup, in one function; then every call of the lookup in it.
+inline constexpr char kHudPostPassSize[] = "C7 ?? 40 5E 01 00 00";
+inline constexpr char kHudLineCut[] = "48 83 F8 5F";
+inline constexpr unsigned kHudLineChars = 95;
+namespace detail
+{
+inline bool CallsAt(const Image& image, uint32_t at, uint32_t target)
+{
+    return image.Holds(at, 5) && image.base[at] == 0xE8 &&
+           static_cast<int64_t>(at) + 5 + Rel32(image, at + 1) == static_cast<int64_t>(target);
+}
+}
+inline void FindOdstHudText(const Image& image, OdstTitleText& out)
+{
+    const std::vector<int> size = ParsePattern(kHudPostPassSize), cut = ParsePattern(kHudLineCut);
+    uint32_t fetch = 0, end = 0;
+    for (const uint32_t at : FindAll(image, image.codeRva, image.codeSize, size, 64))
+    {
+        // A store of a qword (REX.W) to [reg+0x40].
+        if (at < 0x200 || (image.base[at - 1] & 0xF8) != 0x48 || (image.base[at + 1] & 0xF8) != 0x40)
+            continue;
+        bool called = false;
+        for (uint32_t back = at - 0x200; back < at && !called; ++back)
+            called = detail::CallsAt(image, back, out.lookup);
+        if (!called || FindAll(image, at, 0x100, cut, 1).empty())
+            continue;
+        uint32_t b = 0, e = 0;
+        if (!image.Extent(at, b, e) || (fetch && fetch != b))
+        {
+            out.hudMissing = "one HUD message fetch (a lookup, the 0x15E post-pass and the 95-character cut)";
+            return;
+        }
+        fetch = b;
+        end = e;
+    }
+    if (!fetch)
+    {
+        out.hudMissing = "the HUD message fetch (a lookup, the 0x15E post-pass and the 95-character cut)";
+        return;
+    }
+    unsigned n = 0;
+    for (uint32_t at = fetch; at + 5 <= end; ++at)
+        if (detail::CallsAt(image, at, out.lookup))
+        {
+            if (n == 2)
+            {
+                out.hudMissing = "the HUD message fetch's lookup calls (more than two)";
+                return;
+            }
+            out.hudReturns[n++] = at + 5;
+        }
+    if (!n)
+    {
+        out.hudMissing = "the HUD message fetch's lookup calls";
+        return;
+    }
+    out.hud = fetch;
+}
 
 inline OdstTitleText FindOdstTitleText(const Image& image)
 {
@@ -1105,6 +1172,7 @@ inline OdstTitleText FindOdstTitleText(const Image& image)
         return out;
     }
     out.native = native;
+    FindOdstHudText(image, out);
     return out;
 }
 } // namespace reclaimer_client

@@ -77,9 +77,15 @@ The D-pad gesture's stick is the left controller's whichever controller is held 
 reads the left stick and its click), so the right-hand wording is "hold the right controller by your head and push the
 left stick". The Controls page's diagram (F1 › Controls) shows ODST's VISR database on the left stick click.
 
-On Project Reclaimer the HUD path is the client's own and not found yet. Its title-lookup hook now logs any other
-caller that fetches one of these VISR prompts ("ODST HUD prompts (Project Reclaimer): ... is looked up by exe+0x...").
-That log line names the caller to hook next.
+On Project Reclaimer the HUD fetch is the client's own: exe+0x55AD8F0 on 0.10.8, named by the run of 2026-11-21
+("Hold <U+E45E> to swap for <weapon>" looked up from exe+0x55ADEE0). It calls the same string lookup as the title
+native, with the line in its context (+0x40); then it hands the line to the chud's post-pass with the size 0x15E, and
+cuts a line of 95 characters or more at the 95th. `reclaimer_client::FindOdstHudText` finds it by those two after a
+lookup call, in exactly one function, and takes each of its lookup calls (the call and the client's resume of it). The
+lookup hook rewrites the line in place when the lookup returns there, only when the rewrite is under 95 characters.
+The client's lines here carry the kit's action pictures, not gamepad ones: E445 (action / reload), E45D and E45E (pick
+up) are said as the Use / pick up row, E446 as Switch weapon, and the rest (jump, melee, grenade, fire, crouch, zoom,
+equipment) as their rows. `halomccvr_reclaimer_client_file_check` reports `ODST HUD message fetch exe+0x55AD8F0`.
 
 ## Project Reclaimer 0.10.7 (client SHA-256 `D361EC8D8A22BB2A…`)
 

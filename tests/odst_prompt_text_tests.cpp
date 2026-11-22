@@ -53,6 +53,11 @@ odst_prompt_text::Controls Defaults()
     c.pad[5] = Input{kNoneHeld, B};
     c.pad[6] = Input{kNoneHeld, SupportTrigger};
     c.pad[7] = Input{kNoneHeld, PrimaryTrigger};
+    // Each action row: use / pick up on B, switch weapon on Y, jump on A, fire the gun hand's trigger.
+    c.action[Interact] = Input{kNoneHeld, B};
+    c.action[SwitchWeapon] = Input{kNoneHeld, Y};
+    c.action[Jump] = Input{kNoneHeld, A};
+    c.action[Fire] = Input{kNoneHeld, PrimaryTrigger};
     return c;
 }
 } // namespace
@@ -121,8 +126,14 @@ int main()
            L"Hold the left controller by your head and click its stick to\r\nopen VISR INTEL data");
     EXPECT(L"Press [Tab] to activate Visual Intelligence System", c,
            L"Hold the left controller by your head and click its stick to\r\nactivate Visual Intelligence System");
-    // A HUD prompt with a picture the rewrite does not know stays the game's own.
-    EXPECT(L"Hold \xE445 to open door", c, nullptr);
+    // The kit's action pictures, as Project Reclaimer's HUD prompts arrive: each action row's control.
+    EXPECT(L"Hold \xE445 to open door", c, L"Hold B to open door");
+    EXPECT(L"Hold \xE45E to swap for\r\n\xE125", c, L"Hold B to swap for\r\n\xE125");
+    EXPECT(L"Press \xE446 to switch to \xE123", c, L"Press Y to switch to \xE123");
+    EXPECT(L"Hold \xE44A to charge", c, L"Pull and hold the right trigger to charge");
+    // An action row with no control keeps the game's own words; a picture the rewrite does not know stays too.
+    EXPECT(L"Press \xE447 to melee", c, nullptr);
+    EXPECT(L"Hold \xE466 to reload", c, nullptr);
     // A line of no kit form with a key name stays the game's own.
     EXPECT(L"Press [Q] to dance", c, nullptr);
 
@@ -130,7 +141,8 @@ int main()
     EXPECT(L"Sehen Sie sich mit \xE454 um", c, nullptr);
     EXPECT(L"La resistencia se regenera con el tiempo.\r\n\xE451 Continuar", c, nullptr);
     EXPECT(L"Look settings assigned", c, nullptr);
-    EXPECT(L"Press \xE443 to jump", c, nullptr);
+    EXPECT(L"Press \xE45C to fire both", c, nullptr);
+    EXPECT(L"Press \xE443 to jump", c, L"Press A to jump");
 
     // The player's own rows: confirm on the right trigger, the pages on a chord, zoom on the grips.
     {

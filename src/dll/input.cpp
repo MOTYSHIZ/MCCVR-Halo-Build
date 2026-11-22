@@ -551,8 +551,12 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                 pad[b]=odst_prompt_text::ControlForButton(odst_prompt_text::kPadTransport[b],
                     b==odst_prompt_text::kPadX?vr_mapping::Reload:b==odst_prompt_text::kPadY?vr_mapping::SwitchWeapon:
                     vr_mapping::Count,effectiveBindings,gameLayout,gameLayoutKnown,rowInputs,vr_mapping::Interact);
+            vr_mapping::Input actions[vr_mapping::Count]{};
+            for(unsigned a=0;a<vr_mapping::Count;++a)
+                actions[a]=odst_prompt_text::ControlForAction(static_cast<vr_mapping::Action>(a),effectiveBindings,
+                    rowInputs);
             NativeVrActions_PublishOdstTextControls(
-                odst_prompt_text::ControlForAction(vr_mapping::Flashlight,effectiveBindings,rowInputs),pad);
+                odst_prompt_text::ControlForAction(vr_mapping::Flashlight,effectiveBindings,rowInputs),pad,actions);
         }
         // Zoom's own control for the lens: its row's press, or its first further input's where the row has none.
         int zoomSource=mappingTitle>=0&&g_config.vr_action_mapping?

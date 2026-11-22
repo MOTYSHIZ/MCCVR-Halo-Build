@@ -188,6 +188,7 @@ int main()
     const reclaimer_client::OdstTitleText title = reclaimer_client::FindOdstTitleText(image);
     report("ODST title native", title.native, title.missing);
     report("ODST title lookup", title.lookup, title.missing);
+    report("ODST HUD message fetch", title.hud, title.missing ? title.missing : title.hudMissing);
     std::printf("%s: %d find(s) failed\n", path, failures);
     return failures ? 1 : 0;
 }
