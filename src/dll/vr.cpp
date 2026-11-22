@@ -10316,6 +10316,22 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return q;
     }
 
+    // The game lays out its 2D UI in a 16:9 frame. Drawn into a taller picture (Project Reclaimer renders at the
+    // headset eye's shape: 2912x2100 on 2026-11-21), it centres that frame and fills the rows above and below it
+    // with the view behind (ODST's VISR map showed its 3D map there). Shows only the 16:9 rows, as MCC's 16:9
+    // picture does; a picture already 16:9 or wider is left whole. Same width, shorter quad.
+    void CropQuadToSixteenNine(XrCompositionLayerQuad& q)
+    {
+        const int32_t w = q.subImage.imageRect.extent.width;
+        const int32_t h = q.subImage.imageRect.extent.height;
+        if (w <= 0 || h <= 0 || int64_t(w) * 9 >= int64_t(h) * 16)
+            return;
+        const int32_t band = static_cast<int32_t>((int64_t(w) * 9 + 8) / 16);
+        q.subImage.imageRect.offset.y += (h - band) / 2;
+        q.subImage.imageRect.extent.height = band;
+        q.size.height = q.size.width * float(band) / float(w);
+    }
+
     bool PrepareNativeSubtitle(XrCompositionLayerQuad& quad)
     {
         const auto image = NativeSubtitles_Read();
@@ -20778,6 +20794,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             screenQuad = MakeQuad(g_screenChain, (int32_t)g_screenW, (int32_t)g_screenH,
                                                   g_config.screen_width_m, g_config.screen_distance_m, 0.0f, 0,
                                                   headLock);
+                            if (flatFrame)
+                                CropQuadToSixteenNine(screenQuad);
                             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad));
                         }
                     }
