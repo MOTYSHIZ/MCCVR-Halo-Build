@@ -28,5 +28,19 @@ constexpr bool NativeVrActions_RoutesExtras(GameTitle title) noexcept
         title == GameTitle::Halo4;
 }
 bool NativeVrActions_GestureRouting(GameTitle title, uint64_t now) noexcept;
+// ODST (halo3odst.dll, MCC) only: whether a tutorial prompt waits on accept or cancel, and whether the VISR map (the
+// PDA) is up, for controller 0, as the game's control builder last saw them. False: not proven, not ODST, or stale (no
+// control tick for a quarter second); both answers are then false. `raw`: the published bits, for the log.
+bool NativeVrActions_OdstPromptState(uint64_t now, bool& prompt, bool& map, uint32_t* raw = nullptr) noexcept;
+// ODST's tutorial text in VR words (odst_prompt_text.h): what presses VISR (the flashlight action's row) and each
+// gamepad button the text's pictures name (A B X Y LB RB LT RT) and each action row (the kit's action pictures), as the
+// input thread reads the player's rows and the game's layout. ODST's rows only.
+inline constexpr unsigned kOdstTextPadButtons = 8;
+void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,
+    const vr_mapping::Input (&pad)[kOdstTextPadButtons], const vr_mapping::Input (&actions)[vr_mapping::Count]) noexcept;
 constexpr uint32_t NativeVrActions_GestureBit(vr_mapping::Action action) noexcept
 { return action < vr_mapping::Count ? 1u << (18u + unsigned(action)) : 0; }
+// Project Reclaimer only: whether ODST's VISR map (the PDA) is up for player 0, read as the client's own
+// pda_is_active_deterministic reads it. False before the map's records are found, outside an ODST level, or on a failed
+// read. A few guarded memory reads, no allocation or logging: the render thread may ask it once per view.
+bool NativeVrActions_ReclaimerOdstMapOpen() noexcept;

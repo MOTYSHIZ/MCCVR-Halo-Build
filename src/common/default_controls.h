@@ -93,6 +93,7 @@ inline void Apply(Config& config) noexcept
         Rows(static_cast<GameTitle>(title + 1), config.vr_bindings[title], config.vr_inputs[title],
             config.vr_extra_bindings[title]);
     config.vr_mod_bindings = vr_mapping::kModDefaults;
+    config.vr_odst_bindings = vr_mapping::kOdstDefaults;
 }
 
 // Rows left on Automatic from a file written when the default scheme left them there (vr_inputs_version below 3): each

@@ -506,6 +506,11 @@ bool CacheLockHeld()
 }
 #endif
 
+bool OpenModuleImage(uintptr_t base, size_t size, drive_resolve::Image& image, const char*& why)
+{
+    return GuardedOpen(base, size, image, why);
+}
+
 void SetModuleGenerationSource(uint32_t (*generationOf)(GameTitle title))
 {
     g_generationOf.store(generationOf, std::memory_order_relaxed);

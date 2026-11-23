@@ -22,6 +22,10 @@ EXTERN g_nativeVrReaderHalo3:QWORD
 EXTERN g_nativeVrH3ActionEdges:QWORD
 EXTERN g_nativeVrReaderOdst:QWORD
 EXTERN g_nativeVrReaderHalo4:QWORD
+EXTERN g_odstTitleTextHook:QWORD
+EXTERN g_odstTitleLookupHook:QWORD
+EXTERN g_odstHudMessageHook:QWORD
+EXTERN g_odstGpBooleanHook:QWORD
 
 PRESERVING_READER MACRO thunkName, hookPointer
 thunkName PROC FRAME
@@ -54,7 +58,9 @@ thunkName PROC FRAME
     .endprolog
     ; rcx (state) and edx (action) still hold the native arguments.
     ; Six saved registers (30h) plus locals (88h): original native return address.
-    ; Pass it explicitly; the C++ hook's own return address is inside this thunk.
+    ; Pass it explicitly; the C++ hook's own return address is inside this thunk. The native r8 (a third
+    ; argument some hooks need) goes on in r9; both are restored below.
+    mov r9, r8
     mov r8, QWORD PTR [rsp+0B8h]
     call QWORD PTR [hookPointer]
     movdqa xmm0, XMMWORD PTR [rsp+20h]
@@ -80,4 +86,15 @@ PRESERVING_READER NativeVrReaderThunkHalo3, g_nativeVrReaderHalo3
 PRESERVING_READER NativeVrH3ActionEdgesThunk, g_nativeVrH3ActionEdges
 PRESERVING_READER NativeVrReaderThunkOdst, g_nativeVrReaderOdst
 PRESERVING_READER NativeVrReaderThunkHalo4, g_nativeVrReaderHalo4
+; ODST's chud text setter (user, text, seconds; odst_prompt_text.h) is no leaf reader, but its LTCG callers keep
+; xmm2 (the seconds) live across it: chud_show_cinematic_title for every player calls it in a loop with xmm2 set once
+; (halo3odst.dll +0x1BA5DA..+0x1BA5FD). The same preserving thunk enters its hook; rax is unused (the setter is void).
+PRESERVING_READER OdstTitleTextThunk, g_odstTitleTextHook
+; Project Reclaimer's string lookup (its version of Halo 3's, reclaimer_client::FindOdstTitleText): the hook keys on
+; the native caller (r8) to rewrite only chud_show_cinematic_title's line, and returns the lookup's rax.
+PRESERVING_READER OdstTitleLookupThunk, g_odstTitleLookupHook
+; ODST's HUD message text for a player (odst_prompt_text::ResolveHudMessage): user, string id, the buffer in r9.
+PRESERVING_READER OdstHudMessageThunk, g_odstHudMessageHook
+; ODST's gp_boolean_get (odst_training_reset.h): the mark's string id in ecx; returns the hook's al.
+PRESERVING_READER OdstGpBooleanThunk, g_odstGpBooleanHook
 END

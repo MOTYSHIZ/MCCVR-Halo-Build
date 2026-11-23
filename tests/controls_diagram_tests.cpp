@@ -186,7 +186,25 @@ void CheckBuiltInsAndGestures()
     setup.game=GameTitle::HaloCE;
     lines=GestureLines(setup,gestures);
     Check(how("D-pad").find("left controller")!=std::string::npos,"Halo CE takes the left hand for the D-pad");
+    // ODST: the left stick's click at the head is the VISR database, on the diagram and under it.
+    setup.game=GameTitle::Halo3ODST;
+    lines=GestureLines(setup,gestures);
+    Check(how("VISR database")=="Hold the right controller to your head and click the left thumbstick (the Back button)."&&
+        Has(BuiltIns(setup,gestures),LeftStickClick,"Right controller at your head: VISR database (Back)"),
+        "ODST's VISR database at the right hand");
+    gestures.dpadHand=0;
+    lines=GestureLines(setup,gestures);
+    Check(how("VISR database")=="Hold the left controller to your head and click its thumbstick (the Back button)."&&
+        Has(BuiltIns(setup,gestures),LeftStickClick,"Left controller at your head: VISR database (Back)"),
+        "ODST's VISR database at the left hand");
+    setup.thumbrestDpad=true;
+    lines=GestureLines(setup,gestures);
+    Check(how("VISR database")=="(none)"&&!Mentions(BuiltIns(setup,gestures),LeftStickClick,"VISR"),
+        "no head gesture with the thumb-rest D-pad");
+    setup.thumbrestDpad=false;
     setup.game=GameTitle::Halo3;
+    Check(!Mentions(BuiltIns(setup,gestures),LeftStickClick,"VISR"),"only ODST has the VISR database");
+    gestures.dpadHand=1;
     gestures.physicalCrouch=false;
     lines=GestureLines(setup,gestures);
     Check(how("Physical crouch")=="(none)","a gesture that is off is not listed");

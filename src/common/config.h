@@ -726,6 +726,9 @@ struct Config
     bool y_b_start_chord = true;
     // The mod's own rows (VR Mappings, every game): Pause, Y + B either way round to start.
     vr_mapping::ModBindings vr_mod_bindings = vr_mapping::kModDefaults;
+    // ODST's prompt and map rows (VR Mappings, ODST only): confirm, reject and the map's D-pad, live only while a tutorial
+    // prompt waits or the VISR map is open (vr_mapping::OdstAction). Live.
+    vr_mapping::OdstBindings vr_odst_bindings = vr_mapping::kOdstDefaults;
 
     // Halo 2 only: the gamepad's Back/View button is MCC's instant
     // Classic <-> Anniversary graphics switch. 0 = the mod swallows that
@@ -1521,6 +1524,13 @@ struct Config
     // frame (the cost of the ordinary 3D view). 0 = one flat picture for both eyes, drawn once. Off by default: the
     // depth adds little to a zoomed view, and one picture keeps the zoom at the mono view's frame rate (2026-11-11).
     bool aim_frame_stereo = false;
+    // Developer settings: shown on the Advanced page only when halomccvr.cfg says developer_settings = 1 (no control
+    // sets it). Written back only while it is on.
+    bool developer_settings = false;
+    // Developer: ODST (MCC) Mombasa Streets reads its tutorials' done marks as not done, so they play again
+    // (odst_training_reset.h). Reads only: the saved marks are not changed. Needs developer_settings when the game
+    // starts (the hook is installed only then).
+    bool odst_reset_training = false;
     // How far apart the frame's two eyes are, as a multiple of your own eye spacing (binoculars set their lenses
     // wider for the same reason): far targets show little depth at real spacing. The two pictures meet at the
     // point you aim at, so it and the game's crosshair sit at the frame's own depth. 1 to 10.
