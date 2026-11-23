@@ -738,6 +738,17 @@ if(BUILD_TESTING)
     add_executable(halomccvr_lifted_engine_file_check tests/lifted_engine_file_check.cpp)
     add_test(NAME halomccvr_lifted_engine_file_check COMMAND halomccvr_lifted_engine_file_check)
     set_tests_properties(halomccvr_lifted_engine_file_check PROPERTIES SKIP_RETURN_CODE 77)
+    # ODST's prompt and map state (src/common/odst_prompt_resolve.h) resolved on halo3odst.dll and halo3.dll on disk:
+    # --mcc <folder>, --dll <path> or HALOMCCVR_MCC_DIR; skipped without one.
+    add_executable(halomccvr_odst_prompt_resolve_check tests/odst_prompt_resolve_check.cpp)
+    target_include_directories(halomccvr_odst_prompt_resolve_check PRIVATE src/common)
+    target_compile_definitions(halomccvr_odst_prompt_resolve_check PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_odst_prompt_resolve_check COMMAND halomccvr_odst_prompt_resolve_check)
+    set_tests_properties(halomccvr_odst_prompt_resolve_check PROPERTIES SKIP_RETURN_CODE 77)
+    # ODST's tutorial text in VR words (src/common/odst_prompt_text.h): the kit's English lines rewritten.
+    add_executable(halomccvr_odst_prompt_text_tests tests/odst_prompt_text_tests.cpp)
+    target_compile_definitions(halomccvr_odst_prompt_text_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_test(NAME halomccvr_odst_prompt_text_tests COMMAND halomccvr_odst_prompt_text_tests)
     # Packaging runs this tiny program against a nonexistent path to generate
     # the current source tree's exact default config. It is intentionally not
     # installed by CMake: package-candidate stages and hashes its output while

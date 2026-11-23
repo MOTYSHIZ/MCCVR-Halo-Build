@@ -11,11 +11,19 @@ void NativeVrReaderThunkHalo3();
 void NativeVrH3ActionEdgesThunk();
 void NativeVrReaderThunkOdst();
 void NativeVrReaderThunkHalo4();
+void OdstTitleTextThunk();
+void OdstTitleLookupThunk();
+void OdstHudMessageThunk();
+void OdstGpBooleanThunk();
 void* (*g_nativeVrReaderReach)(void*,unsigned,uintptr_t)=nullptr;
 void* (*g_nativeVrH3ActionEdges)(void*,unsigned,uintptr_t)=nullptr;
 void* (*g_nativeVrReaderHalo3)(void*,unsigned,uintptr_t)=nullptr;
 void* (*g_nativeVrReaderOdst)(void*,unsigned,uintptr_t)=nullptr;
 void* (*g_nativeVrReaderHalo4)(void*,unsigned,uintptr_t)=nullptr;
+void* (*g_odstTitleTextHook)(void*,unsigned,uintptr_t)=nullptr;
+void* (*g_odstTitleLookupHook)(void*,unsigned,uintptr_t)=nullptr;
+void* (*g_odstHudMessageHook)(void*,unsigned,uintptr_t)=nullptr;
+void* (*g_odstGpBooleanHook)(void*,unsigned,uintptr_t)=nullptr;
 unsigned ReaderThunkProbe(void (*thunk)(),void* state,unsigned action);
 void* ClobberingReader(void*,unsigned,uintptr_t);
 extern uint64_t g_probeReturn,g_clobberState,g_clobberAction,g_clobberCaller,g_expectedCaller;
@@ -36,6 +44,10 @@ int main()
         {"Halo 3 action edges",&NativeVrH3ActionEdgesThunk,&g_nativeVrH3ActionEdges},
         {"ODST",&NativeVrReaderThunkOdst,&g_nativeVrReaderOdst},
         {"Halo 4",&NativeVrReaderThunkHalo4,&g_nativeVrReaderHalo4},
+        {"ODST chud text",&OdstTitleTextThunk,&g_odstTitleTextHook},
+        {"Reclaimer ODST title lookup",&OdstTitleLookupThunk,&g_odstTitleLookupHook},
+        {"ODST HUD message",&OdstHudMessageThunk,&g_odstHudMessageHook},
+        {"ODST gp_boolean_get",&OdstGpBooleanThunk,&g_odstGpBooleanHook},
     };
     char state[16]{};
     // Control: without a thunk the clobbering hook loses every probed register, so the probe can fail.

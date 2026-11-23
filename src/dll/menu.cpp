@@ -262,7 +262,8 @@ namespace
     }
     // VR Mappings' controls in a dropdown's order: Automatic (a row's own press only), Unbound, then every control a row
     // may list (vr_mapping::ListedSource). A required held input calls Unbound "None".
-    enum class MappingList { Own, Listed, Held };
+    // Odst: ODST's prompt and map rows, which also list the right stick's left and right (vr_mapping::OdstListedSource).
+    enum class MappingList { Own, Listed, Held, Odst };
     struct MappingChoices
     {
         int sources[vr_mapping::SourceCount]{};
@@ -272,7 +273,8 @@ namespace
         {
             for(int source=list==MappingList::Own?vr_mapping::Automatic:vr_mapping::Unbound;
                 source<vr_mapping::SourceCount;++source)
-                if(source==vr_mapping::Automatic||vr_mapping::ListedSource(source))
+                if(source==vr_mapping::Automatic||vr_mapping::ListedSource(source)||
+                   (list==MappingList::Odst&&vr_mapping::OdstListedSource(source)))
                 {
                     sources[count]=source;
                     names[count]=list==MappingList::Held&&source==vr_mapping::Unbound?"None":vr_mapping::kSourceNames[source];
@@ -284,8 +286,9 @@ namespace
     // label is usually hidden ("##...").
     bool MappingCombo(const char* label,int& source,MappingList list)
     {
-        static const MappingChoices own(MappingList::Own),listed(MappingList::Listed),held(MappingList::Held);
-        const auto& choices=list==MappingList::Own?own:list==MappingList::Listed?listed:held;
+        static const MappingChoices own(MappingList::Own),listed(MappingList::Listed),held(MappingList::Held),
+            odst(MappingList::Odst);
+        const auto& choices=list==MappingList::Own?own:list==MappingList::Listed?listed:list==MappingList::Odst?odst:held;
         int index=0;
         for(int i=0;i<choices.count;++i) if(choices.sources[i]==source) index=i;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x*2.0f/3.0f);
@@ -346,7 +349,8 @@ namespace
     // A row's further inputs (VR Mappings), under its own in the action's group: each with its dropdown, Remove and its
     // options, then "Add an input" while there is room. Inputs stay first; `open` counts the ones shown, one just added
     // still empty among them.
-    bool MoreInputsList(vr_mapping::Input* inputs,unsigned count,int& open,bool* optionsOpen)
+    bool MoreInputsList(vr_mapping::Input* inputs,unsigned count,int& open,bool* optionsOpen,
+        MappingList list=MappingList::Listed)
     {
         bool changed=false;
         unsigned listed=0;
@@ -355,7 +359,7 @@ namespace
         for(unsigned i=0;i<shown;++i)
         {
             ImGui::PushID(static_cast<int>(i+1));
-            if(MappingCombo("##input",inputs[i].press,MappingList::Listed))
+            if(MappingCombo("##input",inputs[i].press,list))
             {
                 // No press, no input: what it held first goes too.
                 if(inputs[i].press==vr_mapping::Unbound) {inputs[i]=vr_mapping::Input{};optionsOpen[i]=false;}
@@ -625,6 +629,9 @@ namespace
         // The mod's own rows, every game's.
         int modMoreOpen[vr_mapping::ModCount]{};
         bool modOptionsOpen[vr_mapping::ModCount][vr_mapping::kRowInputs]{};
+        // ODST's prompt and map rows.
+        int odstMoreOpen[vr_mapping::OdstCount]{};
+        bool odstOptionsOpen[vr_mapping::OdstCount][vr_mapping::kRowInputs]{};
         // "Settings for": the game whose rows are shown, here and in the controls diagram. It follows the game that
         // starts, and stays where the player puts it until another does.
         int selectedTitle=0;
@@ -660,12 +667,20 @@ namespace
                 if(g_config.vr_mod_bindings[row][1+i].press!=vr_mapping::Unbound) ++listed;
             if(g_mappingPage.modMoreOpen[row]>static_cast<int>(listed)) return true;
         }
+        for(unsigned row=0;row<vr_mapping::OdstCount;++row)
+        {
+            unsigned listed=0;
+            for(unsigned i=0;i<vr_mapping::kMoreInputs;++i)
+                if(g_config.vr_odst_bindings[row][1+i].press!=vr_mapping::Unbound) ++listed;
+            if(g_mappingPage.odstMoreOpen[row]>static_cast<int>(listed)) return true;
+        }
         return false;
     }
     void CloseEmptyInputs()
     {
         for(auto& title:g_mappingPage.moreOpen) for(int& open:title) open=0;
         for(int& open:g_mappingPage.modMoreOpen) open=0;
+        for(int& open:g_mappingPage.odstMoreOpen) open=0;
     }
 
     // The settings as they start, built once: a Config is large, and the page draws on the game's render thread.
@@ -1776,12 +1791,53 @@ namespace
                     ImGui::PopID();
                 }
             }
+            // ODST's prompt and map rows: only while a prompt waits or the map is open, their controls do nothing else.
+            if(selectedGame==GameTitle::Halo3ODST)
+            {
+                SettingGap();
+                ImGui::TextWrapped("Prompts and the VISR map: while one of ODST's tutorial prompts waits (\"A to "
+                    "confirm, B to reject\") or the VISR map is open, these rows answer it, and the controls they use do "
+                    "nothing else until it is gone. Every other time those controls keep the jobs the rows above give "
+                    "them. In the map the bumpers turn the page and the right stick's up and down zoom, as on a "
+                    "gamepad. The same in MCC and in Project Reclaimer.");
+                for(unsigned action=0;action<vr_mapping::OdstCount;++action)
+                {
+                    ImGui::PushID(static_cast<int>(300+action));
+                    SettingGap();
+                    SettingGroup group(vr_mapping::kOdstNames[action]);
+                    auto& row=g_config.vr_odst_bindings[action];
+                    bool* open=g_mappingPage.odstOptionsOpen[action];
+                    bool odstChanged=MappingCombo("##own",row[0].press,MappingList::Odst);
+                    if(odstChanged&&row[0].press==vr_mapping::Unbound) {row[0]=vr_mapping::Input{};open[0]=false;}
+                    odstChanged|=InputOptions(row[0].held,row[0].mode,open[0]);
+                    odstChanged|=MoreInputsList(row.data()+1,vr_mapping::kMoreInputs,g_mappingPage.odstMoreOpen[action],
+                        open+1,MappingList::Odst);
+                    if(action==vr_mapping::PromptConfirm)
+                        OptionNote("In a prompt, the game's own confirm button; in the map, A.");
+                    else if(action==vr_mapping::PromptReject)
+                        OptionNote("In a prompt, the game's own reject button; in the map, B.");
+                    else if(action==vr_mapping::MapUp)
+                        OptionNote("The map's D-pad, in the map only. On the right stick, the map takes the stick: it "
+                            "turns you nowhere while the map is open.");
+                    if(odstChanged)
+                    {
+                        if(vr_mapping::ExtraControlBits(row)) g_config.vr_action_mapping=true;
+                        changed=true;
+                    }
+                    ImGui::PopID();
+                }
+            }
             if(ImGui::Button("Reset this game's mappings"))
             {
                 // The default controls' rows, never the player's flat layout.
                 default_controls::Rows(selectedGame,g_config.vr_bindings[selectedTitle],g_config.vr_inputs[selectedTitle],
                     g_config.vr_extra_bindings[selectedTitle]);
                 for(int& open:moreOpen[selectedTitle]) open=0;
+                if(selectedGame==GameTitle::Halo3ODST)
+                {
+                    g_config.vr_odst_bindings=vr_mapping::kOdstDefaults;
+                    for(int& open:g_mappingPage.odstMoreOpen) open=0;
+                }
                 changed=true;
             }
             ImGui::SameLine();
@@ -4122,6 +4178,15 @@ namespace
         // These flips were the F4/F5/F7 hotkeys. A phantom F4 (SteamVR sends
         // Alt+F4 on its exit path) kept inverting the controls mid-session, so
         // they are reachable only from this menu now.
+        }
+        // Developer tools: shown only when halomccvr.cfg says developer_settings = 1.
+        if (g_config.developer_settings && SectionHeader("Developer##section", ImGuiTreeNodeFlags_None))
+        {
+        changed |= ImGui::Checkbox("Reset ODST training (dev)##odsttraining", &g_config.odst_reset_training);
+        ImGui::TextDisabled("ODST in MCC: Mombasa Streets treats its tutorials (look, health, VISR, VISR database, "
+                            "NAV beacons) as not done yet, so they play again. Start from Prepare To Drop, solo, "
+                            "with the Blind skull off. Your saved progress is not changed: turn this off and the game "
+                            "remembers what it did before. Live.");
         }
         if (SectionHeader("Tracking calibration##section", ImGuiTreeNodeFlags_None))
         {

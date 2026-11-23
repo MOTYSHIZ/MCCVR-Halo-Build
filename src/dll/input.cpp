@@ -28,6 +28,7 @@
 #include "../common/physical_crouch_input.h"
 #include "../common/vr_action_passthrough.h"
 #include "../common/vehicle_seat_buttons.h"
+#include "../common/odst_prompt_text.h"
 #include "physical_crouch_camera.h"
 
 namespace
@@ -126,6 +127,22 @@ namespace
     }
     std::atomic<uint64_t> g_startPulseUntilMs{0};
 std::atomic<uint32_t> g_menuPressSerial{0};
+
+    // ODST'S PROMPT AND MAP ROWS (vr_mapping::OdstAction): live while one of ODST's tutorial prompts waits on accept or
+    // cancel, or its VISR map is open, as halo3odst.dll's control builder last saw them (NativeVrActions_OdstPromptState).
+    // Remapping on, ODST only, and never with the F1 menu open. Project Reclaimer runs ODST's prompts in its own client
+    // (reclaimer_client::FindOdstPrompt): its prompts are read there, its VISR map is not found, so its map rows stay off.
+    struct OdstRowsState { bool live = false, prompt = false, map = false; };
+    OdstRowsState OdstRows(GameTitle controlsTitle, uint64_t now) noexcept
+    {
+        OdstRowsState s{};
+        if (controlsTitle != GameTitle::Halo3ODST || !g_config.vr_action_mapping || Menu_IsOpen())
+            return s;
+        if (!NativeVrActions_OdstPromptState(now, s.prompt, s.map))
+            return OdstRowsState{};
+        s.live = s.prompt || s.map;
+        return s;
+    }
 
 #if HALOMCCVR_DEV_DIAGNOSTICS
     // MCC's crouch-lock (toggle crouch) preference as saved in GameUserSettings.ini
@@ -546,6 +563,23 @@ std::atomic<uint32_t> g_menuPressSerial{0};
             EffectiveBindings(mappingTitle,gameLayout,gameLayoutKnown):vr_mapping::Overrides{};
         // This game's rows' inputs: what each holds first, its mode, and its further inputs (VR Mappings).
         const vr_mapping::Inputs* rowInputs=mappingTitle>=0?&g_config.vr_inputs[mappingTitle]:nullptr;
+        // ODST's tutorial text in VR words (odst_prompt_text.h) names VISR's control and what presses each gamepad
+        // button (the map's waypoint and COMM lines, the repeat-training answer, the HUD's use / pick-up prompts): use
+        // / pick up first where the layout shares a button. Unread layout: X and Y as ODST's default, the rest kept as
+        // the game's own. Only stored when it changes.
+        if(controlsTitle==GameTitle::Halo3ODST&&mappingTitle>=0) {
+            vr_mapping::Input pad[kOdstTextPadButtons]{};
+            for(unsigned b=0;b<kOdstTextPadButtons;++b)
+                pad[b]=odst_prompt_text::ControlForButton(odst_prompt_text::kPadTransport[b],
+                    b==odst_prompt_text::kPadX?vr_mapping::Reload:b==odst_prompt_text::kPadY?vr_mapping::SwitchWeapon:
+                    vr_mapping::Count,effectiveBindings,gameLayout,gameLayoutKnown,rowInputs,vr_mapping::Interact);
+            vr_mapping::Input actions[vr_mapping::Count]{};
+            for(unsigned a=0;a<vr_mapping::Count;++a)
+                actions[a]=odst_prompt_text::ControlForAction(static_cast<vr_mapping::Action>(a),effectiveBindings,
+                    rowInputs);
+            NativeVrActions_PublishOdstTextControls(
+                odst_prompt_text::ControlForAction(vr_mapping::Flashlight,effectiveBindings,rowInputs),pad,actions);
+        }
         // Zoom's own control for the lens: its row's press, or its first further input's where the row has none.
         int zoomSource=mappingTitle>=0&&g_config.vr_action_mapping?
             vr_mapping::Resolve(vr_mapping::Zoom,effectiveBindings[vr_mapping::Zoom]):vr_mapping::RightClick;
@@ -895,6 +929,47 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         uint32_t actionSources=collectedSources|stickSources;
         actionSources&=~pauseConsumed;
         if(chord.consumeClicks) actionSources&=~(vr_mapping::Bit(vr_mapping::LeftClick)|vr_mapping::Bit(vr_mapping::RightClick));
+        // ODST'S PROMPT AND MAP ROWS (vr_mapping::OdstMapper): while a tutorial prompt waits or the VISR map is open,
+        // confirm and reject press the game's own accept and cancel buttons (the map: A and B themselves), and the map's
+        // D-pad rows its D-pad. The controls those rows use press nothing else meanwhile; every other row is untouched.
+        uint32_t odstButtons=0,odstClaimed=0;
+        int odstZoom=0;   // the map's zoom rows: the right stick up (+1) or down (-1), all the way
+        {
+            const OdstRowsState odst=OdstRows(controlsTitle,inputNow);
+            uint32_t odstSources=actionSources;
+            if(pad.odstMapStick) odstSources|=vr_mapping::StickSideSources(pad.odstMapX,pad.odstMapY);
+            static std::mutex odstRowsLock;
+            static vr_mapping::OdstMapper odstRows;
+            uint32_t pressed=0;
+            {
+                std::lock_guard<std::mutex> lock(odstRowsLock);
+                pressed=odstRows.Step(odstSources,odst.prompt,odst.map,g_config.vr_odst_bindings,&odstClaimed);
+            }
+            if(odst.live)
+            {
+                vr_mapping::OdstButtons buttons{};
+                uint32_t accept=0,cancel=0;
+                const bool layoutRead=Game_ReadOdstPromptButtons(accept,cancel,inputNow);
+                if(accept) buttons.accept=accept;
+                if(cancel) buttons.cancel=cancel;
+                odstButtons=vr_mapping::OdstRowButtons(pressed,odst.prompt,odst.map,buttons);
+                odstZoom=vr_mapping::OdstMapZoom(pressed,odst.map);
+                actionSources&=~odstClaimed;
+                static std::atomic<uint64_t> shownButtons{0};
+                const uint64_t shown=(uint64_t(buttons.accept)<<32)|buttons.cancel|(layoutRead?1ull<<63:0);
+                if(odst.prompt&&shownButtons.exchange(shown,std::memory_order_relaxed)!=shown)
+                    LOG("ODST prompt and map rows: the game's accept is on 0x%X, its cancel on 0x%X (%s)",buttons.accept,
+                        buttons.cancel,layoutRead?"read from the game's layout":"the engine's A and B; the layout is unread");
+            }
+            else odstClaimed=0;
+            // Each time the game's state changes: what the rows answer now.
+            static std::atomic<uint32_t> shownState{~0u};
+            const uint32_t state=controlsTitle!=GameTitle::Halo3ODST?0u:(odst.prompt?1u:0u)|(odst.map?2u:0u);
+            if(controlsTitle==GameTitle::Halo3ODST&&shownState.exchange(state,std::memory_order_relaxed)!=state)
+                LOG("ODST prompt and map rows%s: %s",currentTitle==GameTitle::Halo3?" (Project Reclaimer)":"",
+                    state==3u?"a prompt waits and the VISR map is open":state==1u?"a prompt waits for confirm or reject":
+                    state==2u?"the VISR map is open":"no prompt and no map; the controls are the rows' again");
+        }
         if(scopeAvailable) nativeActions[vr_mapping::Zoom]=0;
         if(wheelGesture) actionSources&=~(vr_mapping::Bit(vr_mapping::PrimaryGrip)|vr_mapping::Bit(vr_mapping::SupportGrip));
         const vr_mapping::Overrides emptyMappings{};
@@ -1056,14 +1131,19 @@ std::atomic<uint32_t> g_menuPressSerial{0};
 #if HALOMCCVR_DEV_DIAGNOSTICS
         const WORD witnessBase = btn;
 #endif
-        if (!semanticMode&&pad.a) btn |= XINPUT_GAMEPAD_A;
-        if (!semanticMode&&pad.b && !(pauseConsumed&vr_mapping::Bit(vr_mapping::B))) btn |= XINPUT_GAMEPAD_B;
-        if (!semanticMode&&xPressed) btn |= XINPUT_GAMEPAD_X;
-        if (!semanticMode&&pad.y && !(pauseConsumed&vr_mapping::Bit(vr_mapping::Y))) btn |= XINPUT_GAMEPAD_Y;
-        if (!semanticMode&&pad.clickL && !chord.consumeClicks) btn |= XINPUT_GAMEPAD_LEFT_THUMB;
-        if (!semanticMode&&pad.clickR && !chord.consumeClicks && !scopeAvailable)
+        // A control an ODST prompt or map row holds passes through as nothing else (odstClaimed).
+        const auto odstHolds=[odstClaimed](int source) { return (odstClaimed&vr_mapping::Bit(source))!=0; };
+        if (!semanticMode&&pad.a && !odstHolds(vr_mapping::A)) btn |= XINPUT_GAMEPAD_A;
+        if (!semanticMode&&pad.b && !(pauseConsumed&vr_mapping::Bit(vr_mapping::B)) && !odstHolds(vr_mapping::B))
+            btn |= XINPUT_GAMEPAD_B;
+        if (!semanticMode&&xPressed && !odstHolds(vr_mapping::X)) btn |= XINPUT_GAMEPAD_X;
+        if (!semanticMode&&pad.y && !(pauseConsumed&vr_mapping::Bit(vr_mapping::Y)) && !odstHolds(vr_mapping::Y))
+            btn |= XINPUT_GAMEPAD_Y;
+        if (!semanticMode&&pad.clickL && !chord.consumeClicks && !odstHolds(vr_mapping::LeftClick))
+            btn |= XINPUT_GAMEPAD_LEFT_THUMB;
+        if (!semanticMode&&pad.clickR && !chord.consumeClicks && !scopeAvailable && !odstHolds(vr_mapping::RightClick))
             btn |= XINPUT_GAMEPAD_RIGHT_THUMB;
-        btn|=static_cast<WORD>(semanticButtons|seatButtons);
+        btn|=static_cast<WORD>(semanticButtons|seatButtons|odstButtons);
 #if HALOMCCVR_DEV_DIAGNOSTICS
         g_witness.mapper = static_cast<uint32_t>(btn & ~witnessBase) |
             (semanticButtons & seat_witness::kTransportMask);
@@ -1101,8 +1181,10 @@ std::atomic<uint32_t> g_menuPressSerial{0};
 #endif
         if (!wheelGesture&&!semanticMode)
         {
-            if (pad.gripL > 0.6f && !pad.weaponConsumeSupport) btn |= XINPUT_GAMEPAD_LEFT_SHOULDER;
-            if (pad.gripR > 0.6f && !pad.weaponConsumePrimary) btn |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+            if (pad.gripL > 0.6f && !pad.weaponConsumeSupport && !odstHolds(vr_mapping::SupportGrip))
+                btn |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+            if (pad.gripR > 0.6f && !pad.weaponConsumePrimary && !odstHolds(vr_mapping::PrimaryGrip))
+                btn |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
         }
 #if HALOMCCVR_DEV_DIAGNOSTICS
         g_witness.mapper |= static_cast<uint32_t>(btn & ~witnessBeforeGrips);
@@ -1152,12 +1234,16 @@ std::atomic<uint32_t> g_menuPressSerial{0};
         }
 #endif
 
-        const BYTE tl = semanticMode?((semanticButtons&(1u<<16))?255:0):(BYTE)(leftTrigger*255.0f);
-        const BYTE tr = semanticMode?((semanticButtons&(1u<<17))?255:0):(BYTE)(pad.trigR*255.0f);
+        const BYTE tl = semanticMode?((semanticButtons&(1u<<16))?255:0):
+            odstHolds(vr_mapping::SupportTrigger)?0:(BYTE)(leftTrigger*255.0f);
+        const BYTE tr = semanticMode?((semanticButtons&(1u<<17))?255:0):
+            odstHolds(vr_mapping::PrimaryTrigger)?0:(BYTE)(pad.trigR*255.0f);
         if (tl > state->Gamepad.bLeftTrigger) state->Gamepad.bLeftTrigger = tl;
         if (tr > state->Gamepad.bRightTrigger) state->Gamepad.bRightTrigger = tr;
-        if ((heldButtons|seatButtons|(semanticMode?0u:semanticButtons)) & (1u<<16)) state->Gamepad.bLeftTrigger = 255;
-        if ((heldButtons|seatButtons|(semanticMode?0u:semanticButtons)) & (1u<<17)) state->Gamepad.bRightTrigger = 255;
+        if ((heldButtons|seatButtons|odstButtons|(semanticMode?0u:semanticButtons)) & (1u<<16))
+            state->Gamepad.bLeftTrigger = 255;
+        if ((heldButtons|seatButtons|odstButtons|(semanticMode?0u:semanticButtons)) & (1u<<17))
+            state->Gamepad.bRightTrigger = 255;
         if (gestureMelee & (1u<<16)) state->Gamepad.bLeftTrigger = 255;
         if (gestureMelee & (1u<<17)) state->Gamepad.bRightTrigger = 255;
         if (pad.weaponButtons & (1u<<16)) state->Gamepad.bLeftTrigger = 255;
@@ -1430,6 +1516,16 @@ std::atomic<uint32_t> g_menuPressSerial{0};
                     ? 0 : ToRawStick(pad.turnY);
             }
         }
+        // ODST's VISR map with its rows on the right stick: the stick is theirs, so the map is sent none of it (neither
+        // the stick nor a hand-steered aim, which means nothing there) but what the zoom rows press: the stick's own up
+        // or down, which the map's screen zooms on.
+        if (pad.odstMapStick)
+        {
+            state->Gamepad.sThumbRX = 0;
+            state->Gamepad.sThumbRY = 0;
+        }
+        if (odstZoom)
+            state->Gamepad.sThumbRY = odstZoom > 0 ? SHORT(32767) : SHORT(-32768);
     }
 
     std::atomic<unsigned> g_diagReads{0}, g_diagPadValid{0}, g_diagMerged{0};
@@ -1857,6 +1953,12 @@ void Input_ReportGamePolls()
     const uint32_t others = g_gamePolls[2].exchange(0, std::memory_order_relaxed);
     LOG("game pad: the game polled the mod's pad %u times in the last 10 s (%u of them carried controller input); "
         "other slots %u", polls, carried, others);
+}
+
+bool Input_OdstMapTakesRightStick() noexcept
+{
+    const OdstRowsState odst = OdstRows(Game_ControlsTitle(TitleAdapter_GetActiveTitle()), GetTickCount64());
+    return odst.map && vr_mapping::OdstMapUsesRightStick(g_config.vr_odst_bindings);
 }
 
 uint32_t Input_MenuPressSerial()

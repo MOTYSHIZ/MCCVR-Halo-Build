@@ -1440,6 +1440,11 @@ namespace
     PreparedFrame g_preparedFrame{};
     uint64_t g_nextPreparedSerial = 0;
     std::atomic<bool> g_preparedShouldRender{false};
+    // The prepared serial whose frame the game drew WITHOUT the eyes, to be shown flat on the screen
+    // (VR_PresentFlatFrame: Project Reclaimer's ODST VISR map); 0 none. Keyed to the serial so a frame is
+    // shown flat only when it really was drawn flat. Frames so shown, for the log.
+    std::atomic<uint64_t> g_flatFrameSerial{0};
+    std::atomic<uint64_t> g_flatFramesPresented{0};
     std::atomic<uint64_t> g_preparedViewSerialPublished{0};
 
     template <size_t N>
@@ -10339,6 +10344,22 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         return q;
     }
 
+    // The game lays out its 2D UI in a 16:9 frame. Drawn into a taller picture (Project Reclaimer renders at the
+    // headset eye's shape: 2912x2100 on 2026-11-21), it centres that frame and fills the rows above and below it
+    // with the view behind (ODST's VISR map showed its 3D map there). Shows only the 16:9 rows, as MCC's 16:9
+    // picture does; a picture already 16:9 or wider is left whole. Same width, shorter quad.
+    void CropQuadToSixteenNine(XrCompositionLayerQuad& q)
+    {
+        const int32_t w = q.subImage.imageRect.extent.width;
+        const int32_t h = q.subImage.imageRect.extent.height;
+        if (w <= 0 || h <= 0 || int64_t(w) * 9 >= int64_t(h) * 16)
+            return;
+        const int32_t band = static_cast<int32_t>((int64_t(w) * 9 + 8) / 16);
+        q.subImage.imageRect.offset.y += (h - band) / 2;
+        q.subImage.imageRect.extent.height = band;
+        q.size.height = q.size.width * float(band) / float(w);
+    }
+
     bool PrepareNativeSubtitle(XrCompositionLayerQuad& quad)
     {
         const auto image = NativeSubtitles_Read();
@@ -16024,6 +16045,15 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
         pad.thumbrestDpad = thumbrest.active;
         pad.dpadX = thumbrest.x;
         pad.dpadY = thumbrest.y;
+        // ODST's VISR map with its D-pad rows on the right stick: the stick is theirs, so it turns nothing (removed here,
+        // before any turn or scope reads it, as the thumb-rest D-pad's is).
+        if (!pad.thumbrestDpad && pad.valid && Input_OdstMapTakesRightStick())
+        {
+            pad.odstMapStick = true;
+            pad.odstMapX = std::isfinite(pad.turnX) ? std::clamp(pad.turnX, -1.0f, 1.0f) : 0.0f;
+            pad.odstMapY = std::isfinite(pad.turnY) ? std::clamp(pad.turnY, -1.0f, 1.0f) : 0.0f;
+            pad.turnX = pad.turnY = 0.0f;
+        }
         static VrPadState previousPad{};
         static bool previousRawMenu = false;
         static uint64_t odstMenuPulseUntil = 0;
@@ -19205,7 +19235,13 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                 }
                 TickRenderPlan();
                 const bool pausedPresentation = g_pausePresentation.load();
-                const bool stereo = !pausedPresentation && g_stereoEnabled.load() && viewsValid &&
+                // A frame the game drew without the eyes (VR_PresentFlatFrame) shows on the screen, as in a pause,
+                // but without the pause: nothing else changes.
+                const uint64_t flatSerial = g_flatFrameSerial.load(std::memory_order_acquire);
+                const bool flatFrame = flatSerial != 0 && flatSerial == g_preparedFrame.serial;
+                if (flatFrame)
+                    g_flatFramesPresented.fetch_add(1, std::memory_order_relaxed);
+                const bool stereo = !pausedPresentation && !flatFrame && g_stereoEnabled.load() && viewsValid &&
                                     g_stereoChain != XR_NULL_HANDLE && Game_IsHeadTracking();
 #if HALOMCCVR_HALO2_STEREO6DOF
                 const bool currentHalo2Title =
@@ -21568,6 +21604,8 @@ float4 ps_scope_linearize(VSOut i):SV_Target { return paint(i.uv,true); }
                             screenQuad = MakeQuad(g_screenChain, (int32_t)g_screenW, (int32_t)g_screenH,
                                                   g_config.screen_width_m, g_config.screen_distance_m, 0.0f, 0,
                                                   headLock);
+                            if (flatFrame)
+                                CropQuadToSixteenNine(screenQuad);
                             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&screenQuad));
                         }
                     }
@@ -24199,6 +24237,18 @@ bool VR_IsCutsceneTheaterActive()
 bool VR_ShouldRenderPreparedFrame()
 {
     return g_preparedShouldRender.load(std::memory_order_acquire);
+}
+
+void VR_PresentFlatFrame() noexcept
+{
+    const uint64_t serial = g_preparedSerialPublished.load(std::memory_order_acquire);
+    if (serial)
+        g_flatFrameSerial.store(serial, std::memory_order_release);
+}
+
+uint64_t VR_FlatFramesPresented() noexcept
+{
+    return g_flatFramesPresented.load(std::memory_order_relaxed);
 }
 
 float VR_HeadsetRefreshHz()

@@ -73,6 +73,8 @@ int main()
     g_config.host_ui_panel_distance_m = 1.7f;
     g_config.aim_frame_zoom = false;
     g_config.aim_frame_stereo = true;
+    g_config.developer_settings = true;
+    g_config.odst_reset_training = true;
     g_config.halo2_camera_shake = true;
     g_config.aim_frame_3d_strength = 3.5f;
     g_config.aim_frame_size_deg[1] = 70.0f;
@@ -107,6 +109,8 @@ int main()
         "right offsets remain independent after save/reload");
     Check(!g_config.aim_frame_zoom, "aim_frame_zoom is remembered");
     Check(g_config.aim_frame_stereo, "aim_frame_stereo is remembered");
+    Check(g_config.developer_settings, "developer_settings is remembered while on");
+    Check(g_config.odst_reset_training, "odst_reset_training is remembered");
     Check(g_config.halo2_camera_shake, "halo2_camera_shake is remembered");
     Check(g_config.aim_frame_3d_strength > 3.49f && g_config.aim_frame_3d_strength < 3.51f,
           "aim_frame_3d_strength is remembered");

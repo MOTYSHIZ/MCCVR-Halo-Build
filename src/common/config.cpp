@@ -1208,6 +1208,17 @@ void ConfigLoad(const wchar_t* path)
                 if(!vr_mapping::ParseInput(val,input.held,input.press,input.mode,false))
                     LOG("config: invalid VR binding '%s' ignored",key);
             }
+        // ODST's prompt and map rows: vr_bind_odst_prompt_confirm and _2 on.
+        for(unsigned action=0;action<vr_mapping::OdstCount&&!vrBindingKey;++action)
+            for(unsigned slot=0;slot<vr_mapping::kRowInputs&&!vrBindingKey;++slot)
+            {
+                char bindingKey[96]{};
+                sprintf_s(bindingKey,"vr_bind_%s%s",vr_mapping::kOdstKeys[action],vr_mapping::kControlSuffix[slot]);
+                if(strcmp(key,bindingKey)) continue;
+                vrBindingKey=true;
+                if(!vr_mapping::ParseOdstInput(val,g_config.vr_odst_bindings[action][slot]))
+                    LOG("config: invalid VR binding '%s' ignored",key);
+            }
         if(vrBindingKey) continue;
         if(!strcmp(key,"experimental_body_ik")) {g_config.experimental_body_ik=atoi(val)!=0;continue;}
         if(!strcmp(key,"body_ik_hide_lower")) {g_config.body_ik_hide_lower=atoi(val)!=0;continue;}
@@ -1625,6 +1636,8 @@ void ConfigLoad(const wchar_t* path)
         if (!strcmp(key, "mono_rendering")) { g_config.mono_rendering = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_zoom")) { g_config.aim_frame_zoom = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_stereo")) { g_config.aim_frame_stereo = atoi(val) != 0; continue; }
+        if (!strcmp(key, "developer_settings")) { g_config.developer_settings = atoi(val) != 0; continue; }
+        if (!strcmp(key, "odst_reset_training")) { g_config.odst_reset_training = atoi(val) != 0; continue; }
         if (!strcmp(key, "halo2_camera_shake")) { g_config.halo2_camera_shake = atoi(val) != 0; continue; }
         if (!strcmp(key, "aim_frame_3d_strength")) { g_config.aim_frame_3d_strength = (float)atof(val); continue; }
         if (!strcmp(key, "aim_frame_size_deg_1")) { g_config.aim_frame_size_deg[0] = (float)atof(val); continue; }
@@ -3586,6 +3599,14 @@ void ConfigSave()
     fprintf(f, "# The frame in 3D: each eye sees its own picture of the zoomed view. 0 = one flat picture.\n");
     fprintf(f, "# (default %d)\n", d.aim_frame_stereo ? 1 : 0);
     fprintf(f, "aim_frame_stereo = %d\n\n", g_config.aim_frame_stereo ? 1 : 0);
+    if (g_config.developer_settings)
+    {
+        fprintf(f, "# Developer settings on the Advanced page. 1 = shown. (written only while on)\n");
+        fprintf(f, "developer_settings = 1\n\n");
+        fprintf(f, "# Developer: ODST Mombasa Streets' tutorials play again (their done marks read as not done; the\n");
+        fprintf(f, "# saved marks are not changed). 1 = on. (default 0)\n");
+        fprintf(f, "odst_reset_training = %d\n\n", g_config.odst_reset_training ? 1 : 0);
+    }
     fprintf(f, "# The frame's 3D strength: its eye spacing as a multiple of yours. (default %.1f, range 1 to 10)\n",
             d.aim_frame_3d_strength);
     fprintf(f, "aim_frame_3d_strength = %.2f\n\n", g_config.aim_frame_3d_strength);
@@ -3932,6 +3953,18 @@ void ConfigSave()
             const auto& mod=g_config.vr_mod_bindings[action][slot];
             vr_mapping::FormatInput(input,mod.held,mod.press,mod.mode);
             fprintf(f,"vr_bind_%s%s = %s\n",vr_mapping::kModKeys[action],vr_mapping::kControlSuffix[slot],input);
+        }
+    fprintf(f,"# ODST only: the rows for its tutorial prompts and the VISR map (confirm, reject, the map's D-pad), live only\n"
+              "# while a prompt waits or the map is open; %d and %d are the right stick's left and right. Only those that\n"
+              "# differ from the default controls.\n",
+        vr_mapping::RightStickLeft,vr_mapping::RightStickRight);
+    for(unsigned action=0;action<vr_mapping::OdstCount;++action)
+        for(unsigned slot=0;slot<vr_mapping::kRowInputs&&
+             g_config.vr_odst_bindings[action]!=vr_mapping::kOdstDefaults[action];++slot)
+        {
+            const auto& odst=g_config.vr_odst_bindings[action][slot];
+            vr_mapping::FormatInput(input,odst.held,odst.press,odst.mode);
+            fprintf(f,"vr_bind_%s%s = %s\n",vr_mapping::kOdstKeys[action],vr_mapping::kControlSuffix[slot],input);
         }
     fprintf(f,"\n# Native localized subtitles: independent gameplay and theatre placement.\n");
     fprintf(f,"# Per-game muzzle-flash hiding. Supported paths: H2 Original and H4.\n");

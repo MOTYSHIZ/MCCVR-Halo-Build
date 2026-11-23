@@ -10,6 +10,12 @@
 #include "../common/config.h"
 #include "../common/log.h"
 #include "../common/minhook_lifecycle.h"
+#include "../common/odst_prompt_resolve.h"
+#include "../common/odst_prompt_text.h"
+#include "../common/odst_training_reset.h"
+#include "drive_cascade.h"
+#include "reclaimer_client_image.h"
+#include "vr.h"
 #include <windows.h>
 #include <intrin.h>
 #include <MinHook.h>
@@ -27,6 +33,10 @@ void NativeVrReaderThunkHalo3();
 void NativeVrH3ActionEdgesThunk();
 void NativeVrReaderThunkOdst();
 void NativeVrReaderThunkHalo4();
+void OdstTitleTextThunk();
+void OdstTitleLookupThunk();
+void OdstHudMessageThunk();
+void OdstGpBooleanThunk();
 }
 
 namespace {
@@ -328,6 +338,96 @@ __declspec(noinline) void WitnessNativeRecord(GameTitle requested,unsigned actio
     SeatWitness_NoteNativeAction(requested,action,present,frames,milliseconds);
 }
 #endif
+// ODST'S TUTORIAL TEXT IN VR WORDS (odst_prompt_text.h): what presses VISR and each gamepad button, as the input
+// thread last read the player's rows and the game's layout (NativeVrActions_PublishOdstTextControls), for the chud
+// text hooks on the game's threads. Each input packs as three 5-bit controls (held, held, press), four to a word (VISR,
+// the buttons A B X Y LB RB LT RT, then each action row); bit 63 of each word: read. A rebind read mid-change mixes two
+// readings for one line at most.
+namespace odst_text {
+constexpr unsigned kPadItems=1+odst_prompt_text::glyph::kPadButtons;
+constexpr unsigned kItems=kPadItems+vr_mapping::Count, kWords=(kItems+3)/4;
+std::atomic<uint64_t> controls[kWords]{};
+constexpr uint64_t Pack(const vr_mapping::Input& in) noexcept {
+    const auto bits=[](int source){ return static_cast<uint64_t>(source>=0&&source<32?source:vr_mapping::Unbound); };
+    return bits(in.held[0])|bits(in.held[1])<<5|bits(in.press)<<10;
+}
+constexpr vr_mapping::Input Unpack(uint64_t bits) noexcept {
+    vr_mapping::Input in{};
+    in.held[0]=static_cast<int>(bits&31u);
+    in.held[1]=static_cast<int>(bits>>5&31u);
+    in.press=static_cast<int>(bits>>10&31u);
+    return in;
+}
+// The last line kept as the game's own (its pictures as <U+....> in the log), from either title's hook: the worker
+// names it, so a line the rewrite does not know can be added.
+wchar_t lastKept[128]{};
+std::atomic<uint32_t> lastKeptSerial{};
+uint32_t lastKeptShown=0;
+void NoteKept(const wchar_t* text) noexcept {   // the script thread
+    unsigned n=0;
+    for(;text[n]&&n<127u;++n) lastKept[n]=text[n];
+    lastKept[n]=0;
+    lastKeptSerial.fetch_add(1,std::memory_order_release);
+}
+// A line for the log: printable as itself, CR as |, LF as /, other characters (the pictures) as <U+....>.
+template<size_t N> void Escape(const wchar_t* text,char (&line)[N]) noexcept {
+    size_t used=0;
+    for(unsigned i=0;text[i]&&used+10<N;++i) {
+        const wchar_t ch=text[i];
+        if(ch>=0x20&&ch<0x7F) line[used++]=static_cast<char>(ch);
+        else if(ch==L'\r') line[used++]='|';
+        else if(ch==L'\n') line[used++]='/';
+        else used+=static_cast<size_t>(std::snprintf(line+used,N-used,"<U+%04X>",static_cast<unsigned>(ch)));
+    }
+    line[used<N?used:N-1]=0;
+}
+void ReportKept(const char* who) noexcept {   // the worker
+    const uint32_t serial=lastKeptSerial.load(std::memory_order_acquire);
+    if(serial==lastKeptShown) return;
+    lastKeptShown=serial;
+    char line[128*9]{};
+    Escape(lastKept,line);
+    LOG("ODST tutorial text%s: kept the game's own words for \"%s\" (CR as |, LF as /)",who,line);
+}
+// The last line said in VR words, as the game wrote it and as it was said: the worker names both, so the log shows
+// which tutorials and prompts appeared.
+wchar_t lastSaidFrom[128]{}, lastSaidTo[256]{};
+std::atomic<uint32_t> lastSaidSerial{};
+uint32_t lastSaidShown=0;
+void NoteSaid(const wchar_t* from,const wchar_t* to) noexcept {   // the script or chud thread
+    unsigned n=0;
+    for(;from[n]&&n<127u;++n) lastSaidFrom[n]=from[n];
+    lastSaidFrom[n]=0;
+    for(n=0;to[n]&&n<255u;++n) lastSaidTo[n]=to[n];
+    lastSaidTo[n]=0;
+    lastSaidSerial.fetch_add(1,std::memory_order_release);
+}
+void ReportSaid(const char* who) noexcept {   // the worker
+    const uint32_t serial=lastSaidSerial.load(std::memory_order_acquire);
+    if(serial==lastSaidShown) return;
+    lastSaidShown=serial;
+    char from[128*9]{}, to[256*2]{};
+    Escape(lastSaidFrom,from);
+    Escape(lastSaidTo,to);
+    LOG("ODST tutorial text%s: said \"%s\" as \"%s\" (CR as |, LF as /)",who,from,to);
+}
+// The controls the text names, or false while the input thread has not read them (the game's own text stays).
+bool Read(odst_prompt_text::Controls& c) noexcept {
+    uint64_t packed[kWords]{};
+    for(unsigned i=0;i<kWords;++i) {
+        packed[i]=controls[i].load(std::memory_order_acquire);
+        if(!(packed[i]>>63)) return false;
+    }
+    const auto item=[&packed](unsigned k){ return Unpack(packed[k/4]>>(15*(k%4))); };
+    c.odst=g_config.vr_odst_bindings;
+    c.visr=item(0);
+    for(unsigned b=0;b<odst_prompt_text::glyph::kPadButtons;++b) c.pad[b]=item(1+b);
+    for(unsigned a=0;a<vr_mapping::Count;++a) c.action[a]=item(kPadItems+a);
+    c.leftHanded=g_config.left_handed;
+    c.dpadRightHand=g_config.dpad_hand!=0;
+    return true;
+}
+}
 #include "native_vr_actions_ce.inl"
 #include "native_vr_actions_h3.inl"
 #include "native_vr_actions_odst.inl"
@@ -397,6 +497,21 @@ uintptr_t (*g_nativeVrH3ActionEdges)(uint32_t,void*,uintptr_t)=&native_h3::Actio
 void* (*g_nativeVrReaderHalo3)(void*,unsigned,uintptr_t)=&native_h3::ReaderHook;
 void* (*g_nativeVrReaderOdst)(void*,unsigned,uintptr_t)=&native_odst::ReaderHook;
 void* (*g_nativeVrReaderHalo4)(void*,unsigned,uintptr_t)=&native_h4::ReaderHook;
+void (*g_odstTitleTextHook)(int,const wchar_t*,float)=&native_odst::TitleTextHook;
+void (*g_odstHudMessageHook)(int,int,uintptr_t,wchar_t*)=&native_odst::HudMessageHook;
+uintptr_t (*g_odstGpBooleanHook)(uint32_t,unsigned,uintptr_t,uintptr_t)=&native_odst::GpBooleanHook;
+}
+void NativeVrActions_PublishOdstTextControls(const vr_mapping::Input& visr,
+    const vr_mapping::Input (&pad)[kOdstTextPadButtons],const vr_mapping::Input (&actions)[vr_mapping::Count]) noexcept {
+    using namespace odst_text;
+    static_assert(kOdstTextPadButtons==odst_prompt_text::glyph::kPadButtons);
+    uint64_t packed[kWords]{};
+    for(unsigned k=0;k<kItems;++k)
+        packed[k/4]|=Pack(k==0?visr:k<kPadItems?pad[k-1]:actions[k-kPadItems])<<(15*(k%4));
+    for(unsigned i=0;i<kWords;++i) {
+        packed[i]|=1ull<<63;
+        if(controls[i].load(std::memory_order_relaxed)!=packed[i]) controls[i].store(packed[i],std::memory_order_release);
+    }
 }
 void NativeVrActions_BeginPoll() noexcept {
     pollPublished=false;
@@ -444,6 +559,155 @@ void NativeVrActions_Publish(const void* raw,GameTitle requested,uint64_t now,
     publication.sequence.store(before+2,std::memory_order_release);
     pollPublished=true;
 }
+// PROJECT RECLAIMER'S ODST PROMPTS (reclaimer_client::FindOdstPrompt): its client runs ODST's prompt natives itself and
+// keeps a byte per controller, a bit per waiting prompt (0 confirm, 1 cancel, 2 retrain). Found once, by shape and
+// cross-checked, on the worker the first time an ODST level runs on Reclaimer; read from any thread (a plain byte of the
+// client's data). Reclaimer's VISR map is its own screen and is not found: there the map rows stay off.
+namespace reclaimer_odst_prompt {
+std::atomic<uintptr_t> flags{0};
+std::atomic<bool> attempted{false};
+// The VISR map probe (reclaimer_client::FindOdstPdaProbe): LOG ONLY. Worker-only state.
+reclaimer_client::OdstPdaProbe pda{};
+uintptr_t clientBase=0;
+uint64_t pdaShown=~0ull;
+unsigned pdaLines=0;
+__declspec(noinline) bool Find(reclaimer_client::OdstPrompt& found,reclaimer_client::OdstPdaProbe& probe) noexcept {
+    __try {
+        reclaimer_client::Image image;
+        if(!reclaimer_client::ClientImageInMemory(image)) return false;
+        found=reclaimer_client::FindOdstPrompt(image);
+        probe=reclaimer_client::FindOdstPdaProbe(image);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Player 0's PDA records as the client's reader would take them: the game-state record (when its pointers are set)
+// and the static one, each's flags word; the snapshot's selecting byte (-1: no snapshot); whether "ready" is set.
+struct PdaRead { bool stateRead=false; uint32_t stateFlags=0, staticFlags=0; int snapshot=-1; bool ready=false; };
+__declspec(noinline) bool ReadPda(PdaRead& out) noexcept {
+    __try {
+        const auto u64=[](uintptr_t at) { return *reinterpret_cast<const volatile uint64_t*>(at); };
+        const auto u32=[](uintptr_t at) { return *reinterpret_cast<const volatile uint32_t*>(at); };
+        out.ready=u64(clientBase+pda.readyGlobal)!=0;
+        if(const uintptr_t snapshot=static_cast<uintptr_t>(u64(clientBase+pda.snapshotGlobal)))
+            out.snapshot=*reinterpret_cast<const volatile uint8_t*>(snapshot+pda.snapshotField);
+        out.staticFlags=u32(clientBase+pda.staticBase+pda.staticOffset);
+        const uintptr_t guest=pda.guestDirect?clientBase+pda.guestGlobal:static_cast<uintptr_t>(u64(clientBase+pda.guestGlobal));
+        const uintptr_t layout=static_cast<uintptr_t>(u64(clientBase+pda.layoutGlobal));
+        const uintptr_t state=guest?static_cast<uintptr_t>(u64(guest+pda.guestOffset)):0;
+        if(state&&layout) {
+            const uint64_t s0=u64(layout);
+            const uint32_t sum=static_cast<uint32_t>(s0)+static_cast<uint32_t>(s0>>32)+pda.add;
+            const uintptr_t base=(static_cast<uintptr_t>(sum)+state+u32(layout+8)+static_cast<intptr_t>(pda.sub))&
+                ~static_cast<uintptr_t>(0xF);
+            out.stateFlags=u32(base+pda.record);
+            out.stateRead=true;
+        }
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// "Active" as the client's own pda_is_active_deterministic answers it: bit 5 or bit 11 of the record's flags word.
+inline int PdaActive(uint32_t f) noexcept { return (f&0x20u)||(f&0x800u)?1:0; }
+// The record the reader asks: the game-state one while the snapshot's byte is 1 and its pointers are set, else the static
+// one. The user's run of 2026-11-19 (0.10.6) showed the game-state record's bit 11 set for the VISR map's tutorial and
+// clear before and after it, the static record never active: the reader's answer is the map's state.
+inline bool PdaMapOpen(const PdaRead& r) noexcept {
+    if(!r.ready) return false;
+    return r.snapshot==1&&r.stateRead?PdaActive(r.stateFlags)!=0:PdaActive(r.staticFlags)!=0;
+}
+// Set (release) once `pda` and `clientBase` are filled on the worker; the input thread reads the map only after it.
+std::atomic<bool> pdaLive{false};
+// Worker, every poll while an ODST level runs on Reclaimer: a line each time what the probe reads changes (at most 120).
+void ProbePda() {
+    if(!pda.reader||!clientBase||pdaLines>=120||!Game_ReclaimerOdstLevel()) return;
+    PdaRead r{};
+    const bool read=ReadPda(r);
+    const auto active=[](uint32_t f) { return PdaActive(f); };
+    const uint64_t shown=read?(uint64_t(r.stateRead?(r.stateFlags&0xFFFu):0xFFFFu)<<32)|(uint64_t(r.staticFlags&0xFFFu)<<8)|
+        (uint64_t(r.snapshot&0xFF)<<1)|(r.ready?1u:0u):~1ull;
+    if(shown==pdaShown) return;
+    pdaShown=shown;
+    ++pdaLines;
+    if(!read) {LOG("ODST map probe (Project Reclaimer, log only): the PDA records could not be read");return;}
+    LOG("ODST map (Project Reclaimer): player 0's PDA, game-state record %s0x%03X (active %d), static record 0x%03X "
+        "(active %d); snapshot byte %d (1: the game-state record is the one asked), ready %d: the map is %s "
+        "(frames shown flat in the headset so far: %llu)",
+        r.stateRead?"":"unread ",r.stateFlags&0xFFFu,r.stateRead?active(r.stateFlags):0,r.staticFlags&0xFFFu,
+        active(r.staticFlags),r.snapshot,r.ready?1:0,PdaMapOpen(r)?"open":"closed",
+        static_cast<unsigned long long>(VR_FlatFramesPresented()));
+}
+// Worker: once per process, when an ODST level runs on Reclaimer.
+void Poll() {
+    if(!g_hostIsProjectReclaimer) return;
+    ProbePda();
+    if(attempted.load(std::memory_order_relaxed) || !Game_ReclaimerOdstLevel()) return;
+    attempted.store(true,std::memory_order_relaxed);
+    reclaimer_client::OdstPrompt found{};
+    reclaimer_client::OdstPdaProbe probe{};
+    if(!Find(found,probe))
+        LOG("ODST prompt and map rows (Project Reclaimer): off, normal controls kept; the client executable could not be "
+            "read");
+    else {
+        if(found.missing)
+            LOG("ODST prompt and map rows (Project Reclaimer): off, normal controls kept; not found: %s",found.missing);
+        else {
+            flags.store(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr))+found.flags,std::memory_order_release);
+            LOG("ODST prompt and map rows (Project Reclaimer): its prompts are found (setter exe+0x%X, prompt bytes "
+                "exe+0x%X); confirm and reject answer them",found.setter,found.flags);
+        }
+        if(probe.missing)
+            LOG("ODST map rows (Project Reclaimer): off, the right stick and grips keep their jobs in the map; not found: %s",
+                probe.missing);
+        else {
+            pda=probe;
+            clientBase=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+            pdaLive.store(true,std::memory_order_release);
+            LOG("ODST map rows (Project Reclaimer): the VISR map is read as the client's pda_is_active_deterministic reads "
+                "it (reader exe+0x%X, game-state record via guest +0x%X then +0x%X, static record exe+0x%X)",probe.reader,
+                probe.guestOffset,probe.record,probe.staticBase+probe.staticOffset);
+        }
+    }
+}
+__declspec(noinline) bool Read(uint8_t& value) noexcept {
+    const uintptr_t at=flags.load(std::memory_order_acquire);
+    if(!at) return false;
+    __try { value=*reinterpret_cast<const volatile uint8_t*>(at); return true; }   // controller 0
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+}
+bool NativeVrActions_ReclaimerOdstMapOpen() noexcept {
+    if(!g_hostIsProjectReclaimer || !Game_ReclaimerOdstLevel() ||
+       !reclaimer_odst_prompt::pdaLive.load(std::memory_order_acquire)) return false;
+    reclaimer_odst_prompt::PdaRead r{};
+    return reclaimer_odst_prompt::ReadPda(r)&&reclaimer_odst_prompt::PdaMapOpen(r);
+}
+bool NativeVrActions_OdstPromptState(uint64_t now,bool& prompt,bool& map,uint32_t* raw) noexcept {
+    prompt=map=false;
+    if(raw) *raw=0;
+    if(g_hostIsProjectReclaimer) {
+        uint8_t value=0;
+        if(TitleAdapter_GetActiveTitle()!=GameTitle::Halo3 || !Game_ReclaimerOdstLevel() ||
+           !reclaimer_odst_prompt::Read(value)) return false;
+        prompt=(value&0x3u)!=0;   // a prompt waiting on confirm or cancel
+        if(reclaimer_odst_prompt::pdaLive.load(std::memory_order_acquire)) {
+            reclaimer_odst_prompt::PdaRead r{};
+            map=reclaimer_odst_prompt::ReadPda(r)&&reclaimer_odst_prompt::PdaMapOpen(r);
+        }
+        if(raw) *raw=(value&0xFu)|(map?0x10u:0u);
+        return true;
+    }
+    auto& p=native_odst::prompt;
+    if(!p.proved.load(std::memory_order_acquire) || TitleAdapter_GetActiveTitle()!=GameTitle::Halo3ODST) return false;
+    const uint64_t stamp=p.stampMs.load(std::memory_order_acquire);
+    // The builder reads accept every tick: older than a quarter second, the game is not running its controls (a pause).
+    if(!stamp || now<stamp || now-stamp>250) return false;
+    const uint32_t generation=TitleAdapter_GetGeneration(GameTitle::Halo3ODST);
+    if(!generation || p.generation.load(std::memory_order_relaxed)!=generation) return false;
+    const uint32_t bits=p.bits.load(std::memory_order_relaxed);
+    prompt=(bits&0x3u)!=0;   // a prompt waiting on accept or cancel
+    map=(bits&0x10u)!=0;
+    if(raw) *raw=bits;
+    return true;
+}
 bool NativeVrActions_GestureRouting(GameTitle requested,uint64_t now) noexcept {
     if(requested==GameTitle::HaloCE)return native_ce::GestureRouting(now);
     if(requested==GameTitle::Halo3)return native_h3::GestureRouting(now);
@@ -456,7 +720,197 @@ bool NativeVrActions_GestureRouting(GameTitle requested,uint64_t now) noexcept {
 void NativeVrActions_Halo3CoreRetired() {
     native_h3::Poll();
 }
+// PROJECT RECLAIMER'S ODST TUTORIAL TEXT IN VR WORDS (reclaimer_client::FindOdstTitleText, odst_prompt_text.h): its
+// chud_show_cinematic_title is a native of the client's own that looks the title's string up into a 1024-character
+// buffer, then measures it and copies it into the chud. The client's lookup is hooked; only when it returns to that
+// native, and only while an ODST level runs, the buffer is rewritten before the native measures it. Found once, by shape,
+// on the worker; the hook stays for the process (the client's code never unloads).
+namespace reclaimer_odst_text {
+std::atomic<bool> attempted{false};
+void* original=nullptr;
+uintptr_t returns[2]{};
+uintptr_t hudReturns[2]{};   // the HUD message fetch's lookup calls (FindOdstHudText)
+wchar_t buffer[odst_prompt_text::kMaxChars+1]{};   // the script thread's only: the line is copied back at once
+std::atomic<uint32_t> rewritten{}, kept{};
+uint32_t reported=0;
+using Lookup=uintptr_t(__fastcall*)(void*);
+__declspec(noinline) void Rewrite(wchar_t* text) noexcept {
+    __try {
+        odst_prompt_text::Controls controls{};
+        if(!g_config.vr_action_mapping || !Game_ReclaimerOdstLevel() || !odst_text::Read(controls)) return;
+        const unsigned n=odst_prompt_text::Rewrite(text,controls,buffer);
+        if(n) {
+            odst_text::NoteSaid(text,buffer);
+            std::memcpy(text,buffer,(static_cast<size_t>(n)+1)*sizeof(wchar_t));   // within the native's 1024
+            rewritten.fetch_add(1,std::memory_order_relaxed);
+            return;
+        }
+        for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
+            if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') {
+                kept.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteKept(text);
+                break;
+            }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+// A HUD prompt, fetched as the chud draws it (each frame): rewritten in place when it fits the 95 characters the chud
+// shows (its line holds more); counted and named once per showing.
+std::atomic<uint32_t> hudRewritten{}, hudKept{};
+uint32_t hudReported=0;
+std::atomic<uint32_t> hudRecent[4]{}, hudNext{};
+bool NewHudShowing(const wchar_t* text) noexcept {
+    uint32_t sum=2166136261u;
+    for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i) sum=(sum^text[i])*16777619u;
+    sum|=1u;
+    for(auto& seen:hudRecent) if(seen.load(std::memory_order_relaxed)==sum) return false;
+    hudRecent[hudNext.fetch_add(1,std::memory_order_relaxed)&3u].store(sum,std::memory_order_relaxed);
+    return true;
+}
+__declspec(noinline) void RewriteHud(wchar_t* text) noexcept {
+    __try {
+        if(!text[0]) return;
+        odst_prompt_text::Controls controls{};
+        if(!g_config.vr_action_mapping || !Game_ReclaimerOdstLevel() || !odst_text::Read(controls)) return;
+        wchar_t said[odst_prompt_text::kMaxChars+1];
+        const unsigned n=odst_prompt_text::Rewrite(text,controls,said);
+        const bool fresh=NewHudShowing(text);
+        if(n && n<reclaimer_client::kHudLineChars) {
+            if(fresh) {
+                hudRewritten.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteSaid(text,said);
+            }
+            std::memcpy(text,said,(static_cast<size_t>(n)+1)*sizeof(wchar_t));   // within the line's 96
+            return;
+        }
+        if(!fresh) return;
+        for(unsigned i=0;text[i]&&i<odst_prompt_text::kMaxChars;++i)
+            if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') {
+                hudKept.fetch_add(1,std::memory_order_relaxed);
+                odst_text::NoteKept(text);
+                break;
+            }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+__declspec(noinline) wchar_t* BufferOf(void* context) noexcept {
+    __try { return *reinterpret_cast<wchar_t* const*>(static_cast<uint8_t*>(context)+0x40); }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+}
+// Another caller of the lookup whose line is one of the HUD's VISR prompts: where that prompt is fetched (logged by
+// the worker, read-only; the line is not changed there until that caller's buffer is known).
+constexpr unsigned kHudCallers=8;
+std::atomic<uintptr_t> hudCallers[kHudCallers]{};
+std::atomic<uint32_t> hudReady[kHudCallers]{};   // the slot's line is written
+std::atomic<uint32_t> hudCallersShown{};
+wchar_t hudLine[kHudCallers][64]{};
+// A HUD prompt: a one-line VISR prompt of the kit's, or a use / pick-up line ("Hold <picture> to swap for ...",
+// "Press [E] to ..."): a line that starts "Hold " or "Press " and names a control by a picture or a bracketed key.
+bool HudPromptLine(const wchar_t* text,const wchar_t* kit) noexcept {
+    if(kit) return std::wcsstr(kit,L"VISR")&&!std::wcschr(kit,L'\r');
+    if(std::wcsncmp(text,L"Hold ",5)&&std::wcsncmp(text,L"Press ",6)) return false;
+    for(unsigned i=0;text[i]&&i<64;++i)
+        if(odst_prompt_text::glyph::Private(text[i])||text[i]==L'[') return true;
+    return false;
+}
+__declspec(noinline) void NoteOtherCaller(wchar_t* text,uintptr_t caller) noexcept {
+    __try {
+        const wchar_t* kit=odst_prompt_text::detail::KitLineFor(text);
+        if(!HudPromptLine(text,kit)) return;
+        const wchar_t* line=kit?kit:text;
+        for(unsigned s=0;s<kHudCallers;++s) {
+            uintptr_t expected=0;
+            if(hudCallers[s].load(std::memory_order_relaxed)==caller) return;
+            if(hudCallers[s].compare_exchange_strong(expected,caller,std::memory_order_acq_rel)) {
+                unsigned i=0;
+                for(;line[i]&&i<63;++i) hudLine[s][i]=line[i];
+                hudLine[s][i]=0;
+                hudReady[s].store(1,std::memory_order_release);
+                return;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+// Entered through the preserving thunk (OdstTitleLookupThunk): `caller` is the lookup's own return address.
+uintptr_t __fastcall Hook(void* context,unsigned,uintptr_t caller) {
+    const bool title=caller&&(caller==returns[0]||caller==returns[1]);
+    const bool hud=caller&&(caller==hudReturns[0]||caller==hudReturns[1]);
+    wchar_t* text=context?BufferOf(context):nullptr;
+    const uintptr_t result=reinterpret_cast<Lookup>(original)(context);
+    if(text && title) Rewrite(text);
+    else if(text && hud) RewriteHud(text);
+    else if(text && caller) NoteOtherCaller(text,caller);
+    return result;
+}
+__declspec(noinline) bool Find(reclaimer_client::OdstTitleText& found) noexcept {
+    __try {
+        reclaimer_client::Image image;
+        if(!reclaimer_client::ClientImageInMemory(image)) return false;
+        found=reclaimer_client::FindOdstTitleText(image);
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Worker: once per process, as the first ODST level runs on Reclaimer; then what it did, each time that changes.
+void Poll() {
+    if(!g_hostIsProjectReclaimer) return;
+    if(attempted.load(std::memory_order_relaxed)) {
+        const uint32_t r=rewritten.load(std::memory_order_relaxed),k=kept.load(std::memory_order_relaxed);
+        if(r+k!=reported) {
+            reported=r+k;
+            LOG("ODST tutorial text (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",r,k);
+        }
+        const uint32_t hr=hudRewritten.load(std::memory_order_relaxed),hk=hudKept.load(std::memory_order_relaxed);
+        if(hr+hk!=hudReported) {
+            hudReported=hr+hk;
+            LOG("ODST HUD prompts (Project Reclaimer): %u lines said in VR words, %u kept as the game's own",hr,hk);
+        }
+        odst_text::ReportKept(" (Project Reclaimer)");
+        odst_text::ReportSaid(" (Project Reclaimer)");
+        const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        for(uint32_t i=hudCallersShown.load(std::memory_order_relaxed);i<kHudCallers;++i) {
+            if(!hudReady[i].load(std::memory_order_acquire)) break;
+            const uintptr_t caller=hudCallers[i].load(std::memory_order_relaxed);
+            hudCallersShown.store(i+1,std::memory_order_relaxed);
+            char line[64*9]{};
+            odst_text::Escape(hudLine[i],line);
+            LOG("ODST HUD prompts (Project Reclaimer): \"%s\" is looked up by exe+0x%llX (not said in VR words yet)",
+                line,static_cast<unsigned long long>(caller-base));
+        }
+        return;
+    }
+    if(!Game_ReclaimerOdstLevel()) return;
+    attempted.store(true,std::memory_order_relaxed);
+    reclaimer_client::OdstTitleText found{};
+    if(!Find(found)) {
+        LOG("ODST tutorial text (Project Reclaimer): the game's own words kept; the client executable could not be read");
+        return;
+    }
+    if(found.missing) {
+        LOG("ODST tutorial text (Project Reclaimer): the game's own words kept; not found: %s",found.missing);
+        return;
+    }
+    const uintptr_t base=reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    returns[0]=base+found.returns[0];
+    returns[1]=found.returns[1]?base+found.returns[1]:0;
+    if(found.hud) {
+        hudReturns[0]=base+found.hudReturns[0];
+        hudReturns[1]=found.hudReturns[1]?base+found.hudReturns[1]:0;
+    }
+    auto* target=reinterpret_cast<void*>(base+found.lookup);
+    const bool hooked=MH_CreateHook(target,reinterpret_cast<void*>(&OdstTitleLookupThunk),&original)==MH_OK &&
+        MH_EnableHook(target)==MH_OK;
+    LOG("ODST tutorial text (Project Reclaimer): %s (chud_show_cinematic_title's native exe+0x%X, its string lookup "
+        "exe+0x%X)",hooked?"said in VR words":"the game's own words kept, the hook did not install",found.native,
+        found.lookup);
+    if(found.hud)
+        LOG("ODST HUD prompts (Project Reclaimer): %s (the HUD message fetch exe+0x%X)",
+            hooked?"said in VR words":"the game's own words kept, the hook did not install",found.hud);
+    else
+        LOG("ODST HUD prompts (Project Reclaimer): the game's own words kept; not found: %s",found.hudMissing);
+}
+}
+extern "C" uintptr_t (*g_odstTitleLookupHook)(void*,unsigned,uintptr_t)=&reclaimer_odst_text::Hook;
 void NativeVrActions_Poll() {
+    reclaimer_odst_prompt::Poll();
+    reclaimer_odst_text::Poll();
     native_ce::Poll();
     native_h3::Poll();
     native_odst::Poll();

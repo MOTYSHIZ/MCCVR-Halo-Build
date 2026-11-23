@@ -296,6 +296,258 @@ inline const char* VisrAgree(const Image& image, uint32_t camera, uint32_t const
     return nullptr;
 }
 
+// ---- ODST's prompts --------------------------------------------------------------------------------------------------
+// Reclaimer runs ODST's tutorial prompts (unit_confirm_message, unit_confirm_cancel_message) as natives of its own
+// (docs/ODST-PROMPT-AND-MAP-EVIDENCE-2026-11-15.md). Both call one setter that ORs the prompt's bit (0 confirm, 1 cancel,
+// 2 retrain) into a byte per controller: lea rdx,[rip+FLAGS]; mov r8b,1; mov ecx,ebx; shl r8b,cl; ...;
+// lock or byte [r14+rdx],r8b. The client's control step clears the controller's byte once the prompt is answered:
+// lea rcx,[rip+FLAGS]; mov byte [rax+rcx],0; then tests the answered bits 1, 2 and 4.
+inline constexpr char kPromptFlagSet[] = "48 8D 15 ?? ?? ?? ?? 41 B0 01 89 D9 41 D2 E0 4C 89 74 24 ?? F0 45 08 04 16";
+inline constexpr char kPromptFlagClear[] =
+    "48 8D 0D ?? ?? ?? ?? C6 04 08 00 0F B6 44 24 ?? A8 01 75 ?? A8 02 75 ?? A8 04 75";
+// 0.10.6 (an MSVC build) keeps the answered bits in a byte register: test r8b,1; jne; test r8b,2; jne; test r8b,4; jne.
+inline constexpr char kPromptFlagClearReg[] =
+    "48 8D 0D ?? ?? ?? ?? C6 04 08 00 40 F6 ?? 01 75 ?? 40 F6 ?? 02 75 ?? 40 F6 ?? 04 75";
+// 0.10.7: the same tests with near jumps (jne rel32).
+inline constexpr char kPromptFlagClearRegNear[] =
+    "48 8D 0D ?? ?? ?? ?? C6 04 08 00 40 F6 ?? 01 0F 85 ?? ?? ?? ?? 40 F6 ?? 02 0F 85 ?? ?? ?? ?? 40 F6 ?? 04 0F 85";
+// The two natives' own bodies: the unit's controller, then the setter with the prompt's kind (0, then 1).
+inline constexpr char kConfirmNative[] = "48 83 EC 28 48 8B 01 8B 08 31 D2 E8";
+inline constexpr char kCancelNative[] = "48 83 EC 28 48 8B 01 8B 08 B2 01 E8";
+// The natives' entries in the client's script table: the name's address, then its length.
+inline constexpr char kConfirmName[] = "unit_confirm_message";
+inline constexpr char kCancelName[] = "unit_confirm_cancel_message";
+
+struct OdstPrompt
+{
+    uint32_t flags = 0;    // the byte per controller (rva)
+    uint32_t setter = 0;   // the function that sets it
+    const char* missing = nullptr;
+};
+
+namespace detail
+{
+// The rip-relative target of a 7-byte lea at `rva` (its disp32 at +3).
+inline uint64_t LeaTarget(const Image& image, uint32_t rva)
+{
+    return static_cast<uint64_t>(static_cast<int64_t>(rva) + 7 + Rel32(image, rva + 3));
+}
+// The preferred image base in the image's own headers (0 when they do not read).
+inline uint64_t HeaderImageBase(const Image& image)
+{
+    if (!image.Holds(0, 0x40))
+        return 0;
+    uint32_t nt = 0;
+    std::memcpy(&nt, image.base + 0x3C, 4);
+    uint64_t base = 0;
+    if (!image.Holds(static_cast<uint64_t>(nt) + 0x30, 8))
+        return 0;
+    std::memcpy(&base, image.base + nt + 0x30, 8);
+    return base;
+}
+// The function the client's script table names `name` for: the table entry holds the name's address and length, and
+// its function 0x30 further on. Pointers are the image's own (in memory) or the headers' preferred base (on disk).
+inline uint32_t ScriptNative(const Image& image, const char* name)
+{
+    const size_t length = std::strlen(name);
+    std::vector<int> text;
+    for (size_t i = 0; i < length; ++i)
+        text.push_back(static_cast<unsigned char>(name[i]));
+    const std::vector<uint32_t> names = FindAll(image, 0, static_cast<uint32_t>(image.size), text, 4);
+    const uint64_t bases[2]{reinterpret_cast<uint64_t>(image.base), HeaderImageBase(image)};
+    uint32_t found = 0;
+    for (const uint32_t at : names)
+        for (const uint64_t base : bases)
+        {
+            if (!base)
+                continue;
+            std::vector<int> entry;
+            const uint64_t pointer = base + at, size = length;
+            for (int i = 0; i < 8; ++i)
+                entry.push_back(static_cast<int>((pointer >> (8 * i)) & 0xFF));
+            for (int i = 0; i < 8; ++i)
+                entry.push_back(static_cast<int>((size >> (8 * i)) & 0xFF));
+            for (const uint32_t e : FindAll(image, 0, static_cast<uint32_t>(image.size), entry, 8))
+            {
+                uint64_t function = 0;
+                if (!image.Holds(static_cast<uint64_t>(e) + 0x30, 8))
+                    continue;
+                std::memcpy(&function, image.base + e + 0x30, 8);
+                if (function < base || function - base < image.codeRva ||
+                    function - base >= static_cast<uint64_t>(image.codeRva) + image.codeSize)
+                    continue;
+                const uint32_t rva = static_cast<uint32_t>(function - base);
+                if (found && found != rva)
+                    return 0;   // two tables name it differently: not one answer
+                found = rva;
+            }
+        }
+    return found;
+}
+} // namespace detail
+
+inline OdstPrompt FindOdstPrompt(const Image& image)
+{
+    OdstPrompt out;
+    const std::vector<uint32_t> set = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagSet), 2);
+    // The clear in either known form; exactly one place in the code between them.
+    std::vector<uint32_t> clear = FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClear), 2);
+    for (const char* form : {kPromptFlagClearReg, kPromptFlagClearRegNear})
+        for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(form), 2))
+            clear.push_back(hit);
+    uint32_t b = 0, e = 0;
+    if (set.size() != 1)
+        out.missing = set.empty() ? "the prompt setter's store" : "a single prompt setter's store (more than one)";
+    else if (clear.size() != 1)
+        out.missing = clear.empty() ? "the control step's clear of the prompt" : "a single clear of the prompt";
+    else if (!image.Extent(set[0], b, e))
+        out.missing = "the prompt setter's extent";
+    else if (detail::LeaTarget(image, set[0]) != detail::LeaTarget(image, clear[0]))
+        out.missing = "the setter and the clear naming the same prompt bytes";
+    else
+    {
+        const uint64_t flags = detail::LeaTarget(image, set[0]);
+        // Both natives, found by their table entries and by their own bodies, call this setter.
+        const uint32_t confirm = detail::ScriptNative(image, kConfirmName);
+        const uint32_t cancel = detail::ScriptNative(image, kCancelName);
+        if (!image.Holds(flags, 4) || flags < static_cast<uint64_t>(image.codeRva) + image.codeSize)
+            out.missing = "prompt bytes in the client's data";
+        else if (!confirm || !cancel)
+            out.missing = "unit_confirm_message and unit_confirm_cancel_message in the script table";
+        else if (!MatchAt(image, confirm, ParsePattern(kConfirmNative)) ||
+                 !MatchAt(image, cancel, ParsePattern(kCancelNative)))
+            out.missing = "the two natives' bodies (the prompt's kind, then the setter)";
+        else if (!Calls(image, confirm, b) || !Calls(image, cancel, b))
+            out.missing = "both natives calling the prompt setter";
+        else
+        {
+            out.flags = static_cast<uint32_t>(flags);
+            out.setter = b;
+        }
+    }
+    return out;
+}
+
+// ---- ODST's VISR map (the PDA): a LOG-ONLY probe ---------------------------------------------------------------------
+// Reclaimer's pda_is_active_deterministic native asks a reader (`lea rcx,[rsp+0x28]; call READER`) for the player's
+// PDA record and answers "active" from its flag bits 5 or 11. The reader takes the record from one of two places: a
+// record in the game's state memory, reached through the guest image's global +OFFSET and a layout struct of the
+// client's ((lo32(s[0]) + hi32(s[0]) + ADD) + [guest+OFFSET] + dword s[8] + SUB) & ~0xF, + RECORD + player * 20), used
+// while a snapshot struct's byte +0x44 is 1; else a static record in the client's data (STATIC + OFFSET2 + player * 20).
+// Which of them tracks the map being open is not proven: the DLL only reads and logs both (docs/ODST-PROMPT-AND-MAP-
+// EVIDENCE-2026-11-15.md), and nothing acts on them.
+inline constexpr char kPdaNative[] = "48 83 EC 48 48 8B 01 8B 08 BA 03 10 00 00 E8";
+inline constexpr char kPdaNativeCall[] =
+    "48 8D 4C 24 28 E8 ?? ?? ?? ?? 0F B6 4C 24 45 83 E1 01 F6 44 24 44 01 B8 01 00 00 00 0F 44 C1";
+inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 8B 41 44";
+// The guest image: `mov rax,[rip+G]` (0.10.0-0.10.5: a pointer to it) or `lea rax,[rip+G]` (0.10.6: the image is part
+// of the executable); the second opcode byte says which. The flags load is movd (66 0F 6E) or vmovd (C5 F9 6E).
+inline constexpr char kPdaStateRecord[] =
+    "48 ?? 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
+    "48 83 FF 10 0F 83 ?? ?? ?? ?? 8B 48 08 48 8B 00 48 01 CB 89 C1 48 C1 E8 20 01 C8 05 ?? ?? ?? ?? 48 01 D8 "
+    "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF ?? ?? 6E B4 88";
+inline constexpr char kPdaStaticRecord[] =
+    "48 8D 05 ?? ?? ?? ?? 48 83 FF 10 48 8D 0C BF 48 8D 84 88 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 0F 42 C8 ?? ?? 6E 31";
+
+struct OdstPdaProbe
+{
+    uint32_t reader = 0;                         // the record reader
+    uint32_t readyGlobal = 0, snapshotGlobal = 0; // client globals (rva): the ready pointer, the snapshot pointer
+    uint32_t snapshotField = 0x44;               // the snapshot's byte that selects the game-state record
+    uint32_t guestGlobal = 0, guestOffset = 0;   // the client global holding the guest image; the guest global's offset
+    bool guestDirect = false;                    // guestGlobal IS the guest image (0.10.6), not a pointer to it
+    uint32_t layoutGlobal = 0;                   // the client global pointing at the layout struct
+    uint32_t add = 0;                            // added to lo32 + hi32 (32-bit)
+    int32_t sub = 0;                             // added after the guest pointer (sign-extended)
+    uint32_t record = 0;                         // the game-state record's offset (+ player * 20)
+    uint32_t staticBase = 0, staticOffset = 0;   // the static record (rva, + offset + player * 20)
+    const char* missing = nullptr;
+};
+
+inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
+{
+    OdstPdaProbe out;
+    const uint32_t native = detail::ScriptNative(image, "pda_is_active_deterministic");
+    uint32_t nb = 0, ne = 0, rb = 0, re = 0;
+    if (!native || !MatchAt(image, native, ParsePattern(kPdaNative)) || !image.Extent(native, nb, ne))
+    {
+        out.missing = "pda_is_active_deterministic in the script table, with its body";
+        return out;
+    }
+    const std::vector<uint32_t> call = FindAll(image, nb, ne - nb, ParsePattern(kPdaNativeCall), 2);
+    if (call.size() != 1)
+    {
+        out.missing = "the native's call of its record reader";
+        return out;
+    }
+    const int64_t reader = static_cast<int64_t>(call[0]) + 10 + Rel32(image, call[0] + 6);
+    if (reader <= 0 || !image.Extent(static_cast<uint32_t>(reader), rb, re) || rb != static_cast<uint32_t>(reader))
+    {
+        out.missing = "the record reader's start";
+        return out;
+    }
+    const auto unique = [&](const char* text) {
+        const std::vector<uint32_t> hits = FindAll(image, rb, re - rb, ParsePattern(text), 2);
+        return hits.size() == 1 ? hits[0] : 0u;
+    };
+    const uint32_t ready = unique(kPdaReady), state = unique(kPdaStateRecord), fallback = unique(kPdaStaticRecord);
+    if (!ready || !state || !fallback)
+    {
+        out.missing = !ready ? "the reader's ready and snapshot checks" : !state ? "the reader's game-state record"
+                                                                             : "the reader's static record";
+        return out;
+    }
+    const auto u32 = [&image](uint32_t rva) {
+        uint32_t v = 0;
+        std::memcpy(&v, image.base + rva, 4);
+        return v;
+    };
+    out.reader = rb;
+    out.readyGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready));
+    out.snapshotGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready + 12));
+    const uint8_t guestOpcode = image.base[state + 1];
+    if (guestOpcode != 0x8B && guestOpcode != 0x8D)
+    {
+        out.missing = "the reader's guest image (a load or an address)";
+        out.reader = 0;
+        return out;
+    }
+    const auto isVecLoad = [&image](uint32_t at) {
+        return (image.base[at] == 0x66 && image.base[at + 1] == 0x0F) ||
+               (image.base[at] == 0xC5 && image.base[at + 1] == 0xF9);
+    };
+    if (!isVecLoad(state + 84) || !isVecLoad(fallback + 34))
+    {
+        out.missing = "the reader's flags loads (movd or vmovd)";
+        out.reader = 0;
+        return out;
+    }
+    out.guestDirect = guestOpcode == 0x8D;
+    out.guestGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state));
+    out.guestOffset = u32(state + 10);
+    out.layoutGlobal = static_cast<uint32_t>(detail::LeaTarget(image, state + 19));
+    out.add = u32(state + 63);
+    out.sub = static_cast<int32_t>(u32(state + 72));
+    out.record = u32(state + 89);
+    out.staticBase = static_cast<uint32_t>(detail::LeaTarget(image, fallback));
+    out.staticOffset = u32(fallback + 19);
+    // Every global the probe reads lies in the client's data, past its code.
+    const uint64_t codeEnd = static_cast<uint64_t>(image.codeRva) + image.codeSize;
+    for (const uint32_t global : {out.readyGlobal, out.snapshotGlobal, out.guestGlobal, out.layoutGlobal, out.staticBase})
+        if (global < codeEnd || !image.Holds(global, 8))
+        {
+            out = OdstPdaProbe{};
+            out.missing = "the reader's globals in the client's data";
+            return out;
+        }
+    if (out.record > 0x100000 || out.staticOffset > 0x100000)
+    {
+        out = OdstPdaProbe{};
+        out.missing = "record offsets of a plausible size";
+    }
+    return out;
+}
+
 // ---- the HUD widget draw's crosshair gate ----------------------------------------------------------------------------
 // The client's own widget draw (its version of halo3.dll's chud_draw_widget +0x2EDF24, which the game's callers reach
 // through a pass-through) keeps the game's crosshair gate: for a widget of scripting class 2 it asks a gate (in the
@@ -773,6 +1025,154 @@ inline InputDevice FindInputDevice(const Image& image)
     out.controllerAt = at;
     out.device = device;
     out.controller = controller;
+    return out;
+}
+
+// ---- ODST's tutorial text (odst_prompt_text.h) ---------------------------------------------------------------------
+// Reclaimer runs chud_show_cinematic_title as a native of its own (exe+0x432A180 in 0.10.7). It clears a 0x800-byte
+// buffer on its stack (1024 characters), has the title's string looked up into it through the client's version of
+// Halo 3's string lookup (the guest context passed in rcx, the buffer at +0x40), measures it (at most 255 characters:
+// cmp rdx,0xFE) and copies it into each player's chud. The mod rewrites the buffer as the lookup returns to this native,
+// before it is measured: presentation only, as in MCC.
+inline constexpr char kTitleNative[] = "chud_show_cinematic_title";
+// lea rcx,[rbp+BUF]; mov r8d,0x800; xor edx,edx; call (the clear)
+inline constexpr char kTitleBufferClear[] = "48 8D 4D ?? 41 B8 00 08 00 00 31 D2 E8";
+// lea rax,[rbp+BUF]; mov rdi,rax; mov [rbx+40h],rax (the buffer into the guest context)
+inline constexpr char kTitleBufferArg[] = "48 8D 45 ?? 48 89 C7 48 89 43 40";
+// mov rcx,rbx; call LOOKUP; nop (each of the native's lookups)
+inline constexpr char kTitleLookupCall[] = "48 89 D9 E8 ?? ?? ?? ?? 90";
+// The measure: at most 0xFF characters.
+inline constexpr char kTitleMeasure[] = "48 81 FA FE 00 00 00";
+
+struct OdstTitleText
+{
+    uint32_t native = 0;       // chud_show_cinematic_title's native
+    uint32_t lookup = 0;       // the string lookup it calls (to hook)
+    uint32_t returns[2]{};     // where each of its lookup calls returns (the hook rewrites only for these)
+    const char* missing = nullptr;
+    // ODST's HUD prompts ("Press <Back> to open VISR NAV data", "Hold <use> to swap for <weapon>"): the client's fetch of
+    // a HUD message for the chud (FindOdstHudText). Zero, with hudMissing, when not found: the title text still works.
+    uint32_t hud = 0;          // the fetch
+    uint32_t hudReturns[2]{};  // where its lookup calls return (the call and the client's resume of it)
+    const char* hudMissing = nullptr;
+};
+
+// THE HUD MESSAGE FETCH. After its lookup it hands the line to the chud's post-pass with the size 0x15E
+// (mov qword [reg+0x40],0x15E) and then cuts a line of 95 characters or more at the 95th (cmp rax,0x5F; a zero
+// written at +0xBE): its line holds at least 96 characters, and the chud shows 95. Found by those two, after a call of
+// the lookup, in one function; then every call of the lookup in it.
+inline constexpr char kHudPostPassSize[] = "C7 ?? 40 5E 01 00 00";
+inline constexpr char kHudLineCut[] = "48 83 F8 5F";
+inline constexpr unsigned kHudLineChars = 95;
+namespace detail
+{
+inline bool CallsAt(const Image& image, uint32_t at, uint32_t target)
+{
+    return image.Holds(at, 5) && image.base[at] == 0xE8 &&
+           static_cast<int64_t>(at) + 5 + Rel32(image, at + 1) == static_cast<int64_t>(target);
+}
+}
+inline void FindOdstHudText(const Image& image, OdstTitleText& out)
+{
+    const std::vector<int> size = ParsePattern(kHudPostPassSize), cut = ParsePattern(kHudLineCut);
+    uint32_t fetch = 0, end = 0;
+    for (const uint32_t at : FindAll(image, image.codeRva, image.codeSize, size, 64))
+    {
+        // A store of a qword (REX.W) to [reg+0x40].
+        if (at < 0x200 || (image.base[at - 1] & 0xF8) != 0x48 || (image.base[at + 1] & 0xF8) != 0x40)
+            continue;
+        bool called = false;
+        for (uint32_t back = at - 0x200; back < at && !called; ++back)
+            called = detail::CallsAt(image, back, out.lookup);
+        if (!called || FindAll(image, at, 0x100, cut, 1).empty())
+            continue;
+        uint32_t b = 0, e = 0;
+        if (!image.Extent(at, b, e) || (fetch && fetch != b))
+        {
+            out.hudMissing = "one HUD message fetch (a lookup, the 0x15E post-pass and the 95-character cut)";
+            return;
+        }
+        fetch = b;
+        end = e;
+    }
+    if (!fetch)
+    {
+        out.hudMissing = "the HUD message fetch (a lookup, the 0x15E post-pass and the 95-character cut)";
+        return;
+    }
+    unsigned n = 0;
+    for (uint32_t at = fetch; at + 5 <= end; ++at)
+        if (detail::CallsAt(image, at, out.lookup))
+        {
+            if (n == 2)
+            {
+                out.hudMissing = "the HUD message fetch's lookup calls (more than two)";
+                return;
+            }
+            out.hudReturns[n++] = at + 5;
+        }
+    if (!n)
+    {
+        out.hudMissing = "the HUD message fetch's lookup calls";
+        return;
+    }
+    out.hud = fetch;
+}
+
+inline OdstTitleText FindOdstTitleText(const Image& image)
+{
+    OdstTitleText out;
+    const uint32_t native = detail::ScriptNative(image, kTitleNative);
+    uint32_t b = 0, e = 0;
+    if (!native || !image.Extent(native, b, e) || b != native)
+    {
+        out.missing = "chud_show_cinematic_title in the script table, with its body";
+        return out;
+    }
+    const std::vector<uint32_t> clear = FindAll(image, b, e - b, ParsePattern(kTitleBufferClear), 2);
+    const std::vector<uint32_t> arg = FindAll(image, b, e - b, ParsePattern(kTitleBufferArg), 2);
+    if (clear.size() != 1 || arg.size() != 1 || image.base[clear[0] + 3] != image.base[arg[0] + 3])
+    {
+        out.missing = "the native's 1024-character buffer, cleared and handed to the lookup";
+        return out;
+    }
+    if (FindAll(image, b, e - b, ParsePattern(kTitleMeasure), 2).size() != 1)
+    {
+        out.missing = "the native's measure of at most 255 characters";
+        return out;
+    }
+    const std::vector<uint32_t> calls = FindAll(image, arg[0], e - arg[0], ParsePattern(kTitleLookupCall), 3);
+    if (calls.empty() || calls.size() > 2)
+    {
+        out.missing = "the native's lookup calls after the buffer is handed over";
+        return out;
+    }
+    for (size_t i = 0; i < calls.size(); ++i)
+    {
+        const int64_t target = static_cast<int64_t>(calls[i]) + 8 + Rel32(image, calls[i] + 4);
+        uint32_t lb = 0, le = 0;
+        if (!image.InCode(target) || !image.Extent(static_cast<uint32_t>(target), lb, le) ||
+            lb != static_cast<uint32_t>(target) || (out.lookup && out.lookup != lb))
+        {
+            out.missing = "one lookup function, called by each of the native's lookup calls";
+            return out;
+        }
+        out.lookup = lb;
+        out.returns[i] = calls[i] + 8;
+    }
+    // The lookup takes the buffer from the context it is given: a load of [rcx+0x40] near its start.
+    bool readsBuffer = false;
+    for (uint32_t at = out.lookup; at + 4 <= out.lookup + 0x40 && image.Holds(at, 4); ++at)
+        readsBuffer = readsBuffer || ((image.base[at] & 0xFB) == 0x48 && image.base[at + 1] == 0x8B &&
+                                      (image.base[at + 2] & 0xC7) == 0x41 && image.base[at + 3] == 0x40);
+    if (!readsBuffer)
+    {
+        out.missing = "the lookup's read of the buffer from its context (+0x40)";
+        out.lookup = 0;
+        return out;
+    }
+    out.native = native;
+    FindOdstHudText(image, out);
     return out;
 }
 } // namespace reclaimer_client
