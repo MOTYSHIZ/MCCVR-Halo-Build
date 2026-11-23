@@ -138,6 +138,25 @@ int main()
         Fake elsewhere = Prompts();
         elsewhere.Call(0x124B, 0x1F00);
         CHECK(FindOdstPrompt(elsewhere.View()).missing != nullptr);
+
+        // 0.10.9's clear (the answered bits reloaded from the stack, the last jump near): found by the general form.
+        auto stackForm = [](Fake& g) {
+            g.Put(0x200B, {0x8B, 0x45, 0x50, 0xA8, 0x01, 0x75, 0x29, 0xA8, 0x02, 0x75, 0x31, 0xA8, 0x04, 0x0F, 0x85, 0x1D,
+                           0x08, 0x00, 0x00});
+        };
+        Fake stack = Prompts();
+        stackForm(stack);
+        const OdstPrompt general = FindOdstPrompt(stack.View());
+        CHECK(!general.missing && general.flags == 0x3F80 && general.setter == 0x1000);
+        // ...but not when it clears other bytes, or when the answer tests do not follow it.
+        Fake stackMoved = Prompts();
+        stackForm(stackMoved);
+        Lea(stackMoved, 0x2000, 0x3F90);
+        CHECK(FindOdstPrompt(stackMoved.View()).missing != nullptr);
+        Fake stackUntested = Prompts();
+        stackForm(stackUntested);
+        stackUntested.Put(0x2013, {0x90});   // test al,2 -> test al,0x90
+        CHECK(FindOdstPrompt(stackUntested.View()).missing != nullptr);
     }
 
     // Patterns.

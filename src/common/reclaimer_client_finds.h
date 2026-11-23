@@ -311,6 +311,12 @@ inline constexpr char kPromptFlagClearReg[] =
 // 0.10.7: the same tests with near jumps (jne rel32).
 inline constexpr char kPromptFlagClearRegNear[] =
     "48 8D 0D ?? ?? ?? ?? C6 04 08 00 40 F6 ?? 01 0F 85 ?? ?? ?? ?? 40 F6 ?? 02 0F 85 ?? ?? ?? ?? 40 F6 ?? 04 0F 85";
+// Any build: the clear itself (lea rcx,[rip+FLAGS]; mov byte [rax+rcx],0), taken only when it names the setter's bytes
+// and tests of bits 1, 2 and 4 follow within kPromptClearTestWindow bytes, in that order. 0.10.9 reloads the answered
+// bits from the stack (mov eax,[rbp+0x50]; test al,1; jne; test al,2; jne; test al,4; jne near), which none of the
+// fixed forms above match; this keeps the next register or jump change from breaking the find.
+inline constexpr char kPromptFlagClearAny[] = "48 8D 0D ?? ?? ?? ?? C6 04 08 00";
+inline constexpr uint32_t kPromptClearTestWindow = 0x20;
 // The two natives' own bodies: the unit's controller, then the setter with the prompt's kind (0, then 1).
 inline constexpr char kConfirmNative[] = "48 83 EC 28 48 8B 01 8B 08 31 D2 E8";
 inline constexpr char kCancelNative[] = "48 83 EC 28 48 8B 01 8B 08 B2 01 E8";
@@ -384,6 +390,24 @@ inline uint32_t ScriptNative(const Image& image, const char* name)
         }
     return found;
 }
+// True when tests of the answered bits 1, 2 and 4 follow `from` in that order within `window` bytes: test al,imm8
+// (A8 ib) or test r8,imm8 with a register operand ([REX] F6 C0+r ib).
+inline bool PromptAnswerTestsFollow(const Image& image, uint32_t from, uint32_t window)
+{
+    if (!image.Holds(from, window))
+        return false;
+    const uint8_t* p = image.base + from;
+    const uint8_t want[3]{1, 2, 4};
+    int next = 0;
+    for (uint32_t i = 0; i + 1 < window && next < 3; ++i)
+    {
+        if (p[i] == 0xA8 && p[i + 1] == want[next])
+            ++next, ++i;
+        else if (p[i] == 0xF6 && i + 2 < window && (p[i + 1] & 0xF8) == 0xC0 && p[i + 2] == want[next])
+            ++next, i += 2;
+    }
+    return next == 3;
+}
 } // namespace detail
 
 inline OdstPrompt FindOdstPrompt(const Image& image)
@@ -395,6 +419,12 @@ inline OdstPrompt FindOdstPrompt(const Image& image)
     for (const char* form : {kPromptFlagClearReg, kPromptFlagClearRegNear})
         for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(form), 2))
             clear.push_back(hit);
+    // No known form: any clear naming the setter's own bytes, followed by the three answer tests.
+    if (clear.empty() && set.size() == 1)
+        for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(kPromptFlagClearAny)))
+            if (detail::LeaTarget(image, hit) == detail::LeaTarget(image, set[0]) &&
+                detail::PromptAnswerTestsFollow(image, hit + 11, kPromptClearTestWindow))
+                clear.push_back(hit);
     uint32_t b = 0, e = 0;
     if (set.size() != 1)
         out.missing = set.empty() ? "the prompt setter's store" : "a single prompt setter's store (more than one)";
