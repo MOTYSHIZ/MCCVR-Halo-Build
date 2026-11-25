@@ -453,6 +453,23 @@ inline std::vector<std::wstring> EngineCodeCandidates(std::wstring_view clientLo
     return list;
 }
 
+// A name the engine's translated code file has in its folder: engine.code up to 0.10.9; engine-<hex>.code from 0.10.10,
+// which leaves an older client's engine.code beside its own.
+inline bool IsEngineCodeName(std::wstring_view name)
+{
+    static constexpr std::wstring_view kHead = L"engine-", kTail = L".code";
+    const std::wstring lower = Lower(name);
+    if (lower == L"engine.code")
+        return true;
+    if (lower.size() <= kHead.size() + kTail.size() || lower.compare(0, kHead.size(), kHead) != 0 ||
+        lower.compare(lower.size() - kTail.size(), kTail.size(), kTail) != 0)
+        return false;
+    for (size_t i = kHead.size(); i < lower.size() - kTail.size(); ++i)
+        if (!((lower[i] >= L'0' && lower[i] <= L'9') || (lower[i] >= L'a' && lower[i] <= L'f')))
+            return false;
+    return true;
+}
+
 // Which client process gets the mod: up to 0.9, the engine worker with the player's window; from 0.10, the client
 // itself (a process started without a worker's or a server's arguments).
 inline bool TakesMod(Role role, bool recompiledEngine)

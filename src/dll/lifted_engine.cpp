@@ -264,7 +264,8 @@ uintptr_t FindGuestImage()
 }
 
 // The translated code: a private executable block whose bytes at a sample of bodies are engine.code's.
-uintptr_t FindCode(const std::vector<std::pair<uint64_t, std::vector<uint8_t>>>& samples, size_t codeLength)
+uintptr_t FindCode(const std::vector<std::pair<uint64_t, std::vector<uint8_t>>>& samples, size_t codeLength,
+                   size_t* matchedOut = nullptr)
 {
     MEMORY_BASIC_INFORMATION info{};
     for (uintptr_t at = 0x10000; VirtualQuery(reinterpret_cast<void*>(at), &info, sizeof(info));)
@@ -280,7 +281,11 @@ uintptr_t FindCode(const std::vector<std::pair<uint64_t, std::vector<uint8_t>>>&
             for (const auto& [offset, bytes] : samples)
                 matched += std::memcmp(reinterpret_cast<const void*>(base + offset), bytes.data(), bytes.size()) == 0;
             if (samples.size() >= 32 && matched * 10 >= samples.size() * 9)
+            {
+                if (matchedOut)
+                    *matchedOut = matched;
                 return base;
+            }
         }
         if (next <= at)
             break;
@@ -350,6 +355,47 @@ std::string LoadTextHead(const std::wstring& path, DWORD limit)
     CloseHandle(file);
     text.resize(read);
     return text;
+}
+
+// The engine code files beside each of `paths` (engine.code, and engine-<hex>.code from 0.10.10), each folder's newest
+// first, folders in the order given. The caller uses the first whose code is in memory: an older client's engine.code
+// may lie beside the running client's engine-<hex>.code, and either may be the newer file.
+std::vector<std::wstring> EngineCodeFiles(const std::vector<std::wstring>& paths)
+{
+    std::vector<std::wstring> files;
+    for (const auto& path : paths)
+    {
+        const size_t slash = path.find_last_of(L"\\/");
+        if (slash == std::wstring::npos)
+            continue;
+        const std::wstring folder = path.substr(0, slash + 1);
+        std::vector<std::pair<uint64_t, std::wstring>> found;
+        WIN32_FIND_DATAW entry{};
+        const HANDLE find = FindFirstFileW((folder + L"engine*.code").c_str(), &entry);
+        if (find != INVALID_HANDLE_VALUE)
+        {
+            unsigned seen = 0;
+            do
+            {
+                if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                    reclaimer_host::IsEngineCodeName(entry.cFileName))
+                    found.push_back({(uint64_t(entry.ftLastWriteTime.dwHighDateTime) << 32) |
+                                         entry.ftLastWriteTime.dwLowDateTime,
+                                     folder + entry.cFileName});
+            } while (++seen < 64 && FindNextFileW(find, &entry));
+            FindClose(find);
+        }
+        std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (auto& file : found)
+        {
+            bool had = false;
+            for (const auto& listed : files)
+                had = had || reclaimer_host::Lower(listed) == reclaimer_host::Lower(file.second);
+            if (!had && files.size() < 8)
+                files.push_back(std::move(file.second));
+        }
+    }
+    return files;
 }
 
 // Every place engine.code may be, the likeliest first: HALOMCCVR_RECLAIMER_ENGINE_CODE names the file outright;
@@ -1124,14 +1170,17 @@ bool Poll()
     // The client writes engine.code on its first start after an update, and the player may have moved its cache
     // (Settings > Folders): look wherever the client may keep it, every second until it is there.
     const std::vector<std::wstring> paths = EngineCodePaths();
-    std::wstring path;
-    for (const auto& candidate : paths)
-        if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES)
-        {
-            path = candidate;
-            break;
-        }
-    if (path.empty())
+    // An outright name (HALOMCCVR_RECLAIMER_ENGINE_CODE) is the one file; otherwise every engine code file in the
+    // cache folders, each folder's newest first (0.10.10 names its own engine-<hex>.code).
+    std::vector<std::wstring> files;
+    if (paths.size() == 1 && !Variable(L"HALOMCCVR_RECLAIMER_ENGINE_CODE").empty())
+    {
+        if (GetFileAttributesW(paths[0].c_str()) != INVALID_FILE_ATTRIBUTES)
+            files = paths;
+    }
+    else
+        files = EngineCodeFiles(paths);
+    if (files.empty())
     {
         static bool reported = false;
         if (!reported)
@@ -1147,66 +1196,137 @@ bool Poll()
         ReleaseSRWLockExclusive(&g_lock);
         return false;
     }
+    // Every file's code is looked for in memory, and the one whose samples match best is used: an older client's file
+    // may lie beside the running client's, translated from the same halo3.dll, so a first match could be the wrong
+    // layout. A file's samples are kept while its size and time stay the same, so a wait re-reads no file; only the
+    // file chosen is read again, for its table. A file that will not parse is passed over while another may still be
+    // the one; when none parses, the newest file's failure decides, as for a single file.
+    struct Probe
+    {
+        std::wstring path;
+        uint64_t stamp = 0, size = 0;
+        size_t codeLength = 0;
+        std::vector<std::pair<uint64_t, std::vector<uint8_t>>> samples;
+    };
+    static std::vector<Probe> probes; // worker only, under g_lock
+    bool anyParsed = false;
+    std::vector<uint8_t> firstFile;
+    lifted_engine::Table firstTable;
+    lifted_engine::ParseResult firstParsed = lifted_engine::ParseResult::Ok;
+    std::wstring tried, path;
+    uintptr_t code = 0;
+    size_t bestScore = 0, bestSamples = 1;
+    for (size_t i = 0; i < files.size(); ++i)
+    {
+        WIN32_FILE_ATTRIBUTE_DATA attributes{};
+        if (!GetFileAttributesExW(files[i].c_str(), GetFileExInfoStandard, &attributes))
+            continue;
+        const uint64_t stamp =
+            (uint64_t(attributes.ftLastWriteTime.dwHighDateTime) << 32) | attributes.ftLastWriteTime.dwLowDateTime;
+        const uint64_t size = (uint64_t(attributes.nFileSizeHigh) << 32) | attributes.nFileSizeLow;
+        auto probe = std::find_if(probes.begin(), probes.end(), [&](const Probe& p) { return p.path == files[i]; });
+        if (probe == probes.end() || probe->stamp != stamp || probe->size != size)
+        {
+            std::vector<uint8_t> candidateFile;
+            lifted_engine::Table candidateTable;
+            lifted_engine::ParseResult parsed = lifted_engine::ParseResult::NotEngineCode;
+            if (!LoadFile(files[i], candidateFile) ||
+                (parsed = lifted_engine::Parse(candidateFile.data(), candidateFile.size(), candidateTable)) !=
+                    lifted_engine::ParseResult::Ok)
+            {
+                if (i == 0)
+                {
+                    firstParsed = parsed;
+                    firstFile = std::move(candidateFile);
+                    firstTable = std::move(candidateTable);
+                }
+                if (probe != probes.end())
+                    probes.erase(probe);
+                continue;
+            }
+            LOG("RECLAIMER 0.10: %ls is format %u%s: %zu functions, %zu bytes of code", files[i].c_str(),
+                candidateTable.version,
+                candidateTable.probed ? ", newer than this build knows, read by the earlier layout that fits it "
+                                        "exactly (used only if that code is found in memory)"
+                                      : "",
+                candidateTable.records.size(), candidateTable.codeLength);
+            Probe fresh;
+            fresh.path = files[i];
+            fresh.stamp = stamp;
+            fresh.size = size;
+            fresh.codeLength = candidateTable.codeLength;
+            // 16 bytes from each of 64 bodies spread over the table, where they hold no relocation (the client fills
+            // those in, so they differ from the file; a body's first bytes can be one).
+            for (size_t s = 0; s < 64; ++s)
+            {
+                const lifted_engine::Record& r = candidateTable.records[s * (candidateTable.records.size() - 1) / 63];
+                if (!lifted_engine::HasBody(r))
+                    continue;
+                const uint8_t* body = candidateFile.data() + candidateTable.codeOffset + r.hostOffset + r.bodyOffset;
+                size_t window = 0;
+                if (lifted_engine::RelocationFreeWindow(body, r.hostSize - r.bodyOffset, 16, window))
+                    fresh.samples.emplace_back(r.hostOffset + r.bodyOffset + window,
+                                               std::vector<uint8_t>(body + window, body + window + 16));
+            }
+            if (probe != probes.end())
+                *probe = std::move(fresh);
+            else if (probes.size() < 8)
+                probe = probes.insert(probes.end(), std::move(fresh));
+            else
+                continue;
+        }
+        anyParsed = true;
+        tried += (tried.empty() ? L"" : L", ") + files[i];
+        size_t matched = 0;
+        const uintptr_t found = FindCode(probe->samples, probe->codeLength, &matched);
+        // The best share of samples matched wins (compared as matched/samples without division).
+        if (found && (!code || matched * bestSamples > bestScore * probe->samples.size()))
+        {
+            code = found;
+            path = files[i];
+            bestScore = matched;
+            bestSamples = probe->samples.size();
+        }
+    }
     std::vector<uint8_t> file;
     lifted_engine::Table table;
-    lifted_engine::ParseResult parsed = lifted_engine::ParseResult::NotEngineCode;
-    if (!LoadFile(path, file) ||
-        (parsed = lifted_engine::Parse(file.data(), file.size(), table)) != lifted_engine::ParseResult::Ok)
+    if (code && (!LoadFile(path, file) ||
+                 lifted_engine::Parse(file.data(), file.size(), table) != lifted_engine::ParseResult::Ok))
+        code = 0; // changed under us since it was sampled: the next look reads it afresh
+    if (!anyParsed)
     {
         // A file missing or cut short may still be being written (the first launch after an update): look again
         // every second for a minute before giving up. Another format or a file that disagrees with itself is final.
         static unsigned waited = 0;
-        const bool unfinished = file.empty() || parsed == lifted_engine::ParseResult::Truncated;
+        const bool unfinished = firstFile.empty() || firstParsed == lifted_engine::ParseResult::Truncated;
         if (unfinished && ++waited < 60)
         {
             if (waited == 1)
-                LOG("RECLAIMER 0.10: %ls is %s; looking again every second for a minute", path.c_str(),
-                    file.empty() ? "missing or unreadable" : "cut short");
+                LOG("RECLAIMER 0.10: %ls is %s; looking again every second for a minute", files[0].c_str(),
+                    firstFile.empty() ? "missing or unreadable" : "cut short");
             ReleaseSRWLockExclusive(&g_lock);
             return false;
         }
         LOG("RECLAIMER 0.10: halo3.dll's image is at %p in the client, but its translated code's table %ls is %s "
-            "(format %u; this build reads 2 and 3); Halo 3 stays flat", reinterpret_cast<void*>(guest), path.c_str(),
-            file.empty() ? "missing or unreadable" : lifted_engine::ParseResultName(parsed), table.version);
+            "(format %u; this build reads 2 and 3); Halo 3 stays flat", reinterpret_cast<void*>(guest),
+            files[0].c_str(), firstFile.empty() ? "missing or unreadable" : lifted_engine::ParseResultName(firstParsed),
+            firstTable.version);
         g_ruledOut = true;
         ReleaseSRWLockExclusive(&g_lock);
         return false;
     }
-    {
-        static bool said = false;
-        if (!said)
-            LOG("RECLAIMER 0.10: %ls is format %u%s: %zu functions, %zu bytes of code", path.c_str(), table.version,
-                table.probed ? ", newer than this build knows, read by the earlier layout that fits it exactly (used "
-                               "only if that code is found in memory)"
-                             : "",
-                table.records.size(), table.codeLength);
-        said = true;
-    }
-    // 16 bytes from each of 64 bodies spread over the table, where they hold no relocation (the client fills those
-    // in, so they differ from the file; a body's first bytes can be one).
-    std::vector<std::pair<uint64_t, std::vector<uint8_t>>> samples;
-    for (size_t i = 0; i < 64; ++i)
-    {
-        const lifted_engine::Record& r = table.records[i * (table.records.size() - 1) / 63];
-        if (!lifted_engine::HasBody(r))
-            continue;
-        const uint8_t* body = file.data() + table.codeOffset + r.hostOffset + r.bodyOffset;
-        size_t window = 0;
-        if (lifted_engine::RelocationFreeWindow(body, r.hostSize - r.bodyOffset, 16, window))
-            samples.emplace_back(r.hostOffset + r.bodyOffset + window,
-                                 std::vector<uint8_t>(body + window, body + window + 16));
-    }
-    const uintptr_t code = FindCode(samples, table.codeLength);
     if (!code)
     {
         static bool reported = false;
         if (!reported)
             LOG("RECLAIMER 0.10: halo3.dll's image is at %p, but no translated code matching %ls is in memory yet "
-                "(looked for every second; said once)", reinterpret_cast<void*>(guest), path.c_str());
+                "(looked for every second; said once)", reinterpret_cast<void*>(guest), tried.c_str());
         reported = true;
         ReleaseSRWLockExclusive(&g_lock);
         return false;
     }
+    probes.clear();
+    probes.shrink_to_fit();
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(guest);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(guest + dos->e_lfanew);
     const auto* section = IMAGE_FIRST_SECTION(nt);

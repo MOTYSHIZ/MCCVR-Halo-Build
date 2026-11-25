@@ -305,6 +305,13 @@ int main()
               list[1] == player + L"\\Cache" + tail);
     }
 
+    // The engine code file's names: engine.code up to 0.10.9, engine-<hex>.code from 0.10.10.
+    CHECK(IsEngineCodeName(L"engine.code") && IsEngineCodeName(L"engine-d5baa63b.code") &&
+          IsEngineCodeName(L"ENGINE-D5BAA63B.CODE"));
+    CHECK(!IsEngineCodeName(L"movies.code") && !IsEngineCodeName(L"movies-edaf0c9f.code") &&
+          !IsEngineCodeName(L"engine-.code") && !IsEngineCodeName(L"engine-xyz.code") &&
+          !IsEngineCodeName(L"engine-d5baa63b.code.tmp") && !IsEngineCodeName(L"engine.code.bak"));
+
     // The cache folder a client run names on its log's first lines (0.10.3's form, a time at each line's start).
     {
         const std::wstring log =
