@@ -177,6 +177,8 @@ int main()
     if (!pda.missing)
         std::printf("%-22s guest +0x%X, add 0x%X, sub %d, record +0x%X\n", "ODST PDA state record", pda.guestOffset,
                     pda.add, pda.sub, pda.record);
+    if (!pda.missing)
+        std::printf("%-22s +0x%X\n", "ODST PDA snapshot byte", pda.snapshotField);
     const reclaimer_client::VisrViewUser viewUser = reclaimer_client::FindVisrViewUser(image);
     report("VISR view wrapper", viewUser.wrapper, viewUser.missing);
     report("VISR view player", viewUser.user, viewUser.missing);

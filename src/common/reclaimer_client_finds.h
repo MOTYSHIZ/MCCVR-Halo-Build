@@ -469,7 +469,13 @@ inline OdstPrompt FindOdstPrompt(const Image& image)
 inline constexpr char kPdaNative[] = "48 83 EC 48 48 8B 01 8B 08 BA 03 10 00 00 E8";
 inline constexpr char kPdaNativeCall[] =
     "48 8D 4C 24 28 E8 ?? ?? ?? ?? 0F B6 4C 24 45 83 E1 01 F6 44 24 44 01 B8 01 00 00 00 0F 44 C1";
-inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ?? 8B 41 44";
+// The reader then copies the snapshot to the stack and tests its selecting byte there (`cmp byte [rsp+COPY],1`). Up to
+// 0.10.9 the byte is the snapshot's +0x44, read alone (`mov eax,[rcx+0x44]`); 0.10.10 grew the struct and copies its tail
+// with one 16-byte move (`movups xmm0,[rcx+SRC]; movups [rsp+DST],xmm0`), and the byte is +SRC + (COPY - DST) = +0x4C.
+inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ??";
+inline constexpr char kPdaSnapshotDword[] = "8B 41 44";
+inline constexpr char kPdaSnapshotTail[] = "0F 10 41 ?? 0F 11 44 24";
+inline constexpr char kPdaSnapshotTest[] = "80 7C 24 ?? 01 74";
 // The guest image: `mov rax,[rip+G]` (0.10.0-0.10.5: a pointer to it) or `lea rax,[rip+G]` (0.10.6: the image is part
 // of the executable); the second opcode byte says which. The flags load is movd (66 0F 6E) or vmovd (C5 F9 6E).
 inline constexpr char kPdaStateRecord[] =
@@ -532,6 +538,23 @@ inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
         std::memcpy(&v, image.base + rva, 4);
         return v;
     };
+    // The snapshot's selecting byte: read alone at +0x44 (0.10.0-0.10.9), or inside a copied 16-byte tail (0.10.10).
+    const uint32_t copy = ready + 24;
+    if (MatchAt(image, copy, ParsePattern(kPdaSnapshotDword)))
+        out.snapshotField = 0x44;
+    else
+    {
+        const std::vector<uint32_t> test = FindAll(image, copy, re - copy < 0x60 ? re - copy : 0x60,
+                                                   ParsePattern(kPdaSnapshotTest), 2);
+        const uint32_t src = image.base[copy + 3], dst = image.base[copy + 8], at = test.empty() ? 0 : image.base[test[0] + 3];
+        if (!MatchAt(image, copy, ParsePattern(kPdaSnapshotTail)) || test.size() != 1 ||
+            at < dst || at >= dst + 16)
+        {
+            out.missing = "the reader's snapshot byte (read alone, or in a copied 16-byte tail)";
+            return out;
+        }
+        out.snapshotField = src + (at - dst);
+    }
     out.reader = rb;
     out.readyGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready));
     out.snapshotGlobal = static_cast<uint32_t>(detail::LeaTarget(image, ready + 12));
