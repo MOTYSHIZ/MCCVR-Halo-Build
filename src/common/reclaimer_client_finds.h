@@ -472,15 +472,26 @@ inline constexpr char kPdaNativeCall[] =
 // The reader then copies the snapshot to the stack and tests its selecting byte there (`cmp byte [rsp+COPY],1`). Up to
 // 0.10.9 the byte is the snapshot's +0x44, read alone (`mov eax,[rcx+0x44]`); 0.10.10 grew the struct and copies its tail
 // with one 16-byte move (`movups xmm0,[rcx+SRC]; movups [rsp+DST],xmm0`), and the byte is +SRC + (COPY - DST) = +0x4C.
+// 0.10.11 copies the whole struct, the tail first (`movups xmm0,[rcx+0x44]; movaps [rsp+0x70],xmm0`), and tests
+// [rsp+0x7C] on both of its paths: +0x50.
 inline constexpr char kPdaReady[] = "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 0D ?? ?? ?? ?? 48 85 C9 74 ??";
 inline constexpr char kPdaSnapshotDword[] = "8B 41 44";
-inline constexpr char kPdaSnapshotTail[] = "0F 10 41 ?? 0F 11 44 24";
-inline constexpr char kPdaSnapshotTest[] = "80 7C 24 ?? 01 74";
+// movups [rsp+DST] (0F 11, 0.10.10) or movaps [rsp+DST] (0F 29, 0.10.11, which copies the whole struct and tests the
+// byte twice, once on each path that reaches the record).
+inline constexpr char kPdaSnapshotTail[] = "0F 10 41 ?? 0F ?? 44 24";
+inline constexpr char kPdaSnapshotTest[] = "80 7C 24 ?? 01";
+inline constexpr size_t kPdaSnapshotTestsMax = 2;
 // The guest image: `mov rax,[rip+G]` (0.10.0-0.10.5: a pointer to it) or `lea rax,[rip+G]` (0.10.6: the image is part
 // of the executable); the second opcode byte says which. The flags load is movd (66 0F 6E) or vmovd (C5 F9 6E).
 inline constexpr char kPdaStateRecord[] =
     "48 ?? 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
     "48 83 FF 10 0F 83 ?? ?? ?? ?? 8B 48 08 48 8B 00 48 01 CB 89 C1 48 C1 E8 20 01 C8 05 ?? ?? ?? ?? 48 01 D8 "
+    "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF ?? ?? 6E B4 88";
+// 0.10.11 adds the layout's dword before loading its first qword (add rbx,rcx; mov rax,[rax]): same length, same
+// offsets of every field read.
+inline constexpr char kPdaStateRecordAddFirst[] =
+    "48 ?? 05 ?? ?? ?? ?? 48 8B 98 ?? ?? ?? ?? 48 85 DB 74 ?? 48 8B 05 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? "
+    "48 83 FF 10 0F 83 ?? ?? ?? ?? 8B 48 08 48 01 CB 48 8B 00 89 C1 48 C1 E8 20 01 C8 05 ?? ?? ?? ?? 48 01 D8 "
     "48 05 ?? ?? ?? ?? 48 83 E0 F0 48 8D 0C BF ?? ?? 6E B4 88";
 inline constexpr char kPdaStaticRecord[] =
     "48 8D 05 ?? ?? ?? ?? 48 83 FF 10 48 8D 0C BF 48 8D 84 88 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 0F 42 C8 ?? ?? 6E 31";
@@ -526,7 +537,9 @@ inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
         const std::vector<uint32_t> hits = FindAll(image, rb, re - rb, ParsePattern(text), 2);
         return hits.size() == 1 ? hits[0] : 0u;
     };
-    const uint32_t ready = unique(kPdaReady), state = unique(kPdaStateRecord), fallback = unique(kPdaStaticRecord);
+    const uint32_t stateLoadFirst = unique(kPdaStateRecord), stateAddFirst = unique(kPdaStateRecordAddFirst);
+    const uint32_t ready = unique(kPdaReady), fallback = unique(kPdaStaticRecord);
+    const uint32_t state = stateLoadFirst && stateAddFirst ? 0u : stateLoadFirst ? stateLoadFirst : stateAddFirst;
     if (!ready || !state || !fallback)
     {
         out.missing = !ready ? "the reader's ready and snapshot checks" : !state ? "the reader's game-state record"
@@ -544,10 +557,15 @@ inline OdstPdaProbe FindOdstPdaProbe(const Image& image)
         out.snapshotField = 0x44;
     else
     {
-        const std::vector<uint32_t> test = FindAll(image, copy, re - copy < 0x60 ? re - copy : 0x60,
-                                                   ParsePattern(kPdaSnapshotTest), 2);
+        const std::vector<uint32_t> test = FindAll(image, copy, re - copy < 0x80 ? re - copy : 0x80,
+                                                   ParsePattern(kPdaSnapshotTest), kPdaSnapshotTestsMax + 1);
         const uint32_t src = image.base[copy + 3], dst = image.base[copy + 8], at = test.empty() ? 0 : image.base[test[0] + 3];
-        if (!MatchAt(image, copy, ParsePattern(kPdaSnapshotTail)) || test.size() != 1 ||
+        // Every test reads the same byte of the copy.
+        bool sameByte = !test.empty() && test.size() <= kPdaSnapshotTestsMax;
+        for (const uint32_t t : test)
+            sameByte = sameByte && image.base[t + 3] == at;
+        const uint8_t store = image.base[copy + 5];
+        if (!MatchAt(image, copy, ParsePattern(kPdaSnapshotTail)) || (store != 0x11 && store != 0x29) || !sameByte ||
             at < dst || at >= dst + 16)
         {
             out.missing = "the reader's snapshot byte (read alone, or in a copied 16-byte tail)";
@@ -866,6 +884,17 @@ inline NavpointDraw FindNavpointDraw(const Image& image)
 // lea r64,[rip+FLAGS]; and later in the same function mov dword [rip+USER],-1.
 inline constexpr char kVisrViewUserSet[] =
     "89 ?? ?? ?? ?? ?? 83 ?? 03 77 ?? 0F B6 ?? ?? ?? ?? ?? 84 C0 74 ?? ?? 8D ?? ?? ?? ?? ??";
+// 0.10.11 (exe+0x52FF822): the same with near jumps (ja rel32; je rel32), and player 0 set on a path of its own.
+inline constexpr char kVisrViewUserSetNear[] =
+    "89 ?? ?? ?? ?? ?? 83 ?? 03 0F 87 ?? ?? ?? ?? 0F B6 ?? ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ?? ?? 8D ?? ?? ?? ?? ??";
+// Where each form keeps the compare's modrm, the enable load's modrm, the flags lea's REX and modrm.
+struct VisrViewUserLayout
+{
+    const char* pattern;
+    uint32_t cmp, enable, rex, flags;
+};
+inline constexpr VisrViewUserLayout kVisrViewUserLayouts[] = {{kVisrViewUserSet, 7, 13, 22, 24},
+                                                              {kVisrViewUserSetNear, 7, 17, 30, 32}};
 // Read by the object pass: mov r32,[rip+USER], then cmp of that register with 3 within kVisrViewUserCmpWindow bytes
 // (0.10.5 compared at once; 0.10.6 puts two stores between the compare and its ja, and may load into r8-r15).
 inline constexpr uint32_t kVisrViewUserCmpWindow = 16;
@@ -938,18 +967,24 @@ inline uint32_t FindVisrConstantsList(const Image& image, uint32_t function)
 inline VisrViewUser FindVisrViewUser(const Image& image)
 {
     VisrViewUser out;
-    const std::vector<uint32_t> hits =
-        FindAll(image, image.codeRva, image.codeSize, ParsePattern(kVisrViewUserSet), 2);
-    if (hits.size() != 1)
+    uint32_t at = 0, found = 0;
+    const VisrViewUserLayout* layout = nullptr;
+    for (const VisrViewUserLayout& form : kVisrViewUserLayouts)
+        for (const uint32_t hit : FindAll(image, image.codeRva, image.codeSize, ParsePattern(form.pattern), 2))
+        {
+            ++found;
+            at = hit;
+            layout = &form;
+        }
+    if (found != 1)
     {
-        out.missing = hits.empty() ? "the store of the view's player" : "a single store of the view's player";
+        out.missing = !found ? "the store of the view's player" : "a single store of the view's player";
         return out;
     }
-    const uint32_t at = hits[0];
     const uint8_t* b = image.base + at;
     uint32_t begin = 0, end = 0;
-    if (!RipModrm(b[1]) || (b[7] & 0xF8) != 0xF8 || !RipModrm(b[13]) || !RipModrm(b[24]) ||
-        (b[22] & 0xF8) != 0x48)
+    if (!RipModrm(b[1]) || (b[layout->cmp] & 0xF8) != 0xF8 || !RipModrm(b[layout->enable]) ||
+        !RipModrm(b[layout->flags]) || (b[layout->rex] & 0xF8) != 0x48)
     {
         out.missing = "the store, test and flags of the view's player as rip-relative globals";
         return out;
@@ -960,8 +995,8 @@ inline VisrViewUser FindVisrViewUser(const Image& image)
         return out;
     }
     const uint32_t user = RipTarget(image, at + 2, at + 6);
-    const uint32_t enable = RipTarget(image, at + 14, at + 18);
-    const uint32_t flags = RipTarget(image, at + 25, at + 29);
+    const uint32_t enable = RipTarget(image, at + layout->enable + 1, at + layout->enable + 5);
+    const uint32_t flags = RipTarget(image, at + layout->flags + 1, at + layout->flags + 5);
     const bool inCode = [&] {
         for (const uint32_t g : {user, enable, flags})
             if (!image.Holds(g, 4) || (g >= image.codeRva && g - image.codeRva < image.codeSize))
@@ -1036,15 +1071,20 @@ struct InputDevice
     const char* missing = nullptr;
 };
 
+// 0.10.11 (2026-11-26) inlines the controller's store into two callers (exe+0x5606F3 and exe+0x58C493) and moves the
+// keyboard's into a function of its own (exe+0x10117D7): every controller store must name the same two globals, and
+// the keyboard's store of them may be anywhere in the code (its own function's first, as up to 0.10.10).
+inline constexpr size_t kInputDeviceMaxControllerStores = 4;
+
 inline InputDevice FindInputDevice(const Image& image)
 {
     InputDevice out;
-    const std::vector<uint32_t> hits =
-        FindAll(image, image.codeRva, image.codeSize, ParsePattern(kInputDeviceController), 2);
-    if (hits.size() != 1)
+    const std::vector<uint32_t> hits = FindAll(image, image.codeRva, image.codeSize,
+                                               ParsePattern(kInputDeviceController), kInputDeviceMaxControllerStores + 1);
+    if (hits.empty() || hits.size() > kInputDeviceMaxControllerStores)
     {
         out.missing = hits.empty() ? "the store of the controller as the input device"
-                                   : "a single store of the controller as the input device";
+                                   : "a few stores of the controller as the input device (too many)";
         return out;
     }
     const uint32_t at = hits[0];
@@ -1062,14 +1102,23 @@ inline InputDevice FindInputDevice(const Image& image)
         out.missing = "the input device and its controller flag in data";
         return out;
     }
-    // The keyboard's store, in the same function, sets the same two globals.
-    for (const uint32_t k : FindAll(image, begin, end - begin, ParsePattern(kInputDeviceKeyboard), 8))
-        if ((image.base[k + 7] == 0x31 || image.base[k + 7] == 0x33) && RipTarget(image, k + 2, k + 7) == device &&
-            RipTarget(image, k + 11, k + 15) == controller)
+    for (const uint32_t other : hits)
+        if (RipTarget(image, other + 2, other + 7) != device || RipTarget(image, other + 11, other + 15) != controller)
         {
-            out.keyboardAt = k;
-            break;
+            out.missing = "a single store of the controller as the input device (two name different globals)";
+            return out;
         }
+    // The keyboard's store sets the same two globals: in the controller's function (up to 0.10.10), else anywhere.
+    const auto keyboardIn = [&](uint32_t from, uint32_t length) -> uint32_t {
+        for (const uint32_t k : FindAll(image, from, length, ParsePattern(kInputDeviceKeyboard), 64))
+            if ((image.base[k + 7] == 0x31 || image.base[k + 7] == 0x33) && RipTarget(image, k + 2, k + 7) == device &&
+                RipTarget(image, k + 11, k + 15) == controller)
+                return k;
+        return 0;
+    };
+    out.keyboardAt = keyboardIn(begin, end - begin);
+    if (!out.keyboardAt)
+        out.keyboardAt = keyboardIn(image.codeRva, image.codeSize);
     if (!out.keyboardAt)
     {
         out.missing = "the keyboard's store of the same input device";

@@ -330,6 +330,22 @@ int main()
         Fake q = n;
         q.Put(0x140F, {0x44});
         CHECK(FindVisrViewUser(q.View()).missing != nullptr);
+        // 0.10.11's wrapper: the same with near jumps (ja rel32; je rel32).
+        Fake w = f;
+        std::fill(w.image.begin() + 0x1010, w.image.begin() + 0x1040, 0xCC);
+        put(w, 0x1010, {0x89, 0x05}, 0x3F00);
+        w.Put(0x1016, {0x83, 0xF8, 0x03, 0x0F, 0x87, 0x40, 0x00, 0x00, 0x00});
+        put(w, 0x101F, {0x0F, 0xB6, 0x05}, 0x3F10);
+        w.Put(0x1026, {0x84, 0xC0, 0x0F, 0x84, 0x38, 0x00, 0x00, 0x00});
+        put(w, 0x102E, {0x48, 0x8D, 0x05}, 0x3F20);
+        const VisrViewUser wu = FindVisrViewUser(w.View());
+        CHECK(!wu.missing && wu.wrapper == 0x1000 && wu.at == 0x1010 && wu.user == 0x3F00 && wu.enable == 0x3F10 &&
+              wu.flags == 0x3F20 && wu.reader == 0x1400);
+        // ... and both forms at once: refused (not a single store).
+        Fake x = w;
+        x.Function(0x2000, 0x2100);
+        std::copy(f.image.begin() + 0x1010, f.image.begin() + 0x1032, x.image.begin() + 0x2010);
+        CHECK(FindVisrViewUser(x.View()).missing != nullptr);
     }
 
     // Project Reclaimer 0.10.6's framed pass-through (exe+0x579E020 to exe+0x4EBF450, 2026-11-19).
@@ -444,10 +460,30 @@ int main()
         Fake g = f;
         store(g, 0x2040, 0x01, 0x31, 0xC0, 0x3F30, 0x3F20);
         CHECK(FindInputDevice(g.View()).missing != nullptr);
-        // Two controller stores: refused.
+        // Two controller stores naming different globals: refused.
         Fake h = f;
-        store(h, 0x2180, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);
+        store(h, 0x2180, 0x02, 0xB0, 0x01, 0x3F30, 0x3F20);
         CHECK(FindInputDevice(h.View()).missing != nullptr);
+        // 0.10.11: the controller's store inlined into two functions, the keyboard's in a third; all the same globals.
+        Fake p;
+        p.Function(0x2000, 0x2080);
+        p.Function(0x2100, 0x2180);
+        p.Function(0x2200, 0x2280);
+        store(p, 0x2010, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);
+        store(p, 0x2110, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);
+        store(p, 0x2210, 0x01, 0x31, 0xC0, 0x3F10, 0x3F20);
+        const InputDevice inlined = FindInputDevice(p.View());
+        CHECK(!inlined.missing && inlined.device == 0x3F10 && inlined.controller == 0x3F20 &&
+              inlined.controllerAt == 0x2010 && inlined.keyboardAt == 0x2210);
+        // ... but with no keyboard store of the same globals anywhere: refused.
+        Fake r = p;
+        store(r, 0x2210, 0x01, 0x31, 0xC0, 0x3F10, 0x3F30);
+        CHECK(FindInputDevice(r.View()).missing != nullptr);
+        // ... and more stores than a few inlined copies: refused.
+        Fake s = p;
+        for (uint32_t at = 0x2030; at < 0x2080; at += 0x10)
+            store(s, at, 0x02, 0xB0, 0x01, 0x3F10, 0x3F20);
+        CHECK(FindInputDevice(s.View()).missing != nullptr);
         // Globals in code: refused.
         Fake k;
         k.Function(0x2000, 0x2200);
