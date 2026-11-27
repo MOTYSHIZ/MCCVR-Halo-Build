@@ -1071,7 +1071,7 @@ struct InputDevice
     const char* missing = nullptr;
 };
 
-// 0.10.11 (2026-11-26) inlines the controller's store into two callers (exe+0x5606F3 and exe+0x58C493) and moves the
+// 0.10.11 inlines the controller's store into two callers (exe+0x5606F3 and exe+0x58C493) and moves the
 // keyboard's into a function of its own (exe+0x10117D7): every controller store must name the same two globals, and
 // the keyboard's store of them may be anywhere in the code (its own function's first, as up to 0.10.10).
 inline constexpr size_t kInputDeviceMaxControllerStores = 4;
